@@ -16,15 +16,29 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
     "./global": "./dist/index.global.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --format esm && bun build src/global.ts --outfile dist/index.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json",
+    "build": "bun build src/index.ts --outdir dist --format esm && bun build src/react.tsx --outdir dist --format esm --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist/index.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/bun": "^1.3.1",
+    "@types/react": "^19.2.14",
+    "react": "^19.2.4",
     "typescript": "^5.9.3"
   }
 }

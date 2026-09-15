@@ -12,7 +12,9 @@ npm i -D devknobs
 
 ## usage
 
-script tag, gated to dev:
+three ways in. all of them are meant for dev only, so gate them yourself.
+
+script tag:
 
 ```html
 <script src="//unpkg.com/devknobs/dist/index.global.js"></script>
@@ -20,12 +22,38 @@ script tag, gated to dev:
 
 the global build mounts itself on load and puts the api on `window.devknobs`.
 
-or import it:
+import:
 
 ```js
 import { mount } from "devknobs";
 
 if (import.meta.env.DEV) mount();
+```
+
+react, one element:
+
+```jsx
+import { DevKnobs } from "devknobs/react";
+
+{process.env.NODE_ENV === "development" && <DevKnobs />}
+```
+
+`DevKnobs` is a client component. it mounts the knobs on the first effect,
+unmounts them on cleanup, and renders nothing.
+
+a static import stays in the production bundle even behind that check, because
+the bundler still has to keep the module. in next.js, gate the import itself:
+
+```jsx
+const DevKnobs =
+  process.env.NODE_ENV === "development"
+    ? dynamic(() => import("devknobs/react").then((m) => m.DevKnobs), {
+        ssr: false,
+      })
+    : null;
+
+// in the layout
+{DevKnobs && <DevKnobs />}
 ```
 
 api: `mount(options?)`, `unmount()`, `getState()`, `setState(patch)`,
@@ -36,6 +64,15 @@ setState({ scheme: "dark" });
 setState({ geo: { preset: "tokyo" } });
 setState({ locale: { lang: "ar" } });
 ```
+
+`mount()` and `<DevKnobs />` take the same options:
+
+| option | default | what it does |
+| --- | --- | --- |
+| `hotkey` | `d` | key that toggles the panel |
+| `open` | the stored state | start the panel open or closed |
+| `persist` | `true` | keep the knobs in `sessionStorage` |
+| `state` | none | knobs to apply on top of the stored state |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
