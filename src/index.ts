@@ -1,6 +1,7 @@
 import * as engine from "./engine";
 import { GEO_PRESETS } from "./engine/geo";
 import { LOCALE_PRESETS } from "./engine/locale";
+import { createPanel, type Panel } from "./ui/panel";
 
 export type {
   ContrastValue,
@@ -17,40 +18,39 @@ export type {
   WidthValue,
 } from "./types";
 export type { GeoPreset } from "./engine/geo";
-export type { EngineOptions as MountOptions } from "./engine";
+export type { EngineOptions } from "./engine";
+
+export interface MountOptions extends engine.EngineOptions {
+  /** Key that toggles the panel. Defaults to `d`. */
+  hotkey?: string;
+  /** Start the panel open or closed. Defaults to the stored state. */
+  open?: boolean;
+}
 
 export const PRESETS = {
   locale: LOCALE_PRESETS,
   geo: GEO_PRESETS,
 };
 
-let host: HTMLElement | null = null;
+let panel: Panel | null = null;
 
 /**
- * Start the knobs and add the panel host to the page. Patches go in right away,
- * even mid-parse, so that a theme script running before `DOMContentLoaded` sees
- * the emulated values. The host waits for the body.
+ * Start the knobs and put the panel on the page. Patches go in right away, even
+ * mid-parse, so that a theme script running before `DOMContentLoaded` sees the
+ * emulated values. The panel host waits for the body.
  */
-export function mount(options: engine.EngineOptions = {}): void {
-  if (host) return;
+export function mount(options: MountOptions = {}): void {
+  if (panel) return;
   engine.start(options);
-  host = document.createElement("div");
-  host.setAttribute("data-devknobs", "panel");
-  host.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647";
-  if (document.body) document.body.appendChild(host);
-  else document.addEventListener("DOMContentLoaded", attachHost, { once: true });
-}
-
-function attachHost(): void {
-  if (host && !host.isConnected) document.body.appendChild(host);
+  if (options.open !== undefined) engine.setState({ panel: { open: options.open } });
+  panel = createPanel(options);
 }
 
 /** Remove the panel and undo every knob. */
 export function unmount(): void {
-  document.removeEventListener("DOMContentLoaded", attachHost);
+  panel?.destroy();
+  panel = null;
   engine.stop();
-  host?.remove();
-  host = null;
 }
 
 export const getState = engine.getState;
