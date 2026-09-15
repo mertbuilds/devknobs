@@ -36,7 +36,12 @@ export function subscribe(listener: Listener): () => void {
 
 export function applyState(next: DevknobsState): void {
   state = next;
-  media.apply({ scheme: next.scheme, motion: next.motion, contrast: next.contrast });
+  media.apply({
+    scheme: next.scheme,
+    motion: next.motion,
+    contrast: next.contrast,
+    width: next.width,
+  });
   locale.apply(next.locale);
   geo.apply(next.geo);
   text.apply(next.text);

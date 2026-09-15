@@ -1,4 +1,4 @@
-import type { ContrastValue, MotionValue, SchemeValue } from "../types";
+import type { ContrastValue, MotionValue, SchemeValue, WidthValue } from "../types";
 
 export type MediaFeature =
   | "prefers-color-scheme"
@@ -9,12 +9,14 @@ export interface MediaValue {
   scheme: SchemeValue;
   motion: MotionValue;
   contrast: ContrastValue;
+  width: WidthValue;
 }
 
 export const SYSTEM_MEDIA: MediaValue = {
   scheme: "system",
   motion: "system",
   contrast: "system",
+  width: "full",
 };
 
 /**
@@ -26,13 +28,27 @@ const TRUE_TOKEN = "(min-width: 0px)";
 const TRUE_QUERY = "all";
 const FALSE_QUERY = "not all";
 
-const FEATURE_OF: Record<keyof MediaValue, MediaFeature> = {
+type PreferenceKnob = "scheme" | "motion" | "contrast";
+
+const FEATURE_OF: Record<PreferenceKnob, MediaFeature> = {
   scheme: "prefers-color-scheme",
   motion: "prefers-reduced-motion",
   contrast: "prefers-contrast",
 };
 
-const KNOBS = Object.keys(FEATURE_OF) as (keyof MediaValue)[];
+const KNOBS = Object.keys(FEATURE_OF) as PreferenceKnob[];
+
+/** Media queries resolve `rem` and `em` against the initial font size, never the text knob. */
+const MEDIA_FONT_SIZE = 16;
+
+const UNITS: Record<string, number> = {
+  px: 1,
+  rem: MEDIA_FONT_SIZE,
+  em: MEDIA_FONT_SIZE,
+};
+
+/** The viewport width features. `device-width` reads the same way here. */
+const WIDTH_NAMES = new Set(["width", "device-width"]);
 
 function featurePattern(feature: MediaFeature): RegExp {
   return new RegExp(`\\(\\s*${feature}\\s*(?::\\s*([a-z-]+)\\s*)?\\)`, "gi");
@@ -64,6 +80,17 @@ export function splitQueryList(text: string): string[] {
   return parts.map((part) => part.trim()).filter((part) => part.length > 0);
 }
 
+/**
+ * A query is `and`-shaped in practice, so one false condition sinks the whole
+ * query. A leading `not` flips that verdict.
+ */
+function collapse(query: string, found: boolean, matched: boolean, rewritten: string): string {
+  if (!found) return query;
+  const negated = /^not\s/i.test(query);
+  if (negated ? matched : !matched) return FALSE_QUERY;
+  return negated ? TRUE_QUERY : rewritten;
+}
+
 function rewriteQuery(query: string, feature: MediaFeature, value: string): string {
   let found = false;
   let matched = true;
@@ -75,10 +102,7 @@ function rewriteQuery(query: string, feature: MediaFeature, value: string): stri
       return TRUE_TOKEN;
     },
   );
-  if (!found) return query;
-  const negated = /^not\s/i.test(query);
-  if (negated ? matched : !matched) return FALSE_QUERY;
-  return negated ? TRUE_QUERY : rewritten;
+  return collapse(query, found, matched, rewritten);
 }
 
 /**
@@ -93,15 +117,143 @@ export function rewriteMediaText(text: string, feature: MediaFeature, value: str
   return queries.map((query) => rewriteQuery(query, feature, value)).join(", ");
 }
 
+/**
+ * A media length in px. Returns null for anything this engine cannot resolve on
+ * its own, such as `calc()`, `vw` or an unknown unit, so the real query stands.
+ */
+export function parseLength(text: string): number | null {
+  const match = /^([+-]?(?:\d*\.)?\d+)(px|rem|em)?$/.exec(text.trim().toLowerCase());
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  const unit = match[2];
+  // A bare number is only a length when it is zero.
+  if (unit === undefined) return value === 0 ? 0 : null;
+  return value * UNITS[unit]!;
+}
+
+function compare(left: number, operator: string, right: number): boolean | null {
+  switch (operator) {
+    case "<":
+      return left < right;
+    case "<=":
+      return left <= right;
+    case ">":
+      return left > right;
+    case ">=":
+      return left >= right;
+    case "=":
+      return left === right;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Read one parenthesised condition as a test against an emulated width in px.
+ * Returns null when the condition is not about viewport width, or carries a
+ * length this engine cannot resolve.
+ */
+export function evaluateWidthCondition(condition: string, width: number): boolean | null {
+  const text = condition.trim().toLowerCase().replace(/\s+/g, " ");
+  const plain = /^(?:(min|max)-)?(?:device-)?width\s*:\s*(.+)$/.exec(text);
+  if (plain) {
+    const length = parseLength(plain[2]!);
+    if (length === null) return null;
+    if (plain[1] === "min") return width >= length;
+    if (plain[1] === "max") return width <= length;
+    return width === length;
+  }
+  const parts = text.split(/(<=|>=|=|<|>)/).map((part) => part.trim());
+  if (parts.length === 3) {
+    const [left, operator, right] = parts as [string, string, string];
+    if (WIDTH_NAMES.has(left)) {
+      const length = parseLength(right);
+      return length === null ? null : compare(width, operator, length);
+    }
+    if (WIDTH_NAMES.has(right)) {
+      const length = parseLength(left);
+      return length === null ? null : compare(length, operator, width);
+    }
+    return null;
+  }
+  if (parts.length === 5) {
+    const [low, first, name, second, high] = parts as [string, string, string, string, string];
+    if (!WIDTH_NAMES.has(name)) return null;
+    const lowLength = parseLength(low);
+    const highLength = parseLength(high);
+    if (lowLength === null || highLength === null) return null;
+    const lower = compare(lowLength, first, width);
+    const upper = compare(width, second, highLength);
+    if (lower === null || upper === null) return null;
+    return lower && upper;
+  }
+  return null;
+}
+
+/** Index of the `)` that closes the `(` at `open`, or -1 when there is none. */
+function closingParen(text: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    const char = text[i];
+    if (char === "(") depth++;
+    else if (char === ")") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function rewriteWidthQuery(query: string, width: number): string {
+  let found = false;
+  let matched = true;
+  let rewritten = "";
+  let index = 0;
+  while (index < query.length) {
+    const open = query.indexOf("(", index);
+    const close = open < 0 ? -1 : closingParen(query, open);
+    if (close < 0) {
+      rewritten += query.slice(index);
+      break;
+    }
+    rewritten += query.slice(index, open);
+    const verdict = evaluateWidthCondition(query.slice(open + 1, close), width);
+    if (verdict === null) rewritten += query.slice(open, close + 1);
+    else {
+      found = true;
+      if (!verdict) matched = false;
+      rewritten += TRUE_TOKEN;
+    }
+    index = close + 1;
+  }
+  return collapse(query, found, matched, rewritten);
+}
+
+/**
+ * Rewrite a media query list so that every viewport width feature reads as
+ * `width`. Returns the text untouched for `full`.
+ */
+export function rewriteWidthText(text: string, width: WidthValue): string {
+  if (typeof width !== "number" || !(width > 0)) return text;
+  if (!text.toLowerCase().includes("width")) return text;
+  const queries = splitQueryList(text);
+  if (queries.length === 0) return text;
+  return queries.map((query) => rewriteWidthQuery(query, width)).join(", ");
+}
+
 /** Rewrite for every emulated feature at once. */
 export function rewriteAll(text: string, value: MediaValue): string {
   let next = text;
   for (const knob of KNOBS) next = rewriteMediaText(next, FEATURE_OF[knob], value[knob]);
-  return next;
+  return rewriteWidthText(next, value.width);
 }
 
 export function mentionsFeature(text: string): boolean {
   const lower = text.toLowerCase();
+  // Width is checked whatever the knob says, so that a query handed out while
+  // the width is `full` is still watched once the width is emulated.
+  if (lower.includes("width")) return true;
   return KNOBS.some((knob) => lower.includes(FEATURE_OF[knob]));
 }
 
@@ -128,6 +280,9 @@ let patched = false;
 let observer: MutationObserver | null = null;
 let frame = 0;
 let colorScheme: string | null = null;
+let viewportPatched = false;
+let ownInnerWidth: PropertyDescriptor | undefined;
+let ownClientWidth: PropertyDescriptor | undefined;
 
 function walkRules(
   rules: CSSRuleList,
@@ -306,6 +461,52 @@ function ensureMatchMedia(): void {
   };
 }
 
+/** The emulated width in px, or null when the real viewport is in charge. */
+function emulatedWidth(): number | null {
+  const width = current.width;
+  return typeof width === "number" && width > 0 ? width : null;
+}
+
+function descriptorOf(target: object, name: string): PropertyDescriptor | undefined {
+  let node: object | null = target;
+  while (node) {
+    const descriptor = Object.getOwnPropertyDescriptor(node, name);
+    if (descriptor) return descriptor;
+    node = Object.getPrototypeOf(node) as object | null;
+  }
+  return undefined;
+}
+
+/**
+ * `innerWidth` and `documentElement.clientWidth` are what layout code measures,
+ * so they have to agree with the emulated width. The accessor goes on
+ * `documentElement` itself: `Element.prototype` would answer for every element.
+ */
+function patchViewport(): void {
+  if (viewportPatched) return;
+  const root = document.documentElement;
+  ownInnerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  ownClientWidth = Object.getOwnPropertyDescriptor(root, "clientWidth");
+  const nativeInner = descriptorOf(window, "innerWidth")?.get?.bind(window);
+  const nativeClient = descriptorOf(root, "clientWidth")?.get?.bind(root);
+  const read = (native: (() => number) | undefined) => () => emulatedWidth() ?? native?.() ?? 0;
+  Object.defineProperty(window, "innerWidth", { configurable: true, get: read(nativeInner) });
+  Object.defineProperty(root, "clientWidth", { configurable: true, get: read(nativeClient) });
+  viewportPatched = true;
+}
+
+function restoreViewport(): void {
+  if (!viewportPatched) return;
+  viewportPatched = false;
+  const root = document.documentElement;
+  if (ownInnerWidth) Object.defineProperty(window, "innerWidth", ownInnerWidth);
+  else Reflect.deleteProperty(window, "innerWidth");
+  if (ownClientWidth) Object.defineProperty(root, "clientWidth", ownClientWidth);
+  else Reflect.deleteProperty(root, "clientWidth");
+  ownInnerWidth = undefined;
+  ownClientWidth = undefined;
+}
+
 function applyColorScheme(): void {
   const root = document.documentElement;
   if (colorScheme === null) colorScheme = root.style.getPropertyValue("color-scheme");
@@ -315,12 +516,18 @@ function applyColorScheme(): void {
 }
 
 export function apply(value: MediaValue): void {
+  const before = current.width;
   current = value;
   ensureMatchMedia();
   ensureObserver();
   applyColorScheme();
+  if (emulatedWidth() === null) restoreViewport();
+  else patchViewport();
   applyCss();
   refresh();
+  // Layout code that measured the window itself only hears about a new width
+  // through a resize, so send one once everything else is in place.
+  if (value.width !== before) window.dispatchEvent(new Event("resize"));
 }
 
 export function reset(): void {

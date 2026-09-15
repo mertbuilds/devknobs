@@ -216,7 +216,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   addGroup(panel, TEXT, bindings);
   const widthBox = addGroup(panel, WIDTH, bindings);
-  widthBox.append(el("div", "note", "css breakpoints still use the window"));
+  widthBox.append(el("div", "note", "container queries and vw units still use the window"));
   addGroup(panel, OUTLINES, bindings);
 
   const actions = el("div", "group");
