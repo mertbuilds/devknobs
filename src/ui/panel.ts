@@ -371,6 +371,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
   let dragTop = 0;
   let dragPanelTop = 0;
 
+  // A mouse press must not focus the handle: a key held mid-drag (shift) would
+  // otherwise turn that focus into a visible ring. Keyboard focus is unaffected.
+  handle.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
   handle.addEventListener("pointerdown", (event: PointerEvent) => {
     if (event.button !== 0) return;
     const { y, top } = engine.getState().panel;
