@@ -54,16 +54,21 @@ test("locale presets", () => {
   expect(LOCALE_PRESETS).toEqual(["en", "en-US", "tr", "de", "fr", "es", "ar", "he", "ja", "zh-CN"]);
 });
 
+/** Does this `document.cookie` write expire the cookie instead of setting it? */
+function isExpiry(entry: string): boolean {
+  return entry
+    .split(";")
+    .slice(1)
+    .some((attribute) => attribute.trim().toLowerCase() === "max-age=0");
+}
+
 /** What a browser would leave in the jar after one `document.cookie` write. */
 function writeJar(jar: string, entry: string): string {
   const pair = entry.split(";")[0] ?? "";
   const separator = pair.indexOf("=");
   const name = pair.slice(0, separator).trim();
   const value = pair.slice(separator + 1).trim();
-  const expired = entry
-    .split(";")
-    .slice(1)
-    .some((attribute) => attribute.trim().toLowerCase() === "max-age=0");
+  const expired = isExpiry(entry);
   const rest = jar
     .split(";")
     .map((cookie) => cookie.trim())
@@ -84,14 +89,19 @@ interface BrowserOptions {
   owner?: string;
   /** Storage that refuses to answer, the way a locked down browser does. */
   storageFails?: boolean;
+  /** Storage that reads but keeps nothing, the way a full one does. */
+  storageFull?: boolean;
   /** A jar that swallows every write, the way a browser with cookies off does. */
   cookiesDisabled?: boolean;
+  /** A jar that keeps the cookie through an expiry, the way a host that resets it does. */
+  expiryIgnored?: boolean;
 }
 
-function storageFor(map: Map<string, string>): Storage {
+function storageFor(map: Map<string, string>, full = false): Storage {
   return {
     getItem: (key: string) => map.get(key) ?? null,
     setItem: (key: string, value: string) => {
+      if (full) throw new Error("storage is full");
       map.set(key, value);
     },
     removeItem: (key: string) => {
@@ -124,6 +134,7 @@ function stubBrowser(jar: string, options: BrowserOptions = {}): Browser {
       },
       set cookie(entry: string) {
         if (options.cookiesDisabled) return;
+        if (options.expiryIgnored && isExpiry(entry)) return;
         browser.jar = writeJar(browser.jar, entry);
       },
       documentElement: {
@@ -147,12 +158,9 @@ function stubBrowser(jar: string, options: BrowserOptions = {}): Browser {
         },
       },
       dispatchEvent: () => true,
-      get localStorage(): Storage {
-        if (options.storageFails) throw new Error("storage is off");
-        return storageFor(browser.storage);
-      },
       get sessionStorage(): Storage {
-        return storageFor(browser.storage);
+        if (options.storageFails) throw new Error("storage is off");
+        return storageFor(browser.storage, options.storageFull);
       },
     },
   });
@@ -274,20 +282,48 @@ describe("syncParaglideCookie", () => {
   });
 
   test("does not reload when the tag cannot be remembered", () => {
-    const browser = stubBrowser("", { storageFails: true });
+    const browser = stubBrowser("", { storageFull: true });
     expect(syncParaglideCookie("tr")).toBe(false);
     expect(readCookie(browser.jar, PARAGLIDE_COOKIE)).toBe("tr");
     expect(browser.reloads).toBe(0);
   });
 
-  test("skips a second reload asked for moments after the first", () => {
+  test("writes nothing at all when storage is off", () => {
+    const browser = stubBrowser("", { storageFails: true });
+    expect(syncParaglideCookie("tr")).toBe(false);
+    expect(browser.jar).toBe("");
+    expect(browser.reloads).toBe(0);
+  });
+
+  test("keeps the tag owned when the expiry is refused", () => {
+    const jar = `${PARAGLIDE_COOKIE}=tr; session=abc`;
+    const browser = stubBrowser(jar, { owner: "tr", expiryIgnored: true });
+    expect(syncParaglideCookie(null)).toBe(false);
+    expect(browser.jar).toBe(jar);
+    expect(browser.storage.get(PARAGLIDE_OWNER_KEY)).toBe("tr");
+    expect(browser.reloads).toBe(0);
+  });
+
+  test("writes nothing for a reload asked for moments after the first", () => {
     const browser = stubBrowser("");
     expect(syncParaglideCookie("tr")).toBe(true);
     expect(browser.reloads).toBe(1);
     expect(syncParaglideCookie("de")).toBe(false);
-    expect(readCookie(browser.jar, PARAGLIDE_COOKIE)).toBe("de");
+    expect(readCookie(browser.jar, PARAGLIDE_COOKIE)).toBe("tr");
+    expect(browser.storage.get(PARAGLIDE_OWNER_KEY)).toBe("tr");
     expect(browser.storage.has(PARAGLIDE_RELOAD_KEY)).toBe(false);
     expect(browser.reloads).toBe(1);
+  });
+
+  test("asks again for the tag whose reload was refused", () => {
+    const browser = stubBrowser("");
+    expect(syncParaglideCookie("tr")).toBe(true);
+    expect(syncParaglideCookie("de")).toBe(false);
+    later(browser);
+    expect(syncParaglideCookie("de")).toBe(true);
+    expect(readCookie(browser.jar, PARAGLIDE_COOKIE)).toBe("de");
+    expect(browser.storage.get(PARAGLIDE_OWNER_KEY)).toBe("de");
+    expect(browser.reloads).toBe(2);
   });
 
   test("reloads again once the throttle window is past", () => {
@@ -322,6 +358,20 @@ describe("apply", () => {
     apply({ lang: "tr", dir: "rtl" });
     expect(page.attributes.get("dir")).toBe("rtl");
     expect(page.reloads).toBe(1);
+  });
+
+  test("asks again for a tag whose reload the throttle refused", () => {
+    const page = stubPage();
+    apply({ lang: "tr", dir: "system" });
+    apply({ lang: "de", dir: "system" });
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("tr");
+    expect(page.storage.get(PARAGLIDE_OWNER_KEY)).toBe("tr");
+    expect(page.reloads).toBe(1);
+    later(page);
+    apply({ lang: "de", dir: "system" });
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("de");
+    expect(page.storage.get(PARAGLIDE_OWNER_KEY)).toBe("de");
+    expect(page.reloads).toBe(2);
   });
 
   test("a remount does not reload again once the host takes the tag", () => {

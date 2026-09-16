@@ -16,7 +16,11 @@ export const LOCALE_PRESETS = [
 /** Cookie Paraglide JS reads before the `Accept-Language` header. */
 export const PARAGLIDE_COOKIE = "PARAGLIDE_LOCALE";
 
-/** Where the tag devknobs wrote into that cookie is remembered. */
+/**
+ * Where the tag devknobs wrote into that cookie is remembered. It sits beside
+ * the knobs in `sessionStorage`, so ownership outlives a reload and dies with
+ * the tab: a second tab left on `system` never expires this one's cookie.
+ */
 export const PARAGLIDE_OWNER_KEY = "devknobs:paraglide-cookie";
 
 /** Where the last reload devknobs asked for is timed. */
@@ -56,10 +60,10 @@ export function readCookie(jar: string, name: string): string | null {
   return null;
 }
 
-/** The tag devknobs last wrote into the cookie, across reloads. */
+/** The tag devknobs last wrote into the cookie, across this tab's reloads. */
 function readOwner(): string | null {
   try {
-    return window.localStorage.getItem(PARAGLIDE_OWNER_KEY);
+    return window.sessionStorage.getItem(PARAGLIDE_OWNER_KEY);
   } catch {
     // Private mode, disabled storage: the cookie is then nobody's to expire.
     return null;
@@ -69,7 +73,7 @@ function readOwner(): string | null {
 /** Remember the tag. False when storage refused, so nothing can be proven. */
 function writeOwner(lang: string): boolean {
   try {
-    window.localStorage.setItem(PARAGLIDE_OWNER_KEY, lang);
+    window.sessionStorage.setItem(PARAGLIDE_OWNER_KEY, lang);
     return true;
   } catch {
     // Same.
@@ -79,28 +83,39 @@ function writeOwner(lang: string): boolean {
 
 function clearOwner(): void {
   try {
-    window.localStorage.removeItem(PARAGLIDE_OWNER_KEY);
+    window.sessionStorage.removeItem(PARAGLIDE_OWNER_KEY);
   } catch {
     // Same.
   }
 }
 
 /**
- * Reload, unless devknobs asked for one moments ago. Two reloads in a row are a
- * loop, and a loop is worse than a locale that lags the knob. Storage carries
- * the timing across the reload, so without it no reload is safe to start.
+ * Would a reload asked for now be a loop? Two reloads in a row are one, and a
+ * loop is worse than a locale that lags the knob. Storage carries the timing
+ * across the reload, so without it no reload is safe to start. The record is
+ * dropped on the way out: it has answered for the reload it timed, and the ask
+ * after this one is a fresh one.
  */
-function reloadOnce(): boolean {
+function reloadBlocked(): boolean {
   try {
     const store = window.sessionStorage;
     const previous = Number(store.getItem(PARAGLIDE_RELOAD_KEY));
-    if (previous && Date.now() - previous < RELOAD_THROTTLE) {
-      store.removeItem(PARAGLIDE_RELOAD_KEY);
-      return false;
-    }
-    store.setItem(PARAGLIDE_RELOAD_KEY, String(Date.now()));
+    if (!previous || Date.now() - previous >= RELOAD_THROTTLE) return false;
+    store.removeItem(PARAGLIDE_RELOAD_KEY);
+    return true;
   } catch {
     // No storage, no way to tell one reload from the next: do not start one.
+    return true;
+  }
+}
+
+/** Time this reload, so the next ask moments from now reads as a loop. */
+function reloadOnce(): boolean {
+  try {
+    window.sessionStorage.setItem(PARAGLIDE_RELOAD_KEY, String(Date.now()));
+  } catch {
+    // Storage answered a moment ago and refuses now: nothing would time this
+    // reload, so do not start it.
     return false;
   }
   window.location.reload();
@@ -113,17 +128,27 @@ function reloadOnce(): boolean {
  * on the tag devknobs wrote, never on what the cookie says now: the host owns
  * the cookie after the reload, and a framework that rewrites it to a locale it
  * actually ships must not be argued with. So one knob choice buys one reload,
- * and a cookie devknobs did not write is never expired.
+ * and a cookie devknobs did not write is never expired. An expiry the jar
+ * refuses leaves the tag owned, so a later mount can expire it after all.
+ * A reload the throttle refuses is settled first, before anything is written:
+ * a cookie the page never reloads for only hides the strings it renders with.
  * Returns whether the page was reloaded.
  */
 export function syncParaglideCookie(lang: string | null): boolean {
   if (typeof document === "undefined") return false;
+  if (reloadBlocked()) return false;
   const owner = readOwner();
   if (lang === null) {
     if (owner === null) return false;
-    clearOwner();
-    if (readCookie(document.cookie, PARAGLIDE_COOKIE) !== owner) return false;
+    if (readCookie(document.cookie, PARAGLIDE_COOKIE) !== owner) {
+      // The host owns the cookie now. It is not devknobs' to expire, and the
+      // tag devknobs wrote is not worth remembering any more.
+      clearOwner();
+      return false;
+    }
     document.cookie = `${PARAGLIDE_COOKIE}=; max-age=0; path=/`;
+    if (readCookie(document.cookie, PARAGLIDE_COOKIE) !== null) return false;
+    clearOwner();
     return reloadOnce();
   }
   if (owner === lang) return false;
@@ -200,7 +225,12 @@ export function apply(value: LocaleValue): void {
   setAttribute("dir", dirFor(value));
   patchNavigator(value.lang);
   window.dispatchEvent(new Event("languagechange"));
-  if (value.lang !== appliedLang) syncParaglideCookie(value.lang);
+  if (value.lang !== appliedLang) {
+    // A refused reload leaves the tag unapplied, cookie and all, so it stays
+    // unrecorded too and the next apply of it asks again.
+    if (reloadBlocked()) return;
+    syncParaglideCookie(value.lang);
+  }
   appliedLang = value.lang;
 }
 
