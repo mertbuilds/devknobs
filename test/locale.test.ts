@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  apply,
   dirFor,
   isRtl,
   languagesFor,
@@ -7,6 +8,7 @@ import {
   PARAGLIDE_COOKIE,
   PARAGLIDE_OWNER_KEY,
   readCookie,
+  reset,
   syncParaglideCookie,
 } from "../src/engine/locale";
 
@@ -72,6 +74,7 @@ interface Browser {
   jar: string;
   reloads: number;
   storage: Map<string, string>;
+  attributes: Map<string, string>;
 }
 
 /**
@@ -79,7 +82,7 @@ interface Browser {
  * localStorage backed by a map. `owner` seeds the tag devknobs wrote before.
  */
 function stubBrowser(jar: string, owner?: string, storageFails = false): Browser {
-  const browser: Browser = { jar, reloads: 0, storage: new Map() };
+  const browser: Browser = { jar, reloads: 0, storage: new Map(), attributes: new Map() };
   if (owner !== undefined) browser.storage.set(PARAGLIDE_OWNER_KEY, owner);
   Object.defineProperty(globalThis, "document", {
     configurable: true,
@@ -90,8 +93,18 @@ function stubBrowser(jar: string, owner?: string, storageFails = false): Browser
       set cookie(entry: string) {
         browser.jar = writeJar(browser.jar, entry);
       },
+      documentElement: {
+        getAttribute: (name: string) => browser.attributes.get(name) ?? null,
+        setAttribute: (name: string, value: string) => {
+          browser.attributes.set(name, value);
+        },
+        removeAttribute: (name: string) => {
+          browser.attributes.delete(name);
+        },
+      },
     },
   });
+  Object.defineProperty(globalThis, "Navigator", { configurable: true, value: class {} });
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
@@ -100,6 +113,7 @@ function stubBrowser(jar: string, owner?: string, storageFails = false): Browser
           browser.reloads += 1;
         },
       },
+      dispatchEvent: () => true,
       get localStorage(): Storage {
         if (storageFails) throw new Error("storage is off");
         return {
@@ -117,9 +131,18 @@ function stubBrowser(jar: string, owner?: string, storageFails = false): Browser
   return browser;
 }
 
+/** A stubbed browser with the module's own state cleared out. */
+function stubPage(jar = "", owner?: string): Browser {
+  const browser = stubBrowser(jar, owner);
+  reset();
+  browser.reloads = 0;
+  return browser;
+}
+
 afterEach(() => {
   Reflect.deleteProperty(globalThis, "document");
   Reflect.deleteProperty(globalThis, "window");
+  Reflect.deleteProperty(globalThis, "Navigator");
 });
 
 describe("readCookie", () => {
@@ -216,5 +239,63 @@ describe("syncParaglideCookie", () => {
   test("does nothing without a document", () => {
     expect(syncParaglideCookie("tr")).toBe(false);
     expect(syncParaglideCookie(null)).toBe(false);
+  });
+});
+
+describe("apply", () => {
+  test("sets the attributes, writes the cookie and reloads", () => {
+    const page = stubPage();
+    apply({ lang: "tr", dir: "system" });
+    expect(page.attributes.get("lang")).toBe("tr");
+    expect(page.attributes.get("dir")).toBe("ltr");
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("tr");
+    expect(page.storage.get(PARAGLIDE_OWNER_KEY)).toBe("tr");
+    expect(page.reloads).toBe(1);
+  });
+
+  test("syncs once when the same language is applied twice", () => {
+    const page = stubPage();
+    apply({ lang: "tr", dir: "system" });
+    apply({ lang: "tr", dir: "rtl" });
+    expect(page.attributes.get("dir")).toBe("rtl");
+    expect(page.reloads).toBe(1);
+  });
+
+  test("expires its own cookie when the locale goes back to system", () => {
+    const page = stubPage();
+    apply({ lang: "tr", dir: "system" });
+    apply({ lang: "system", dir: "system" });
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBeNull();
+    expect(page.storage.has(PARAGLIDE_OWNER_KEY)).toBe(false);
+    expect(page.reloads).toBe(2);
+  });
+
+  test("does nothing on system when no language was applied", () => {
+    const jar = `${PARAGLIDE_COOKIE}=de`;
+    const page = stubPage(jar, "de");
+    apply({ lang: "system", dir: "system" });
+    expect(page.jar).toBe(jar);
+    expect(page.storage.get(PARAGLIDE_OWNER_KEY)).toBe("de");
+    expect(page.reloads).toBe(0);
+  });
+});
+
+describe("reset", () => {
+  test("hands the page back without touching the cookie", () => {
+    const page = stubPage();
+    apply({ lang: "tr", dir: "system" });
+    reset();
+    expect(page.attributes.has("lang")).toBe(false);
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("tr");
+    expect(page.storage.get(PARAGLIDE_OWNER_KEY)).toBe("tr");
+    expect(page.reloads).toBe(1);
+  });
+
+  test("a remount after it syncs nothing while the cookie already fits", () => {
+    const page = stubPage();
+    apply({ lang: "tr", dir: "system" });
+    reset();
+    apply({ lang: "tr", dir: "system" });
+    expect(page.reloads).toBe(1);
   });
 });

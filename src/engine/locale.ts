@@ -104,6 +104,7 @@ export function syncParaglideCookie(lang: string | null): boolean {
 }
 
 let captured = false;
+let appliedLang: string | null = null;
 let originalLang: string | null = null;
 let originalDir: string | null = null;
 let languageDescriptor: PropertyDescriptor | undefined;
@@ -150,17 +151,26 @@ export function apply(value: LocaleValue): void {
     captured = true;
   }
   if (!value.lang || value.lang === "system") {
+    const applied = appliedLang;
     reset();
+    if (applied !== null) syncParaglideCookie(null);
     return;
   }
   setAttribute("lang", value.lang);
   setAttribute("dir", dirFor(value));
   patchNavigator(value.lang);
   window.dispatchEvent(new Event("languagechange"));
-  syncParaglideCookie(value.lang);
+  if (value.lang !== appliedLang) syncParaglideCookie(value.lang);
+  appliedLang = value.lang;
 }
 
+/**
+ * Put `lang`, `dir` and `navigator` back. The cookie is left alone: only an
+ * explicit switch to `system` through `apply` expires it, so that a strict mode
+ * unmount and remount cannot bounce the page between two reloads.
+ */
 export function reset(): void {
+  appliedLang = null;
   if (captured) {
     setAttribute("lang", originalLang);
     setAttribute("dir", originalDir);
@@ -170,5 +180,4 @@ export function reset(): void {
     restoreNavigator();
     window.dispatchEvent(new Event("languagechange"));
   }
-  syncParaglideCookie(null);
 }
