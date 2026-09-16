@@ -309,15 +309,17 @@ describe("syncParaglideCookie", () => {
     expect(syncParaglideCookie("tr")).toBe(true);
     expect(browser.reloads).toBe(1);
     expect(syncParaglideCookie("de")).toBe(false);
+    expect(syncParaglideCookie("de")).toBe(false);
     expect(readCookie(browser.jar, PARAGLIDE_COOKIE)).toBe("tr");
     expect(browser.storage.get(PARAGLIDE_OWNER_KEY)).toBe("tr");
-    expect(browser.storage.has(PARAGLIDE_RELOAD_KEY)).toBe(false);
+    expect(browser.storage.has(PARAGLIDE_RELOAD_KEY)).toBe(true);
     expect(browser.reloads).toBe(1);
   });
 
   test("asks again for the tag whose reload was refused", () => {
     const browser = stubBrowser("");
     expect(syncParaglideCookie("tr")).toBe(true);
+    expect(syncParaglideCookie("de")).toBe(false);
     expect(syncParaglideCookie("de")).toBe(false);
     later(browser);
     expect(syncParaglideCookie("de")).toBe(true);
@@ -371,6 +373,22 @@ describe("apply", () => {
     apply({ lang: "de", dir: "system" });
     expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("de");
     expect(page.storage.get(PARAGLIDE_OWNER_KEY)).toBe("de");
+    expect(page.reloads).toBe(2);
+  });
+
+  test("a remount moments after the reload keeps its claim on the cookie", () => {
+    const page = stubPage();
+    apply({ lang: "tr", dir: "system" });
+    expect(page.reloads).toBe(1);
+    // The remount lands on the reload it just asked for, so the throttle is
+    // fresh. The tag is devknobs' own, so it is recorded all the same.
+    reset();
+    apply({ lang: "tr", dir: "system" });
+    expect(page.reloads).toBe(1);
+    later(page);
+    apply({ lang: "system", dir: "system" });
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBeNull();
+    expect(page.storage.has(PARAGLIDE_OWNER_KEY)).toBe(false);
     expect(page.reloads).toBe(2);
   });
 

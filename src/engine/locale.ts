@@ -92,17 +92,14 @@ function clearOwner(): void {
 /**
  * Would a reload asked for now be a loop? Two reloads in a row are one, and a
  * loop is worse than a locale that lags the knob. Storage carries the timing
- * across the reload, so without it no reload is safe to start. The record is
- * dropped on the way out: it has answered for the reload it timed, and the ask
- * after this one is a fresh one.
+ * across the reload, so without it no reload is safe to start. The record
+ * stands until a reload that happens overwrites it, so every ask inside the
+ * window is refused, not only the first one.
  */
 function reloadBlocked(): boolean {
   try {
-    const store = window.sessionStorage;
-    const previous = Number(store.getItem(PARAGLIDE_RELOAD_KEY));
-    if (!previous || Date.now() - previous >= RELOAD_THROTTLE) return false;
-    store.removeItem(PARAGLIDE_RELOAD_KEY);
-    return true;
+    const previous = Number(window.sessionStorage.getItem(PARAGLIDE_RELOAD_KEY));
+    return previous > 0 && Date.now() - previous < RELOAD_THROTTLE;
   } catch {
     // No storage, no way to tell one reload from the next: do not start one.
     return true;
@@ -225,7 +222,11 @@ export function apply(value: LocaleValue): void {
   setAttribute("dir", dirFor(value));
   patchNavigator(value.lang);
   window.dispatchEvent(new Event("languagechange"));
-  if (value.lang !== appliedLang) {
+  // A mount that finds its own tag in the cookie is the remount after the
+  // reload it asked for. There is nothing to sync, and the throttle it just
+  // armed must not stop the tag from being recorded: a tag devknobs does not
+  // record is a cookie a later switch to `system` never expires.
+  if (value.lang !== appliedLang && readOwner() !== value.lang) {
     // A refused reload leaves the tag unapplied, cookie and all, so it stays
     // unrecorded too and the next apply of it asks again.
     if (reloadBlocked()) return;
