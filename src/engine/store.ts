@@ -19,7 +19,7 @@ export const DEFAULT_STATE: DevknobsState = {
   text: "system",
   width: "full",
   outlines: false,
-  panel: { open: true, y: 16 },
+  panel: { open: true, y: 16, top: 16 },
 };
 
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
@@ -68,6 +68,7 @@ export function parse(json: string | null | undefined): DevknobsState {
   const locale = record(state.locale);
   const geo = record(state.geo);
   const panel = record(state.panel);
+  const panelY = num(panel.y, DEFAULT_STATE.panel.y);
   return {
     scheme: oneOf(state.scheme, SCHEMES, DEFAULT_STATE.scheme),
     motion: oneOf(state.motion, MOTIONS, DEFAULT_STATE.motion),
@@ -88,7 +89,9 @@ export function parse(json: string | null | undefined): DevknobsState {
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),
-      y: num(panel.y, DEFAULT_STATE.panel.y),
+      y: panelY,
+      // A session stored before the panel had a place of its own only has `y`.
+      top: num(panel.top, panelY),
     },
   };
 }

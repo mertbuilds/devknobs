@@ -33,8 +33,10 @@ export type WidthValue = number | "full";
 
 export interface PanelValue {
   open: boolean;
-  /** Panel offset from the top of the viewport, in px. */
+  /** Handle offset from the top of the viewport, in px. */
   y: number;
+  /** Panel offset from the top of the viewport, in px. The handle pushes it. */
+  top: number;
 }
 
 export interface DevknobsState {

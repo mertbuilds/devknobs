@@ -42,7 +42,12 @@ interface Binding {
 /** Pointer travel that turns a click on the handle into a drag. */
 const DRAG_SLOP = 4;
 
+/** Space the panel keeps between itself and the top or bottom of the viewport. */
+const PANEL_GAP = 8;
+
 const CUSTOM_DEBOUNCE = 200;
+
+const SITE_URL = "https://knobs.dev/?utm_source=devknobs&utm_medium=panel&utm_campaign=footer";
 
 function choices(...values: string[]): Choice[] {
   return values.map((value) => ({ label: value, value }));
@@ -225,7 +230,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const resetButton = button("btn", "reset");
   actionRow.append(replayButton, resetButton);
   actions.append(actionRow);
-  panel.append(actions, el("div", "foot", `devknobs · dev only · press ${hotkey}`));
+
+  const foot = el("div", "foot");
+  const home = document.createElement("a");
+  home.className = "foot-link";
+  home.href = SITE_URL;
+  home.target = "_blank";
+  home.rel = "noopener noreferrer";
+  home.textContent = "knobs.dev";
+  foot.append(home, ` · dev only · press ${hotkey}`, el("br", ""), "shift-drag moves the panel");
+  panel.append(actions, foot);
 
   wrap.append(handle, panel);
   root.append(style, wrap);
@@ -260,18 +274,65 @@ export function createPanel(options: PanelOptions = {}): Panel {
     fill(lng, fix ? String(fix.lng) : "");
     fill(zone, fix?.timeZone ?? "");
     zoneNote.textContent = `time zone: ${fix?.timeZone || "system"}`;
+    shiftPanel(state.panel.y);
   }
 
-  /** Keep the whole thing on screen, measuring only what is actually visible. */
+  /**
+   * Keep the handle on screen. `y` is the handle's top, open or closed, and it
+   * keeps the same gap as the panel, so the two edges can line up.
+   */
   function clamp(y: number): number {
-    const height = engine.getState().panel.open ? wrap.offsetHeight : handle.offsetHeight;
-    return Math.min(Math.max(y, 0), Math.max(0, window.innerHeight - height));
+    const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - handle.offsetHeight);
+    return Math.min(Math.max(y, PANEL_GAP), room);
+  }
+
+  /**
+   * Where the panel's top belongs for a handle at `y`, given the top it has
+   * now: the panel stays put while the handle slides along it, and only moves
+   * when the handle would leave by the top or the bottom edge and pushes it.
+   * The gap to the viewport has the last word.
+   */
+  function resolveTop(y: number, current: number): number {
+    const height = panel.offsetHeight;
+    const pushed = Math.max(Math.min(current, y), y + handle.offsetHeight - height);
+    const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - height);
+    return Math.min(Math.max(pushed, PANEL_GAP), room);
+  }
+
+  /**
+   * Place the panel for a handle at `y` and say where its top ended up. `tab`
+   * tells the stylesheet which corner of the panel the handle covers, if any.
+   */
+  function placePanel(y: number, current: number): number {
+    // Closed: leave the panel where it was, so it slides out from its own spot
+    // and back in to it. The next open resolves a fresh position.
+    if (!engine.getState().panel.open) return current;
+    const height = panel.offsetHeight;
+    const top = resolveTop(y, current);
+    panel.style.marginTop = `${top - y}px`;
+    if (top === y) wrap.dataset.tab = "top";
+    // offsetHeight rounds, so the two bottom edges only have to agree to the px.
+    else if (Math.abs(top + height - y - handle.offsetHeight) <= 1) wrap.dataset.tab = "bottom";
+    else wrap.dataset.tab = "mid";
+    return top;
+  }
+
+  /**
+   * Place the panel from the stored top and store where it landed. The store
+   * renders again from here, which places the panel a second time and finds
+   * nothing left to move, because a resolved top resolves to itself.
+   */
+  function shiftPanel(y: number): void {
+    const { top } = engine.getState().panel;
+    const next = placePanel(y, top);
+    if (next !== top) engine.setState({ panel: { top: next } });
   }
 
   function clampY(): void {
     const { y } = engine.getState().panel;
     const next = clamp(y);
     if (next !== y) engine.setState({ panel: { y: next } });
+    else shiftPanel(y);
   }
 
   function toggle(open?: boolean): void {
@@ -306,27 +367,51 @@ export function createPanel(options: PanelOptions = {}): Panel {
   let dragging = false;
   let dragged = false;
   let startPointer = 0;
-  let startTop = 0;
+  let lastPointer = 0;
   let dragTop = 0;
+  let dragPanelTop = 0;
 
+  // A mouse press must not focus the handle: a key held mid-drag (shift) would
+  // otherwise turn that focus into a visible ring. Keyboard focus is unaffected.
+  handle.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
   handle.addEventListener("pointerdown", (event: PointerEvent) => {
     if (event.button !== 0) return;
+    const { y, top } = engine.getState().panel;
     dragging = true;
     dragged = false;
     startPointer = event.clientY;
-    startTop = engine.getState().panel.y;
-    dragTop = startTop;
+    lastPointer = event.clientY;
+    dragTop = y;
+    dragPanelTop = top;
     handle.setPointerCapture(event.pointerId);
   });
 
   handle.addEventListener("pointermove", (event: PointerEvent) => {
     if (!dragging) return;
-    const moved = event.clientY - startPointer;
-    if (!dragged && Math.abs(moved) < DRAG_SLOP) return;
+    // Every move goes by its own step, so the slop is never paid back as a
+    // jump and shift can take over halfway through without one either.
+    const step = event.clientY - lastPointer;
+    lastPointer = event.clientY;
+    if (!dragged && Math.abs(event.clientY - startPointer) < DRAG_SLOP) return;
     dragged = true;
-    wrap.dataset.drag = "true";
-    dragTop = clamp(startTop + moved);
+    // Shift moves the panel and the handle as one, until the panel meets the
+    // viewport gap. A closed panel has nothing to move, so there shift is an
+    // ordinary drag.
+    const movePanel = event.shiftKey && engine.getState().panel.open;
+    wrap.dataset.drag = movePanel ? "panel" : "true";
+    // Not through the store: a pointermove is no reason to re-apply every knob.
+    if (movePanel) {
+      const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - panel.offsetHeight);
+      const nextPanelTop = Math.min(Math.max(dragPanelTop + step, PANEL_GAP), room);
+      dragTop = clamp(dragTop + (nextPanelTop - dragPanelTop));
+      dragPanelTop = nextPanelTop;
+      host.style.top = `${dragTop}px`;
+      dragPanelTop = placePanel(dragTop, dragPanelTop);
+      return;
+    }
+    dragTop = clamp(dragTop + step);
     host.style.top = `${dragTop}px`;
+    dragPanelTop = placePanel(dragTop, dragPanelTop);
   });
 
   function endDrag(event: PointerEvent, keep: boolean): void {
@@ -334,8 +419,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     dragging = false;
     wrap.dataset.drag = "false";
     if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-    if (keep && dragged) engine.setState({ panel: { y: dragTop } });
+    if (keep && dragged) engine.setState({ panel: { y: dragTop, top: dragPanelTop } });
     else render();
+    // A pointer press leaves focus on the handle, and the next keypress (the
+    // hotkey, say) would then promote it to :focus-visible. Keyboard users
+    // never come through here, so they keep their focus.
+    handle.blur();
   }
 
   handle.addEventListener("pointerup", (event: PointerEvent) => endDrag(event, true));
@@ -354,6 +443,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   });
 
   function onKeydown(event: KeyboardEvent): void {
+    // A drag owns the handle until the pointer is up, hotkey and escape too.
+    if (dragging) return;
     if (event.key === "Escape") {
       if (engine.getState().panel.open) toggle(false);
       return;
