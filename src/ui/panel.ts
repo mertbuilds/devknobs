@@ -238,7 +238,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   home.target = "_blank";
   home.rel = "noopener noreferrer";
   home.textContent = "knobs.dev";
-  foot.append(home, ` · dev only · press ${hotkey}`);
+  foot.append(home, ` · dev only · press ${hotkey} · shift-drag moves the panel`);
   panel.append(actions, foot);
 
   wrap.append(handle, panel);
