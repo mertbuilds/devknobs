@@ -391,13 +391,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
     lastPointer = event.clientY;
     if (!dragged && Math.abs(event.clientY - startPointer) < DRAG_SLOP) return;
     dragged = true;
-    // Shift moves the panel and leaves the handle. A closed panel has nothing
-    // to move, so there shift is an ordinary drag.
+    // Shift moves the panel and the handle as one, until the panel meets the
+    // viewport gap. A closed panel has nothing to move, so there shift is an
+    // ordinary drag.
     const movePanel = event.shiftKey && engine.getState().panel.open;
     wrap.dataset.drag = movePanel ? "panel" : "true";
     // Not through the store: a pointermove is no reason to re-apply every knob.
     if (movePanel) {
-      dragPanelTop = placePanel(dragTop, dragPanelTop + step);
+      const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - panel.offsetHeight);
+      const nextPanelTop = Math.min(Math.max(dragPanelTop + step, PANEL_GAP), room);
+      dragTop = clamp(dragTop + (nextPanelTop - dragPanelTop));
+      dragPanelTop = nextPanelTop;
+      host.style.top = `${dragTop}px`;
+      dragPanelTop = placePanel(dragTop, dragPanelTop);
       return;
     }
     dragTop = clamp(dragTop + step);
