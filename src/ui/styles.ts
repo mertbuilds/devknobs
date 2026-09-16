@@ -19,7 +19,7 @@ export const CSS = `
   font-size: 12px;
   line-height: 1.5;
   color: var(--fg);
-  transform: translateX(220px);
+  transform: translateX(219px);
   transition: transform 150ms ease-out;
 }
 .wrap[data-open="true"] { transform: translateX(0); }
@@ -37,12 +37,17 @@ export const CSS = `
 .handle {
   flex: none;
   box-sizing: border-box;
+  /* Sits a pixel over the panel and above it, so the handle's own background
+     hides the panel's left border and the two read as one outline. */
+  position: relative;
+  z-index: 1;
   width: 22px;
   height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0;
+  margin-right: -1px;
   padding: 0;
   appearance: none;
   -webkit-appearance: none;
@@ -76,6 +81,8 @@ export const CSS = `
   border-right: 0;
   border-radius: 6px 0 0 6px;
 }
+/* The handle covers this corner while the panel is out, so square it off. */
+.wrap[data-open="true"] .panel { border-top-left-radius: 0; }
 
 .group + .group { margin-top: 10px; }
 .label { color: var(--faint); }
