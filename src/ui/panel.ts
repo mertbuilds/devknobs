@@ -412,6 +412,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
     if (keep && dragged) engine.setState({ panel: { y: dragTop, top: dragPanelTop } });
     else render();
+    // A pointer press leaves focus on the handle, and the next keypress (the
+    // hotkey, say) would then promote it to :focus-visible. Keyboard users
+    // never come through here, so they keep their focus.
+    handle.blur();
   }
 
   handle.addEventListener("pointerup", (event: PointerEvent) => endDrag(event, true));
