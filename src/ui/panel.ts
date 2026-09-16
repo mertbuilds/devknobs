@@ -264,7 +264,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
     wrap.dataset.scheme = schemeOf(state);
     wrap.dataset.motion = state.motion;
     host.style.top = `${state.panel.y}px`;
-    shiftPanel(state.panel.y);
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     for (const binding of bindings) {
@@ -275,6 +274,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     fill(lng, fix ? String(fix.lng) : "");
     fill(zone, fix?.timeZone ?? "");
     zoneNote.textContent = `time zone: ${fix?.timeZone || "system"}`;
+    shiftPanel(state.panel.y);
   }
 
   /**
@@ -287,25 +287,47 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   /**
-   * Place the panel beside the handle at `y`, sliding it along the handle by
-   * however much it takes to keep a gap at the top and the bottom. The handle
-   * itself never moves for this, so opening the panel leaves it where it was
-   * dragged. `tab` tells the stylesheet which corner the handle covers.
+   * Where the panel's top belongs for a handle at `y`, given the top it has
+   * now: the panel stays put while the handle slides along it, and only moves
+   * when the handle would leave by the top or the bottom edge and pushes it.
+   * The gap to the viewport has the last word.
    */
-  function shiftPanel(y: number): void {
+  function resolveTop(y: number, current: number): number {
+    const height = panel.offsetHeight;
+    const pushed = Math.max(Math.min(current, y), y + handle.offsetHeight - height);
+    const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - height);
+    return Math.min(Math.max(pushed, PANEL_GAP), room);
+  }
+
+  /**
+   * Place the panel for a handle at `y` and say where its top ended up. `tab`
+   * tells the stylesheet which corner of the panel the handle covers, if any.
+   */
+  function placePanel(y: number, current: number): number {
     if (!engine.getState().panel.open) {
       panel.style.marginTop = "0px";
       wrap.dataset.tab = "top";
-      return;
+      return current;
     }
     const height = panel.offsetHeight;
-    const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - height);
-    const top = Math.min(Math.max(y, PANEL_GAP), room);
+    const top = resolveTop(y, current);
     panel.style.marginTop = `${top - y}px`;
     if (top === y) wrap.dataset.tab = "top";
     // offsetHeight rounds, so the two bottom edges only have to agree to the px.
     else if (Math.abs(top + height - y - handle.offsetHeight) <= 1) wrap.dataset.tab = "bottom";
     else wrap.dataset.tab = "mid";
+    return top;
+  }
+
+  /**
+   * Place the panel from the stored top and store where it landed. The store
+   * renders again from here, which places the panel a second time and finds
+   * nothing left to move, because a resolved top resolves to itself.
+   */
+  function shiftPanel(y: number): void {
+    const { top } = engine.getState().panel;
+    const next = placePanel(y, top);
+    if (next !== top) engine.setState({ panel: { top: next } });
   }
 
   function clampY(): void {
@@ -349,6 +371,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   let startPointer = 0;
   let startTop = 0;
   let dragTop = 0;
+  let dragPanelTop = 0;
 
   handle.addEventListener("pointerdown", (event: PointerEvent) => {
     if (event.button !== 0) return;
@@ -357,6 +380,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     startPointer = event.clientY;
     startTop = engine.getState().panel.y;
     dragTop = startTop;
+    dragPanelTop = engine.getState().panel.top;
     handle.setPointerCapture(event.pointerId);
   });
 
@@ -368,7 +392,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     wrap.dataset.drag = "true";
     dragTop = clamp(startTop + moved);
     host.style.top = `${dragTop}px`;
-    shiftPanel(dragTop);
+    // Not through the store: a pointermove is no reason to re-apply every knob.
+    dragPanelTop = placePanel(dragTop, dragPanelTop);
   });
 
   function endDrag(event: PointerEvent, keep: boolean): void {
@@ -376,7 +401,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     dragging = false;
     wrap.dataset.drag = "false";
     if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-    if (keep && dragged) engine.setState({ panel: { y: dragTop } });
+    if (keep && dragged) engine.setState({ panel: { y: dragTop, top: dragPanelTop } });
     else render();
   }
 

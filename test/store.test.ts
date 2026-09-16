@@ -22,7 +22,7 @@ describe("parse", () => {
         text: 20,
         width: "full",
         outlines: "yes",
-        panel: { open: false, y: 40 },
+        panel: { open: false, y: 40, top: 24 },
         stray: 1,
       }),
     );
@@ -35,7 +35,15 @@ describe("parse", () => {
       text: 20,
       width: "full",
       outlines: false,
-      panel: { open: false, y: 40 },
+      panel: { open: false, y: 40, top: 24 },
+    });
+  });
+
+  test("puts the panel where the handle is when the session predates its top", () => {
+    expect(parse(JSON.stringify({ panel: { y: 200 } })).panel).toEqual({
+      open: DEFAULT_STATE.panel.open,
+      y: 200,
+      top: 200,
     });
   });
 
@@ -56,6 +64,13 @@ describe("merge", () => {
     const state = merge(DEFAULT_STATE, { geo: { preset: "tokyo" } });
     expect(state.geo).toEqual({ ...DEFAULT_STATE.geo, preset: "tokyo" });
     expect(state.locale).toEqual(DEFAULT_STATE.locale);
+  });
+
+  test("leaves the panel top alone when only the handle moves", () => {
+    expect(merge(DEFAULT_STATE, { panel: { y: 300 } }).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      y: 300,
+    });
   });
 
   test("replaces scalar knobs", () => {
