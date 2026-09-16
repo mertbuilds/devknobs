@@ -304,11 +304,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
    * tells the stylesheet which corner of the panel the handle covers, if any.
    */
   function placePanel(y: number, current: number): number {
-    if (!engine.getState().panel.open) {
-      panel.style.marginTop = "0px";
-      wrap.dataset.tab = "top";
-      return current;
-    }
+    // Closed: leave the panel where it was, so it slides out from its own spot
+    // and back in to it. The next open resolves a fresh position.
+    if (!engine.getState().panel.open) return current;
     const height = panel.offsetHeight;
     const top = resolveTop(y, current);
     panel.style.marginTop = `${top - y}px`;
