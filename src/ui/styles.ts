@@ -65,13 +65,17 @@ export const CSS = `
   -webkit-user-select: none;
 }
 .handle:hover { color: var(--fg); }
+.handle:focus { outline: none; }
+.handle:focus-visible { outline: 1px solid var(--faint); outline-offset: 2px; }
 .wrap[data-drag="true"] .handle { cursor: grabbing; }
 
 .panel {
   flex: none;
   box-sizing: border-box;
   width: 220px;
-  max-height: 80vh;
+  /* All the height there is, less the gap the panel keeps top and bottom. */
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
@@ -81,8 +85,9 @@ export const CSS = `
   border-right: 0;
   border-radius: 6px 0 0 6px;
 }
-/* The handle covers this corner while the panel is out, so square it off. */
-.wrap[data-open="true"] .panel { border-top-left-radius: 0; }
+/* The handle covers this corner while the panel is out, so square it off. A
+   shifted panel starts somewhere else, so there it keeps both left radii. */
+.wrap[data-open="true"]:not([data-shifted="true"]) .panel { border-top-left-radius: 0; }
 
 .group + .group { margin-top: 10px; }
 .label { color: var(--faint); }
@@ -105,6 +110,7 @@ export const CSS = `
 }
 .btn:hover { color: var(--fg); }
 .btn.on { color: var(--fg); text-decoration: underline; text-underline-offset: 4px; }
+.btn:focus { outline: none; }
 .btn:focus-visible { outline: 1px solid var(--faint); outline-offset: 2px; }
 
 .fields { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -132,4 +138,6 @@ export const CSS = `
 .foot { margin-top: 12px; color: var(--faint); font-size: 10px; line-height: 1.4; }
 .foot-link { color: inherit; text-decoration: none; }
 .foot-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.foot-link:focus { outline: none; }
+.foot-link:focus-visible { outline: 1px solid var(--faint); outline-offset: 2px; }
 `;

@@ -42,6 +42,9 @@ interface Binding {
 /** Pointer travel that turns a click on the handle into a drag. */
 const DRAG_SLOP = 4;
 
+/** Space the panel keeps between itself and the top or bottom of the viewport. */
+const PANEL_GAP = 8;
+
 const CUSTOM_DEBOUNCE = 200;
 
 const SITE_URL = "https://knobs.dev/?utm_source=devknobs&utm_medium=panel&utm_campaign=footer";
@@ -261,6 +264,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     wrap.dataset.scheme = schemeOf(state);
     wrap.dataset.motion = state.motion;
     host.style.top = `${state.panel.y}px`;
+    shiftPanel(state.panel.y);
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     for (const binding of bindings) {
@@ -273,16 +277,36 @@ export function createPanel(options: PanelOptions = {}): Panel {
     zoneNote.textContent = `time zone: ${fix?.timeZone || "system"}`;
   }
 
-  /** Keep the whole thing on screen, measuring only what is actually visible. */
+  /** Keep the handle on screen. `y` is the handle's top, open or closed. */
   function clamp(y: number): number {
-    const height = engine.getState().panel.open ? wrap.offsetHeight : handle.offsetHeight;
-    return Math.min(Math.max(y, 0), Math.max(0, window.innerHeight - height));
+    return Math.min(Math.max(y, 0), Math.max(0, window.innerHeight - handle.offsetHeight));
+  }
+
+  /**
+   * Place the panel beside the handle at `y`, sliding it along the handle by
+   * however much it takes to keep a gap at the top and the bottom. The handle
+   * itself never moves for this, so opening the panel leaves it where it was
+   * dragged. `shifted` tells the stylesheet the handle no longer sits at the
+   * panel's top corner.
+   */
+  function shiftPanel(y: number): void {
+    if (!engine.getState().panel.open) {
+      panel.style.marginTop = "0px";
+      wrap.dataset.shifted = "false";
+      return;
+    }
+    const room = window.innerHeight - PANEL_GAP - panel.offsetHeight;
+    // The floor comes last, for a panel as tall as the viewport lets it be.
+    const top = Math.max(Math.min(Math.max(y, PANEL_GAP), room), PANEL_GAP);
+    panel.style.marginTop = `${top - y}px`;
+    wrap.dataset.shifted = top !== y ? "true" : "false";
   }
 
   function clampY(): void {
     const { y } = engine.getState().panel;
     const next = clamp(y);
     if (next !== y) engine.setState({ panel: { y: next } });
+    else shiftPanel(y);
   }
 
   function toggle(open?: boolean): void {
@@ -338,6 +362,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     wrap.dataset.drag = "true";
     dragTop = clamp(startTop + moved);
     host.style.top = `${dragTop}px`;
+    shiftPanel(dragTop);
   });
 
   function endDrag(event: PointerEvent, keep: boolean): void {
