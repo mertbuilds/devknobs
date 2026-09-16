@@ -85,9 +85,10 @@ export const CSS = `
   border-right: 0;
   border-radius: 6px 0 0 6px;
 }
-/* The handle covers this corner while the panel is out, so square it off. A
-   shifted panel starts somewhere else, so there it keeps both left radii. */
-.wrap[data-open="true"]:not([data-shifted="true"]) .panel { border-top-left-radius: 0; }
+/* The handle covers one of these corners while the panel is out, so square
+   that one off. A panel the handle meets in the middle keeps both radii. */
+.wrap[data-open="true"][data-tab="top"] .panel { border-top-left-radius: 0; }
+.wrap[data-open="true"][data-tab="bottom"] .panel { border-bottom-left-radius: 0; }
 
 .group + .group { margin-top: 10px; }
 .label { color: var(--faint); }

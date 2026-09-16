@@ -277,29 +277,35 @@ export function createPanel(options: PanelOptions = {}): Panel {
     zoneNote.textContent = `time zone: ${fix?.timeZone || "system"}`;
   }
 
-  /** Keep the handle on screen. `y` is the handle's top, open or closed. */
+  /**
+   * Keep the handle on screen. `y` is the handle's top, open or closed, and it
+   * keeps the same gap as the panel, so the two edges can line up.
+   */
   function clamp(y: number): number {
-    return Math.min(Math.max(y, 0), Math.max(0, window.innerHeight - handle.offsetHeight));
+    const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - handle.offsetHeight);
+    return Math.min(Math.max(y, PANEL_GAP), room);
   }
 
   /**
    * Place the panel beside the handle at `y`, sliding it along the handle by
    * however much it takes to keep a gap at the top and the bottom. The handle
    * itself never moves for this, so opening the panel leaves it where it was
-   * dragged. `shifted` tells the stylesheet the handle no longer sits at the
-   * panel's top corner.
+   * dragged. `tab` tells the stylesheet which corner the handle covers.
    */
   function shiftPanel(y: number): void {
     if (!engine.getState().panel.open) {
       panel.style.marginTop = "0px";
-      wrap.dataset.shifted = "false";
+      wrap.dataset.tab = "top";
       return;
     }
-    const room = window.innerHeight - PANEL_GAP - panel.offsetHeight;
-    // The floor comes last, for a panel as tall as the viewport lets it be.
-    const top = Math.max(Math.min(Math.max(y, PANEL_GAP), room), PANEL_GAP);
+    const height = panel.offsetHeight;
+    const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - height);
+    const top = Math.min(Math.max(y, PANEL_GAP), room);
     panel.style.marginTop = `${top - y}px`;
-    wrap.dataset.shifted = top !== y ? "true" : "false";
+    if (top === y) wrap.dataset.tab = "top";
+    // offsetHeight rounds, so the two bottom edges only have to agree to the px.
+    else if (Math.abs(top + height - y - handle.offsetHeight) <= 1) wrap.dataset.tab = "bottom";
+    else wrap.dataset.tab = "mid";
   }
 
   function clampY(): void {
