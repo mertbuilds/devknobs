@@ -130,4 +130,6 @@ export const CSS = `
 
 .note { margin-top: 2px; color: var(--faint); font-size: 10px; line-height: 1.4; }
 .foot { margin-top: 12px; color: var(--faint); font-size: 10px; line-height: 1.4; }
+.foot-link { color: inherit; text-decoration: none; }
+.foot-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 `;

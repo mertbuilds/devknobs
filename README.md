@@ -84,7 +84,7 @@ dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 | color scheme | light, dark, system | rewrites every `prefers-color-scheme` media rule in the page's own stylesheets, patches `matchMedia` so js reads the same value, and sets `color-scheme` on `<html>` so `light-dark()` flips too |
 | reduced motion | reduce, system | rewrites `prefers-reduced-motion` media rules and patches `matchMedia` |
 | contrast | more, system | rewrites `prefers-contrast` media rules and patches `matchMedia` |
-| locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and patches `navigator.language` / `navigator.languages`. direction defaults to rtl for ar, he, fa and ur |
+| locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and patches `navigator.language` / `navigator.languages`. direction defaults to rtl for ar, he, fa and ur. also writes the `PARAGLIDE_LOCALE` cookie and reloads when it changes, so paraglide (cookie strategy) server-rendered strings follow the knob |
 | geolocation | a city preset, custom coordinates, system | patches `navigator.geolocation.getCurrentPosition` and `watchPosition` with a fixed position |
 | time zone | comes with the geo preset | patches `Intl.DateTimeFormat` so calls without an explicit `timeZone` use the emulated one, and patches `Date.prototype.getTimezoneOffset` |
 | root font size | px, system | sets `font-size` on `<html>`, so everything in rem scales |

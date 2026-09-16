@@ -44,6 +44,8 @@ const DRAG_SLOP = 4;
 
 const CUSTOM_DEBOUNCE = 200;
 
+const SITE_URL = "https://knobs.dev/?utm_source=devknobs&utm_medium=panel&utm_campaign=footer";
+
 function choices(...values: string[]): Choice[] {
   return values.map((value) => ({ label: value, value }));
 }
@@ -225,7 +227,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const resetButton = button("btn", "reset");
   actionRow.append(replayButton, resetButton);
   actions.append(actionRow);
-  panel.append(actions, el("div", "foot", `devknobs · dev only · press ${hotkey}`));
+
+  const foot = el("div", "foot");
+  const home = document.createElement("a");
+  home.className = "foot-link";
+  home.href = SITE_URL;
+  home.target = "_blank";
+  home.rel = "noopener noreferrer";
+  home.textContent = "knobs.dev";
+  foot.append(home, ` · dev only · press ${hotkey}`);
+  panel.append(actions, foot);
 
   wrap.append(handle, panel);
   root.append(style, wrap);

@@ -13,6 +13,12 @@ export const LOCALE_PRESETS = [
   "zh-CN",
 ] as const;
 
+/** Cookie Paraglide JS reads before the `Accept-Language` header. */
+export const PARAGLIDE_COOKIE = "PARAGLIDE_LOCALE";
+
+/** Where the tag devknobs wrote into that cookie is remembered. */
+export const PARAGLIDE_OWNER_KEY = "devknobs:paraglide-cookie";
+
 const RTL_LANGUAGES = new Set(["ar", "he", "fa", "ur"]);
 
 /** Is this language tag written right to left? */
@@ -31,6 +37,70 @@ export function dirFor(value: LocaleValue): "ltr" | "rtl" {
 export function languagesFor(lang: string): string[] {
   const base = lang.split("-")[0];
   return base && base !== lang ? [lang, base] : [lang];
+}
+
+/** The value of one cookie in a `document.cookie` string, or null when unset. */
+export function readCookie(jar: string, name: string): string | null {
+  for (const entry of jar.split(";")) {
+    const separator = entry.indexOf("=");
+    if (separator === -1) continue;
+    if (entry.slice(0, separator).trim() !== name) continue;
+    return entry.slice(separator + 1).trim();
+  }
+  return null;
+}
+
+/** The tag devknobs last wrote into the cookie, across reloads. */
+function readOwner(): string | null {
+  try {
+    return window.localStorage.getItem(PARAGLIDE_OWNER_KEY);
+  } catch {
+    // Private mode, disabled storage: the cookie is then nobody's to expire.
+    return null;
+  }
+}
+
+function writeOwner(lang: string): void {
+  try {
+    window.localStorage.setItem(PARAGLIDE_OWNER_KEY, lang);
+  } catch {
+    // Same.
+  }
+}
+
+function clearOwner(): void {
+  try {
+    window.localStorage.removeItem(PARAGLIDE_OWNER_KEY);
+  } catch {
+    // Same.
+  }
+}
+
+/**
+ * Point the Paraglide cookie at `lang`, or expire it when `lang` is null, and
+ * reload so the server renders its strings in that locale. A cookie that
+ * already says the same thing is left alone: that is what keeps the reload from
+ * looping, because the stored state applies the same locale again on mount.
+ * Only a cookie devknobs wrote itself is ever expired, so a locale the host's
+ * own switcher set survives the knob sitting at `system`. Returns whether the
+ * page was reloaded.
+ */
+export function syncParaglideCookie(lang: string | null): boolean {
+  if (typeof document === "undefined") return false;
+  const current = readCookie(document.cookie, PARAGLIDE_COOKIE);
+  if (lang === null) {
+    const owner = readOwner();
+    if (owner === null) return false;
+    clearOwner();
+    if (owner !== current) return false;
+    document.cookie = `${PARAGLIDE_COOKIE}=; max-age=0; path=/`;
+  } else {
+    if (current === lang) return false;
+    document.cookie = `${PARAGLIDE_COOKIE}=${lang}; path=/; SameSite=Lax`;
+    writeOwner(lang);
+  }
+  window.location.reload();
+  return true;
 }
 
 let captured = false;
@@ -87,6 +157,7 @@ export function apply(value: LocaleValue): void {
   setAttribute("dir", dirFor(value));
   patchNavigator(value.lang);
   window.dispatchEvent(new Event("languagechange"));
+  syncParaglideCookie(value.lang);
 }
 
 export function reset(): void {
@@ -99,4 +170,5 @@ export function reset(): void {
     restoreNavigator();
     window.dispatchEvent(new Event("languagechange"));
   }
+  syncParaglideCookie(null);
 }
