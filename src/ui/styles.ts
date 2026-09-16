@@ -68,6 +68,7 @@ export const CSS = `
 .handle:focus { outline: none; }
 .handle:focus-visible { outline: 1px solid var(--faint); outline-offset: 2px; }
 .wrap[data-drag="true"] .handle { cursor: grabbing; }
+.wrap[data-drag="panel"] .handle { cursor: ns-resize; }
 
 .panel {
   flex: none;

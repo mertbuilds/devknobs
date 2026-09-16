@@ -367,30 +367,41 @@ export function createPanel(options: PanelOptions = {}): Panel {
   let dragging = false;
   let dragged = false;
   let startPointer = 0;
-  let startTop = 0;
+  let lastPointer = 0;
   let dragTop = 0;
   let dragPanelTop = 0;
 
   handle.addEventListener("pointerdown", (event: PointerEvent) => {
     if (event.button !== 0) return;
+    const { y, top } = engine.getState().panel;
     dragging = true;
     dragged = false;
     startPointer = event.clientY;
-    startTop = engine.getState().panel.y;
-    dragTop = startTop;
-    dragPanelTop = engine.getState().panel.top;
+    lastPointer = event.clientY;
+    dragTop = y;
+    dragPanelTop = top;
     handle.setPointerCapture(event.pointerId);
   });
 
   handle.addEventListener("pointermove", (event: PointerEvent) => {
     if (!dragging) return;
-    const moved = event.clientY - startPointer;
-    if (!dragged && Math.abs(moved) < DRAG_SLOP) return;
+    // Every move goes by its own step, so the slop is never paid back as a
+    // jump and shift can take over halfway through without one either.
+    const step = event.clientY - lastPointer;
+    lastPointer = event.clientY;
+    if (!dragged && Math.abs(event.clientY - startPointer) < DRAG_SLOP) return;
     dragged = true;
-    wrap.dataset.drag = "true";
-    dragTop = clamp(startTop + moved);
-    host.style.top = `${dragTop}px`;
+    // Shift moves the panel and leaves the handle. A closed panel has nothing
+    // to move, so there shift is an ordinary drag.
+    const movePanel = event.shiftKey && engine.getState().panel.open;
+    wrap.dataset.drag = movePanel ? "panel" : "true";
     // Not through the store: a pointermove is no reason to re-apply every knob.
+    if (movePanel) {
+      dragPanelTop = placePanel(dragTop, dragPanelTop + step);
+      return;
+    }
+    dragTop = clamp(dragTop + step);
+    host.style.top = `${dragTop}px`;
     dragPanelTop = placePanel(dragTop, dragPanelTop);
   });
 
@@ -419,6 +430,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   });
 
   function onKeydown(event: KeyboardEvent): void {
+    // A drag owns the handle until the pointer is up, hotkey and escape too.
+    if (dragging) return;
     if (event.key === "Escape") {
       if (engine.getState().panel.open) toggle(false);
       return;

@@ -77,6 +77,9 @@ setState({ locale: { lang: "ar" } });
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 
+drag the handle to move it up and down the edge of the window. hold shift while
+dragging to move the panel and leave the handle where it is.
+
 ## knobs
 
 | knob | values | how it is emulated |
