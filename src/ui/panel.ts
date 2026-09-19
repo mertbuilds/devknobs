@@ -49,6 +49,14 @@ const CUSTOM_DEBOUNCE = 200;
 
 const SITE_URL = "https://knobs.dev/?utm_source=devknobs&utm_medium=panel&utm_campaign=footer";
 
+/**
+ * The host's own style. It is as wide and as tall as an open panel whatever
+ * the panel is doing, so it never takes a pointer: the stylesheet hands that
+ * back to the handle and to a panel that is out, and every other pixel of the
+ * box belongs to the page underneath.
+ */
+export const HOST_STYLE = "position:fixed;right:0;top:0;z-index:2147483646;pointer-events:none";
+
 function choices(...values: string[]): Choice[] {
   return values.map((value) => ({ label: value, value }));
 }
@@ -193,7 +201,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "panel");
-  host.style.cssText = "position:fixed;right:0;top:0;z-index:2147483646";
+  host.style.cssText = HOST_STYLE;
   const root = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = CSS;
