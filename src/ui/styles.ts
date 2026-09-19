@@ -3,11 +3,18 @@
  * cannot reach it and none of it reaches the page. `all: initial` on the
  * wrapper stops inherited page styles too, and `direction` is set by hand
  * because `all` leaves it alone and the locale knob flips it on `<html>`.
+ *
+ * Pointer events are off everywhere and turned back on one surface at a time,
+ * so the panel only ever catches a click where the user can see it.
  */
 export const CSS = `
 .wrap {
   all: initial;
   direction: ltr;
+  /* The host box stays the size of an open panel however far the wrapper is
+     translated, so nothing in here takes a pointer by default. The reset above
+     puts pointer-events back to auto, which is why the wrapper says it again. */
+  pointer-events: none;
   color-scheme: light dark;
   --bg: #fbfbf9;
   --fg: #1b1b19;
@@ -59,6 +66,8 @@ export const CSS = `
   border: 1px solid var(--line);
   border-right: 0;
   border-radius: 6px 0 0 6px;
+  /* The one thing a closed panel shows, so the one thing it can be clicked on. */
+  pointer-events: auto;
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -86,6 +95,9 @@ export const CSS = `
   border-right: 0;
   border-radius: 6px 0 0 6px;
 }
+/* Only a panel that is out catches anything. The attribute flips the moment
+   the close starts, so the slide back leaves nothing hit-testable behind. */
+.wrap[data-open="true"] .panel { pointer-events: auto; }
 /* The handle covers one of these corners while the panel is out, so square
    that one off. A panel the handle meets in the middle keeps both radii. */
 .wrap[data-open="true"][data-tab="top"] .panel { border-top-left-radius: 0; }
