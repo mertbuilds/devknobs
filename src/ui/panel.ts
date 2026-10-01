@@ -71,6 +71,13 @@ const MOTION: Group = {
   select: (value) => engine.setState({ motion: value as MotionValue }),
 };
 
+const SPEED: Group = {
+  label: "speed",
+  choices: [...choices("1", "0.25", "0.1"), { label: "pause", value: "0" }],
+  current: (state) => String(state.speed),
+  select: (value) => engine.setState({ speed: Number(value) }),
+};
+
 const CONTRAST: Group = {
   label: "contrast",
   choices: choices("system", "more"),
@@ -224,6 +231,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   addGroup(panel, SCHEME, bindings);
   addGroup(panel, MOTION, bindings);
+  addGroup(panel, SPEED, bindings);
   addGroup(panel, CONTRAST, bindings);
   addGroup(panel, LOCALE, bindings);
   addGroup(panel, DIRECTION, bindings);

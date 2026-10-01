@@ -5,6 +5,7 @@ import * as locale from "./locale";
 import * as media from "./media";
 import * as outlines from "./outlines";
 import { replay as replayAnimations } from "./replay";
+import * as speed from "./speed";
 import { clear, DEFAULT_STATE, load, merge, save } from "./store";
 import * as text from "./text";
 import * as width from "./width";
@@ -42,6 +43,7 @@ export function applyState(next: DevknobsState): void {
   // In a frame that gets the scheme natively, the rewrite and the patch step aside.
   const scheme = inFrame && nativeScheme(state.scheme) ? "system" : state.scheme;
   media.apply({ scheme, motion: state.motion, contrast: state.contrast });
+  speed.apply(state.speed);
   locale.apply(state.locale);
   geo.apply(state.geo);
   text.apply(state.text);
@@ -93,6 +95,7 @@ export function stop(): void {
   inFrame = false;
   width.onExit(null);
   media.destroy();
+  speed.reset();
   locale.reset();
   geo.reset();
   text.reset();

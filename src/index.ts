@@ -17,6 +17,7 @@ export type {
   MotionValue,
   PanelValue,
   SchemeValue,
+  SpeedValue,
   TextValue,
   VisionValue,
   WidthValue,

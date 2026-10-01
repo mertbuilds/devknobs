@@ -4,6 +4,9 @@ export type SchemeValue = "light" | "dark" | "system";
 /** Emulated value for `prefers-reduced-motion`. */
 export type MotionValue = "reduce" | "system";
 
+/** Playback rate for every animation on the page. 1 is normal speed and 0 pauses. */
+export type SpeedValue = number;
+
 /** Emulated value for `prefers-contrast`. */
 export type ContrastValue = "more" | "system";
 
@@ -54,6 +57,7 @@ export interface PanelValue {
 export interface DevknobsState {
   scheme: SchemeValue;
   motion: MotionValue;
+  speed: SpeedValue;
   contrast: ContrastValue;
   locale: LocaleValue;
   geo: GeoValue;

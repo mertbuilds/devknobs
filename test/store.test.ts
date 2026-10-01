@@ -16,6 +16,7 @@ describe("parse", () => {
       JSON.stringify({
         scheme: "dark",
         motion: "loud",
+        speed: "fast",
         contrast: "more",
         locale: { lang: "tr", dir: "sideways" },
         geo: { preset: "tokyo", lat: "x" },
@@ -32,6 +33,7 @@ describe("parse", () => {
     expect(state).toEqual({
       scheme: "dark",
       motion: "system",
+      speed: 1,
       contrast: "more",
       locale: { lang: "tr", dir: "system" },
       geo: { preset: "tokyo", lat: 0, lng: 0, accuracy: DEFAULT_STATE.geo.accuracy, timeZone: "" },
@@ -55,6 +57,12 @@ describe("parse", () => {
       y: 200,
       top: 200,
     });
+  });
+
+  test("keeps a speed of zero, which pauses, and drops a negative one", () => {
+    expect(parse(JSON.stringify({ speed: 0 })).speed).toBe(0);
+    expect(parse(JSON.stringify({ speed: 0.25 })).speed).toBe(0.25);
+    expect(parse(JSON.stringify({ speed: -1 })).speed).toBe(1);
   });
 
   test("rejects sizes that are not positive numbers", () => {

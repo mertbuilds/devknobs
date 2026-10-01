@@ -86,6 +86,7 @@ dragging to move the panel and the handle together.
 | --- | --- | --- |
 | color scheme | light, dark, system | rewrites every `prefers-color-scheme` media rule in the page's own stylesheets, patches `matchMedia` so js reads the same value, and sets `color-scheme` on `<html>` so `light-dark()` flips too. in the frame the browser does it natively, see below |
 | reduced motion | reduce, system | rewrites `prefers-reduced-motion` media rules and patches `matchMedia` |
+| animation speed | 1, 0.25, 0.1, pause | sets `playbackRate` (through `updatePlaybackRate`, so nothing jumps) on every animation `getAnimations()` returns, css animations and transitions included, in the document and every open shadow root. new ones are taken as they start: `animationstart` and `transitionrun` listeners, a patched `Element.prototype.animate`, and a light sweep every frame while the knob is off 1. scroll-driven animations keep following the scroll. when `window.gsap` exists, its global timeline's `timeScale` follows too. back to 1, every rate goes back to what it was |
 | contrast | more, system | rewrites `prefers-contrast` media rules and patches `matchMedia` |
 | locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and patches `navigator.language` / `navigator.languages`. direction defaults to rtl for ar, he, fa and ur. also writes the `PARAGLIDE_LOCALE` cookie and reloads when it changes, so paraglide (cookie strategy) server-rendered strings follow the knob |
 | geolocation | a city preset, custom coordinates, system | patches `navigator.geolocation.getCurrentPosition` and `watchPosition` with a fixed position |
@@ -138,6 +139,11 @@ the same goes for css inside a shadow root that devknobs cannot reach.
 `Date.prototype.toString` and `toLocaleString` are out of scope: they read the
 real system zone, so they keep showing local time even while `Intl` and
 `getTimezoneOffset` report the emulated one.
+
+the speed knob reaches what the Web Animations API can see. an animation
+that javascript drives frame by frame (a `requestAnimationFrame` loop, a
+spring in Motion) keeps its own pace. Motion's global config has no time scale
+to set, so only its WAAPI-backed animations slow down.
 
 the frame loads the page a second time, so in-memory state (a half-filled form,
 a client store) is not shared between the two, and the page under the frame

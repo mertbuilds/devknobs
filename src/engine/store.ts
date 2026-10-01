@@ -14,6 +14,7 @@ export const STORAGE_KEY = "devknobs";
 export const DEFAULT_STATE: DevknobsState = {
   scheme: "system",
   motion: "system",
+  speed: 1,
   contrast: "system",
   locale: { lang: "system", dir: "system" },
   geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
@@ -66,6 +67,11 @@ function numberOr<T extends string>(value: unknown, keyword: T, fallback: number
   return fallback;
 }
 
+/** A playback rate. Zero pauses, so only a negative or a non-number falls back. */
+function rate(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 /** Read a stored state, falling back to the defaults field by field. */
 export function parse(json: string | null | undefined): DevknobsState {
   if (!json) return { ...DEFAULT_STATE };
@@ -84,6 +90,7 @@ export function parse(json: string | null | undefined): DevknobsState {
   return {
     scheme: oneOf(state.scheme, SCHEMES, DEFAULT_STATE.scheme),
     motion: oneOf(state.motion, MOTIONS, DEFAULT_STATE.motion),
+    speed: rate(state.speed, DEFAULT_STATE.speed),
     contrast: oneOf(state.contrast, CONTRASTS, DEFAULT_STATE.contrast),
     locale: {
       lang: text(locale.lang, DEFAULT_STATE.locale.lang),
