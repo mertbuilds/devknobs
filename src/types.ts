@@ -28,7 +28,7 @@ export interface GeoValue {
 /** Root font size in px, or `system` to stop emulating. */
 export type TextValue = number | "system";
 
-/** Body width in px, or `full` for the real viewport width. */
+/** Viewport width in px, rendered as a frame that wide, or `full` for the window. */
 export type WidthValue = number | "full";
 
 export interface PanelValue {

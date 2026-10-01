@@ -91,7 +91,7 @@ dragging to move the panel and the handle together.
 | geolocation | a city preset, custom coordinates, system | patches `navigator.geolocation.getCurrentPosition` and `watchPosition` with a fixed position |
 | time zone | comes with the geo preset | patches `Intl.DateTimeFormat` so calls without an explicit `timeZone` use the emulated one, and patches `Date.prototype.getTimezoneOffset` |
 | root font size | px, system | sets `font-size` on `<html>`, so everything in rem scales |
-| body width | px, full | injects one style rule that caps `body` and centers it |
+| viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. back to full, the window goes wherever the frame navigated |
 | outlines | on, off | injects one style rule that outlines every element |
 | replay | action | cancels and replays every running css animation, then does the classic inline `animation: none` reset so the finished ones run again |
 
@@ -108,10 +108,15 @@ the same goes for css inside a shadow root that devknobs cannot reach.
 real system zone, so they keep showing local time even while `Intl` and
 `getTimezoneOffset` report the emulated one.
 
+the viewport width knob loads the page a second time inside its frame, so
+in-memory state (a half-filled form, a client store) is not shared between the
+two, and the page under the frame keeps running. navigations to another origin
+inside the frame are not tracked.
+
 these cannot be faked from inside a page, so use the browser devtools for
 them:
 
-- real viewport size and device pixel ratio (device toolbar)
+- viewport height and device pixel ratio (device toolbar)
 - `forced-colors` and high contrast mode (rendering panel)
 - print media (rendering panel, or print preview)
 - pointer and hover type, touch emulation (device toolbar)
