@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_STATE, merge, parse } from "../src/engine/store";
+import type { DevknobsState } from "../src/types";
 
 describe("parse", () => {
   test("falls back to the defaults", () => {
@@ -79,6 +80,16 @@ describe("parse", () => {
       text: "system",
       width: 420,
     });
+  });
+
+  test("reads back every valid value it was given", () => {
+    const state: DevknobsState = {
+      ...DEFAULT_STATE,
+      motion: "reduce",
+      speed: 0.1,
+      transparency: "reduce",
+    };
+    expect(parse(JSON.stringify(state))).toEqual(state);
   });
 });
 

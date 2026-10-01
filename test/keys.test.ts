@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { hotkeyOf, keyAction, type KeyLike } from "../src/ui/keys";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { forwardKeys, hotkeyOf, keyAction, type KeyLike } from "../src/ui/keys";
 
 function key(patch: Partial<KeyLike>): KeyLike {
   return {
@@ -53,5 +53,53 @@ describe("keyAction", () => {
     expect(keyAction(key({ target: element("DIV", true) }), "d")).toBeNull();
     expect(keyAction(key({ composedPath: () => [element("INPUT")] }), "d")).toBeNull();
     expect(keyAction(key({ target: element("DIV") }), "d")).toBe("toggle");
+  });
+});
+
+describe("forwardKeys", () => {
+  /** What the frame posted to the page above, and where to. */
+  const posted: unknown[][] = [];
+  let listener: ((event: KeyLike) => void) | null = null;
+
+  beforeEach(() => {
+    posted.length = 0;
+    listener = null;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        parent: {
+          postMessage: (message: unknown, target: string) => posted.push([message, target]),
+        },
+        addEventListener: (type: string, handler: (event: KeyLike) => void, capture: boolean) => {
+          if (type === "keydown" && capture) listener = handler;
+        },
+        removeEventListener: (type: string, handler: unknown, capture: boolean) => {
+          if (type === "keydown" && capture && handler === listener) listener = null;
+        },
+      },
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "window");
+  });
+
+  test("posts the panel's keys to the page above, on this origin only", () => {
+    forwardKeys("K");
+    listener?.(key({ key: "k" }));
+    listener?.(key({ key: "Escape" }));
+    listener?.(key({ key: "d" }));
+    listener?.(key({ key: "k", target: element("INPUT") }));
+    expect(posted).toEqual([
+      [{ source: "devknobs", type: "key", action: "toggle" }, "/"],
+      [{ source: "devknobs", type: "key", action: "close" }, "/"],
+    ]);
+  });
+
+  test("stops listening when told to", () => {
+    const stop = forwardKeys();
+    expect(listener).not.toBeNull();
+    stop();
+    expect(listener).toBeNull();
   });
 });
