@@ -1,9 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  apply,
   cascade,
   type Declaration,
   emulatedFontSize,
   emulateMediaText,
+  reset,
   specificity,
   splitSelectors,
   substituteVars,
@@ -135,5 +137,113 @@ describe("cascade", () => {
 
   test("is null without declarations", () => {
     expect(cascade([])).toBeNull();
+  });
+});
+
+/** Named as the browser's, since text size tells rules apart by their constructor's name. */
+class CSSStyleRule {
+  readonly style: Pick<CSSStyleDeclaration, "getPropertyValue" | "getPropertyPriority">;
+
+  constructor(
+    readonly selectorText: string,
+    fontSize: string,
+  ) {
+    this.style = {
+      getPropertyValue: (name: string) => (name === "font-size" ? fontSize : ""),
+      getPropertyPriority: () => "",
+    };
+  }
+}
+
+interface Sheet {
+  cssRules: unknown[];
+  media: { mediaText: string };
+  disabled: boolean;
+}
+
+function sheet(rules: unknown[], media = "", disabled = false): Sheet {
+  return { cssRules: rules, media: { mediaText: media }, disabled };
+}
+
+/** The inline style of `<html>`, and how many times anything wrote it. */
+let inline: Map<string, { value: string; priority: string }>;
+let writes: number;
+let sheets: Sheet[];
+
+function rootSize(): string {
+  return inline.get("font-size")?.value ?? "";
+}
+
+/** The page sets its own inline root size. */
+function setRootSize(value: string): void {
+  inline.set("font-size", { value, priority: "" });
+}
+
+function define(name: string, value: unknown): void {
+  Object.defineProperty(globalThis, name, { configurable: true, value });
+}
+
+describe("text size on a page", () => {
+  beforeEach(() => {
+    inline = new Map();
+    writes = 0;
+    sheets = [];
+    define("window", {
+      matchMedia: (query: string) => ({ media: query, matches: query !== "print" }),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    });
+    define("document", {
+      documentElement: {
+        matches: (selector: string) => selector === "html",
+        style: {
+          getPropertyValue: (name: string) => inline.get(name)?.value ?? "",
+          getPropertyPriority: (name: string) => inline.get(name)?.priority ?? "",
+          setProperty: (name: string, value: string, priority = "") => {
+            writes++;
+            if (value) inline.set(name, { value, priority });
+            else inline.delete(name);
+          },
+        },
+      },
+      get styleSheets() {
+        return sheets;
+      },
+      adoptedStyleSheets: [],
+    });
+    define("getComputedStyle", () => ({ fontSize: "16px", getPropertyValue: () => "" }));
+  });
+
+  afterEach(() => {
+    reset();
+    for (const name of ["window", "document", "getComputedStyle"]) {
+      Reflect.deleteProperty(globalThis, name);
+    }
+  });
+
+  test("follows a root size the page sets inline while on, and leaves it after", () => {
+    setRootSize("62.5%");
+    apply(20);
+    expect(rootSize()).toBe("12.5px");
+    setRootSize("50%");
+    apply(20);
+    expect(rootSize()).toBe("10px");
+    reset();
+    expect(rootSize()).toBe("50%");
+  });
+
+  test("leaves a root size the page wrote over devknobs' own", () => {
+    setRootSize("62.5%");
+    apply(20);
+    setRootSize("18px");
+    reset();
+    expect(rootSize()).toBe("18px");
+  });
+
+  test("writes nothing for a root size that ignores the setting", () => {
+    sheets = [sheet([new CSSStyleRule("html", "10px")])];
+    apply(20);
+    reset();
+    expect(writes).toBe(0);
   });
 });

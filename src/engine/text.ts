@@ -167,8 +167,12 @@ interface Found {
 }
 
 let size: number | null = null;
-let captured = false;
+/** The knob is on, so there is something to undo. */
+let active = false;
+/** The page's own inline root size. */
 let original = { value: "", priority: "" };
+/** The inline root size devknobs last wrote, while it is still the one there. */
+let wrote: string | null = null;
 /** Whether the root size depends on media queries, so a resize can change it. */
 let conditional = false;
 let observer: MutationObserver | null = null;
@@ -327,8 +331,26 @@ function authorFontSize(): string | null {
   return cascade(declarations)?.value ?? null;
 }
 
+/**
+ * Take the inline root size as the page's own, unless it is the one devknobs
+ * wrote. A page that sets its own while the knob is on is followed, not undone.
+ */
+function capture(): void {
+  const style = document.documentElement.style;
+  const value = style.getPropertyValue("font-size");
+  if (wrote !== null && value === wrote) return;
+  original = { value, priority: style.getPropertyPriority("font-size") };
+  wrote = null;
+}
+
+/** Put the page's own inline root size back, if devknobs' is still the one there. */
 function restoreRoot(): void {
-  document.documentElement.style.setProperty("font-size", original.value, original.priority);
+  if (wrote === null) return;
+  const style = document.documentElement.style;
+  if (style.getPropertyValue("font-size") === wrote) {
+    style.setProperty("font-size", original.value, original.priority);
+  }
+  wrote = null;
 }
 
 /** The root size the page would compute on its own, read with the knob's off. */
@@ -345,6 +367,7 @@ function computedSize(): number {
  */
 function applyRoot(): void {
   if (size === null) return;
+  capture();
   const root = document.documentElement;
   const value = authorFontSize();
   const lookup = (name: string) => getComputedStyle(root).getPropertyValue(name);
@@ -353,9 +376,13 @@ function applyRoot(): void {
     resolved === null
       ? px((computedSize() * size) / INITIAL)
       : emulatedFontSize(resolved, size);
-  if (next === null) restoreRoot();
+  if (next === null) {
+    restoreRoot();
+    return;
+  }
   // Important, so it wins over an important author rule the way the setting would.
-  else root.style.setProperty("font-size", next, "important");
+  root.style.setProperty("font-size", next, "important");
+  wrote = root.style.getPropertyValue("font-size");
 }
 
 function refresh(): void {
@@ -413,14 +440,7 @@ export function apply(value: TextValue): void {
     reset();
     return;
   }
-  const root = document.documentElement;
-  if (!captured) {
-    original = {
-      value: root.style.getPropertyValue("font-size"),
-      priority: root.style.getPropertyPriority("font-size"),
-    };
-    captured = true;
-  }
+  active = true;
   size = value;
   addLayer("text", sizeQuery);
   watchSheets();
@@ -428,7 +448,7 @@ export function apply(value: TextValue): void {
 }
 
 export function reset(): void {
-  if (!captured) return;
+  if (!active) return;
   size = null;
   observer?.disconnect();
   observer = null;
@@ -440,5 +460,5 @@ export function reset(): void {
   removeLayer("text");
   rewriteMedia();
   restoreRoot();
-  captured = false;
+  active = false;
 }
