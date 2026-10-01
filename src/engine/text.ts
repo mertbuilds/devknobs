@@ -1,4 +1,5 @@
 import type { TextValue } from "../types";
+import { addLayer, removeLayer } from "./matchmedia";
 
 /**
  * The browser's default font size setting, emulated. That setting is the size
@@ -172,8 +173,6 @@ let original = { value: "", priority: "" };
 let conditional = false;
 let observer: MutationObserver | null = null;
 let frame = 0;
-let below: ((query: string) => MediaQueryList) | null = null;
-let wrapped: ((query: string) => MediaQueryList) | null = null;
 const rewrites = new WeakMap<CSSRule, { original: string; written: string }>();
 
 function sheets(): CSSStyleSheet[] {
@@ -397,30 +396,16 @@ function watchSheets(): void {
 }
 
 /**
- * Take em and rem in `matchMedia` queries against the knob's size too. It
- * wraps whatever `matchMedia` is in place, the prefers knobs' patch included,
- * and wraps again if that is swapped out.
+ * Take em and rem in `matchMedia` queries against the knob's size too. This is
+ * the outer layer of the patch the prefers knobs share, so they get the query
+ * in px.
  */
-function wrapMatchMedia(): void {
-  if (wrapped && window.matchMedia === wrapped) return;
-  const inner = window.matchMedia;
-  below = inner;
-  wrapped = function matchMedia(query: string): MediaQueryList {
-    const text = String(query);
-    const emulated = size === null ? text : emulateMediaText(text, size);
-    const list = inner.call(window, emulated);
-    // The list reports the query it was asked for, as it would natively.
-    if (emulated !== text) Object.defineProperty(list, "media", { configurable: true, value: text });
-    return list;
-  };
-  window.matchMedia = wrapped;
-}
-
-function unwrapMatchMedia(): void {
-  // Wrapped over since: the wrapper stays and passes queries through.
-  if (wrapped && below && window.matchMedia === wrapped) window.matchMedia = below;
-  wrapped = null;
-  below = null;
+function sizeQuery(query: string, next: (query: string) => MediaQueryList): MediaQueryList {
+  const emulated = size === null ? query : emulateMediaText(query, size);
+  const list = next(emulated);
+  // The list reports the query it was asked for, as it would natively.
+  if (emulated !== query) Object.defineProperty(list, "media", { configurable: true, value: query });
+  return list;
 }
 
 export function apply(value: TextValue): void {
@@ -437,7 +422,7 @@ export function apply(value: TextValue): void {
     captured = true;
   }
   size = value;
-  wrapMatchMedia();
+  addLayer("text", sizeQuery);
   watchSheets();
   refresh();
 }
@@ -452,7 +437,7 @@ export function reset(): void {
     cancelAnimationFrame(frame);
     frame = 0;
   }
-  unwrapMatchMedia();
+  removeLayer("text");
   rewriteMedia();
   restoreRoot();
   captured = false;
