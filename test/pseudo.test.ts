@@ -73,6 +73,12 @@ class FakeElement {
     this.childNodes.push(...nodes);
   }
 
+  remove(): void {
+    const parent = this.parentElement;
+    if (parent) parent.childNodes = parent.childNodes.filter((node) => node !== this);
+    this.parentElement = null;
+  }
+
   /** As `textContent =` does it: one new text node in place of the children. */
   replaceText(data: string): FakeText {
     const text = new FakeText(data);
@@ -200,5 +206,20 @@ describe("pseudo on a page", () => {
     on();
     expect(plain.textContent).toBe("Red");
     expect(valued.textContent).toBe(pseudoText("Blue"));
+  });
+
+  test("gives back the text of nodes the page detached or made editable since", () => {
+    const dialog = new FakeElement("DIV", [new FakeText("Cancel")]);
+    const notes = new FakeElement("DIV", [new FakeText("Notes")]);
+    notes.setAttribute("aria-label", "Notes");
+    body.append(dialog, notes);
+    on();
+    expect(dialog.textContent).toBe(pseudoText("Cancel"));
+    dialog.remove();
+    notes.isContentEditable = true;
+    reset();
+    expect(dialog.textContent).toBe("Cancel");
+    expect(notes.textContent).toBe("Notes");
+    expect(notes.getAttribute("aria-label")).toBe("Notes");
   });
 });

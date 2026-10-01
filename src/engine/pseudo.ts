@@ -48,6 +48,8 @@ const texts = new WeakMap<Text, Swap>();
 const attributes = new WeakMap<Element, Map<string, Swap>>();
 /** Each bracketed pseudo string written while on, to the text it stands for. */
 const originals = new Map<string, string>();
+/** Every node swapped while on, so off reaches those the walk no longer does. */
+const swapped = new Set<WeakRef<Node>>();
 
 let on = false;
 let observer: MutationObserver | null = null;
@@ -87,6 +89,7 @@ function swapText(node: Text): void {
   const original = unwrap(node.data);
   const pseudo = wrap(original);
   if (pseudo === original) return;
+  if (!known) swapped.add(new WeakRef(node));
   texts.set(node, { original, pseudo });
   node.data = pseudo;
 }
@@ -103,6 +106,7 @@ function swapAttribute(element: Element, name: string): void {
   if (!swaps) {
     swaps = new Map();
     attributes.set(element, swaps);
+    swapped.add(new WeakRef(element));
   }
   swaps.set(name, { original: value, pseudo });
   element.setAttribute(name, pseudo);
@@ -221,6 +225,11 @@ export function reset(): void {
   on = false;
   observer?.disconnect();
   observer = null;
-  if (document.body) walk(document.body, restoreNode);
+  // Detached, or editable since, a node is out of the walk but may still show pseudo text.
+  for (const ref of swapped) {
+    const node = ref.deref();
+    if (node) restoreNode(node);
+  }
+  swapped.clear();
   originals.clear();
 }
