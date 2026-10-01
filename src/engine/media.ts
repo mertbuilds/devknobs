@@ -115,24 +115,24 @@ export function mentionsFeature(text: string): boolean {
 
 type MediaBearingRule = CSSRule & { media: MediaList };
 
-interface Watched {
-  ref: WeakRef<MediaQueryList>;
-  query: string;
-  matches: boolean;
-  listeners: Set<MediaListener>;
-}
-
-type MediaListener =
-  | ((event: MediaQueryListEvent) => void)
-  | { handleEvent(event: MediaQueryListEvent): void };
-
 const originals = new WeakMap<CSSRule, string>();
-const watched: Watched[] = [];
+/** The lists `matchMedia` handed out that name an emulated feature. The page may drop them. */
+const tracked = new Set<WeakRef<MediaQueryList>>();
+/** What the page last heard each tracked list say, through a read or a change event. */
+const heard = new WeakMap<MediaQueryList, boolean>();
+/**
+ * The query each tracked list was made from. Its own `media` reads `not all`
+ * when the browser does not know a feature, and the feature is lost with it.
+ */
+const queries = new WeakMap<MediaQueryList, string>();
 
 let current: MediaValue = SYSTEM_MEDIA;
 let nativeMatchMedia: ((query: string) => MediaQueryList) | null = null;
-let nativeAddEventListener: typeof EventTarget.prototype.addEventListener | null = null;
+/** `matches` as `MediaQueryList.prototype` had it, to put back. */
+let nativeMatches: PropertyDescriptor | null = null;
+let readMatches: ((this: MediaQueryList) => boolean) | null = null;
 let patched = false;
+let refreshQueued = false;
 let observer: MutationObserver | null = null;
 let frame = 0;
 let colorScheme: string | null = null;
@@ -225,93 +225,102 @@ function ensureObserver(): void {
   observer.observe(document.documentElement, { childList: true, subtree: true });
 }
 
+function emulating(): boolean {
+  return KNOBS.some((knob) => current[knob] !== "system");
+}
+
+/** What a query matches with the emulated values, read through the native getter. */
 function evaluate(query: string): boolean {
   if (!nativeMatchMedia) return false;
   try {
-    return nativeMatchMedia.call(window, rewriteAll(query, current)).matches;
+    const list = nativeMatchMedia.call(window, rewriteAll(query, current));
+    return readMatches ? readMatches.call(list) : list.matches;
   } catch {
     return false;
   }
 }
 
-function dispatch(entry: Watched, mql: MediaQueryList): void {
-  const event = { matches: entry.matches, media: entry.query } as MediaQueryListEvent;
-  for (const listener of Array.from(entry.listeners)) {
-    try {
-      if (typeof listener === "function") listener.call(mql, event);
-      else listener.handleEvent(event);
-    } catch {
-      // A listener that throws must not stop the others.
-    }
-  }
-  const handler = mql.onchange;
-  if (typeof handler === "function") {
-    try {
-      handler.call(mql, event);
-    } catch {
-      // Same.
-    }
-  }
-}
-
+/**
+ * Tell every tracked list whose verdict moved, with a real `change` event. It
+ * goes through the list's own `dispatchEvent`, so `onchange`, `addListener`
+ * and every `addEventListener` option (`once`, `signal`) work as they always do.
+ */
 function refresh(): void {
-  for (let i = watched.length - 1; i >= 0; i--) {
-    const entry = watched[i];
-    if (!entry) continue;
-    const mql = entry.ref.deref();
-    if (!mql) {
-      watched.splice(i, 1);
+  for (const ref of Array.from(tracked)) {
+    const list = ref.deref();
+    if (!list) {
+      tracked.delete(ref);
       continue;
     }
-    const matches = evaluate(entry.query);
-    if (matches === entry.matches) continue;
-    entry.matches = matches;
-    dispatch(entry, mql);
+    const matches = list.matches;
+    if (matches === heard.get(list)) continue;
+    heard.set(list, matches);
+    list.dispatchEvent(new MediaQueryListEvent("change", { media: list.media, matches }));
   }
 }
 
-function watch(mql: MediaQueryList, query: string): MediaQueryList {
-  const entry: Watched = {
-    ref: new WeakRef(mql),
-    query,
-    matches: evaluate(query),
-    listeners: new Set(),
-  };
-  watched.push(entry);
-
-  Object.defineProperty(mql, "matches", {
-    configurable: true,
-    get: () => evaluate(query),
+/**
+ * The browser's own change event carries its own verdict, which an emulated
+ * feature can contradict. While one is emulated, stop that event before the
+ * page hears it and send the emulated verdict instead, if a real change (a
+ * resize, say) moved it.
+ */
+function guard(event: Event): void {
+  if (!event.isTrusted) return;
+  const list = event.currentTarget as MediaQueryList;
+  if (!emulating()) {
+    heard.set(list, (event as MediaQueryListEvent).matches);
+    return;
+  }
+  event.stopImmediatePropagation();
+  if (refreshQueued) return;
+  refreshQueued = true;
+  queueMicrotask(() => {
+    refreshQueued = false;
+    refresh();
   });
-  const add = (type: string, listener: MediaListener | null) => {
-    if (type === "change" && listener) entry.listeners.add(listener);
-  };
-  const remove = (type: string, listener: MediaListener | null) => {
-    if (type === "change" && listener) entry.listeners.delete(listener);
-  };
-  const define = (name: string, value: unknown) => {
-    Object.defineProperty(mql, name, { configurable: true, writable: true, value });
-  };
-  define("addEventListener", add);
-  define("removeEventListener", remove);
-  define("addListener", (listener: MediaListener | null) => add("change", listener));
-  define("removeListener", (listener: MediaListener | null) => remove("change", listener));
-
-  // A real change (a resize, say) can still flip a query that also carries an
-  // emulated feature, so keep listening natively.
-  nativeAddEventListener?.call(mql, "change", () => refresh());
-  return mql;
 }
 
+/**
+ * The guard goes on before the list reaches the page. Listeners on a list run
+ * in the order they were added, capture or not, so only the first one can
+ * stop an event before the page's own.
+ */
+function track(list: MediaQueryList, query: string): void {
+  queries.set(list, query);
+  heard.set(list, list.matches);
+  tracked.add(new WeakRef(list));
+  list.addEventListener("change", guard);
+}
+
+/**
+ * Patch `matches` on the prototype, so a list made before devknobs mounted
+ * reads the emulated value too. Only lists made after can be told about a
+ * change: there is no way to find the earlier ones.
+ */
 function ensureMatchMedia(): void {
   if (patched) return;
   nativeMatchMedia ??= window.matchMedia.bind(window);
-  nativeAddEventListener = EventTarget.prototype.addEventListener;
   patched = true;
   window.matchMedia = (query: string): MediaQueryList => {
-    const mql = nativeMatchMedia!.call(window, query);
-    return mentionsFeature(query) ? watch(mql, query) : mql;
+    const list = nativeMatchMedia!.call(window, query);
+    if (mentionsFeature(query)) track(list, query);
+    return list;
   };
+  const descriptor = Object.getOwnPropertyDescriptor(MediaQueryList.prototype, "matches");
+  const read = descriptor?.get;
+  if (!descriptor || !read) return;
+  nativeMatches = descriptor;
+  readMatches = read;
+  Object.defineProperty(MediaQueryList.prototype, "matches", {
+    configurable: true,
+    enumerable: descriptor.enumerable,
+    get(this: MediaQueryList): boolean {
+      if (!emulating()) return read.call(this);
+      const query = queries.get(this) ?? this.media;
+      return mentionsFeature(query) ? evaluate(query) : read.call(this);
+    },
+  });
 }
 
 function applyColorScheme(): void {
@@ -335,7 +344,7 @@ export function reset(): void {
   apply(SYSTEM_MEDIA);
 }
 
-/** Put `matchMedia` back and stop watching for new stylesheets. */
+/** Put `matchMedia` and `matches` back and stop watching for new stylesheets. */
 export function destroy(): void {
   reset();
   observer?.disconnect();
@@ -345,10 +354,13 @@ export function destroy(): void {
     frame = 0;
   }
   if (patched && nativeMatchMedia) {
-    // The native reference stays so that already-handed-out lists keep working.
     window.matchMedia = nativeMatchMedia;
+    if (nativeMatches) Object.defineProperty(MediaQueryList.prototype, "matches", nativeMatches);
+    nativeMatches = null;
+    readMatches = null;
     patched = false;
   }
-  watched.length = 0;
+  for (const ref of tracked) ref.deref()?.removeEventListener("change", guard);
+  tracked.clear();
   colorScheme = null;
 }

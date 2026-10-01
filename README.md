@@ -84,10 +84,10 @@ dragging to move the panel and the handle together.
 
 | knob | values | how it is emulated |
 | --- | --- | --- |
-| color scheme | light, dark, system | rewrites every `prefers-color-scheme` media rule in the page's own stylesheets, patches `matchMedia` so js reads the same value, and sets `color-scheme` on `<html>` so `light-dark()` flips too. in the frame the browser does it natively, see below |
-| reduced motion | reduce, system | rewrites `prefers-reduced-motion` media rules and patches `matchMedia` |
+| color scheme | light, dark, system | rewrites every `prefers-color-scheme` media rule in the page's own stylesheets, patches `matchMedia` and `MediaQueryList.prototype.matches` so js reads the same value, and sets `color-scheme` on `<html>` so `light-dark()` flips too. in the frame the browser does it natively, see below |
+| reduced motion | reduce, system | rewrites `prefers-reduced-motion` media rules and patches `matchMedia` the same way |
 | animation speed | 1, 0.25, 0.1, pause | sets `playbackRate` (through `updatePlaybackRate`, so nothing jumps) on every animation `getAnimations()` returns, css animations and transitions included, in the document and every open shadow root. new ones are taken as they start: `animationstart` and `transitionrun` listeners, a patched `Element.prototype.animate`, and a light sweep every frame while the knob is off 1. scroll-driven animations keep following the scroll. when `window.gsap` exists, its global timeline's `timeScale` follows too. back to 1, every rate goes back to what it was |
-| contrast | more, system | rewrites `prefers-contrast` media rules and patches `matchMedia` |
+| contrast | more, system | rewrites `prefers-contrast` media rules and patches `matchMedia` the same way |
 | locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and patches `navigator.language` / `navigator.languages`. direction defaults to rtl for ar, he, fa and ur. also writes the `PARAGLIDE_LOCALE` cookie and reloads when it changes, so paraglide (cookie strategy) server-rendered strings follow the knob |
 | geolocation | a city preset, custom coordinates, system | patches `navigator.geolocation.getCurrentPosition` and `watchPosition` with a fixed position |
 | time zone | comes with the geo preset | patches `Intl.DateTimeFormat` so calls without an explicit `timeZone` use the emulated one, and patches `Date.prototype.getTimezoneOffset` |
@@ -101,6 +101,12 @@ dragging to move the panel and the handle together.
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.
+
+a list from `matchMedia` gets a real `change` event, sent with its own
+`dispatchEvent`, whenever a knob moves its verdict, so `onchange`,
+`addListener` and the `once` and `signal` options all work. while a feature is
+emulated, the browser's own change events for it are held back, since they
+carry the real verdict.
 
 ## the frame
 
@@ -135,6 +141,11 @@ plain ones and its popovers stay hidden, as both would paint over the frame.
 only same-origin stylesheets can be rewritten. a cross-origin `<link>` keeps
 its real media behaviour, because the browser refuses to hand over its rules.
 the same goes for css inside a shadow root that devknobs cannot reach.
+
+a `MediaQueryList` made before devknobs mounted reads the emulated `matches`,
+because the getter is patched on the prototype, but it gets no change event:
+there is no way to find it. reload once the knob is set, so the page makes its
+lists after the mount.
 
 `Date.prototype.toString` and `toLocaleString` are out of scope: they read the
 real system zone, so they keep showing local time even while `Intl` and
