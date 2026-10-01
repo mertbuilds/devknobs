@@ -20,6 +20,22 @@ export type ViewportValue = FrameKnobs & Pick<DevknobsState, "scheme">;
 const Z_INDEX = 2147483645;
 
 /**
+ * Everything an app on this origin does, short of navigating the window above
+ * on its own: a frame-busting script would reload the page into its frame
+ * forever. A click can still, so `target="_top"` links work.
+ */
+const SANDBOX = [
+  "allow-scripts",
+  "allow-same-origin",
+  "allow-forms",
+  "allow-popups",
+  "allow-popups-to-escape-sandbox",
+  "allow-modals",
+  "allow-downloads",
+  "allow-top-navigation-by-user-activation",
+].join(" ");
+
+/**
  * The letterbox around the frame. It lives in a shadow root like the panel,
  * so page css cannot reach it. One mid gray reads as chrome in light and dark.
  */
@@ -266,6 +282,7 @@ function open(): void {
   frame.setAttribute(FRAME_ATTRIBUTE, "");
   frame.name = FRAME_NAME;
   frame.title = "devknobs viewport";
+  frame.setAttribute("sandbox", SANDBOX);
   frameUrl = window.location.href;
   loaded = false;
   frame.src = frameUrl;
