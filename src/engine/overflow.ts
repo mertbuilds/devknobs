@@ -68,11 +68,22 @@ function parentOf(element: Element): Element | null {
 }
 
 /** Does a box on the way up clip or scroll sideways? Then the overflow stays inside it. */
-function clipped(element: Element): boolean {
+export function clipped(element: Element): boolean {
+  const root = document.documentElement;
+  const rootStyle = getComputedStyle(root);
+  // The root's overflow is the viewport's, and so is the body's while the
+  // root's is visible. The page scrolls by it, unless it hides or clips.
+  const viewport =
+    rootStyle.overflowX === "visible" && rootStyle.overflowY === "visible" ? document.body : root;
   for (let node = parentOf(element); node; node = parentOf(node)) {
+    const overflow = getComputedStyle(node).overflowX;
+    if (node === root || node === viewport) {
+      if (overflow === "hidden" || overflow === "clip") return true;
+      continue;
+    }
     // `visible` next to anything else computes to `auto`, so this is every
     // box that clips, hides or scrolls its overflow along x.
-    if (getComputedStyle(node).overflowX !== "visible") return true;
+    if (overflow !== "visible") return true;
   }
   return false;
 }
