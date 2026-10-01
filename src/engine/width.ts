@@ -523,14 +523,16 @@ function close(follow: boolean): void {
   current = { ...current, ...UNFRAMED };
   document.removeEventListener("DOMContentLoaded", open);
   if (!host) return;
-  const target = follow ? locate() : "";
+  // The window went back to another entry meanwhile. It stays there, and the
+  // frame is not followed.
+  const moved = window.location.href !== written;
+  const target = follow && !moved ? locate() : "";
   window.removeEventListener("message", onMessage);
   window.removeEventListener("resize", resize);
   frame?.removeEventListener("load", onLoad);
   titleObserver?.disconnect();
-  // The window shows its own page again, so its own address and title too,
-  // unless it went back to another entry meanwhile.
-  if (window.location.href === written) replaceUrl(pageUrl);
+  // The window shows its own page again, so its own address and title too.
+  if (!moved) replaceUrl(pageUrl);
   if (pageTitle !== null) document.title = pageTitle;
   pageTitle = null;
   host.remove();

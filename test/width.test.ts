@@ -345,4 +345,13 @@ describe("the frame over the page", () => {
     expect(assigned).toEqual([FRAMED]);
     expect(scrolls).toEqual([]);
   });
+
+  test("stays on the entry the window went back to, when the knobs go off", () => {
+    apply(VIEWPORT);
+    load(FRAMED);
+    location.href = EARLIER;
+    apply({ ...UNFRAMED, scheme: "system" });
+    expect(assigned).toEqual([]);
+    expect(location.href).toBe(EARLIER);
+  });
 });
