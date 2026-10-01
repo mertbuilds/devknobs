@@ -43,6 +43,8 @@ interface Swap {
 
 const texts = new WeakMap<Text, Swap>();
 const attributes = new WeakMap<Element, Map<string, Swap>>();
+/** Each bracketed pseudo string written while on, to the text it stands for. */
+const originals = new Map<string, string>();
 
 let on = false;
 let observer: MutationObserver | null = null;
@@ -54,24 +56,46 @@ function skipped(element: Element | null): boolean {
   return (element as HTMLElement).isContentEditable || element.closest(SKIPPED) !== null;
 }
 
+/**
+ * A page that reads pseudo text back and writes it again, `textContent +=`
+ * say, gets the originals in its place, so the text never wraps twice.
+ */
+function unwrap(text: string): string {
+  let next = text;
+  // Every pseudo string ends in its padding and bracket.
+  if (!next.includes("·]")) return next;
+  for (const [pseudo, original] of originals) {
+    if (next.includes(pseudo)) next = next.split(pseudo).join(original);
+  }
+  return next;
+}
+
+/** The pseudo form of `original`, remembered so it can be unwrapped. */
+function wrap(original: string): string {
+  const pseudo = pseudoText(original);
+  if (pseudo !== original) originals.set(pseudo.trim(), original.trim());
+  return pseudo;
+}
+
 function swapText(node: Text): void {
   const known = texts.get(node);
   // Devknobs' own write, coming back as a mutation.
   if (known && node.data === known.pseudo) return;
-  const original = node.data;
-  const pseudo = pseudoText(original);
+  const original = unwrap(node.data);
+  const pseudo = wrap(original);
   if (pseudo === original) return;
   texts.set(node, { original, pseudo });
   node.data = pseudo;
 }
 
 function swapAttribute(element: Element, name: string): void {
-  const value = element.getAttribute(name);
-  if (value === null) return;
+  const read = element.getAttribute(name);
+  if (read === null) return;
   let swaps = attributes.get(element);
   const known = swaps?.get(name);
-  if (known && value === known.pseudo) return;
-  const pseudo = pseudoText(value);
+  if (known && read === known.pseudo) return;
+  const value = unwrap(read);
+  const pseudo = wrap(value);
   if (pseudo === value) return;
   if (!swaps) {
     swaps = new Map();
@@ -195,4 +219,5 @@ export function reset(): void {
   observer?.disconnect();
   observer = null;
   if (document.body) walk(document.body, restoreNode);
+  originals.clear();
 }
