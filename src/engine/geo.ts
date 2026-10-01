@@ -34,6 +34,14 @@ export const GEO_PRESETS: GeoPreset[] = [
 
 export const DEFAULT_ACCURACY = 20;
 
+/** The `route` preset's pace, in km/h: a car in town. */
+export const DEFAULT_SPEED = 40;
+
+/** How often a playing route moves the position active watches hear, in ms. */
+const ROUTE_TICK = 1000;
+
+const EARTH_RADIUS = 6_371_008.8;
+
 export interface GeoFix {
   lat: number;
   lng: number;
@@ -45,11 +53,101 @@ export function geoPreset(id: string): GeoPreset | undefined {
   return GEO_PRESETS.find((preset) => preset.id === id);
 }
 
+export interface RoutePoint {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * The points of a route: the track points of a GPX file, else its route
+ * points, else its way points, or else one `lat,lng` pair per line. Points
+ * off the globe are dropped.
+ */
+export function parseRoute(text: string): RoutePoint[] {
+  const points: RoutePoint[] = [];
+  const add = (lat: number, lng: number) => {
+    if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) points.push({ lat, lng });
+  };
+  for (const tag of ["trkpt", "rtept", "wpt"]) {
+    for (const [, attributes = ""] of text.matchAll(new RegExp(`<${tag}\\b([^>]*)>`, "gi"))) {
+      const lat = /\blat\s*=\s*["']([^"']*)["']/i.exec(attributes)?.[1] ?? "";
+      const lng = /\blon\s*=\s*["']([^"']*)["']/i.exec(attributes)?.[1] ?? "";
+      add(parseFloat(lat), parseFloat(lng));
+    }
+    if (points.length > 0) return points;
+  }
+  for (const line of text.split(/[\n;]+/)) {
+    const match = /(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)/.exec(line);
+    if (match) add(Number(match[1]), Number(match[2]));
+  }
+  return points;
+}
+
+function radians(degrees: number): number {
+  return (degrees * Math.PI) / 180;
+}
+
+/** Great circle distance between two points, in meters. */
+export function distance(from: RoutePoint, to: RoutePoint): number {
+  const lat = Math.sin(radians(to.lat - from.lat) / 2);
+  const lng = Math.sin(radians(to.lng - from.lng) / 2);
+  const a = lat * lat + Math.cos(radians(from.lat)) * Math.cos(radians(to.lat)) * lng * lng;
+  return 2 * EARTH_RADIUS * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** The compass heading from one point toward another, in degrees clockwise from north. */
+function bearing(from: RoutePoint, to: RoutePoint): number {
+  const lng = radians(to.lng - from.lng);
+  const y = Math.sin(lng) * Math.cos(radians(to.lat));
+  const x =
+    Math.cos(radians(from.lat)) * Math.sin(radians(to.lat)) -
+    Math.sin(radians(from.lat)) * Math.cos(radians(to.lat)) * Math.cos(lng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/**
+ * Where a trip along the route stands after `meters`, and the heading it
+ * travels on. It starts over from the first point once it reaches the last.
+ * Straight in latitude and longitude between points, which at the scale of a
+ * track is as good as the great circle. A route that goes nowhere has no heading.
+ */
+export function alongRoute(points: RoutePoint[], meters: number): RoutePoint & { heading: number } {
+  const legs = points.slice(1).map((to, index) => distance(points[index]!, to));
+  const total = legs.reduce((sum, leg) => sum + leg, 0);
+  const first = points[0] ?? { lat: 0, lng: 0 };
+  if (!(total > 0)) return { ...first, heading: NaN };
+  let left = ((meters % total) + total) % total;
+  let last = 0;
+  for (const [index, leg] of legs.entries()) {
+    if (leg === 0) continue;
+    last = index;
+    if (left > leg) {
+      left -= leg;
+      continue;
+    }
+    const from = points[index]!;
+    const to = points[index + 1]!;
+    const share = left / leg;
+    return {
+      lat: from.lat + (to.lat - from.lat) * share,
+      lng: from.lng + (to.lng - from.lng) * share,
+      heading: bearing(from, to),
+    };
+  }
+  // Rounding left a sliver past the last leg: that is its end.
+  return { ...points[last + 1]!, heading: bearing(points[last]!, points[last + 1]!) };
+}
+
 /** The position to report, or null when the knob is off or the preset is unknown. */
 export function resolveGeo(value: GeoValue): GeoFix | null {
   const accuracy = value.accuracy > 0 ? value.accuracy : DEFAULT_ACCURACY;
   if (value.preset === "custom") {
     return { lat: value.lat, lng: value.lng, accuracy, timeZone: value.timeZone };
+  }
+  if (value.preset === "route") {
+    const [start] = parseRoute(value.route);
+    if (!start) return null;
+    return { lat: start.lat, lng: start.lng, accuracy, timeZone: value.timeZone };
   }
   const preset = geoPreset(value.preset);
   if (!preset) return null;
@@ -100,6 +198,9 @@ let failure: GeoErrorValue = "none";
 let applied = "";
 /** The last position handed out, which `maximumAge` may hand out again. */
 let cached: GeolocationPosition | null = null;
+/** The trip the route preset is on: its points, its pace in m/s, and since when. */
+let trip: { points: RoutePoint[]; speed: number; start: number } | null = null;
+let ticker: ReturnType<typeof setInterval> | null = null;
 const watches = new Map<number, Request>();
 let nextWatchId = FAKE_WATCH_BASE;
 let geolocationDescriptors: Record<string, PropertyDescriptor | undefined> | null = null;
@@ -115,15 +216,25 @@ const statuses = new Map<PermissionStatus, PermissionState>();
 
 function currentPosition(): GeolocationPosition {
   const value = fix!;
+  let { lat, lng } = value;
+  let heading: number | null = null;
+  let speed: number | null = null;
+  if (trip) {
+    const at = alongRoute(trip.points, (trip.speed * (Date.now() - trip.start)) / 1000);
+    ({ lat, lng } = at);
+    speed = trip.speed;
+    // The spec's heading for a device standing still.
+    heading = speed > 0 ? at.heading : NaN;
+  }
   return {
     coords: {
-      latitude: value.lat,
-      longitude: value.lng,
+      latitude: lat,
+      longitude: lng,
       accuracy: value.accuracy,
       altitude: null,
       altitudeAccuracy: null,
-      heading: null,
-      speed: null,
+      heading,
+      speed,
     },
     timestamp: Date.now(),
   } as unknown as GeolocationPosition;
@@ -264,6 +375,22 @@ function restorePermissions(): void {
   statuses.clear();
 }
 
+/** Every watch hears where it is now. */
+function pushWatches(): void {
+  cached = null;
+  for (const [id, request] of watches) respond(request, id);
+}
+
+/** Keep the watches moving while a route plays, and only then. */
+function playRoute(): void {
+  const playing = trip !== null && failure === "none";
+  if (playing && !ticker) ticker = setInterval(pushWatches, ROUTE_TICK);
+  if (!playing && ticker) {
+    clearInterval(ticker);
+    ticker = null;
+  }
+}
+
 export function apply(value: GeoValue): void {
   const next = resolveGeo(value);
   const error = value.error;
@@ -271,7 +398,8 @@ export function apply(value: GeoValue): void {
     reset();
     return;
   }
-  const key = JSON.stringify([next, error]);
+  const route = value.preset === "route" ? [value.route, value.speed] : null;
+  const key = JSON.stringify([next, error, route]);
   const moved = key !== applied;
   fix = next;
   failure = error;
@@ -279,8 +407,17 @@ export function apply(value: GeoValue): void {
   patchGeolocation();
   patchPermissions();
   if (!moved) return;
-  cached = null;
-  for (const [id, request] of watches) respond(request, id);
+  // A new route, or a new pace, starts the trip over.
+  trip =
+    route && next
+      ? {
+          points: parseRoute(value.route),
+          speed: Math.max(0, value.speed) / 3.6,
+          start: Date.now(),
+        }
+      : null;
+  playRoute();
+  pushWatches();
   notifyStatuses();
 }
 
@@ -290,6 +427,8 @@ export function reset(): void {
   failure = "none";
   applied = "";
   cached = null;
+  trip = null;
+  playRoute();
   watches.clear();
   restorePermissions();
   restoreGeolocation();

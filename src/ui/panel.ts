@@ -125,6 +125,7 @@ const GEO: Group = {
   choices: [
     { label: "system", value: "system" },
     ...GEO_PRESETS.map((preset) => ({ label: preset.label.toLowerCase(), value: preset.id })),
+    { label: "route", value: "route" },
   ],
   current: (state) => state.geo.preset,
   select: (value) => engine.setState({ geo: { preset: value } }),
@@ -305,7 +306,15 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const lng = numberField("lng");
   const fields = el("div", "fields");
   fields.append(lat, lng);
-  geoBox.append(el("div", "label", "custom"), fields);
+  const route = document.createElement("textarea");
+  route.className = "field field-route";
+  route.placeholder = "lat,lng per line, or gpx";
+  route.spellcheck = false;
+  route.setAttribute("aria-label", "route");
+  const speed = numberField("km/h");
+  const routeFields = el("div", "fields");
+  routeFields.append(route, speed);
+  geoBox.append(el("div", "label", "custom"), fields, el("div", "label", "route"), routeFields);
   addGroup(panel, GEO_ERROR, bindings);
 
   const zoneBox = addGroup(panel, TIME_ZONE, bindings);
@@ -354,7 +363,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   /** Leave an input alone while it has the caret, so typing is never cut off. */
-  function fill(input: HTMLInputElement, value: string): void {
+  function fill(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
     if (root.activeElement === input) return;
     if (input.value !== value) input.value = value;
   }
@@ -377,6 +386,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const fix = resolveGeo(state.geo);
     fill(lat, fix ? String(fix.lat) : "");
     fill(lng, fix ? String(fix.lng) : "");
+    fill(route, state.geo.route);
+    fill(speed, String(state.geo.speed));
     const keyword = state.timeZone === "geo" || state.timeZone === "system";
     fill(zone, keyword ? "" : state.timeZone);
     zoneNote.textContent = `time zone: ${resolveTimeZone(state.timeZone, state.geo) ?? "system"}`;
@@ -453,34 +464,43 @@ export function createPanel(options: PanelOptions = {}): Panel {
     clampY();
   }
 
-  let debounce = 0;
-  let zoneDebounce = 0;
+  /** Typing commits once it pauses, each field on a timer of its own. */
+  const pending = new Map<() => void, number>();
+
+  function queue(commit: () => void): void {
+    clearTimeout(pending.get(commit));
+    pending.set(
+      commit,
+      window.setTimeout(() => {
+        pending.delete(commit);
+        commit();
+      }, CUSTOM_DEBOUNCE),
+    );
+  }
 
   function commitCustom(): void {
-    debounce = 0;
     engine.setState({
       geo: { preset: "custom", lat: toNumber(lat.value), lng: toNumber(lng.value) },
     });
   }
 
-  function queueCustom(): void {
-    clearTimeout(debounce);
-    debounce = window.setTimeout(commitCustom, CUSTOM_DEBOUNCE);
+  function commitRoute(): void {
+    engine.setState({ geo: { preset: "route", route: route.value } });
+  }
+
+  function commitSpeed(): void {
+    engine.setState({ geo: { speed: toNumber(speed.value) } });
   }
 
   /** An emptied field goes back to following geo. */
   function commitZone(): void {
-    zoneDebounce = 0;
     engine.setState({ timeZone: zone.value.trim() || "geo" });
   }
 
-  function queueZone(): void {
-    clearTimeout(zoneDebounce);
-    zoneDebounce = window.setTimeout(commitZone, CUSTOM_DEBOUNCE);
-  }
-
-  for (const input of [lat, lng]) input.addEventListener("input", queueCustom);
-  zone.addEventListener("input", queueZone);
+  for (const input of [lat, lng]) input.addEventListener("input", () => queue(commitCustom));
+  route.addEventListener("input", () => queue(commitRoute));
+  speed.addEventListener("input", () => queue(commitSpeed));
+  zone.addEventListener("input", () => queue(commitZone));
   replayButton.addEventListener("click", () => engine.replay());
   resetButton.addEventListener("click", () => engine.reset());
 
@@ -611,8 +631,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     destroy(): void {
       unsubscribe();
       stopCount();
-      clearTimeout(debounce);
-      clearTimeout(zoneDebounce);
+      for (const timer of pending.values()) clearTimeout(timer);
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("message", onMessage);
       window.removeEventListener("resize", clampY);

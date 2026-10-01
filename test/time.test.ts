@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { DEFAULT_ACCURACY } from "../src/engine/geo";
 import {
   apply,
   canonicalZone,
@@ -9,6 +8,7 @@ import {
   resolveTimeZone,
   TIME_ZONE_PRESETS,
 } from "../src/engine/time";
+import { DEFAULT_STATE } from "../src/engine/store";
 import type { GeoValue } from "../src/types";
 
 const WINTER = new Date("2026-01-15T12:00:00Z");
@@ -46,15 +46,7 @@ function emulated<T>(zone: string, run: () => T): T {
 }
 
 function geo(patch: Partial<GeoValue>): GeoValue {
-  return {
-    preset: "system",
-    lat: 0,
-    lng: 0,
-    accuracy: DEFAULT_ACCURACY,
-    timeZone: "",
-    error: "none",
-    ...patch,
-  };
+  return { ...DEFAULT_STATE.geo, ...patch };
 }
 
 afterEach(() => {

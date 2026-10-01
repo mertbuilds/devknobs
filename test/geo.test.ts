@@ -1,26 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  alongRoute,
   apply,
   DEFAULT_ACCURACY,
+  distance,
   GEO_ERROR_CODES,
   GEO_PRESETS,
   geoPreset,
+  parseRoute,
   positionError,
   reset,
   resolveGeo,
 } from "../src/engine/geo";
+import { DEFAULT_STATE } from "../src/engine/store";
 import type { GeoValue } from "../src/types";
 
 function value(patch: Partial<GeoValue>): GeoValue {
-  return {
-    preset: "system",
-    lat: 0,
-    lng: 0,
-    accuracy: DEFAULT_ACCURACY,
-    timeZone: "",
-    error: "none",
-    ...patch,
-  };
+  return { ...DEFAULT_STATE.geo, ...patch };
 }
 
 describe("presets", () => {
@@ -73,6 +69,71 @@ describe("resolveGeo", () => {
 
   test("a bad accuracy falls back to the default", () => {
     expect(resolveGeo(value({ preset: "berlin", accuracy: 0 }))?.accuracy).toBe(DEFAULT_ACCURACY);
+  });
+});
+
+const GPX = `<?xml version="1.0"?>
+<gpx version="1.1" creator="test">
+  <wpt lat="1" lon="1"><name>start</name></wpt>
+  <trk><trkseg>
+    <trkpt lat="36.8969" lon="30.7133"><ele>10</ele></trkpt>
+    <trkpt lon='30.72' lat='36.9'/>
+    <trkpt lat="91" lon="0"/>
+  </trkseg></trk>
+</gpx>`;
+
+describe("routes", () => {
+  test("reads a point per line, with commas or spaces", () => {
+    expect(parseRoute("36.8969,30.7133\n36.9, 30.72; 37 31\n\nnot a point\n-91,0")).toEqual([
+      { lat: 36.8969, lng: 30.7133 },
+      { lat: 36.9, lng: 30.72 },
+      { lat: 37, lng: 31 },
+    ]);
+  });
+
+  test("reads the track points of a GPX file over its way points", () => {
+    expect(parseRoute(GPX)).toEqual([
+      { lat: 36.8969, lng: 30.7133 },
+      { lat: 36.9, lng: 30.72 },
+    ]);
+    expect(parseRoute('<gpx><wpt lat="1.5" lon="2.5"/></gpx>')).toEqual([{ lat: 1.5, lng: 2.5 }]);
+  });
+
+  test("measures great circle distance", () => {
+    expect(distance({ lat: 0, lng: 0 }, { lat: 1, lng: 0 })).toBeCloseTo(111_195, -1);
+    expect(distance({ lat: 0, lng: 0 }, { lat: 0, lng: 0 })).toBe(0);
+  });
+
+  test("walks the route with its heading and starts over at the end", () => {
+    const east = [
+      { lat: 0, lng: 0 },
+      { lat: 0, lng: 1 },
+      { lat: 1, lng: 1 },
+    ];
+    const leg = distance(east[0]!, east[1]!);
+    const halfway = alongRoute(east, leg / 2);
+    expect(halfway.lat).toBe(0);
+    expect(halfway.lng).toBeCloseTo(0.5, 9);
+    expect(halfway.heading).toBeCloseTo(90, 9);
+    const north = alongRoute(east, leg * 1.5);
+    expect(north.lng).toBe(1);
+    expect(north.heading).toBeCloseTo(0, 9);
+    const total = leg + distance(east[1]!, east[2]!);
+    expect(alongRoute(east, total + leg / 2).lng).toBeCloseTo(0.5, 9);
+  });
+
+  test("a route of one point stands still", () => {
+    const still = alongRoute([{ lat: 3, lng: 4 }], 1000);
+    expect([still.lat, still.lng]).toEqual([3, 4]);
+    expect(still.heading).toBeNaN();
+  });
+
+  test("the route preset starts where the route does, and needs a point", () => {
+    expect(resolveGeo(value({ preset: "route", route: "1,2\n3,4" }))).toMatchObject({
+      lat: 1,
+      lng: 2,
+    });
+    expect(resolveGeo(value({ preset: "route", route: "" }))).toBeNull();
   });
 });
 
@@ -255,6 +316,36 @@ describe("geolocation", () => {
     expect([status.state, changes]).toEqual(["prompt", 3]);
     expect(Object.hasOwn(permissions, "query")).toBe(false);
     expect(calls).toEqual(["query geolocation", "query notifications"]);
+  });
+
+  test("a route moves the position at its pace, heading and speed included", async () => {
+    const { geolocation } = fakeDevice();
+    // 3600 km/h is a meter a millisecond, due east along the equator.
+    apply(value({ preset: "route", route: "0,0\n0,10", speed: 3600 }));
+    const seen: GeolocationCoordinates[] = [];
+    const record = (position: GeolocationPosition) => seen.push(position.coords);
+    geolocation.getCurrentPosition(record);
+    await tick(30);
+    geolocation.getCurrentPosition(record);
+    await tick();
+    const [first, second] = seen;
+    expect(second!.longitude).toBeGreaterThan(first!.longitude);
+    expect(second!.latitude).toBe(0);
+    expect(second!.heading).toBeCloseTo(90, 9);
+    expect(second!.speed).toBeCloseTo(1000, 9);
+  });
+
+  test("a playing route keeps active watches moving", async () => {
+    const { geolocation } = fakeDevice();
+    apply(value({ preset: "route", route: "0,0\n0,10", speed: 3600 }));
+    const longitudes: number[] = [];
+    geolocation.watchPosition((position) => longitudes.push(position.coords.longitude));
+    await tick(1100);
+    expect(longitudes.length).toBe(2);
+    expect(longitudes[1]).toBeGreaterThan(longitudes[0]!);
+    apply(value({ preset: "route", route: "0,0\n0,10", speed: 3600, error: "unavailable" }));
+    await tick(1100);
+    expect(longitudes.length).toBe(2);
   });
 
   test("reset hands the device back", async () => {

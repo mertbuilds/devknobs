@@ -26,7 +26,10 @@ export interface LocaleValue {
 export type GeoErrorValue = "none" | "denied" | "unavailable" | "timeout";
 
 export interface GeoValue {
-  /** A preset id, `custom` to use the explicit fields, or `system` to stop emulating. */
+  /**
+   * A preset id, `custom` to use the explicit fields, `route` to travel the
+   * route, or `system` to stop emulating.
+   */
   preset: string;
   lat: number;
   lng: number;
@@ -35,6 +38,10 @@ export interface GeoValue {
   timeZone: string;
   /** Works without a position too, so a page can be tested for refusals alone. */
   error: GeoErrorValue;
+  /** The path of the `route` preset: `lat,lng` per line, or a pasted GPX file. */
+  route: string;
+  /** How fast the `route` preset travels its path, in km/h. */
+  speed: number;
 }
 
 /**

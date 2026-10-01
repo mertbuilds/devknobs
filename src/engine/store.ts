@@ -9,7 +9,7 @@ import type {
   TransparencyValue,
   VisionValue,
 } from "../types";
-import { DEFAULT_ACCURACY } from "./geo";
+import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
 
 export const STORAGE_KEY = "devknobs";
 
@@ -28,6 +28,8 @@ export const DEFAULT_STATE: DevknobsState = {
     accuracy: DEFAULT_ACCURACY,
     timeZone: "",
     error: "none",
+    route: "",
+    speed: DEFAULT_SPEED,
   },
   timeZone: "geo",
   text: "system",
@@ -121,6 +123,8 @@ export function parse(json: string | null | undefined): DevknobsState {
       accuracy: num(geo.accuracy, DEFAULT_STATE.geo.accuracy),
       timeZone: text(geo.timeZone, DEFAULT_STATE.geo.timeZone),
       error: oneOf(geo.error, GEO_ERRORS, DEFAULT_STATE.geo.error),
+      route: text(geo.route, DEFAULT_STATE.geo.route),
+      speed: num(geo.speed, DEFAULT_STATE.geo.speed),
     },
     // A session stored before the knob had a field of its own follows geo, as it did then.
     timeZone: text(state.timeZone, "") || DEFAULT_STATE.timeZone,
