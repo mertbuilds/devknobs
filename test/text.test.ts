@@ -246,4 +246,17 @@ describe("text size on a page", () => {
     reset();
     expect(writes).toBe(0);
   });
+
+  test("reads the root size from the sheets that apply on screen only", () => {
+    sheets = [
+      sheet([new CSSStyleRule("html", "62.5%")]),
+      sheet([new CSSStyleRule("html", "10px")], "print"),
+      sheet([new CSSStyleRule("html", "10px")], "", true),
+    ];
+    apply(20);
+    expect(rootSize()).toBe("12.5px");
+    sheets.push(sheet([new CSSStyleRule("html", "125%")], "screen"));
+    apply(20);
+    expect(rootSize()).toBe("25px");
+  });
 });

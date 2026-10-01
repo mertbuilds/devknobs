@@ -306,7 +306,10 @@ function rootDeclarations(): Found[] {
   for (const sheet of sheets()) {
     if (seen.has(sheet)) continue;
     seen.add(sheet);
-    walk(rulesOf(sheet), false, []);
+    // A disabled sheet reaches nothing, and one for print, say, not the screen.
+    if (sheet.disabled) continue;
+    const media = sheet.media.mediaText;
+    walk(rulesOf(sheet), false, media ? [() => matches(media)] : []);
   }
   return found;
 }
