@@ -1,6 +1,8 @@
 import * as engine from "./engine";
+import { isDevknobsFrame } from "./engine/frame";
 import { GEO_PRESETS } from "./engine/geo";
 import { LOCALE_PRESETS } from "./engine/locale";
+import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
 export type {
@@ -33,15 +35,21 @@ export const PRESETS = {
 };
 
 let panel: Panel | null = null;
+let stopKeys: (() => void) | null = null;
 
 /**
  * Start the knobs and put the panel on the page. Patches go in right away, even
  * mid-parse, so that a theme script running before `DOMContentLoaded` sees the
- * emulated values. The panel host waits for the body.
+ * emulated values. The panel host waits for the body. Inside the width knob's
+ * frame there is no panel: the page above has it, and gets the frame's keys.
  */
 export function mount(options: MountOptions = {}): void {
-  if (panel) return;
+  if (panel || stopKeys) return;
   engine.start(options);
+  if (isDevknobsFrame()) {
+    stopKeys = forwardKeys(options.hotkey);
+    return;
+  }
   if (options.open !== undefined) engine.setState({ panel: { open: options.open } });
   panel = createPanel(options);
 }
@@ -50,6 +58,8 @@ export function mount(options: MountOptions = {}): void {
 export function unmount(): void {
   panel?.destroy();
   panel = null;
+  stopKeys?.();
+  stopKeys = null;
   engine.stop();
 }
 

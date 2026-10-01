@@ -1,6 +1,8 @@
 import * as engine from "../engine";
+import { type KeyAction, readMessage } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
+import { frameWindow } from "../engine/width";
 import type {
   ContrastValue,
   DevknobsState,
@@ -8,6 +10,7 @@ import type {
   MotionValue,
   SchemeValue,
 } from "../types";
+import { hotkeyOf, keyAction } from "./keys";
 import { CSS } from "./styles";
 
 export interface PanelOptions {
@@ -161,13 +164,6 @@ function toNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function isEditable(node: EventTarget | null): boolean {
-  const element = node as HTMLElement | null;
-  const tag = element?.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-  return element?.isContentEditable === true;
-}
-
 function addGroup(parent: HTMLElement, group: Group, bindings: Binding[]): HTMLElement {
   const box = el("div", "group");
   box.append(el("div", "label", group.label));
@@ -189,7 +185,7 @@ function addGroup(parent: HTMLElement, group: Group, bindings: Binding[]): HTMLE
  * panel cannot style the page.
  */
 export function createPanel(options: PanelOptions = {}): Panel {
-  const hotkey = (options.hotkey ?? "d").toLowerCase();
+  const hotkey = hotkeyOf(options.hotkey);
 
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "panel");
@@ -220,8 +216,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   geoBox.append(el("div", "label", "custom"), fields, zoneNote);
 
   addGroup(panel, TEXT, bindings);
-  const widthBox = addGroup(panel, WIDTH, bindings);
-  widthBox.append(el("div", "note", "container queries and vw units still use the window"));
+  addGroup(panel, WIDTH, bindings);
   addGroup(panel, OUTLINES, bindings);
 
   const actions = el("div", "group");
@@ -442,17 +437,22 @@ export function createPanel(options: PanelOptions = {}): Panel {
     toggle();
   });
 
-  function onKeydown(event: KeyboardEvent): void {
+  function onAction(action: KeyAction): void {
     // A drag owns the handle until the pointer is up, hotkey and escape too.
     if (dragging) return;
-    if (event.key === "Escape") {
-      if (engine.getState().panel.open) toggle(false);
-      return;
-    }
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const target = event.composedPath?.()[0] ?? event.target;
-    if (isEditable(target)) return;
-    if (event.key.toLowerCase() === hotkey) toggle();
+    if (action === "toggle") toggle();
+    else if (engine.getState().panel.open) toggle(false);
+  }
+
+  function onKeydown(event: KeyboardEvent): void {
+    const action = keyAction(event, hotkey);
+    if (action) onAction(action);
+  }
+
+  /** The width knob's frame keeps the keys while it has focus, and sends these up. */
+  function onMessage(event: MessageEvent): void {
+    const message = readMessage(event, frameWindow(), window.location.origin);
+    if (message?.type === "key") onAction(message.action);
   }
 
   function onSchemeChange(): void {
@@ -461,6 +461,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const unsubscribe = engine.subscribe(render);
   window.addEventListener("keydown", onKeydown, true);
+  window.addEventListener("message", onMessage);
   window.addEventListener("resize", clampY);
   darkQuery?.addEventListener("change", onSchemeChange);
 
@@ -478,6 +479,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       unsubscribe();
       clearTimeout(debounce);
       window.removeEventListener("keydown", onKeydown, true);
+      window.removeEventListener("message", onMessage);
       window.removeEventListener("resize", clampY);
       darkQuery?.removeEventListener("change", onSchemeChange);
       document.removeEventListener("DOMContentLoaded", attach);
