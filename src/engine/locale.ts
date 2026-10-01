@@ -229,20 +229,28 @@ function clearOwned(): void {
 }
 
 /**
- * Would a reload asked for now be a loop? Two reloads in a row are one, and a
- * loop is worse than a locale that lags the knob. Storage carries the timing
- * across the reload, so without it no reload is safe to start. The record
- * stands until a reload that happens overwrites it, so every ask inside the
- * window is refused, not only the first one.
+ * How long until a reload asked for is not a loop, in ms: 0 for now, and
+ * Infinity for never. Two reloads in a row are one, and a loop is worse than a
+ * locale that lags the knob. Storage carries the timing across the reload, so
+ * without it no reload is safe to start. The record stands until a reload that
+ * happens overwrites it, so every ask inside the window is refused, not only
+ * the first one.
  */
-function reloadBlocked(): boolean {
+function reloadWait(): number {
   try {
     const previous = Number(window.sessionStorage.getItem(RELOAD_KEY));
-    return previous > 0 && Date.now() - previous < RELOAD_THROTTLE;
+    if (!(previous > 0)) return 0;
+    // A time ahead of the clock waits one window at a time, not until the clock catches up.
+    return Math.min(RELOAD_THROTTLE, Math.max(0, previous + RELOAD_THROTTLE - Date.now()));
   } catch {
     // No storage, no way to tell one reload from the next: do not start one.
-    return true;
+    return Infinity;
   }
+}
+
+/** Would a reload asked for now be a loop? */
+function reloadBlocked(): boolean {
+  return reloadWait() > 0;
 }
 
 /** Time this reload, so the next ask moments from now reads as a loop. */
@@ -320,6 +328,29 @@ export function syncStores(lang: string | null): boolean {
   }
   if (!writeOwned({ lang, writes })) return false;
   return reloadOnce();
+}
+
+/** The put back the throttle held off, waiting out its window. */
+let retry = 0;
+
+function cancelRetry(): void {
+  if (!retry) return;
+  window.clearTimeout(retry);
+  retry = 0;
+}
+
+/**
+ * Put back the stores the record says devknobs wrote, on any page load that
+ * finds the knob on `system`, not only the one that switched it: a switch the
+ * throttle refused moments after a reload leaves the record behind. One the
+ * throttle refuses now is asked for again once its window is past.
+ */
+function settle(): void {
+  cancelRetry();
+  if (readOwned() === null) return;
+  const wait = reloadWait();
+  if (wait === 0) syncStores(null);
+  else if (Number.isFinite(wait)) retry = window.setTimeout(settle, wait);
 }
 
 let captured = false;
@@ -416,7 +447,6 @@ export function apply(value: LocaleValue): void {
     captured = true;
   }
   if (!value.lang || value.lang === "system") {
-    const applied = appliedLang;
     reset();
     if (value.dir !== "system") {
       // `reset` gave the originals back and stopped owning them. Own them
@@ -425,9 +455,10 @@ export function apply(value: LocaleValue): void {
       setAttribute("dir", value.dir);
       hold(null, value.dir);
     }
-    if (applied !== null) syncStores(null);
+    settle();
     return;
   }
+  cancelRetry();
   setAttribute("lang", value.lang);
   setAttribute("dir", dirFor(value));
   hold(value.lang, dirFor(value));
@@ -449,11 +480,12 @@ export function apply(value: LocaleValue): void {
 
 /**
  * Put `lang`, `dir`, `navigator` and the `Intl` default back. The stores are
- * left alone: only an explicit switch to `system` through `apply` puts them
- * back, so that a strict mode unmount and remount cannot bounce the page
- * between two reloads.
+ * left alone, and a put back still waiting is dropped: only `apply` with the
+ * knob on `system` puts them back, so that a strict mode unmount and remount
+ * cannot bounce the page between two reloads.
  */
 export function reset(): void {
+  cancelRetry();
   appliedLang = null;
   hold(null, null);
   setDefaultLocale(null);

@@ -110,10 +110,17 @@ function writeJar(jar: string, entry: string): string {
   return (expired ? rest : [...rest, `${name}=${value}`]).join("; ");
 }
 
+/** A timer the stub window holds until the clock reaches `at`. */
+interface Timer {
+  at: number;
+  run: () => void;
+}
+
 interface Browser {
   jar: string;
   reloads: number;
   now: number;
+  timers: Map<number, Timer>;
   /** `sessionStorage`, which devknobs keeps its own records in too. */
   storage: Map<string, string>;
   /** `localStorage`. */
@@ -150,6 +157,7 @@ function storageFor(map: Map<string, string>, full = false): Storage {
 }
 
 const REAL_NOW = Date.now;
+let timerIds = 0;
 
 /**
  * A document with a cookie jar and a window whose reload only counts itself.
@@ -160,6 +168,7 @@ function stubBrowser(jar: string, options: BrowserOptions = {}): Browser {
     jar,
     reloads: 0,
     now: REAL_NOW(),
+    timers: new Map(),
     storage: new Map(),
     local: new Map(),
     attributes: new Map(),
@@ -201,6 +210,14 @@ function stubBrowser(jar: string, options: BrowserOptions = {}): Browser {
         },
       },
       dispatchEvent: () => true,
+      setTimeout: (run: () => void, delay: number) => {
+        const id = ++timerIds;
+        browser.timers.set(id, { at: browser.now + delay, run });
+        return id;
+      },
+      clearTimeout: (id: number) => {
+        browser.timers.delete(id);
+      },
       get sessionStorage(): Storage {
         if (options.storageFails) throw new Error("storage is off");
         return storageFor(browser.storage, options.storageFull);
@@ -231,6 +248,16 @@ function owner(browser: Browser): string | undefined {
 /** Let enough time pass that the next reload is not read as a loop. */
 function later(browser: Browser): void {
   browser.now += 10_000;
+}
+
+/** Move the clock on by `ms` and run the timers due by then. */
+function tick(browser: Browser, ms: number): void {
+  browser.now += ms;
+  for (const [id, timer] of Array.from(browser.timers)) {
+    if (timer.at > browser.now) continue;
+    browser.timers.delete(id);
+    timer.run();
+  }
 }
 
 afterEach(() => {
@@ -599,12 +626,67 @@ describe("apply", () => {
     expect(page.reloads).toBe(0);
   });
 
-  test("does nothing on system when no language was applied", () => {
+  test("puts back what the record names on a page load that starts on system", () => {
+    const page = stubPage(`${PARAGLIDE_COOKIE}=de; session=abc`, { owner: "de" });
+    apply({ lang: "system", dir: "system" });
+    expect(page.jar).toBe("session=abc");
+    expect(page.storage.has(OWNER_KEY)).toBe(false);
+    expect(page.reloads).toBe(1);
+  });
+
+  test("leaves the stores alone on system when there is no record", () => {
     const jar = `${PARAGLIDE_COOKIE}=de`;
-    const page = stubPage(jar, { owner: "de" });
+    const page = stubPage(jar);
     apply({ lang: "system", dir: "system" });
     expect(page.jar).toBe(jar);
-    expect(owner(page)).toBe("de");
+    expect(page.timers.size).toBe(0);
+    expect(page.reloads).toBe(0);
+  });
+
+  test("a switch to system moments after the reload puts back once the throttle lets it", () => {
+    const page = stubPage();
+    page.local.set("PARAGLIDE_LOCALE", "en");
+    apply({ lang: "tr", dir: "system" });
+    reset();
+    apply({ lang: "tr", dir: "system" });
+    apply({ lang: "system", dir: "system" });
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("tr");
+    expect(page.local.get("PARAGLIDE_LOCALE")).toBe("tr");
+    expect(page.reloads).toBe(1);
+    tick(page, 4_000);
+    expect(page.reloads).toBe(1);
+    tick(page, 1_000);
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBeNull();
+    expect(page.local.get("PARAGLIDE_LOCALE")).toBe("en");
+    expect(page.storage.has(OWNER_KEY)).toBe(false);
+    expect(page.reloads).toBe(2);
+  });
+
+  test("a page load on system moments after a reload waits out the throttle", () => {
+    const page = stubPage(`${PARAGLIDE_COOKIE}=tr`, { owner: "tr" });
+    page.storage.set(RELOAD_KEY, String(page.now));
+    apply({ lang: "system", dir: "system" });
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("tr");
+    expect(page.reloads).toBe(0);
+    tick(page, 5_000);
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBeNull();
+    expect(page.storage.has(OWNER_KEY)).toBe(false);
+    expect(page.reloads).toBe(1);
+  });
+
+  test("drops a put back still waiting when a language is picked or devknobs goes", () => {
+    const page = stubPage(`${PARAGLIDE_COOKIE}=tr`, { owner: "tr" });
+    page.storage.set(RELOAD_KEY, String(page.now));
+    apply({ lang: "system", dir: "system" });
+    expect(page.timers.size).toBe(1);
+    apply({ lang: "tr", dir: "system" });
+    expect(page.timers.size).toBe(0);
+    apply({ lang: "system", dir: "system" });
+    expect(page.timers.size).toBe(1);
+    reset();
+    expect(page.timers.size).toBe(0);
+    tick(page, 10_000);
+    expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("tr");
     expect(page.reloads).toBe(0);
   });
 
