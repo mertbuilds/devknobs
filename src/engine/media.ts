@@ -401,12 +401,14 @@ function teardown(): void {
     readMatches = null;
     patched = false;
   }
-  for (const ref of tracked) ref.deref()?.removeEventListener("change", guard);
-  tracked.clear();
   colorScheme = null;
 }
 
-/** Put `matchMedia` and `matches` back and stop watching for new stylesheets. */
+/**
+ * Put `matchMedia` and `matches` back and stop watching for new stylesheets.
+ * The lists stay tracked and keep their guards, which only note what the page
+ * hears while nothing is emulated, so the next mount tells each where it stands.
+ */
 export function destroy(): void {
   reset();
   teardown();
