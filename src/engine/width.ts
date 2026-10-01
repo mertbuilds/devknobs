@@ -129,6 +129,8 @@ let frameUrl = "";
 /** The window's own address when the frame came up, and its title once the frame's took over. */
 let pageUrl = "";
 let pageTitle: string | null = null;
+/** `showModal` as the page had it, while the page underneath gets plain dialogs. */
+let showModal: HTMLDialogElement["showModal"] | null = null;
 /** Follows the frame's title, which a router sets after the url changes. */
 let titleObserver: MutationObserver | null = null;
 let latest: DevknobsState | null = null;
@@ -172,6 +174,37 @@ function unhide(): void {
     if (!was.styled && node.getAttribute("style") === "") node.removeAttribute("style");
   }
   hidden.clear();
+}
+
+/**
+ * A modal dialog makes everything else inert, the frame and the panel too, and
+ * paints over them. The page underneath gets plain dialogs instead, the ones it
+ * has open already too.
+ */
+function holdModals(): void {
+  if (showModal || typeof HTMLDialogElement === "undefined") return;
+  const native = HTMLDialogElement.prototype.showModal;
+  showModal = native;
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
+    if (this.closest("[data-devknobs]")) native.call(this);
+    else this.show();
+  };
+  let modals: HTMLDialogElement[] = [];
+  try {
+    modals = Array.from(document.querySelectorAll<HTMLDialogElement>("dialog:modal"));
+  } catch {
+    // A browser without `:modal`.
+  }
+  for (const dialog of modals) {
+    if (dialog.closest("[data-devknobs]")) continue;
+    dialog.close();
+    dialog.show();
+  }
+}
+
+function releaseModals(): void {
+  if (showModal) HTMLDialogElement.prototype.showModal = showModal;
+  showModal = null;
 }
 
 /** The window inside the frame, while there is one. */
@@ -459,11 +492,14 @@ function open(): void {
   box.append(readout, stage);
   root.append(style, box);
   for (const child of Array.from(body.children)) hide(child);
+  holdModals();
   bodyObserver ??= new MutationObserver((records) => {
     for (const record of records) record.addedNodes.forEach(hide);
   });
   bodyObserver.observe(body, { childList: true });
-  ensureStyle(NAME).textContent = "html{overflow:hidden!important}";
+  // Popovers paint in the top layer, over the frame, wherever they sit.
+  ensureStyle(NAME).textContent =
+    "html{overflow:hidden!important}:popover-open:not([data-devknobs]){display:none!important}";
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", resize);
   body.append(host);
@@ -493,6 +529,7 @@ function close(follow: boolean): void {
   notice = null;
   readout = null;
   bodyObserver?.disconnect();
+  releaseModals();
   unhide();
   removeStyle(NAME);
   if (target && target !== window.location.href) window.location.assign(target);
