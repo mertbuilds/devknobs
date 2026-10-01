@@ -3,6 +3,7 @@ import { setDefaultLocale } from "../src/engine/intl";
 import {
   apply,
   dirFor,
+  intlDirection,
   isRtl,
   languagesFor,
   LOCALE_PRESETS,
@@ -26,6 +27,37 @@ describe("isRtl", () => {
     for (const lang of ["en", "en-US", "tr", "de", "ja", "zh-CN", ""]) {
       expect(isRtl(lang)).toBe(false);
     }
+  });
+
+  test("follows the script Intl knows for the tag", () => {
+    expect(isRtl("pa-Arab")).toBe(true);
+    expect(isRtl("pa")).toBe(false);
+    expect(isRtl("yi")).toBe(true);
+    expect(isRtl("ar-Latn")).toBe(false);
+  });
+
+  test("falls back to the list without text info", () => {
+    const getTextInfo = Object.getOwnPropertyDescriptor(Intl.Locale.prototype, "getTextInfo");
+    Reflect.deleteProperty(Intl.Locale.prototype, "getTextInfo");
+    try {
+      expect(intlDirection("ar")).toBeNull();
+      expect(isRtl("ar")).toBe(true);
+      expect(isRtl("pa-Arab")).toBe(false);
+    } finally {
+      if (getTextInfo) Object.defineProperty(Intl.Locale.prototype, "getTextInfo", getTextInfo);
+    }
+  });
+});
+
+describe("intlDirection", () => {
+  test("reads the direction from Intl.Locale", () => {
+    expect(intlDirection("he")).toBe("rtl");
+    expect(intlDirection("en")).toBe("ltr");
+  });
+
+  test("is null for a tag Intl refuses", () => {
+    expect(intlDirection("")).toBeNull();
+    expect(intlDirection("not a tag!")).toBeNull();
   });
 });
 

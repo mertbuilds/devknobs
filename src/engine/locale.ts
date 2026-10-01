@@ -37,10 +37,32 @@ const RELOAD_THROTTLE = 5000;
  */
 const HOLD_BUDGET = 20;
 
+/** For a browser whose `Intl.Locale` does not know text direction. */
 const RTL_LANGUAGES = new Set(["ar", "he", "fa", "ur"]);
+
+interface TextInfo {
+  direction?: string;
+}
+
+/** `Intl.Locale` with the text info only some engines ship, as a method or a getter. */
+type LocaleWithTextInfo = Intl.Locale & { getTextInfo?(): TextInfo; textInfo?: TextInfo };
+
+/** The direction `Intl` knows for the tag, script and all, or null when it does not. */
+export function intlDirection(lang: string): "ltr" | "rtl" | null {
+  try {
+    const locale = new Intl.Locale(lang) as LocaleWithTextInfo;
+    const info = typeof locale.getTextInfo === "function" ? locale.getTextInfo() : locale.textInfo;
+    const direction = info?.direction;
+    return direction === "ltr" || direction === "rtl" ? direction : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Is this language tag written right to left? */
 export function isRtl(lang: string): boolean {
+  const direction = intlDirection(lang);
+  if (direction !== null) return direction === "rtl";
   const base = lang.toLowerCase().split("-")[0] ?? "";
   return RTL_LANGUAGES.has(base);
 }
