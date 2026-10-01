@@ -92,6 +92,8 @@ describe("parse", () => {
       motion: "reduce",
       speed: 0.1,
       transparency: "reduce",
+      pseudo: true,
+      spacing: true,
     };
     expect(parse(JSON.stringify(state))).toEqual(state);
   });
