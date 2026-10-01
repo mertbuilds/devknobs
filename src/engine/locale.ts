@@ -1,4 +1,5 @@
 import type { LocaleValue } from "../types";
+import { setDefaultLocale } from "./intl";
 
 export const LOCALE_PRESETS = [
   "en",
@@ -221,6 +222,7 @@ export function apply(value: LocaleValue): void {
   setAttribute("lang", value.lang);
   setAttribute("dir", dirFor(value));
   patchNavigator(value.lang);
+  setDefaultLocale(value.lang);
   window.dispatchEvent(new Event("languagechange"));
   // A mount that finds its own tag in the cookie is the remount after the
   // reload it asked for. There is nothing to sync, and the throttle it just
@@ -236,12 +238,14 @@ export function apply(value: LocaleValue): void {
 }
 
 /**
- * Put `lang`, `dir` and `navigator` back. The cookie is left alone: only an
- * explicit switch to `system` through `apply` expires it, so that a strict mode
- * unmount and remount cannot bounce the page between two reloads.
+ * Put `lang`, `dir`, `navigator` and the `Intl` default back. The cookie is
+ * left alone: only an explicit switch to `system` through `apply` expires it,
+ * so that a strict mode unmount and remount cannot bounce the page between two
+ * reloads.
  */
 export function reset(): void {
   appliedLang = null;
+  setDefaultLocale(null);
   if (captured) {
     setAttribute("lang", originalLang);
     setAttribute("dir", originalDir);

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { setDefaultLocale } from "../src/engine/intl";
 import {
   apply,
   dirFor,
@@ -182,6 +183,7 @@ function later(browser: Browser): void {
 
 afterEach(() => {
   Date.now = REAL_NOW;
+  setDefaultLocale(null);
   Reflect.deleteProperty(globalThis, "document");
   Reflect.deleteProperty(globalThis, "window");
   Reflect.deleteProperty(globalThis, "Navigator");
@@ -351,6 +353,14 @@ describe("apply", () => {
     expect(readCookie(page.jar, PARAGLIDE_COOKIE)).toBe("tr");
     expect(page.storage.get(PARAGLIDE_OWNER_KEY)).toBe("tr");
     expect(page.reloads).toBe(1);
+  });
+
+  test("makes the language the Intl default until reset", () => {
+    stubPage();
+    apply({ lang: "tr", dir: "system" });
+    expect(new Intl.NumberFormat().resolvedOptions().locale).toBe("tr");
+    reset();
+    expect(new Intl.NumberFormat().resolvedOptions().locale).not.toBe("tr");
   });
 
   test("syncs once when the same language is applied twice", () => {
