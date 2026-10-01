@@ -118,6 +118,13 @@ const WIDTH: Group = {
   select: (value) => engine.setState({ width: value === "full" ? "full" : Number(value) }),
 };
 
+const FRAME: Group = {
+  label: "frame",
+  choices: choices("off", "on"),
+  current: (state) => (state.frame ? "on" : "off"),
+  select: (value) => engine.setState({ frame: value === "on" }),
+};
+
 const OUTLINES: Group = {
   label: "outlines",
   choices: choices("off", "on"),
@@ -217,6 +224,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   addGroup(panel, TEXT, bindings);
   addGroup(panel, WIDTH, bindings);
+  addGroup(panel, FRAME, bindings);
   addGroup(panel, OUTLINES, bindings);
 
   const actions = el("div", "group");

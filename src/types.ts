@@ -47,6 +47,8 @@ export interface DevknobsState {
   geo: GeoValue;
   text: TextValue;
   width: WidthValue;
+  /** Render the page in a full-width frame even at full width, for the native scheme. */
+  frame: boolean;
   outlines: boolean;
   panel: PanelValue;
 }

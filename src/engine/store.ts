@@ -18,6 +18,7 @@ export const DEFAULT_STATE: DevknobsState = {
   geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
   text: "system",
   width: "full",
+  frame: false,
   outlines: false,
   panel: { open: true, y: 16, top: 16 },
 };
@@ -86,6 +87,7 @@ export function parse(json: string | null | undefined): DevknobsState {
     },
     text: numberOr(state.text, "system", DEFAULT_STATE.text),
     width: numberOr(state.width, "full", DEFAULT_STATE.width),
+    frame: bool(state.frame, DEFAULT_STATE.frame),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),

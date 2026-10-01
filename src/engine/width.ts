@@ -1,11 +1,19 @@
 import type { DevknobsState } from "../types";
-import { FRAME_ATTRIBUTE, FRAME_NAME, post, readMessage } from "./frame";
+import {
+  FRAME_ATTRIBUTE,
+  FRAME_NAME,
+  type FrameKnobs,
+  needsFrame,
+  post,
+  readMessage,
+  UNFRAMED,
+} from "./frame";
 import { ensureStyle, removeStyle } from "./style";
 
 const NAME = "width";
 
 /** What the frame takes from the knobs. */
-export type ViewportValue = Pick<DevknobsState, "width" | "scheme">;
+export type ViewportValue = FrameKnobs & Pick<DevknobsState, "scheme">;
 
 /** One under the panel host, so the panel stays on top of the frame. */
 const Z_INDEX = 2147483645;
@@ -53,7 +61,7 @@ iframe {
 let host: HTMLElement | null = null;
 let frame: HTMLIFrameElement | null = null;
 let readout: HTMLElement | null = null;
-let current: ViewportValue = { width: "full", scheme: "system" };
+let current: ViewportValue = { width: "full", frame: false, scheme: "system" };
 /** Where the frame was last seen on this origin. */
 let frameUrl = "";
 let latest: DevknobsState | null = null;
@@ -127,9 +135,13 @@ function handsSchemeDown(root: Node): boolean {
 
 function resize(): void {
   const width = typeof current.width === "number" ? current.width : 0;
-  if (readout) readout.textContent = String(width);
+  if (readout) {
+    // At full width the frame is the window, and there is nothing to read out.
+    readout.hidden = !width;
+    readout.textContent = String(width);
+  }
   if (!frame) return;
-  frame.style.width = `${width}px`;
+  frame.style.width = width ? `${width}px` : "100%";
   // Natively, the page inside gets the scheme as its real preference. System
   // leaves the frame to follow the window.
   const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
@@ -143,7 +155,7 @@ function resize(): void {
  */
 function open(): void {
   const body = document.body;
-  if (host || typeof current.width !== "number" || !body) return;
+  if (host || !needsFrame(current) || !body) return;
   host = document.createElement("div");
   host.setAttribute("data-devknobs", "viewport");
   host.style.cssText = `position:fixed;inset:0;z-index:${Z_INDEX}`;
@@ -177,7 +189,7 @@ function open(): void {
 
 /** Take the frame away. `follow` brings the window to where the frame went. */
 function close(follow: boolean): void {
-  current = { ...current, width: "full" };
+  current = { ...current, ...UNFRAMED };
   document.removeEventListener("DOMContentLoaded", open);
   if (!host) return;
   const target = follow ? locate() : "";
@@ -194,11 +206,11 @@ function close(follow: boolean): void {
 }
 
 export function apply(value: ViewportValue): void {
-  if (typeof value.width !== "number" || !(value.width > 0)) {
+  if (!needsFrame(value)) {
     close(true);
     return;
   }
-  current = { width: value.width, scheme: value.scheme };
+  current = value;
   if (host) resize();
   else if (document.body) open();
   else document.addEventListener("DOMContentLoaded", open, { once: true });

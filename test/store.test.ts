@@ -21,6 +21,7 @@ describe("parse", () => {
         geo: { preset: "tokyo", lat: "x" },
         text: 20,
         width: "full",
+        frame: true,
         outlines: "yes",
         panel: { open: false, y: 40, top: 24 },
         stray: 1,
@@ -34,6 +35,7 @@ describe("parse", () => {
       geo: { preset: "tokyo", lat: 0, lng: 0, accuracy: DEFAULT_STATE.geo.accuracy, timeZone: "" },
       text: 20,
       width: "full",
+      frame: true,
       outlines: false,
       panel: { open: false, y: 40, top: 24 },
     });

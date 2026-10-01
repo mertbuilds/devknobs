@@ -5,6 +5,7 @@ import {
   framed,
   isDevknobsFrame,
   nativeScheme,
+  needsFrame,
   readMessage,
 } from "../src/engine/frame";
 import { DEFAULT_STATE } from "../src/engine/store";
@@ -36,9 +37,25 @@ describe("framed", () => {
     });
   });
 
+  test("turns the full-width frame off inside the frame", () => {
+    expect(framed({ ...DEFAULT_STATE, frame: true })).toEqual(DEFAULT_STATE);
+  });
+
   test("hands back a state that is already full", () => {
     const state = { ...DEFAULT_STATE, text: 20 };
     expect(framed(state)).toBe(state);
+  });
+});
+
+describe("needsFrame", () => {
+  test("is true for a width or the frame knob", () => {
+    expect(needsFrame({ width: 390, frame: false })).toBe(true);
+    expect(needsFrame({ width: "full", frame: true })).toBe(true);
+  });
+
+  test("is false at full width with the frame off, or for a width that is no size", () => {
+    expect(needsFrame({ width: "full", frame: false })).toBe(false);
+    expect(needsFrame({ width: 0, frame: false })).toBe(false);
   });
 });
 

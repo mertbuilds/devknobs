@@ -52,9 +52,20 @@ export function nativeScheme(scheme: SchemeValue): boolean {
   }
 }
 
-/** The knobs a framed page runs with. It is the viewport already, so its width stays `full`. */
+/** The knobs that bring the frame up. */
+export type FrameKnobs = Pick<DevknobsState, "width" | "frame">;
+
+/** Each of those knobs at the value that leaves the frame down. */
+export const UNFRAMED: FrameKnobs = { width: "full", frame: false };
+
+/** Does any knob need the page inside the frame? */
+export function needsFrame(knobs: FrameKnobs): boolean {
+  return (typeof knobs.width === "number" && knobs.width > 0) || knobs.frame;
+}
+
+/** The knobs a framed page runs with. It is the viewport already, so it never frames itself. */
 export function framed(state: DevknobsState): DevknobsState {
-  return state.width === "full" ? state : { ...state, width: "full" };
+  return needsFrame(state) ? { ...state, ...UNFRAMED } : state;
 }
 
 /**
