@@ -19,6 +19,7 @@ export const DEFAULT_STATE: DevknobsState = {
   contrast: "system",
   transparency: "system",
   locale: { lang: "system", dir: "system" },
+  pseudo: false,
   geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
   text: "system",
   width: "full",
@@ -101,6 +102,7 @@ export function parse(json: string | null | undefined): DevknobsState {
       lang: text(locale.lang, DEFAULT_STATE.locale.lang),
       dir: oneOf(locale.dir, DIRS, DEFAULT_STATE.locale.dir),
     },
+    pseudo: bool(state.pseudo, DEFAULT_STATE.pseudo),
     geo: {
       preset: text(geo.preset, DEFAULT_STATE.geo.preset),
       lat: num(geo.lat, DEFAULT_STATE.geo.lat),

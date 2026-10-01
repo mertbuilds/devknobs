@@ -111,6 +111,13 @@ const DIRECTION: Group = {
   select: (value) => engine.setState({ locale: { dir: value as DirValue } }),
 };
 
+const PSEUDO: Group = {
+  label: "pseudo",
+  choices: choices("off", "on"),
+  current: (state) => (state.pseudo ? "on" : "off"),
+  select: (value) => engine.setState({ pseudo: value === "on" }),
+};
+
 const GEO: Group = {
   label: "geo",
   choices: [
@@ -260,6 +267,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   addGroup(panel, TRANSPARENCY, bindings);
   addGroup(panel, LOCALE, bindings);
   addGroup(panel, DIRECTION, bindings);
+  addGroup(panel, PSEUDO, bindings);
 
   const geoBox = addGroup(panel, GEO, bindings);
   const lat = numberField("lat");

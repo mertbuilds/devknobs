@@ -13,6 +13,7 @@ import * as locale from "./locale";
 import * as media from "./media";
 import * as outlines from "./outlines";
 import * as overflow from "./overflow";
+import * as pseudo from "./pseudo";
 import { replay as replayAnimations } from "./replay";
 import * as speed from "./speed";
 import { clear, DEFAULT_STATE, load, merge, save } from "./store";
@@ -60,6 +61,7 @@ export function applyState(next: DevknobsState): void {
   });
   speed.apply(state.speed);
   locale.apply(state.locale);
+  pseudo.apply(state.pseudo);
   geo.apply(state.geo);
   text.apply(state.text);
   width.apply(state);
@@ -124,6 +126,7 @@ export function stop(): void {
   media.destroy();
   speed.reset();
   locale.reset();
+  pseudo.reset();
   geo.reset();
   text.reset();
   width.reset();

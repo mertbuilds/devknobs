@@ -64,6 +64,8 @@ export interface DevknobsState {
   contrast: ContrastValue;
   transparency: TransparencyValue;
   locale: LocaleValue;
+  /** Pseudo-localize the page's text. */
+  pseudo: boolean;
   geo: GeoValue;
   text: TextValue;
   width: WidthValue;
