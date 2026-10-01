@@ -131,6 +131,8 @@ let pageUrl = "";
 let pageTitle: string | null = null;
 /** The address last put in the window for the frame. Another one there means the window moved. */
 let written = "";
+/** Where the page underneath was scrolled to, which hiding it loses. */
+let scroll = { x: 0, y: 0 };
 /** `showModal` as the page had it, while the page underneath gets plain dialogs. */
 let showModal: HTMLDialogElement["showModal"] | null = null;
 /** Follows the frame's title, which a router sets after the url changes. */
@@ -486,6 +488,7 @@ function open(): void {
   frameUrl = window.location.href;
   pageUrl = frameUrl;
   written = frameUrl;
+  scroll = { x: window.scrollX, y: window.scrollY };
   pageTitle = null;
   loaded = false;
   frame.src = frameUrl;
@@ -537,7 +540,9 @@ function close(follow: boolean): void {
   releaseModals();
   unhide();
   removeStyle(NAME);
+  // Hidden, the page had no height to keep its scroll position in.
   if (target && target !== window.location.href) window.location.assign(target);
+  else window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
 }
 
 export function apply(value: ViewportValue): void {

@@ -125,9 +125,9 @@ and same-origin access could lift its own sandbox.
 the address bar and the tab title follow the frame, so a reload lands where the
 frame was. a page that refuses to be framed (`x-frame-options`,
 `frame-ancestors`) gets a notice with a button that closes the frame. the page
-underneath is `inert` and `content-visibility: hidden` until the frame goes.
-meanwhile its modal dialogs open as plain ones and its popovers stay hidden, as
-both would paint over the frame.
+underneath is `inert` and `content-visibility: hidden` until the frame goes,
+and its scroll position comes back after. meanwhile its modal dialogs open as
+plain ones and its popovers stay hidden, as both would paint over the frame.
 
 ## limits
 

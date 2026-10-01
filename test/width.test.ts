@@ -321,4 +321,19 @@ describe("the frame over the page", () => {
     reset();
     expect(location.href).toBe(EARLIER);
   });
+
+  test("scrolls the page back to where it was", () => {
+    apply(VIEWPORT);
+    reset();
+    expect(scrolls).toEqual([{ left: 0, top: SCROLL_Y, behavior: "instant" }]);
+    expect(assigned).toEqual([]);
+  });
+
+  test("sends the window after the frame instead, when the knobs go off", () => {
+    apply(VIEWPORT);
+    load(FRAMED);
+    apply({ ...UNFRAMED, scheme: "system" });
+    expect(assigned).toEqual([FRAMED]);
+    expect(scrolls).toEqual([]);
+  });
 });
