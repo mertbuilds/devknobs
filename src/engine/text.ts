@@ -380,6 +380,9 @@ function watchSheets(): void {
   if (observer || typeof MutationObserver === "undefined") return;
   observer = new MutationObserver((records) => {
     for (const record of records) {
+      // A dev server swaps a stylesheet's text in place on a hot update.
+      const target = record.target as Element;
+      if (target.nodeName === "STYLE" && !target.hasAttribute("data-devknobs")) schedule();
       for (const node of Array.from(record.addedNodes)) {
         const name = node.nodeName;
         if (name !== "STYLE" && name !== "LINK") continue;
@@ -403,7 +406,12 @@ function wrapMatchMedia(): void {
   const inner = window.matchMedia;
   below = inner;
   wrapped = function matchMedia(query: string): MediaQueryList {
-    return inner.call(window, size === null ? query : emulateMediaText(String(query), size));
+    const text = String(query);
+    const emulated = size === null ? text : emulateMediaText(text, size);
+    const list = inner.call(window, emulated);
+    // The list reports the query it was asked for, as it would natively.
+    if (emulated !== text) Object.defineProperty(list, "media", { configurable: true, value: text });
+    return list;
   };
   window.matchMedia = wrapped;
 }
