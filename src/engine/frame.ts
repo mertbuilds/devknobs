@@ -1,4 +1,4 @@
-import type { DevknobsState } from "../types";
+import type { DevknobsState, SchemeValue } from "../types";
 import { parse } from "./store";
 
 /** Marks the iframe the width knob renders the page in. */
@@ -35,6 +35,21 @@ export function isDevknobsFrame(): boolean {
     // A parent on another origin. The name still tells.
   }
   return window.name === FRAME_NAME;
+}
+
+/**
+ * Inside the frame: does the frame element carry the scheme? The page above
+ * only sets it there when the browser hands it down as this page's real
+ * `prefers-color-scheme`, so there is nothing left to emulate.
+ */
+export function nativeScheme(scheme: SchemeValue): boolean {
+  if (scheme === "system") return false;
+  try {
+    const owner = window.frameElement as HTMLElement | null;
+    return owner?.style.getPropertyValue("color-scheme") === scheme;
+  } catch {
+    return false;
+  }
 }
 
 /** The knobs a framed page runs with. It is the viewport already, so its width stays `full`. */

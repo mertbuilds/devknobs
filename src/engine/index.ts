@@ -1,5 +1,5 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
-import { framed, isDevknobsFrame, post, readMessage } from "./frame";
+import { framed, isDevknobsFrame, nativeScheme, post, readMessage } from "./frame";
 import * as geo from "./geo";
 import * as locale from "./locale";
 import * as media from "./media";
@@ -39,11 +39,13 @@ export function subscribe(listener: Listener): () => void {
 
 export function applyState(next: DevknobsState): void {
   state = inFrame ? framed(next) : next;
-  media.apply({ scheme: state.scheme, motion: state.motion, contrast: state.contrast });
+  // In a frame that gets the scheme natively, the rewrite and the patch step aside.
+  const scheme = inFrame && nativeScheme(state.scheme) ? "system" : state.scheme;
+  media.apply({ scheme, motion: state.motion, contrast: state.contrast });
   locale.apply(state.locale);
   geo.apply(state.geo);
   text.apply(state.text);
-  width.apply(state.width);
+  width.apply(state);
   outlines.apply(state.outlines);
   if (persist) save(state);
   width.sync(state);

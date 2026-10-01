@@ -4,11 +4,28 @@ import {
   FRAME_NAME,
   framed,
   isDevknobsFrame,
+  nativeScheme,
   readMessage,
 } from "../src/engine/frame";
 import { DEFAULT_STATE } from "../src/engine/store";
 
 const ORIGIN = "http://localhost:3000";
+
+function setWindow(frameElement: () => unknown, name = ""): void {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      name,
+      get frameElement() {
+        return frameElement();
+      },
+    },
+  });
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(globalThis, "window");
+});
 
 describe("framed", () => {
   test("keeps the width full inside the frame", () => {
@@ -88,22 +105,6 @@ describe("readMessage", () => {
 });
 
 describe("isDevknobsFrame", () => {
-  function setWindow(frameElement: () => unknown, name = ""): void {
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: {
-        name,
-        get frameElement() {
-          return frameElement();
-        },
-      },
-    });
-  }
-
-  afterEach(() => {
-    Reflect.deleteProperty(globalThis, "window");
-  });
-
   test("knows its frame by the attribute", () => {
     setWindow(() => ({ hasAttribute: (name: string) => name === FRAME_ATTRIBUTE }));
     expect(isDevknobsFrame()).toBe(true);
@@ -127,5 +128,38 @@ describe("isDevknobsFrame", () => {
       throw new Error("cross-origin");
     });
     expect(isDevknobsFrame()).toBe(false);
+  });
+});
+
+describe("nativeScheme", () => {
+  /** A frame element with this inline `color-scheme`. */
+  function owner(colorScheme: string) {
+    return {
+      style: { getPropertyValue: (name: string) => (name === "color-scheme" ? colorScheme : "") },
+    };
+  }
+
+  test("is true when the frame element carries the same scheme", () => {
+    setWindow(() => owner("dark"));
+    expect(nativeScheme("dark")).toBe(true);
+    setWindow(() => owner("light"));
+    expect(nativeScheme("light")).toBe(true);
+  });
+
+  test("is false for system, another scheme or none at all", () => {
+    setWindow(() => owner("dark"));
+    expect(nativeScheme("system")).toBe(false);
+    expect(nativeScheme("light")).toBe(false);
+    setWindow(() => owner(""));
+    expect(nativeScheme("dark")).toBe(false);
+    setWindow(() => null);
+    expect(nativeScheme("dark")).toBe(false);
+  });
+
+  test("is false when the frame element is out of reach", () => {
+    setWindow(() => {
+      throw new Error("cross-origin");
+    });
+    expect(nativeScheme("dark")).toBe(false);
   });
 });

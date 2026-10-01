@@ -1,8 +1,11 @@
-import type { DevknobsState, WidthValue } from "../types";
+import type { DevknobsState } from "../types";
 import { FRAME_ATTRIBUTE, FRAME_NAME, post, readMessage } from "./frame";
 import { ensureStyle, removeStyle } from "./style";
 
 const NAME = "width";
+
+/** What the frame takes from the knobs. */
+export type ViewportValue = Pick<DevknobsState, "width" | "scheme">;
 
 /** One under the panel host, so the panel stays on top of the frame. */
 const Z_INDEX = 2147483645;
@@ -41,15 +44,16 @@ iframe {
      wider than the window, so the overflow can be scrolled to. */
   margin: 0 auto;
   border: 0;
-  background: #fff;
+  /* The canvas color of the frame's own scheme, which is what shows through a
+     page that leaves its background to the browser. */
+  background: Canvas;
 }
 `;
 
 let host: HTMLElement | null = null;
 let frame: HTMLIFrameElement | null = null;
 let readout: HTMLElement | null = null;
-/** The width the frame should have, or 0 while the knob is off. */
-let size = 0;
+let current: ViewportValue = { width: "full", scheme: "system" };
 /** Where the frame was last seen on this origin. */
 let frameUrl = "";
 let latest: DevknobsState | null = null;
@@ -92,9 +96,45 @@ function onMessage(event: MessageEvent): void {
   if (readMessage(event, frameWindow(), window.location.origin)?.type === "ready") share();
 }
 
+/**
+ * Does the browser hand a frame element's `color-scheme` to the page inside
+ * as its `prefers-color-scheme`? css color adjust says it should (csswg #7493,
+ * chrome 129, firefox 105). Asked once, of a blank probe frame that takes each
+ * scheme in turn, so a dark system cannot pass for support.
+ */
+let schemeHandover: boolean | null = null;
+
+function handsSchemeDown(root: Node): boolean {
+  if (schemeHandover !== null) return schemeHandover;
+  if (!root.isConnected) return false;
+  const probe = document.createElement("iframe");
+  probe.style.cssText = "position:absolute;width:0;height:0;border:0;visibility:hidden";
+  root.appendChild(probe);
+  const ask = (scheme: "light" | "dark"): boolean => {
+    probe.style.colorScheme = scheme;
+    // The frame only sees the scheme once the style above it is current.
+    getComputedStyle(probe).getPropertyValue("color-scheme");
+    return probe.contentWindow?.matchMedia(`(prefers-color-scheme: ${scheme})`).matches === true;
+  };
+  try {
+    schemeHandover = ask("dark") && ask("light");
+  } catch {
+    schemeHandover = false;
+  }
+  probe.remove();
+  return schemeHandover;
+}
+
 function resize(): void {
-  if (frame) frame.style.width = `${size}px`;
-  if (readout) readout.textContent = String(size);
+  const width = typeof current.width === "number" ? current.width : 0;
+  if (readout) readout.textContent = String(width);
+  if (!frame) return;
+  frame.style.width = `${width}px`;
+  // Natively, the page inside gets the scheme as its real preference. System
+  // leaves the frame to follow the window.
+  const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
+  if (native) frame.style.colorScheme = current.scheme;
+  else frame.style.removeProperty("color-scheme");
 }
 
 /**
@@ -103,7 +143,7 @@ function resize(): void {
  */
 function open(): void {
   const body = document.body;
-  if (host || !(size > 0) || !body) return;
+  if (host || typeof current.width !== "number" || !body) return;
   host = document.createElement("div");
   host.setAttribute("data-devknobs", "viewport");
   host.style.cssText = `position:fixed;inset:0;z-index:${Z_INDEX}`;
@@ -123,7 +163,6 @@ function open(): void {
   frame.addEventListener("load", onLoad);
   box.append(readout, frame);
   root.append(style, box);
-  resize();
   for (const child of Array.from(body.children)) {
     if (child.hasAttribute("data-devknobs") || child.hasAttribute("inert")) continue;
     child.setAttribute("inert", "");
@@ -132,11 +171,13 @@ function open(): void {
   ensureStyle(NAME).textContent = "html{overflow:hidden!important}";
   window.addEventListener("message", onMessage);
   body.append(host);
+  // Before the frame's page starts, which is no sooner than this task ends.
+  resize();
 }
 
 /** Take the frame away. `follow` brings the window to where the frame went. */
 function close(follow: boolean): void {
-  size = 0;
+  current = { ...current, width: "full" };
   document.removeEventListener("DOMContentLoaded", open);
   if (!host) return;
   const target = follow ? locate() : "";
@@ -152,12 +193,12 @@ function close(follow: boolean): void {
   if (target && target !== window.location.href) window.location.assign(target);
 }
 
-export function apply(value: WidthValue): void {
-  if (typeof value !== "number" || !(value > 0)) {
+export function apply(value: ViewportValue): void {
+  if (typeof value.width !== "number" || !(value.width > 0)) {
     close(true);
     return;
   }
-  size = value;
+  current = { width: value.width, scheme: value.scheme };
   if (host) resize();
   else if (document.body) open();
   else document.addEventListener("DOMContentLoaded", open, { once: true });
