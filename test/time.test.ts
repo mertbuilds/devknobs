@@ -129,6 +129,57 @@ describe("apply", () => {
 
 const iso = (date: Date) => date.toISOString();
 
+describe("Intl.DateTimeFormat", () => {
+  const NativeDateTimeFormat = Intl.DateTimeFormat;
+
+  /** What a locale knob might install: a default locale for formatters that name none. */
+  function localeProxy(target: typeof Intl.DateTimeFormat): typeof Intl.DateTimeFormat {
+    return new Proxy(target, {
+      construct(inner, args: unknown[], newTarget) {
+        const [locales, options] = args as [Intl.LocalesArgument?, Intl.DateTimeFormatOptions?];
+        return Reflect.construct(inner, [locales ?? "tr", options], newTarget);
+      },
+    });
+  }
+
+  afterEach(() => {
+    Intl.DateTimeFormat = NativeDateTimeFormat;
+  });
+
+  test("resolvedOptions follows the time zone knob, then geo, then the host", () => {
+    const zoneOf = (timeZone: string, preset: string) => {
+      apply(resolveTimeZone(timeZone, geo({ preset })));
+      return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    };
+    expect(zoneOf("geo", "tokyo")).toBe("Asia/Tokyo");
+    expect(zoneOf("geo", "new-york")).toBe("America/New_York");
+    expect(zoneOf("Asia/Kathmandu", "new-york")).toBe("Asia/Kathmandu");
+    expect(zoneOf("system", "new-york")).toBe(HOST);
+    expect(zoneOf("geo", "system")).toBe(HOST);
+  });
+
+  test("composes with a locale proxy installed before it", () => {
+    const before = localeProxy(NativeDateTimeFormat);
+    Intl.DateTimeFormat = before;
+    apply("Asia/Tokyo");
+    const resolved = new Intl.DateTimeFormat().resolvedOptions();
+    expect([resolved.locale, resolved.timeZone]).toEqual(["tr", "Asia/Tokyo"]);
+    reset();
+    expect(Intl.DateTimeFormat).toBe(before);
+  });
+
+  test("composes with a locale proxy installed after it", () => {
+    apply("Asia/Tokyo");
+    const after = localeProxy(Intl.DateTimeFormat);
+    Intl.DateTimeFormat = after;
+    const resolved = new Intl.DateTimeFormat().resolvedOptions();
+    expect([resolved.locale, resolved.timeZone]).toEqual(["tr", "Asia/Tokyo"]);
+    reset();
+    expect(Intl.DateTimeFormat).toBe(after);
+    expect(new Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(HOST);
+  });
+});
+
 describe("fromWall", () => {
   test("a gap moves the reading forward by the size of the gap", () => {
     expect(fromWall(Date.UTC(2026, 2, 8, 2, 30), "America/New_York")).toBe(
