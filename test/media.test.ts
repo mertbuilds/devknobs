@@ -4,6 +4,7 @@ import { rewriteAll, rewriteMediaText, splitQueryList, SYSTEM_MEDIA } from "../s
 const SCHEME = "prefers-color-scheme";
 const MOTION = "prefers-reduced-motion";
 const CONTRAST = "prefers-contrast";
+const TRANSPARENCY = "prefers-reduced-transparency";
 const TRUE_TOKEN = "(min-width: 0px)";
 
 describe("splitQueryList", () => {
@@ -85,6 +86,14 @@ describe("rewriteMediaText", () => {
     expect(rewriteMediaText(`(${CONTRAST}: no-preference)`, CONTRAST, "more")).toBe("not all");
   });
 
+  test("handles reduced transparency", () => {
+    expect(rewriteMediaText(`(${TRANSPARENCY}: reduce)`, TRANSPARENCY, "reduce")).toBe(TRUE_TOKEN);
+    expect(rewriteMediaText(`(${TRANSPARENCY}: no-preference)`, TRANSPARENCY, "reduce")).toBe(
+      "not all",
+    );
+    expect(rewriteMediaText(`(${TRANSPARENCY})`, TRANSPARENCY, "reduce")).toBe(TRUE_TOKEN);
+  });
+
   test("rewrites every occurrence in one query", () => {
     expect(rewriteMediaText(`(${SCHEME}: dark) and (${SCHEME}: light)`, SCHEME, "dark")).toBe(
       "not all",
@@ -101,13 +110,13 @@ describe("rewriteAll", () => {
 
   test("applies every emulated feature", () => {
     const text = `(${SCHEME}: dark) and (${MOTION}: reduce)`;
-    expect(rewriteAll(text, { scheme: "dark", motion: "reduce", contrast: "system" })).toBe(
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "dark", motion: "reduce" })).toBe(
       `${TRUE_TOKEN} and ${TRUE_TOKEN}`,
     );
-    expect(rewriteAll(text, { scheme: "dark", motion: "system", contrast: "system" })).toBe(
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "dark" })).toBe(
       `${TRUE_TOKEN} and (${MOTION}: reduce)`,
     );
-    expect(rewriteAll(text, { scheme: "light", motion: "reduce", contrast: "system" })).toBe(
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "light", motion: "reduce" })).toBe(
       "not all",
     );
   });

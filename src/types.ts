@@ -10,6 +10,9 @@ export type SpeedValue = number;
 /** Emulated value for `prefers-contrast`. */
 export type ContrastValue = "more" | "system";
 
+/** Emulated value for `prefers-reduced-transparency`. */
+export type TransparencyValue = "reduce" | "system";
+
 /** Writing direction. `system` derives the direction from the language tag. */
 export type DirValue = "ltr" | "rtl" | "system";
 
@@ -59,6 +62,7 @@ export interface DevknobsState {
   motion: MotionValue;
   speed: SpeedValue;
   contrast: ContrastValue;
+  transparency: TransparencyValue;
   locale: LocaleValue;
   geo: GeoValue;
   text: TextValue;

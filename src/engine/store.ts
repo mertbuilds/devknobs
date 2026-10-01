@@ -5,6 +5,7 @@ import type {
   DirValue,
   MotionValue,
   SchemeValue,
+  TransparencyValue,
   VisionValue,
 } from "../types";
 import { DEFAULT_ACCURACY } from "./geo";
@@ -16,6 +17,7 @@ export const DEFAULT_STATE: DevknobsState = {
   motion: "system",
   speed: 1,
   contrast: "system",
+  transparency: "system",
   locale: { lang: "system", dir: "system" },
   geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
   text: "system",
@@ -31,6 +33,7 @@ export const DEFAULT_STATE: DevknobsState = {
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
 const MOTIONS: MotionValue[] = ["reduce", "system"];
 const CONTRASTS: ContrastValue[] = ["more", "system"];
+const TRANSPARENCIES: TransparencyValue[] = ["reduce", "system"];
 const DIRS: DirValue[] = ["ltr", "rtl", "system"];
 const VISIONS: VisionValue[] = [
   "none",
@@ -93,6 +96,7 @@ export function parse(json: string | null | undefined): DevknobsState {
     motion: oneOf(state.motion, MOTIONS, DEFAULT_STATE.motion),
     speed: rate(state.speed, DEFAULT_STATE.speed),
     contrast: oneOf(state.contrast, CONTRASTS, DEFAULT_STATE.contrast),
+    transparency: oneOf(state.transparency, TRANSPARENCIES, DEFAULT_STATE.transparency),
     locale: {
       lang: text(locale.lang, DEFAULT_STATE.locale.lang),
       dir: oneOf(locale.dir, DIRS, DEFAULT_STATE.locale.dir),

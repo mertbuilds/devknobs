@@ -10,6 +10,7 @@ import type {
   DirValue,
   MotionValue,
   SchemeValue,
+  TransparencyValue,
   VisionValue,
 } from "../types";
 import { hotkeyOf, keyAction } from "./keys";
@@ -84,6 +85,13 @@ const CONTRAST: Group = {
   choices: choices("system", "more"),
   current: (state) => state.contrast,
   select: (value) => engine.setState({ contrast: value as ContrastValue }),
+};
+
+const TRANSPARENCY: Group = {
+  label: "transparency",
+  choices: choices("system", "reduce"),
+  current: (state) => state.transparency,
+  select: (value) => engine.setState({ transparency: value as TransparencyValue }),
 };
 
 const LOCALE: Group = {
@@ -241,6 +249,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   addGroup(panel, MOTION, bindings);
   addGroup(panel, SPEED, bindings);
   addGroup(panel, CONTRAST, bindings);
+  addGroup(panel, TRANSPARENCY, bindings);
   addGroup(panel, LOCALE, bindings);
   addGroup(panel, DIRECTION, bindings);
 

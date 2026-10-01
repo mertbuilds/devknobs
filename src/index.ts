@@ -19,6 +19,7 @@ export type {
   SchemeValue,
   SpeedValue,
   TextValue,
+  TransparencyValue,
   VisionValue,
   WidthValue,
 } from "./types";

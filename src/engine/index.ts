@@ -52,7 +52,12 @@ export function applyState(next: DevknobsState): void {
   state = inFrame ? framed(next) : next;
   // In a frame that gets the scheme natively, the rewrite and the patch step aside.
   const scheme = inFrame && nativeScheme(state.scheme) ? "system" : state.scheme;
-  media.apply({ scheme, motion: state.motion, contrast: state.contrast });
+  media.apply({
+    scheme,
+    motion: state.motion,
+    contrast: state.contrast,
+    transparency: state.transparency,
+  });
   speed.apply(state.speed);
   locale.apply(state.locale);
   geo.apply(state.geo);

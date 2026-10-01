@@ -92,7 +92,7 @@ first in `<head>`:
 ```
 
 it is also `devknobs/early` in the package. it applies the stored scheme,
-motion and contrast on the spot, with no panel: the `matchMedia` and
+motion, contrast and transparency on the spot, with no panel: the `matchMedia` and
 `matches` patches, `color-scheme` on `<html>`, and the stylesheet rewrite as
 sheets arrive. the full script, however it is loaded, takes those patches
 over when it mounts instead of patching on top, and lists made in between
@@ -107,6 +107,7 @@ reads the stored state, it follows the knobs from the next load on.
 | reduced motion | reduce, system | rewrites `prefers-reduced-motion` media rules and patches `matchMedia` the same way |
 | animation speed | 1, 0.25, 0.1, pause | sets `playbackRate` (through `updatePlaybackRate`, so nothing jumps) on every animation `getAnimations()` returns, css animations and transitions included, in the document and every open shadow root. new ones are taken as they start: `animationstart` and `transitionrun` listeners, a patched `Element.prototype.animate`, and a light sweep every frame while the knob is off 1. scroll-driven animations keep following the scroll. when `window.gsap` exists, its global timeline's `timeScale` follows too. back to 1, every rate goes back to what it was |
 | contrast | more, system | rewrites `prefers-contrast` media rules and patches `matchMedia` the same way |
+| reduced transparency | reduce, system | rewrites `prefers-reduced-transparency` media rules and patches `matchMedia` the same way. a browser that does not know the feature drops those rules while it parses them, so there only `matchMedia` follows the knob |
 | locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and patches `navigator.language` / `navigator.languages`. direction defaults to rtl for ar, he, fa and ur. also writes the `PARAGLIDE_LOCALE` cookie and reloads when it changes, so paraglide (cookie strategy) server-rendered strings follow the knob |
 | geolocation | a city preset, custom coordinates, system | patches `navigator.geolocation.getCurrentPosition` and `watchPosition` with a fixed position |
 | time zone | comes with the geo preset | patches `Intl.DateTimeFormat` so calls without an explicit `timeZone` use the emulated one, and patches `Date.prototype.getTimezoneOffset` |

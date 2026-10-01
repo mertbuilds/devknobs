@@ -1,20 +1,23 @@
-import type { ContrastValue, MotionValue, SchemeValue } from "../types";
+import type { ContrastValue, MotionValue, SchemeValue, TransparencyValue } from "../types";
 
 export type MediaFeature =
   | "prefers-color-scheme"
   | "prefers-reduced-motion"
-  | "prefers-contrast";
+  | "prefers-contrast"
+  | "prefers-reduced-transparency";
 
 export interface MediaValue {
   scheme: SchemeValue;
   motion: MotionValue;
   contrast: ContrastValue;
+  transparency: TransparencyValue;
 }
 
 export const SYSTEM_MEDIA: MediaValue = {
   scheme: "system",
   motion: "system",
   contrast: "system",
+  transparency: "system",
 };
 
 /**
@@ -30,6 +33,7 @@ const FEATURE_OF: Record<keyof MediaValue, MediaFeature> = {
   scheme: "prefers-color-scheme",
   motion: "prefers-reduced-motion",
   contrast: "prefers-contrast",
+  transparency: "prefers-reduced-transparency",
 };
 
 const KNOBS = Object.keys(FEATURE_OF) as (keyof MediaValue)[];
