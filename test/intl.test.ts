@@ -52,6 +52,15 @@ describe("setDefaultLocale", () => {
     );
   });
 
+  test("DurationFormat takes the tag too, where the browser has it", () => {
+    setDefaultLocale("tr");
+    // Not in the TypeScript lib yet.
+    const { DurationFormat } = Intl as unknown as {
+      DurationFormat: new () => { resolvedOptions(): { locale: string } };
+    };
+    expect(new DurationFormat().resolvedOptions().locale).toBe("tr");
+  });
+
   test("an explicit locale wins", () => {
     setDefaultLocale("tr");
     expect(new Intl.NumberFormat("de").resolvedOptions().locale).toBe("de");
