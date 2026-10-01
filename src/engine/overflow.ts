@@ -134,11 +134,13 @@ function log(offenders: Offender[], excess: number): void {
   }
   if (offenders.every(({ element }) => logged.has(element))) return;
   for (const { element } of offenders) logged.add(element);
-  const plural = offenders.length === 1 ? "" : "s";
-  console.warn(
-    `devknobs: ${offenders.length} element${plural} stick out of the ${width}px viewport, the page scrolls ${excess}px sideways`,
-    offenders.map(({ element }) => element),
-  );
+  console.warn(warning(offenders.length, width, excess), offenders.map(({ element }) => element));
+}
+
+/** What the console says about `count` boxes sticking out of a viewport `width` wide. */
+export function warning(count: number, width: number, excess: number): string {
+  const boxes = count === 1 ? "1 element sticks" : `${count} elements stick`;
+  return `devknobs: ${boxes} out of the ${width}px viewport, the page scrolls ${excess}px sideways`;
 }
 
 function draw(offenders: Offender[]): void {

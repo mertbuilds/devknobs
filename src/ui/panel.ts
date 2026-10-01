@@ -170,6 +170,14 @@ const OUTLINES: Group = {
   select: (value) => engine.setState({ outlines: value === "on" }),
 };
 
+/**
+ * What the width label says about the overflow knob, such as ` · 2 overflowing`.
+ * Nothing while the knob is off, or before the count is known.
+ */
+export function overflowBadge(on: boolean, count: number | null): string {
+  return on && count !== null ? ` · ${count} overflowing` : "";
+}
+
 function el(tag: string, className: string, text?: string): HTMLElement {
   const node = document.createElement(tag);
   node.className = className;
@@ -305,8 +313,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (input.value !== value) input.value = value;
   }
 
-  /** What the copy inside the width knob's frame last counted. */
-  let frameCount = 0;
+  /** What the copy inside the width knob's frame last counted, null until it says. */
+  let frameCount: number | null = null;
 
   function render(): void {
     const state = engine.getState();
@@ -326,11 +334,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     fill(zone, fix?.timeZone ?? "");
     zoneNote.textContent = `time zone: ${fix?.timeZone || "system"}`;
     const framed = needsFrame(state);
-    if (!framed) frameCount = 0;
+    if (!framed) frameCount = null;
     const count = framed ? frameCount : overflowCount();
-    badge.hidden = !state.overflow;
-    badge.textContent = ` · ${count} overflowing`;
-    badge.classList.toggle("hot", count > 0);
+    badge.textContent = overflowBadge(state.overflow, count);
+    badge.hidden = badge.textContent === "";
+    badge.classList.toggle("hot", count !== null && count > 0);
     shiftPanel(state.panel.y);
   }
 

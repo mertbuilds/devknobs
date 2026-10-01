@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { clipped } from "../src/engine/overflow";
+import { clipped, warning } from "../src/engine/overflow";
 
 interface Overflow {
   overflowX: string;
@@ -69,5 +69,16 @@ describe("clipped", () => {
     const main = box(root);
     define("document", { documentElement: root, body: main });
     expect(clipped(box(box(main, "auto")))).toBe(true);
+  });
+});
+
+describe("warning", () => {
+  test("agrees with one element and with many", () => {
+    expect(warning(1, 390, 24)).toBe(
+      "devknobs: 1 element sticks out of the 390px viewport, the page scrolls 24px sideways",
+    );
+    expect(warning(3, 390, 24)).toBe(
+      "devknobs: 3 elements stick out of the 390px viewport, the page scrolls 24px sideways",
+    );
   });
 });
