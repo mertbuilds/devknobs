@@ -28,8 +28,15 @@ export interface GeoValue {
   lat: number;
   lng: number;
   accuracy: number;
+  /** The zone of a `custom` position, followed by a time zone knob set to `geo`. */
   timeZone: string;
 }
+
+/**
+ * An IANA zone such as `Asia/Kathmandu`, `geo` to follow the geolocation
+ * preset, or `system` to stop emulating.
+ */
+export type TimeZoneValue = string;
 
 /** Root font size in px, or `system` to stop emulating. */
 export type TextValue = number | "system";
@@ -67,6 +74,7 @@ export interface DevknobsState {
   /** Pseudo-localize the page's text. */
   pseudo: boolean;
   geo: GeoValue;
+  timeZone: TimeZoneValue;
   text: TextValue;
   /** WCAG 1.4.12 text spacing. */
   spacing: boolean;

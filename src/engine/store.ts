@@ -21,6 +21,7 @@ export const DEFAULT_STATE: DevknobsState = {
   locale: { lang: "system", dir: "system" },
   pseudo: false,
   geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
+  timeZone: "geo",
   text: "system",
   spacing: false,
   width: "full",
@@ -111,6 +112,8 @@ export function parse(json: string | null | undefined): DevknobsState {
       accuracy: num(geo.accuracy, DEFAULT_STATE.geo.accuracy),
       timeZone: text(geo.timeZone, DEFAULT_STATE.geo.timeZone),
     },
+    // A session stored before the knob had a field of its own follows geo, as it did then.
+    timeZone: text(state.timeZone, "") || DEFAULT_STATE.timeZone,
     text: numberOr(state.text, "system", DEFAULT_STATE.text),
     spacing: bool(state.spacing, DEFAULT_STATE.spacing),
     width: numberOr(state.width, "full", DEFAULT_STATE.width),

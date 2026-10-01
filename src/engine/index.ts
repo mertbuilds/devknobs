@@ -19,6 +19,7 @@ import * as spacing from "./spacing";
 import * as speed from "./speed";
 import { clear, DEFAULT_STATE, load, merge, save } from "./store";
 import * as text from "./text";
+import * as time from "./time";
 import * as width from "./width";
 
 export interface EngineOptions {
@@ -64,6 +65,7 @@ export function applyState(next: DevknobsState): void {
   locale.apply(state.locale);
   pseudo.apply(state.pseudo);
   geo.apply(state.geo);
+  time.apply(time.resolveTimeZone(state.timeZone, state.geo));
   text.apply(state.text);
   spacing.apply(state.spacing);
   width.apply(state);
@@ -130,6 +132,7 @@ export function stop(): void {
   locale.reset();
   pseudo.reset();
   geo.reset();
+  time.reset();
   text.reset();
   spacing.reset();
   width.reset();

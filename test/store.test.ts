@@ -44,6 +44,7 @@ describe("parse", () => {
       locale: { lang: "tr", dir: "system" },
       pseudo: false,
       geo: { preset: "tokyo", lat: 0, lng: 0, accuracy: DEFAULT_STATE.geo.accuracy, timeZone: "" },
+      timeZone: "geo",
       text: 20,
       spacing: false,
       width: "full",
@@ -66,6 +67,15 @@ describe("parse", () => {
       y: 200,
       top: 200,
     });
+  });
+
+  test("follows geo for the time zone when the session predates the knob", () => {
+    const old = parse(JSON.stringify({ geo: { preset: "custom", timeZone: "Asia/Tokyo" } }));
+    expect(old.timeZone).toBe("geo");
+    expect(old.geo.timeZone).toBe("Asia/Tokyo");
+    expect(parse(JSON.stringify({ timeZone: "" })).timeZone).toBe("geo");
+    expect(parse(JSON.stringify({ timeZone: 3 })).timeZone).toBe("geo");
+    expect(parse(JSON.stringify({ timeZone: "Asia/Kathmandu" })).timeZone).toBe("Asia/Kathmandu");
   });
 
   test("keeps a speed of zero, which pauses, and drops a negative one", () => {

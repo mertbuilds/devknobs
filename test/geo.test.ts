@@ -1,15 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  DEFAULT_ACCURACY,
-  GEO_PRESETS,
-  geoPreset,
-  offsetMinutesFor,
-  resolveGeo,
-} from "../src/engine/geo";
+import { DEFAULT_ACCURACY, GEO_PRESETS, geoPreset, resolveGeo } from "../src/engine/geo";
 import type { GeoValue } from "../src/types";
-
-const WINTER = new Date("2026-01-15T12:00:00Z");
-const SUMMER = new Date("2026-07-15T12:00:00Z");
 
 function value(patch: Partial<GeoValue>): GeoValue {
   return { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "", ...patch };
@@ -65,29 +56,5 @@ describe("resolveGeo", () => {
 
   test("a bad accuracy falls back to the default", () => {
     expect(resolveGeo(value({ preset: "berlin", accuracy: 0 }))?.accuracy).toBe(DEFAULT_ACCURACY);
-  });
-});
-
-describe("offsetMinutesFor", () => {
-  test("reads whole hour zones", () => {
-    expect(offsetMinutesFor(WINTER, "Europe/Istanbul")).toBe(-180);
-    expect(offsetMinutesFor(SUMMER, "Europe/Istanbul")).toBe(-180);
-    expect(offsetMinutesFor(WINTER, "Asia/Tokyo")).toBe(-540);
-    expect(offsetMinutesFor(WINTER, "UTC")).toBe(0);
-  });
-
-  test("follows daylight saving", () => {
-    expect(offsetMinutesFor(WINTER, "America/New_York")).toBe(300);
-    expect(offsetMinutesFor(SUMMER, "America/New_York")).toBe(240);
-    expect(offsetMinutesFor(WINTER, "Europe/Berlin")).toBe(-60);
-    expect(offsetMinutesFor(SUMMER, "Europe/Berlin")).toBe(-120);
-  });
-
-  test("reads half hour zones", () => {
-    expect(offsetMinutesFor(WINTER, "Asia/Kolkata")).toBe(-330);
-  });
-
-  test("a bad zone reads as UTC", () => {
-    expect(offsetMinutesFor(WINTER, "Not/AZone")).toBe(0);
   });
 });

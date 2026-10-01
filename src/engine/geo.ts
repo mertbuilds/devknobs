@@ -56,69 +56,6 @@ export function resolveGeo(value: GeoValue): GeoFix | null {
   return { lat: preset.lat, lng: preset.lng, accuracy, timeZone: preset.timeZone };
 }
 
-const NativeDateTimeFormat = Intl.DateTimeFormat;
-
-/**
- * Minutes to add to local time to get UTC, the way `getTimezoneOffset` reports
- * it: Europe/Istanbul is -180, America/New_York in winter is 300.
- */
-export function offsetMinutesFor(
-  date: Date,
-  timeZone: string,
-  DateTimeFormat: typeof Intl.DateTimeFormat = NativeDateTimeFormat,
-): number {
-  try {
-    const parts = new DateTimeFormat("en-US", {
-      timeZone,
-      timeZoneName: "longOffset",
-    }).formatToParts(date);
-    const name = parts.find((part) => part.type === "timeZoneName")?.value ?? "";
-    const match = /GMT([+-])(\d{1,2})(?::?(\d{2}))?/.exec(name);
-    if (match) {
-      const sign = match[1] === "+" ? 1 : -1;
-      const hours = Number(match[2]);
-      const minutes = Number(match[3] ?? 0);
-      const east = sign * (hours * 60 + minutes);
-      return east === 0 ? 0 : -east;
-    }
-    if (name === "GMT" || name === "UTC") return 0;
-  } catch {
-    // Fall through to the parts based reading.
-  }
-  return offsetFromParts(date, timeZone, DateTimeFormat);
-}
-
-function offsetFromParts(
-  date: Date,
-  timeZone: string,
-  DateTimeFormat: typeof Intl.DateTimeFormat,
-): number {
-  try {
-    const parts = new DateTimeFormat("en-US", {
-      timeZone,
-      hour12: false,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).formatToParts(date);
-    const read = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? "0");
-    const wall = Date.UTC(
-      read("year"),
-      read("month") - 1,
-      read("day"),
-      read("hour") % 24,
-      read("minute"),
-      read("second"),
-    );
-    return Math.round((date.getTime() - wall) / 60000);
-  } catch {
-    return 0;
-  }
-}
-
 const FAKE_WATCH_BASE = 1_000_000;
 
 let fix: GeoFix | null = null;
@@ -129,8 +66,6 @@ let nativeGeolocation: {
   watchPosition: Geolocation["watchPosition"];
   clearWatch: Geolocation["clearWatch"];
 } | null = null;
-let nativeGetTimezoneOffset: (this: Date) => number = Date.prototype.getTimezoneOffset;
-let timePatched = false;
 
 function currentPosition(): GeolocationPosition {
   const value = fix!;
@@ -188,48 +123,6 @@ function restoreGeolocation(): void {
   geolocationDescriptors = null;
 }
 
-function withTimeZone(
-  options: Intl.DateTimeFormatOptions | undefined,
-): Intl.DateTimeFormatOptions | undefined {
-  if (!fix?.timeZone) return options;
-  if (options?.timeZone) return options;
-  return { ...(options ?? {}), timeZone: fix.timeZone };
-}
-
-function patchTime(): void {
-  if (!fix?.timeZone) {
-    restoreTime();
-    return;
-  }
-  if (timePatched) return;
-  nativeGetTimezoneOffset = Date.prototype.getTimezoneOffset;
-  Date.prototype.getTimezoneOffset = function getTimezoneOffset(this: Date): number {
-    if (!fix?.timeZone) return nativeGetTimezoneOffset.call(this);
-    return offsetMinutesFor(this, fix.timeZone);
-  };
-  Intl.DateTimeFormat = new Proxy(NativeDateTimeFormat, {
-    construct(target, args: unknown[], newTarget) {
-      const [locales, options] = args as [Intl.LocalesArgument?, Intl.DateTimeFormatOptions?];
-      return Reflect.construct(target, [locales, withTimeZone(options)], newTarget);
-    },
-    apply(target, thisArg, args: unknown[]) {
-      const [locales, options] = args as [Intl.LocalesArgument?, Intl.DateTimeFormatOptions?];
-      return Reflect.apply(target as (...rest: unknown[]) => unknown, thisArg, [
-        locales,
-        withTimeZone(options),
-      ]);
-    },
-  });
-  timePatched = true;
-}
-
-function restoreTime(): void {
-  if (!timePatched) return;
-  Date.prototype.getTimezoneOffset = nativeGetTimezoneOffset;
-  Intl.DateTimeFormat = NativeDateTimeFormat;
-  timePatched = false;
-}
-
 export function apply(value: GeoValue): void {
   fix = resolveGeo(value);
   if (!fix) {
@@ -237,11 +130,9 @@ export function apply(value: GeoValue): void {
     return;
   }
   patchGeolocation();
-  patchTime();
 }
 
 export function reset(): void {
   fix = null;
-  restoreTime();
   restoreGeolocation();
 }

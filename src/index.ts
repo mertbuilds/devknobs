@@ -2,6 +2,7 @@ import * as engine from "./engine";
 import { isDevknobsFrame } from "./engine/frame";
 import { GEO_PRESETS } from "./engine/geo";
 import { LOCALE_PRESETS } from "./engine/locale";
+import { TIME_ZONE_PRESETS } from "./engine/time";
 import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
@@ -19,6 +20,7 @@ export type {
   SchemeValue,
   SpeedValue,
   TextValue,
+  TimeZoneValue,
   TransparencyValue,
   VisionValue,
   WidthValue,
@@ -36,6 +38,7 @@ export interface MountOptions extends engine.EngineOptions {
 export const PRESETS = {
   locale: LOCALE_PRESETS,
   geo: GEO_PRESETS,
+  timeZone: TIME_ZONE_PRESETS,
 };
 
 let panel: Panel | null = null;

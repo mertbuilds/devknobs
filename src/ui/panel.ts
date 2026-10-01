@@ -3,6 +3,7 @@ import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
 import { onCount, overflowCount } from "../engine/overflow";
+import { resolveTimeZone, TIME_ZONE_PRESETS } from "../engine/time";
 import { frameWindow } from "../engine/width";
 import type {
   ContrastValue,
@@ -126,6 +127,21 @@ const GEO: Group = {
   ],
   current: (state) => state.geo.preset,
   select: (value) => engine.setState({ geo: { preset: value } }),
+};
+
+/** `America/New_York` reads as `new york` on a button. */
+function zoneLabel(zone: string): string {
+  return (zone.split("/").pop() ?? zone).replace(/_/g, " ").toLowerCase();
+}
+
+const TIME_ZONE: Group = {
+  label: "time zone",
+  choices: [
+    ...choices("geo", "system"),
+    ...TIME_ZONE_PRESETS.map((zone) => ({ label: zoneLabel(zone), value: zone })),
+  ],
+  current: (state) => state.timeZone,
+  select: (value) => engine.setState({ timeZone: value }),
 };
 
 const TEXT: Group = {
@@ -279,11 +295,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const geoBox = addGroup(panel, GEO, bindings);
   const lat = numberField("lat");
   const lng = numberField("lng");
-  const zone = field("field-tz", "Europe/Istanbul", "time zone");
   const fields = el("div", "fields");
-  fields.append(lat, lng, zone);
+  fields.append(lat, lng);
+  geoBox.append(el("div", "label", "custom"), fields);
+
+  const zoneBox = addGroup(panel, TIME_ZONE, bindings);
+  const zone = field("field-tz", "Europe/Istanbul", "time zone");
+  const zoneFields = el("div", "fields");
+  zoneFields.append(zone);
   const zoneNote = el("div", "note");
-  geoBox.append(el("div", "label", "custom"), fields, zoneNote);
+  zoneBox.append(el("div", "label", "custom"), zoneFields, zoneNote);
 
   addGroup(panel, TEXT, bindings);
   addGroup(panel, SPACING, bindings);
@@ -347,8 +368,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const fix = resolveGeo(state.geo);
     fill(lat, fix ? String(fix.lat) : "");
     fill(lng, fix ? String(fix.lng) : "");
-    fill(zone, fix?.timeZone ?? "");
-    zoneNote.textContent = `time zone: ${fix?.timeZone || "system"}`;
+    const keyword = state.timeZone === "geo" || state.timeZone === "system";
+    fill(zone, keyword ? "" : state.timeZone);
+    zoneNote.textContent = `time zone: ${resolveTimeZone(state.timeZone, state.geo) ?? "system"}`;
     const framed = needsFrame(state);
     if (!framed) frameCount = null;
     const count = framed ? frameCount : overflowCount();
@@ -423,16 +445,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   let debounce = 0;
+  let zoneDebounce = 0;
 
   function commitCustom(): void {
     debounce = 0;
     engine.setState({
-      geo: {
-        preset: "custom",
-        lat: toNumber(lat.value),
-        lng: toNumber(lng.value),
-        timeZone: zone.value.trim(),
-      },
+      geo: { preset: "custom", lat: toNumber(lat.value), lng: toNumber(lng.value) },
     });
   }
 
@@ -441,7 +459,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
     debounce = window.setTimeout(commitCustom, CUSTOM_DEBOUNCE);
   }
 
-  for (const input of [lat, lng, zone]) input.addEventListener("input", queueCustom);
+  /** An emptied field goes back to following geo. */
+  function commitZone(): void {
+    zoneDebounce = 0;
+    engine.setState({ timeZone: zone.value.trim() || "geo" });
+  }
+
+  function queueZone(): void {
+    clearTimeout(zoneDebounce);
+    zoneDebounce = window.setTimeout(commitZone, CUSTOM_DEBOUNCE);
+  }
+
+  for (const input of [lat, lng]) input.addEventListener("input", queueCustom);
+  zone.addEventListener("input", queueZone);
   replayButton.addEventListener("click", () => engine.replay());
   resetButton.addEventListener("click", () => engine.reset());
 
@@ -573,6 +603,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       unsubscribe();
       stopCount();
       clearTimeout(debounce);
+      clearTimeout(zoneDebounce);
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("message", onMessage);
       window.removeEventListener("resize", clampY);
