@@ -15,6 +15,7 @@ export const TIME_ZONE_PRESETS = [
 ] as const;
 
 type Method = (this: Date, ...args: unknown[]) => unknown;
+type NowMethod = (this: unknown, timeZone?: unknown) => unknown;
 
 const NativeDate = Date;
 const NativeDateTimeFormat = Intl.DateTimeFormat;
@@ -447,6 +448,27 @@ function patchTime(): void {
         },
       }),
   );
+  // Temporal reads the system zone only through Now, and only without a zone argument.
+  const now = (globalThis as { Temporal?: { Now?: object } }).Temporal?.Now;
+  if (!now) return;
+  install<NowMethod>(
+    now,
+    "timeZoneId",
+    (original) =>
+      function (this: unknown) {
+        return zone ?? original.call(this);
+      },
+  );
+  for (const key of ["zonedDateTimeISO", "plainDateTimeISO", "plainDateISO", "plainTimeISO"]) {
+    install<NowMethod>(
+      now,
+      key,
+      (original) =>
+        function (this: unknown, timeZone?: unknown) {
+          return original.call(this, timeZone === undefined && zone ? zone : timeZone);
+        },
+    );
+  }
 }
 
 function restoreTime(): void {

@@ -335,6 +335,50 @@ describe("Date in an emulated zone", () => {
   });
 });
 
+describe("Temporal", () => {
+  /** A stand in for `Temporal.Now` that reports the zone each helper was asked for. */
+  function fakeNow() {
+    const call = (name: string) => (timeZone?: string) => `${name} ${timeZone ?? "host"}`;
+    return {
+      instant: () => "instant",
+      timeZoneId: () => "Europe/Berlin",
+      zonedDateTimeISO: call("zoned"),
+      plainDateTimeISO: call("datetime"),
+      plainDateISO: call("date"),
+      plainTimeISO: call("time"),
+    };
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "Temporal");
+  });
+
+  test("Now defaults to the emulated zone and keeps an explicit one", () => {
+    const now = fakeNow();
+    const original = { ...now };
+    Object.defineProperty(globalThis, "Temporal", { configurable: true, value: { Now: now } });
+    apply("Asia/Kathmandu");
+    expect(now.timeZoneId()).toBe("Asia/Kathmandu");
+    expect(now.zonedDateTimeISO()).toBe("zoned Asia/Kathmandu");
+    expect(now.plainDateTimeISO()).toBe("datetime Asia/Kathmandu");
+    expect(now.plainDateISO()).toBe("date Asia/Kathmandu");
+    expect(now.plainTimeISO()).toBe("time Asia/Kathmandu");
+    expect(now.plainTimeISO("UTC")).toBe("time UTC");
+    expect(now.instant()).toBe("instant");
+    apply("America/New_York");
+    expect(now.timeZoneId()).toBe("America/New_York");
+    reset();
+    expect(now).toEqual(original);
+    expect(now.timeZoneId()).toBe("Europe/Berlin");
+    expect(now.zonedDateTimeISO()).toBe("zoned host");
+  });
+
+  test("an engine without Temporal is fine", () => {
+    apply("Asia/Tokyo");
+    expect(new Date(0).getHours()).toBe(9);
+  });
+});
+
 /**
  * Everything a page can read off a date that depends on the zone. Before 1970
  * the zone name in `toString` is left out: a zone with no daylight time today
