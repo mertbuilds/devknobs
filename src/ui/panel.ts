@@ -135,6 +135,13 @@ const TEXT: Group = {
   select: (value) => engine.setState({ text: value === "system" ? "system" : Number(value) }),
 };
 
+const SPACING: Group = {
+  label: "spacing",
+  choices: choices("off", "on"),
+  current: (state) => (state.spacing ? "on" : "off"),
+  select: (value) => engine.setState({ spacing: value === "on" }),
+};
+
 const WIDTH: Group = {
   label: "width",
   choices: choices("full", "1024", "768", "390"),
@@ -279,6 +286,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   geoBox.append(el("div", "label", "custom"), fields, zoneNote);
 
   addGroup(panel, TEXT, bindings);
+  addGroup(panel, SPACING, bindings);
   const widthBox = addGroup(panel, WIDTH, bindings);
   const badge = el("span", "badge");
   widthBox.firstElementChild?.append(badge);

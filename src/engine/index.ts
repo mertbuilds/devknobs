@@ -15,6 +15,7 @@ import * as outlines from "./outlines";
 import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
 import { replay as replayAnimations } from "./replay";
+import * as spacing from "./spacing";
 import * as speed from "./speed";
 import { clear, DEFAULT_STATE, load, merge, save } from "./store";
 import * as text from "./text";
@@ -64,6 +65,7 @@ export function applyState(next: DevknobsState): void {
   pseudo.apply(state.pseudo);
   geo.apply(state.geo);
   text.apply(state.text);
+  spacing.apply(state.spacing);
   width.apply(state);
   // While the frame is up, the copy inside it looks at the page at that width.
   overflow.apply(state.overflow && !needsFrame(state));
@@ -129,6 +131,7 @@ export function stop(): void {
   pseudo.reset();
   geo.reset();
   text.reset();
+  spacing.reset();
   width.reset();
   overflow.reset();
   outlines.reset();
