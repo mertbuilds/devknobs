@@ -1,4 +1,4 @@
-import type { DevknobsState } from "../types";
+import type { DevknobsState, WidthValue } from "../types";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -31,27 +31,38 @@ const CSS = `
   inset: 0;
   display: flex;
   flex-direction: column;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
   direction: ltr;
   background: #6e6e69;
 }
 .size {
   flex: none;
   align-self: center;
+  /* A set height, so the room the frame is fitted to never waits on the text. */
+  height: 16px;
   padding: 4px 0;
   font: 11px/16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: rgba(255, 255, 255, 0.7);
   user-select: none;
   -webkit-user-select: none;
 }
-iframe {
+.stage {
   flex: 1 1 0;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+/* Scales the frame down to fit. A transform keeps the device pixel ratio
+   inside, where zoom would change it, and hit testing follows it into the
+   frame, so clicks land where they are drawn. */
+.screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+iframe {
   display: block;
-  /* Auto margins center the frame, and fall back to the start edge when it is
-     wider than the window, so the overflow can be scrolled to. */
-  margin: 0 auto;
   border: 0;
   /* The canvas color of the frame's own scheme, which is what shows through a
      page that leaves its background to the browser. */
@@ -60,6 +71,8 @@ iframe {
 `;
 
 let host: HTMLElement | null = null;
+let stage: HTMLElement | null = null;
+let screen: HTMLElement | null = null;
 let frame: HTMLIFrameElement | null = null;
 let readout: HTMLElement | null = null;
 let current: ViewportValue = { width: "full", frame: false, vision: "none", scheme: "system" };
@@ -134,15 +147,48 @@ function handsSchemeDown(root: Node): boolean {
   return schemeHandover;
 }
 
+/** Where the frame goes in the room the letterbox leaves it. */
+export interface Fit {
+  /** The frame's css size, which is the viewport the page inside sees. */
+  width: number;
+  height: number;
+  /** What the frame is drawn at, 1 or less. */
+  scale: number;
+  /** Offset of the frame from the left, which centers it. */
+  left: number;
+}
+
+/**
+ * Fit a frame `width` wide into `room`. One wider than the room is drawn
+ * smaller, and made taller by as much, so it still fills the height.
+ */
+export function fit(width: WidthValue, room: { width: number; height: number }): Fit {
+  const size = typeof width === "number" ? width : room.width;
+  const scale = size > 0 && room.width > 0 ? Math.min(1, room.width / size) : 1;
+  return {
+    width: size,
+    height: room.height / scale,
+    scale,
+    left: Math.max(0, (room.width - size * scale) / 2),
+  };
+}
+
+/** What the letterbox says about the frame, such as `1440 at 62%`. */
+export function label(box: Fit): string {
+  return box.scale < 1 ? `${box.width} at ${Math.round(box.scale * 100)}%` : String(box.width);
+}
+
 function resize(): void {
-  const width = typeof current.width === "number" ? current.width : 0;
-  if (readout) {
-    // At full width the frame is the window, and there is nothing to read out.
-    readout.hidden = !width;
-    readout.textContent = String(width);
-  }
-  if (!frame) return;
-  frame.style.width = width ? `${width}px` : "100%";
+  if (!frame || !stage || !screen || !readout) return;
+  // At full width the frame is the window, and there is nothing to read out.
+  // This goes first, as it changes the room the frame has.
+  readout.hidden = typeof current.width !== "number";
+  const place = fit(current.width, { width: stage.clientWidth, height: stage.clientHeight });
+  readout.textContent = label(place);
+  frame.style.width = `${place.width}px`;
+  frame.style.height = `${place.height}px`;
+  screen.style.left = `${place.left}px`;
+  screen.style.transform = place.scale < 1 ? `scale(${place.scale})` : "";
   // Natively, the page inside gets the scheme as its real preference. System
   // leaves the frame to follow the window.
   const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
@@ -168,6 +214,10 @@ function open(): void {
   box.className = "viewport";
   readout = document.createElement("div");
   readout.className = "size";
+  stage = document.createElement("div");
+  stage.className = "stage";
+  screen = document.createElement("div");
+  screen.className = "screen";
   frame = document.createElement("iframe");
   frame.setAttribute(FRAME_ATTRIBUTE, "");
   frame.name = FRAME_NAME;
@@ -175,7 +225,9 @@ function open(): void {
   frameUrl = window.location.href;
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
-  box.append(readout, frame);
+  screen.append(frame);
+  stage.append(screen);
+  box.append(readout, stage);
   root.append(style, box);
   for (const child of Array.from(body.children)) {
     if (child.hasAttribute("data-devknobs") || child.hasAttribute("inert")) continue;
@@ -184,6 +236,7 @@ function open(): void {
   }
   ensureStyle(NAME).textContent = "html{overflow:hidden!important}";
   window.addEventListener("message", onMessage);
+  window.addEventListener("resize", resize);
   body.append(host);
   // Before the frame's page starts, which is no sooner than this task ends.
   resize();
@@ -196,9 +249,12 @@ function close(follow: boolean): void {
   if (!host) return;
   const target = follow ? locate() : "";
   window.removeEventListener("message", onMessage);
+  window.removeEventListener("resize", resize);
   frame?.removeEventListener("load", onLoad);
   host.remove();
   host = null;
+  stage = null;
+  screen = null;
   frame = null;
   readout = null;
   for (const node of inerted) node.removeAttribute("inert");
