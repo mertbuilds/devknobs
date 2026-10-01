@@ -20,6 +20,7 @@ export const DEFAULT_STATE: DevknobsState = {
   text: "system",
   width: "full",
   frame: false,
+  dpr: "system",
   vision: "none",
   outlines: false,
   panel: { open: true, y: 16, top: 16 },
@@ -98,6 +99,7 @@ export function parse(json: string | null | undefined): DevknobsState {
     text: numberOr(state.text, "system", DEFAULT_STATE.text),
     width: numberOr(state.width, "full", DEFAULT_STATE.width),
     frame: bool(state.frame, DEFAULT_STATE.frame),
+    dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     panel: {

@@ -126,6 +126,13 @@ const FRAME: Group = {
   select: (value) => engine.setState({ frame: value === "on" }),
 };
 
+const DPR: Group = {
+  label: "dpr",
+  choices: choices("system", "1", "2", "3"),
+  current: (state) => String(state.dpr),
+  select: (value) => engine.setState({ dpr: value === "system" ? "system" : Number(value) }),
+};
+
 const VISION: Group = {
   label: "vision",
   choices: choices("none", "protanopia", "deuteranopia", "tritanopia", "achromatopsia", "blur"),
@@ -233,6 +240,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   addGroup(panel, TEXT, bindings);
   addGroup(panel, WIDTH, bindings);
   addGroup(panel, FRAME, bindings);
+  addGroup(panel, DPR, bindings);
   addGroup(panel, VISION, bindings);
   addGroup(panel, OUTLINES, bindings);
 

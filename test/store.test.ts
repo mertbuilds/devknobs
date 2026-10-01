@@ -22,6 +22,7 @@ describe("parse", () => {
         text: 20,
         width: "full",
         frame: true,
+        dpr: 2,
         vision: "tritanopia",
         outlines: "yes",
         panel: { open: false, y: 40, top: 24 },
@@ -37,6 +38,7 @@ describe("parse", () => {
       text: 20,
       width: "full",
       frame: true,
+      dpr: 2,
       vision: "tritanopia",
       outlines: false,
       panel: { open: false, y: 40, top: 24 },
@@ -56,9 +58,10 @@ describe("parse", () => {
   });
 
   test("rejects sizes that are not positive numbers", () => {
-    expect(parse(JSON.stringify({ text: 0, width: -10 }))).toMatchObject({
+    expect(parse(JSON.stringify({ text: 0, width: -10, dpr: 0 }))).toMatchObject({
       text: "system",
       width: "full",
+      dpr: "system",
     });
     expect(parse(JSON.stringify({ text: "16px", width: 420 }))).toMatchObject({
       text: "system",

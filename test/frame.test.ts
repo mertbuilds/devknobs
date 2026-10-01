@@ -41,6 +41,7 @@ describe("framed", () => {
   test("leaves the frame knobs off inside the frame", () => {
     expect(framed({ ...DEFAULT_STATE, frame: true })).toEqual(DEFAULT_STATE);
     expect(framed({ ...DEFAULT_STATE, vision: "tritanopia" })).toEqual(DEFAULT_STATE);
+    expect(framed({ ...DEFAULT_STATE, dpr: 3 })).toEqual(DEFAULT_STATE);
   });
 
   test("hands back a state that is already full", () => {
@@ -50,15 +51,17 @@ describe("framed", () => {
 });
 
 describe("needsFrame", () => {
-  test("is true for a width, the frame knob or a vision deficiency", () => {
+  test("is true for a width, the frame knob, a ratio or a vision deficiency", () => {
     expect(needsFrame({ ...UNFRAMED, width: 390 })).toBe(true);
     expect(needsFrame({ ...UNFRAMED, frame: true })).toBe(true);
     expect(needsFrame({ ...UNFRAMED, vision: "blur" })).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, dpr: 2 })).toBe(true);
   });
 
   test("is false with every frame knob off, or for a width that is no size", () => {
     expect(needsFrame(UNFRAMED)).toBe(false);
     expect(needsFrame({ ...UNFRAMED, width: 0 })).toBe(false);
+    expect(needsFrame({ ...UNFRAMED, dpr: 0 })).toBe(false);
   });
 });
 

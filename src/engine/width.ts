@@ -1,4 +1,4 @@
-import type { DevknobsState, WidthValue } from "../types";
+import type { DevknobsState, DprValue, WidthValue } from "../types";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -75,7 +75,9 @@ let stage: HTMLElement | null = null;
 let screen: HTMLElement | null = null;
 let frame: HTMLIFrameElement | null = null;
 let readout: HTMLElement | null = null;
-let current: ViewportValue = { width: "full", frame: false, vision: "none", scheme: "system" };
+let current: ViewportValue = { ...UNFRAMED, scheme: "system" };
+/** The frame's page has loaded, so what it reports can be trusted. */
+let loaded = false;
 /** Where the frame was last seen on this origin. */
 let frameUrl = "";
 let latest: DevknobsState | null = null;
@@ -109,7 +111,9 @@ function locate(): string {
 }
 
 function onLoad(): void {
+  loaded = true;
   locate();
+  checkZoom();
   share();
 }
 
@@ -152,30 +156,67 @@ export interface Fit {
   /** The frame's css size, which is the viewport the page inside sees. */
   width: number;
   height: number;
+  /** `zoom` on the frame. The page inside gets that many more device pixels per css pixel. */
+  zoom: number;
   /** What the frame is drawn at, 1 or less. */
   scale: number;
+  /** `transform: scale()` on the frame's wrapper: the fit, and the zoom undone. */
+  transform: number;
   /** Offset of the frame from the left, which centers it. */
   left: number;
 }
 
 /**
  * Fit a frame `width` wide into `room`. One wider than the room is drawn
- * smaller, and made taller by as much, so it still fills the height.
+ * smaller, and made taller by as much, so it still fills the height. A zoom
+ * keeps the frame's css size, and the wrapper takes it back out of the drawing.
  */
-export function fit(width: WidthValue, room: { width: number; height: number }): Fit {
+export function fit(width: WidthValue, room: { width: number; height: number }, zoom = 1): Fit {
   const size = typeof width === "number" ? width : room.width;
   const scale = size > 0 && room.width > 0 ? Math.min(1, room.width / size) : 1;
   return {
     width: size,
     height: room.height / scale,
+    zoom,
     scale,
+    transform: scale / zoom,
     left: Math.max(0, (room.width - size * scale) / 2),
   };
 }
 
-/** What the letterbox says about the frame, such as `1440 at 62%`. */
-export function label(box: Fit): string {
-  return box.scale < 1 ? `${box.width} at ${Math.round(box.scale * 100)}%` : String(box.width);
+/** What the letterbox says about the frame, such as `1440 at 62% · 2x`. */
+export function label(place: Fit, dpr: DprValue): string {
+  let text = String(place.width);
+  if (place.scale < 1) text += ` at ${Math.round(place.scale * 100)}%`;
+  if (typeof dpr === "number") text += ` · ${dpr}x`;
+  return text;
+}
+
+/**
+ * Zoom on a frame multiplies the device pixel ratio of the page inside it
+ * (csswg #9644, chromium since 2024), with the frame's css size unchanged.
+ * False once a browser is seen not to, so its zoom never stretches a viewport.
+ */
+let zoomWorks = true;
+
+function zoomFor(dpr: DprValue): number {
+  if (!zoomWorks || typeof dpr !== "number" || !(window.devicePixelRatio > 0)) return 1;
+  return dpr / window.devicePixelRatio;
+}
+
+/** Did the page inside get the ratio? If not, drop the zoom for good. */
+function checkZoom(): void {
+  const view = frameWindow();
+  if (!frame || !view || !loaded || zoomFor(current.dpr) === 1) return;
+  // The ratio inside follows the zoom once the layout above it is current.
+  frame.getBoundingClientRect();
+  try {
+    if (Math.abs(view.devicePixelRatio - Number(current.dpr)) < 0.01) return;
+  } catch {
+    return;
+  }
+  zoomWorks = false;
+  resize();
 }
 
 function resize(): void {
@@ -183,18 +224,21 @@ function resize(): void {
   // At full width the frame is the window, and there is nothing to read out.
   // This goes first, as it changes the room the frame has.
   readout.hidden = typeof current.width !== "number";
-  const place = fit(current.width, { width: stage.clientWidth, height: stage.clientHeight });
-  readout.textContent = label(place);
+  const room = { width: stage.clientWidth, height: stage.clientHeight };
+  const place = fit(current.width, room, zoomFor(current.dpr));
+  readout.textContent = label(place, zoomWorks ? current.dpr : "system");
   frame.style.width = `${place.width}px`;
   frame.style.height = `${place.height}px`;
+  frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
   screen.style.left = `${place.left}px`;
-  screen.style.transform = place.scale < 1 ? `scale(${place.scale})` : "";
+  screen.style.transform = place.transform === 1 ? "" : `scale(${place.transform})`;
   // Natively, the page inside gets the scheme as its real preference. System
   // leaves the frame to follow the window.
   const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
   if (native) frame.style.colorScheme = current.scheme;
   else frame.style.removeProperty("color-scheme");
   frame.style.filter = visionFilter(current.vision);
+  checkZoom();
 }
 
 /**
@@ -223,6 +267,7 @@ function open(): void {
   frame.name = FRAME_NAME;
   frame.title = "devknobs viewport";
   frameUrl = window.location.href;
+  loaded = false;
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
   screen.append(frame);
