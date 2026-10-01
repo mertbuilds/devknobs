@@ -1,5 +1,6 @@
 import type { GeoValue, TimeZoneValue } from "../types";
 import { resolveGeo } from "./geo";
+import { underLocale } from "./intl";
 
 /** Zones the panel offers. Kolkata, Kathmandu and Lord Howe cover the odd offsets. */
 export const TIME_ZONE_PRESETS = [
@@ -308,19 +309,24 @@ function withTimeZone(
 interface Installed {
   target: object;
   key: string;
-  descriptor: PropertyDescriptor;
+  original: unknown;
   value: unknown;
 }
 
 let installed: Installed[] = [];
 
-/** Swap one method for `make(original)`, keeping the original for `restoreTime`. */
+/**
+ * Swap one method for `make(original)`, keeping the original for `restoreTime`.
+ * It is assigned, not defined: on a member the locale knob holds, that puts it
+ * under the locale proxy, which calls through to it. The original is read from
+ * under that proxy too, so the locale goes in once.
+ */
 function install<T>(target: object, key: string, make: (original: T) => T): void {
-  const descriptor = Object.getOwnPropertyDescriptor(target, key);
-  if (typeof descriptor?.value !== "function") return;
-  const value = make(descriptor.value as T);
-  installed.push({ target, key, descriptor, value });
-  Object.defineProperty(target, key, { ...descriptor, value });
+  if (!Object.getOwnPropertyDescriptor(target, key)) return;
+  const original = underLocale(Reflect.get(target, key));
+  if (typeof original !== "function") return;
+  const value = make(original as T);
+  if (Reflect.set(target, key, value)) installed.push({ target, key, original, value });
 }
 
 /**
@@ -473,10 +479,10 @@ function patchTime(): void {
 
 function restoreTime(): void {
   if (!timePatched) return;
-  for (const { target, key, descriptor, value } of installed.reverse()) {
+  for (const { target, key, original, value } of installed.reverse()) {
     // Wrapped by someone else since: leave theirs, ours passes through now.
-    if (Object.getOwnPropertyDescriptor(target, key)?.value !== value) continue;
-    Object.defineProperty(target, key, descriptor);
+    if (underLocale(Reflect.get(target, key)) !== value) continue;
+    Reflect.set(target, key, original);
   }
   installed = [];
   timePatched = false;

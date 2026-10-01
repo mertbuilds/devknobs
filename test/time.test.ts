@@ -8,6 +8,7 @@ import {
   resolveTimeZone,
   TIME_ZONE_PRESETS,
 } from "../src/engine/time";
+import { setDefaultLocale } from "../src/engine/intl";
 import { DEFAULT_STATE } from "../src/engine/store";
 import type { GeoValue } from "../src/types";
 
@@ -178,6 +179,114 @@ describe("Intl.DateTimeFormat", () => {
     expect(Intl.DateTimeFormat).toBe(after);
     expect(new Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(HOST);
   });
+});
+
+describe("with the locale knob", () => {
+  const ZONE = "Asia/Kathmandu";
+  const HOST_ZONE = "America/Los_Angeles";
+  const METHODS = ["toLocaleString", "toLocaleDateString", "toLocaleTimeString"] as const;
+  type LocaleMethod = (this: Date, locales?: string, options?: object) => string;
+  const natives: Record<(typeof METHODS)[number], LocaleMethod> = {
+    toLocaleString: Date.prototype.toLocaleString,
+    toLocaleDateString: Date.prototype.toLocaleDateString,
+    toLocaleTimeString: Date.prototype.toLocaleTimeString,
+  };
+  const NativeDateTimeFormat = Intl.DateTimeFormat;
+  const HOST_LOCALE = new NativeDateTimeFormat().resolvedOptions().locale;
+
+  type Knob = "locale" | "zone";
+  const knobs: Record<Knob, { on(): void; off(): void }> = {
+    locale: { on: () => setDefaultLocale("tr"), off: () => setDefaultLocale(null) },
+    zone: { on: () => apply(ZONE), off: reset },
+  };
+  const ORDERS: [Knob, Knob][] = [
+    ["locale", "zone"],
+    ["zone", "locale"],
+  ];
+
+  /** Every member both knobs patch, as it sits right now. */
+  function members(): (PropertyDescriptor | undefined)[] {
+    return [
+      Object.getOwnPropertyDescriptor(Intl, "DateTimeFormat"),
+      ...METHODS.map((key) => Object.getOwnPropertyDescriptor(Date.prototype, key)),
+    ];
+  }
+
+  const NATIVE_MEMBERS = members();
+
+  /** The locale and zone a formatter made with neither argument resolves to. */
+  function resolved(): [string, string] {
+    const options = new Intl.DateTimeFormat().resolvedOptions();
+    return [options.locale, options.timeZone];
+  }
+
+  /** Turn both knobs on in this order, with the process far from the emulated zone. */
+  function both<T>([first, second]: [Knob, Knob], run: () => T): T {
+    return inZone(HOST_ZONE, () => {
+      knobs[first].on();
+      knobs[second].on();
+      return run();
+    });
+  }
+
+  afterEach(() => {
+    setDefaultLocale(null);
+  });
+
+  for (const order of ORDERS) {
+    test(`formatters and toLocale methods take the locale and the zone, ${order[0]} first`, () => {
+      both(order, () => {
+        expect(resolved()).toEqual(["tr", ZONE]);
+        const called = Intl.DateTimeFormat().resolvedOptions();
+        expect([called.locale, called.timeZone]).toEqual(["tr", ZONE]);
+        expect(new Intl.DateTimeFormat() instanceof Intl.DateTimeFormat).toBe(true);
+        for (const key of METHODS) {
+          expect(WINTER[key]()).toBe(natives[key].call(WINTER, "tr", { timeZone: ZONE }));
+        }
+      });
+    });
+
+    test(`explicit locales and zones win, ${order[0]} first`, () => {
+      both(order, () => {
+        const named = new Intl.DateTimeFormat("de", { timeZone: "UTC" }).resolvedOptions();
+        expect([named.locale, named.timeZone]).toEqual(["de", "UTC"]);
+        expect(new Intl.DateTimeFormat("de").resolvedOptions().timeZone).toBe(ZONE);
+        const utc = new Intl.DateTimeFormat(undefined, { timeZone: "UTC" }).resolvedOptions();
+        expect(utc.locale).toBe("tr");
+        expect(WINTER.toLocaleString("en-US", { timeZone: "UTC" })).toBe("1/15/2026, 12:00:00 PM");
+        expect(WINTER.toLocaleString("en-US")).toBe("1/15/2026, 5:45:00 PM");
+        expect(WINTER.toLocaleTimeString(undefined, { timeZone: "UTC" })).toBe(
+          natives.toLocaleTimeString.call(WINTER, "tr", { timeZone: "UTC" }),
+        );
+      });
+    });
+
+    for (const off of ["locale", "zone"] as const) {
+      const left: Knob = off === "locale" ? "zone" : "locale";
+      test(`${order[0]} on first, ${off} off first: the other stays, then the natives`, () => {
+        both(order, () => {
+          knobs[off].off();
+          if (left === "zone") {
+            expect(resolved()).toEqual([HOST_LOCALE, ZONE]);
+            expect(WINTER.toLocaleString()).toBe(
+              natives.toLocaleString.call(WINTER, undefined, { timeZone: ZONE }),
+            );
+          } else {
+            expect(resolved()).toEqual(["tr", HOST_ZONE]);
+            expect(WINTER.toLocaleString()).toBe(natives.toLocaleString.call(WINTER, "tr"));
+          }
+          knobs[left].off();
+          const after = members();
+          NATIVE_MEMBERS.forEach((native, index) => {
+            expect(after[index]).toEqual(native);
+            expect(after[index]?.value).toBe(native?.value);
+          });
+          expect(Intl.DateTimeFormat).toBe(NativeDateTimeFormat);
+          expect(resolved()).toEqual([HOST_LOCALE, HOST_ZONE]);
+        });
+      });
+    }
+  }
 });
 
 describe("fromWall", () => {
