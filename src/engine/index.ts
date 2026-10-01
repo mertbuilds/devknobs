@@ -1,9 +1,18 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
-import { framed, isDevknobsFrame, nativeScheme, post, readMessage, UNFRAMED } from "./frame";
+import {
+  framed,
+  isDevknobsFrame,
+  nativeScheme,
+  needsFrame,
+  post,
+  readMessage,
+  UNFRAMED,
+} from "./frame";
 import * as geo from "./geo";
 import * as locale from "./locale";
 import * as media from "./media";
 import * as outlines from "./outlines";
+import * as overflow from "./overflow";
 import { replay as replayAnimations } from "./replay";
 import * as speed from "./speed";
 import { clear, DEFAULT_STATE, load, merge, save } from "./store";
@@ -24,6 +33,7 @@ let persist = true;
 let running = false;
 /** Running inside the width knob's frame, where the page above drives the knobs. */
 let inFrame = false;
+let stopRelay: (() => void) | null = null;
 const listeners = new Set<Listener>();
 
 export function getState(): DevknobsState {
@@ -48,6 +58,8 @@ export function applyState(next: DevknobsState): void {
   geo.apply(state.geo);
   text.apply(state.text);
   width.apply(state);
+  // While the frame is up, the copy inside it looks at the page at that width.
+  overflow.apply(state.overflow && !needsFrame(state));
   outlines.apply(state.outlines);
   if (persist) save(state);
   width.sync(state);
@@ -72,6 +84,11 @@ function onMessage(event: MessageEvent): void {
   else if (message?.type === "replay") replayAnimations();
 }
 
+/** Inside the frame, tell the panel above how many boxes stick out here. */
+function relay(count: number): void {
+  post(window.parent, { source: "devknobs", type: "overflow", count });
+}
+
 export function start(options: EngineOptions = {}): void {
   if (running) return;
   running = true;
@@ -84,7 +101,10 @@ export function start(options: EngineOptions = {}): void {
   // A page that will not load in the frame offers this way out.
   width.onExit(() => setState(UNFRAMED));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));
-  if (inFrame) post(window.parent, { source: "devknobs", type: "ready" });
+  if (!inFrame) return;
+  relay(overflow.overflowCount());
+  stopRelay = overflow.onCount(relay);
+  post(window.parent, { source: "devknobs", type: "ready" });
 }
 
 /** Undo every patch and hand the page back to the browser. */
@@ -92,6 +112,8 @@ export function stop(): void {
   if (!running) return;
   running = false;
   window.removeEventListener("message", onMessage);
+  stopRelay?.();
+  stopRelay = null;
   inFrame = false;
   width.onExit(null);
   media.destroy();
@@ -100,6 +122,7 @@ export function stop(): void {
   geo.reset();
   text.reset();
   width.reset();
+  overflow.reset();
   outlines.reset();
   state = { ...DEFAULT_STATE };
 }

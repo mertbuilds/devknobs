@@ -23,6 +23,7 @@ export const DEFAULT_STATE: DevknobsState = {
   frame: false,
   dpr: "system",
   vision: "none",
+  overflow: false,
   outlines: false,
   panel: { open: true, y: 16, top: 16 },
 };
@@ -108,6 +109,7 @@ export function parse(json: string | null | undefined): DevknobsState {
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
+    overflow: bool(state.overflow, DEFAULT_STATE.overflow),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),

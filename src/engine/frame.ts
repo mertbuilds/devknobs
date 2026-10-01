@@ -18,6 +18,7 @@ export type KeyAction = "toggle" | "close";
 export type DevknobsMessage =
   | { source: "devknobs"; type: "state"; state: DevknobsState }
   | { source: "devknobs"; type: "key"; action: KeyAction }
+  | { source: "devknobs"; type: "overflow"; count: number }
   | { source: "devknobs"; type: "ready" | "replay" };
 
 /** The parts of a `MessageEvent` that decide whether devknobs reads it. */
@@ -99,6 +100,11 @@ export function readMessage(
     const action = message.action;
     if (action !== "toggle" && action !== "close") return null;
     return { source: "devknobs", type, action };
+  }
+  if (type === "overflow") {
+    const count = message.count;
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return null;
+    return { source: "devknobs", type, count };
   }
   if (type === "ready" || type === "replay") return { source: "devknobs", type };
   return null;

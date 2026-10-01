@@ -1,4 +1,5 @@
-import { collect, onDocumentTimeline, targetOf, walk } from "./animations";
+import { collect, onDocumentTimeline, targetOf } from "./animations";
+import { walk } from "./tree";
 
 /** Marks the boxes whose finished CSS animations replay restarts. */
 const MARK = "data-devknobs-replay";

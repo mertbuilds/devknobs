@@ -25,6 +25,7 @@ describe("parse", () => {
         frame: true,
         dpr: 2,
         vision: "tritanopia",
+        overflow: true,
         outlines: "yes",
         panel: { open: false, y: 40, top: 24 },
         stray: 1,
@@ -42,6 +43,7 @@ describe("parse", () => {
       frame: true,
       dpr: 2,
       vision: "tritanopia",
+      overflow: true,
       outlines: false,
       panel: { open: false, y: 40, top: 24 },
     });

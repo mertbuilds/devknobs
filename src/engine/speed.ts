@@ -1,5 +1,6 @@
 import type { SpeedValue } from "../types";
-import { collect, isOwn, onDocumentTimeline, shadowRoots } from "./animations";
+import { collect, onDocumentTimeline } from "./animations";
+import { isOwn, shadowRoots } from "./tree";
 
 /** How often the sweep looks again for shadow roots that came or went, in ms. */
 const ROOT_INTERVAL = 500;

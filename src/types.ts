@@ -67,6 +67,8 @@ export interface DevknobsState {
   frame: boolean;
   dpr: DprValue;
   vision: VisionValue;
+  /** Mark the boxes that stick out of the viewport sideways. */
+  overflow: boolean;
   outlines: boolean;
   panel: PanelValue;
 }
