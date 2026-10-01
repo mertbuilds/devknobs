@@ -84,19 +84,48 @@ dragging to move the panel and the handle together.
 
 | knob | values | how it is emulated |
 | --- | --- | --- |
-| color scheme | light, dark, system | rewrites every `prefers-color-scheme` media rule in the page's own stylesheets, patches `matchMedia` so js reads the same value, and sets `color-scheme` on `<html>` so `light-dark()` flips too |
+| color scheme | light, dark, system | rewrites every `prefers-color-scheme` media rule in the page's own stylesheets, patches `matchMedia` so js reads the same value, and sets `color-scheme` on `<html>` so `light-dark()` flips too. in the frame the browser does it natively, see below |
 | reduced motion | reduce, system | rewrites `prefers-reduced-motion` media rules and patches `matchMedia` |
 | contrast | more, system | rewrites `prefers-contrast` media rules and patches `matchMedia` |
 | locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and patches `navigator.language` / `navigator.languages`. direction defaults to rtl for ar, he, fa and ur. also writes the `PARAGLIDE_LOCALE` cookie and reloads when it changes, so paraglide (cookie strategy) server-rendered strings follow the knob |
 | geolocation | a city preset, custom coordinates, system | patches `navigator.geolocation.getCurrentPosition` and `watchPosition` with a fixed position |
 | time zone | comes with the geo preset | patches `Intl.DateTimeFormat` so calls without an explicit `timeZone` use the emulated one, and patches `Date.prototype.getTimezoneOffset` |
 | root font size | px, system | sets `font-size` on `<html>`, so everything in rem scales |
-| viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. back to full, the window goes wherever the frame navigated |
+| viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. a width wider than the window is scaled down to fit, and the readout says by how much. back to full, the window goes wherever the frame navigated |
+| frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
+| device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
+| vision | protanopia, deuteranopia, tritanopia, achromatopsia, blur, none | an svg color matrix (machado et al. 2009, as chromium devtools uses) or a 2px blur, as a `filter` on the frame, so fixed elements inside keep their place and the panel stays readable. brings the frame up |
 | outlines | on, off | injects one style rule that outlines every element |
 | replay | action | cancels and replays every running css animation, then does the classic inline `animation: none` reset so the finished ones run again |
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.
+
+## the frame
+
+width, frame, device pixel ratio and vision render the page in a same-origin
+iframe, a real viewport, and lean on what browsers do natively for frames:
+
+- color scheme: the frame element's `color-scheme` becomes the framed page's
+  `prefers-color-scheme` (css color adjust, csswg #7493; chrome 129+, firefox
+  105+). a probe frame checks for it once. where it works, devknobs sets it on
+  the frame and leaves the page's css and `matchMedia` alone, so cross-origin
+  stylesheets and shadow roots follow too. safari gets the rewrite.
+- device pixel ratio: `zoom` on an iframe multiplies the ratio inside it
+  (csswg #9644, chromium since 2024). a browser seen not to hand it down loses
+  the zoom, and the knob does nothing there.
+- fit: `transform: scale()`, never `zoom`, so the ratio inside stays the
+  screen's and clicks land where they are drawn.
+
+the frame is sandboxed without `allow-top-navigation`, so a frame-busting
+script cannot reload the window into its frame forever. a click still can, so
+`target="_top"` links work. chrome logs one warning that a frame with scripts
+and same-origin access could lift its own sandbox.
+
+the address bar and the tab title follow the frame, so a reload lands where the
+frame was. a page that refuses to be framed (`x-frame-options`,
+`frame-ancestors`) gets a notice with a button that closes the frame. the page
+underneath is `inert` and `content-visibility: hidden` until the frame goes.
 
 ## limits
 
@@ -108,15 +137,15 @@ the same goes for css inside a shadow root that devknobs cannot reach.
 real system zone, so they keep showing local time even while `Intl` and
 `getTimezoneOffset` report the emulated one.
 
-the viewport width knob loads the page a second time inside its frame, so
-in-memory state (a half-filled form, a client store) is not shared between the
-two, and the page under the frame keeps running. navigations to another origin
-inside the frame are not tracked.
+the frame loads the page a second time, so in-memory state (a half-filled form,
+a client store) is not shared between the two, and the page under the frame
+keeps running, though it skips rendering. navigations to another origin inside
+the frame are not tracked, and get the refusal notice.
 
 these cannot be faked from inside a page, so use the browser devtools for
 them:
 
-- viewport height and device pixel ratio (device toolbar)
+- viewport height, and device pixel ratio outside chromium (device toolbar)
 - `forced-colors` and high contrast mode (rendering panel)
 - print media (rendering panel, or print preview)
 - pointer and hover type, touch emulation (device toolbar)
