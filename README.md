@@ -80,6 +80,25 @@ dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 drag the handle to move it up and down the edge of the window. hold shift while
 dragging to move the panel and the handle together.
 
+## early script
+
+optional. a page that reads a media query while it boots, before devknobs
+mounts (a theme script, a module that checks `prefers-reduced-motion` once),
+only sees the knob if the patch is already in place. put the early script
+first in `<head>`:
+
+```html
+<script src="//unpkg.com/devknobs/dist/early.global.js"></script>
+```
+
+it is also `devknobs/early` in the package. it applies the stored scheme,
+motion and contrast on the spot, with no panel: the `matchMedia` and
+`matches` patches, `color-scheme` on `<html>`, and the stylesheet rewrite as
+sheets arrive. the full script, however it is loaded, takes those patches
+over when it mounts instead of patching on top, and lists made in between
+still get their change events. it covers the media knobs only, and since it
+reads the stored state, it follows the knobs from the next load on.
+
 ## knobs
 
 | knob | values | how it is emulated |
@@ -145,7 +164,7 @@ the same goes for css inside a shadow root that devknobs cannot reach.
 a `MediaQueryList` made before devknobs mounted reads the emulated `matches`,
 because the getter is patched on the prototype, but it gets no change event:
 there is no way to find it. reload once the knob is set, so the page makes its
-lists after the mount.
+lists after the mount, or load the early script first.
 
 `Date.prototype.toString` and `toLocaleString` are out of scope: they read the
 real system zone, so they keep showing local time even while `Intl` and

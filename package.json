@@ -20,10 +20,11 @@
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"
     },
-    "./global": "./dist/index.global.js"
+    "./global": "./dist/index.global.js",
+    "./early": "./dist/early.global.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --format esm && bun build src/react.tsx --outdir dist --format esm --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist/index.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json",
+    "build": "bun build src/index.ts --outdir dist --format esm && bun build src/react.tsx --outdir dist --format esm --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist/index.global.js --format iife --minify && bun build src/early.ts --outfile dist/early.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

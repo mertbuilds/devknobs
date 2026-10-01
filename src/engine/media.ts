@@ -115,6 +115,30 @@ export function mentionsFeature(text: string): boolean {
 
 type MediaBearingRule = CSSRule & { media: MediaList };
 
+/** A list the early script tracked, handed to the full one with what the page heard. */
+interface Handover {
+  list: MediaQueryList;
+  query: string;
+  heard: boolean;
+}
+
+/** What the early script leaves on `window` for the full one to take over. */
+interface EarlyMedia {
+  /**
+   * Put the page back without a word and hand over the lists made meanwhile.
+   * Their guards stay first in line and pass every event on to `guard`.
+   */
+  release(guard: (event: Event) => void): Handover[];
+}
+
+/**
+ * Where the early script leaves its patches. The full script sets it to null
+ * once it patches, so an early script that runs after it stays out.
+ */
+const EARLY = Symbol.for("devknobs.early");
+
+type EarlyScope = Record<symbol, EarlyMedia | null | undefined>;
+
 const originals = new WeakMap<CSSRule, string>();
 /** The lists `matchMedia` handed out that name an emulated feature. The page may drop them. */
 const tracked = new Set<WeakRef<MediaQueryList>>();
@@ -133,6 +157,8 @@ let nativeMatches: PropertyDescriptor | null = null;
 let readMatches: ((this: MediaQueryList) => boolean) | null = null;
 let patched = false;
 let refreshQueued = false;
+/** Set once the full script took this early copy over: its guards answer to that one. */
+let forward: ((event: Event) => void) | null = null;
 let observer: MutationObserver | null = null;
 let frame = 0;
 let colorScheme: string | null = null;
@@ -266,6 +292,10 @@ function refresh(): void {
  * resize, say) moved it.
  */
 function guard(event: Event): void {
+  if (forward) {
+    forward(event);
+    return;
+  }
   if (!event.isTrusted) return;
   const list = event.currentTarget as MediaQueryList;
   if (!emulating()) {
@@ -300,8 +330,17 @@ function track(list: MediaQueryList, query: string): void {
  */
 function ensureMatchMedia(): void {
   if (patched) return;
+  const scope = window as unknown as EarlyScope;
+  const early = scope[EARLY];
+  scope[EARLY] = null;
+  const handed = early?.release(guard) ?? [];
   nativeMatchMedia ??= window.matchMedia.bind(window);
   patched = true;
+  for (const { list, query, heard: value } of handed) {
+    queries.set(list, query);
+    heard.set(list, value);
+    tracked.add(new WeakRef(list));
+  }
   window.matchMedia = (query: string): MediaQueryList => {
     const list = nativeMatchMedia!.call(window, query);
     if (mentionsFeature(query)) track(list, query);
@@ -344,9 +383,7 @@ export function reset(): void {
   apply(SYSTEM_MEDIA);
 }
 
-/** Put `matchMedia` and `matches` back and stop watching for new stylesheets. */
-export function destroy(): void {
-  reset();
+function teardown(): void {
   observer?.disconnect();
   observer = null;
   if (frame) {
@@ -363,4 +400,47 @@ export function destroy(): void {
   for (const ref of tracked) ref.deref()?.removeEventListener("change", guard);
   tracked.clear();
   colorScheme = null;
+}
+
+/** Put `matchMedia` and `matches` back and stop watching for new stylesheets. */
+export function destroy(): void {
+  reset();
+  teardown();
+  Reflect.deleteProperty(window, EARLY);
+}
+
+/**
+ * Undo everything for the full script, which applies its own knobs in the same
+ * task, so the page never paints in between. No change event goes out: the
+ * full script compares against what the page heard here.
+ */
+function release(next: (event: Event) => void): Handover[] {
+  const handed: Handover[] = [];
+  for (const ref of tracked) {
+    const list = ref.deref();
+    if (!list) continue;
+    handed.push({
+      list,
+      query: queries.get(list) ?? list.media,
+      heard: heard.get(list) ?? list.matches,
+    });
+  }
+  forward = next;
+  tracked.clear();
+  current = SYSTEM_MEDIA;
+  applyColorScheme();
+  applyCss();
+  teardown();
+  return handed;
+}
+
+/**
+ * The early script's whole job: patch right away, before any page script reads
+ * a media query, and leave the patches for the full script to take over.
+ */
+export function early(value: MediaValue): void {
+  const scope = window as unknown as EarlyScope;
+  if (EARLY in scope) return;
+  apply(value);
+  scope[EARLY] = { release };
 }
