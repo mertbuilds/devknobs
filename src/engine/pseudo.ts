@@ -17,8 +17,11 @@ const GROWTH = 0.35;
 /** Attributes that carry text a user reads. */
 const ATTRIBUTES = ["placeholder", "title", "aria-label", "alt"];
 
-/** Raw text, user input and devknobs' own nodes stay as they are. */
-const SKIPPED = "script,style,noscript,textarea,[data-devknobs]";
+/**
+ * Raw text, user input and devknobs' own nodes stay as they are, and so does an
+ * option without a value, whose text is the value its form sends.
+ */
+const SKIPPED = "script,style,noscript,textarea,option:not([value]),[data-devknobs]";
 
 const LETTER = /\p{L}/u;
 

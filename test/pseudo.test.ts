@@ -191,4 +191,14 @@ describe("pseudo on a page", () => {
     expect(button.textContent).toBe("Save!!!!!!!");
     expect(button.getAttribute("title")).toBe("Save!!!!!!!");
   });
+
+  test("leaves an option without a value alone, as its text is what the form sends", () => {
+    const plain = new FakeElement("OPTION", [new FakeText("Red")]);
+    const valued = new FakeElement("OPTION", [new FakeText("Blue")]);
+    valued.setAttribute("value", "blue");
+    body.append(new FakeElement("SELECT", [plain, valued]));
+    on();
+    expect(plain.textContent).toBe("Red");
+    expect(valued.textContent).toBe(pseudoText("Blue"));
+  });
 });
