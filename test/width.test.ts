@@ -305,4 +305,20 @@ describe("the frame over the page", () => {
     reset();
     expect(widthStyle()).toBeUndefined();
   });
+
+  test("puts the page's own address back over the frame's", () => {
+    apply(VIEWPORT);
+    load(FRAMED);
+    expect(location.href).toBe(FRAMED);
+    reset();
+    expect(location.href).toBe(PAGE);
+  });
+
+  test("leaves the address alone once the window went back to another entry", () => {
+    apply(VIEWPORT);
+    load(FRAMED);
+    location.href = EARLIER;
+    reset();
+    expect(location.href).toBe(EARLIER);
+  });
 });

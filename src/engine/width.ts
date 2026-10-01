@@ -129,6 +129,8 @@ let frameUrl = "";
 /** The window's own address when the frame came up, and its title once the frame's took over. */
 let pageUrl = "";
 let pageTitle: string | null = null;
+/** The address last put in the window for the frame. Another one there means the window moved. */
+let written = "";
 /** `showModal` as the page had it, while the page underneath gets plain dialogs. */
 let showModal: HTMLDialogElement["showModal"] | null = null;
 /** Follows the frame's title, which a router sets after the url changes. */
@@ -277,6 +279,7 @@ function mirror(): void {
   const doc = frameDocument();
   if (!doc) return;
   replaceUrl(locate());
+  written = window.location.href;
   if (doc.title === document.title) return;
   pageTitle ??= document.title;
   document.title = doc.title;
@@ -482,6 +485,7 @@ function open(): void {
   frame.setAttribute("sandbox", SANDBOX);
   frameUrl = window.location.href;
   pageUrl = frameUrl;
+  written = frameUrl;
   pageTitle = null;
   loaded = false;
   frame.src = frameUrl;
@@ -517,8 +521,9 @@ function close(follow: boolean): void {
   window.removeEventListener("resize", resize);
   frame?.removeEventListener("load", onLoad);
   titleObserver?.disconnect();
-  // The window shows its own page again, so its own address and title too.
-  replaceUrl(pageUrl);
+  // The window shows its own page again, so its own address and title too,
+  // unless it went back to another entry meanwhile.
+  if (window.location.href === written) replaceUrl(pageUrl);
   if (pageTitle !== null) document.title = pageTitle;
   pageTitle = null;
   host.remove();
