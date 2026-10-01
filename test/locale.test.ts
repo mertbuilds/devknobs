@@ -597,6 +597,80 @@ describe("apply", () => {
   });
 });
 
+/** A MutationObserver the test fires by hand, as the page writes. */
+class FakeObserver {
+  static live: FakeObserver[] = [];
+  connected = false;
+  constructor(readonly callback: () => void) {}
+  observe(): void {
+    this.connected = true;
+    FakeObserver.live.push(this);
+  }
+  disconnect(): void {
+    this.connected = false;
+  }
+}
+
+/** The page writes an attribute, and every observer still connected hears of it. */
+function pageWrites(page: Browser, name: string, value: string): void {
+  page.attributes.set(name, value);
+  for (const observer of FakeObserver.live) {
+    if (observer.connected) observer.callback();
+  }
+}
+
+describe("sticky lang and dir", () => {
+  afterEach(() => {
+    FakeObserver.live = [];
+    Reflect.deleteProperty(globalThis, "MutationObserver");
+  });
+
+  function stubSticky(): Browser {
+    Object.defineProperty(globalThis, "MutationObserver", {
+      configurable: true,
+      value: FakeObserver,
+    });
+    return stubPage();
+  }
+
+  test("puts back what the page writes over while the knob is set", () => {
+    const page = stubSticky();
+    apply({ lang: "ar", dir: "system" });
+    pageWrites(page, "lang", "en");
+    pageWrites(page, "dir", "ltr");
+    expect(page.attributes.get("lang")).toBe("ar");
+    expect(page.attributes.get("dir")).toBe("rtl");
+  });
+
+  test("holds only the direction while the language is system", () => {
+    const page = stubSticky();
+    apply({ lang: "system", dir: "rtl" });
+    pageWrites(page, "lang", "en");
+    pageWrites(page, "dir", "ltr");
+    expect(page.attributes.get("lang")).toBe("en");
+    expect(page.attributes.get("dir")).toBe("rtl");
+  });
+
+  test("lets go on reset", () => {
+    const page = stubSticky();
+    apply({ lang: "ar", dir: "system" });
+    reset();
+    pageWrites(page, "lang", "en");
+    expect(page.attributes.get("lang")).toBe("en");
+  });
+
+  test("gives up on a page that keeps writing back, until the knobs change", () => {
+    const page = stubSticky();
+    apply({ lang: "ar", dir: "system" });
+    for (let i = 0; i < 30; i++) pageWrites(page, "lang", "en");
+    expect(page.attributes.get("lang")).toBe("en");
+    later(page);
+    apply({ lang: "ar", dir: "system" });
+    pageWrites(page, "lang", "en");
+    expect(page.attributes.get("lang")).toBe("ar");
+  });
+});
+
 describe("reset", () => {
   test("hands the page back without touching the cookie", () => {
     const page = stubPage();

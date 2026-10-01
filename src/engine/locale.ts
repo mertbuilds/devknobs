@@ -31,6 +31,12 @@ export const RELOAD_KEY = "devknobs:locale-reload";
 /** How long after a reload another one is read as a loop, in ms. */
 const RELOAD_THROTTLE = 5000;
 
+/**
+ * How many times a second `lang` and `dir` are put back. A page that writes
+ * them back just as fast would loop with devknobs, so past this it wins.
+ */
+const HOLD_BUDGET = 20;
+
 const RTL_LANGUAGES = new Set(["ar", "he", "fa", "ur"]);
 
 /** Is this language tag written right to left? */
@@ -301,11 +307,57 @@ let originalDir: string | null = null;
 let languageDescriptor: PropertyDescriptor | undefined;
 let languagesDescriptor: PropertyDescriptor | undefined;
 let navigatorPatched = false;
+/** What `lang` and `dir` are held at while the knob is set, null for the page's own. */
+const held: Record<"lang" | "dir", string | null> = { lang: null, dir: null };
+let holder: MutationObserver | null = null;
+let holdWindow = 0;
+let holdCount = 0;
 
 function setAttribute(name: string, value: string | null): void {
   const root = document.documentElement;
   if (value === null) root.removeAttribute(name);
   else root.setAttribute(name, value);
+}
+
+/**
+ * Put back a `lang` or `dir` the page wrote over, the way a framework does on
+ * every navigation. The write back is a mutation too, and finds nothing left
+ * to do.
+ */
+function restoreHeld(): void {
+  const now = Date.now();
+  if (now - holdWindow >= 1000) {
+    holdWindow = now;
+    holdCount = 0;
+  }
+  for (const name of ["lang", "dir"] as const) {
+    const value = held[name];
+    if (value === null || document.documentElement.getAttribute(name) === value) continue;
+    if (++holdCount > HOLD_BUDGET) {
+      // Until the knobs change again, the page has the last word.
+      holder?.disconnect();
+      holder = null;
+      return;
+    }
+    setAttribute(name, value);
+  }
+}
+
+/** Keep `lang` and `dir` on `<html>` at these values, or let go with nulls. */
+function hold(lang: string | null, dir: string | null): void {
+  held.lang = lang;
+  held.dir = dir;
+  if (lang === null && dir === null) {
+    holder?.disconnect();
+    holder = null;
+    return;
+  }
+  if (holder || typeof MutationObserver === "undefined") return;
+  holder = new MutationObserver(restoreHeld);
+  holder.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["lang", "dir"],
+  });
 }
 
 function patchNavigator(lang: string): void {
@@ -349,12 +401,14 @@ export function apply(value: LocaleValue): void {
       // again, so a later reset can undo the direction forced here on its own.
       captured = true;
       setAttribute("dir", value.dir);
+      hold(null, value.dir);
     }
     if (applied !== null) syncStores(null);
     return;
   }
   setAttribute("lang", value.lang);
   setAttribute("dir", dirFor(value));
+  hold(value.lang, dirFor(value));
   patchNavigator(value.lang);
   setDefaultLocale(value.lang);
   window.dispatchEvent(new Event("languagechange"));
@@ -379,6 +433,7 @@ export function apply(value: LocaleValue): void {
  */
 export function reset(): void {
   appliedLang = null;
+  hold(null, null);
   setDefaultLocale(null);
   if (captured) {
     setAttribute("lang", originalLang);
