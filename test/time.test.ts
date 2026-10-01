@@ -46,7 +46,15 @@ function emulated<T>(zone: string, run: () => T): T {
 }
 
 function geo(patch: Partial<GeoValue>): GeoValue {
-  return { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "", ...patch };
+  return {
+    preset: "system",
+    lat: 0,
+    lng: 0,
+    accuracy: DEFAULT_ACCURACY,
+    timeZone: "",
+    error: "none",
+    ...patch,
+  };
 }
 
 afterEach(() => {

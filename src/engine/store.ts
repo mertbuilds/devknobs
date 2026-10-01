@@ -3,6 +3,7 @@ import type {
   DevknobsState,
   DevknobsStatePatch,
   DirValue,
+  GeoErrorValue,
   MotionValue,
   SchemeValue,
   TransparencyValue,
@@ -20,7 +21,14 @@ export const DEFAULT_STATE: DevknobsState = {
   transparency: "system",
   locale: { lang: "system", dir: "system" },
   pseudo: false,
-  geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
+  geo: {
+    preset: "system",
+    lat: 0,
+    lng: 0,
+    accuracy: DEFAULT_ACCURACY,
+    timeZone: "",
+    error: "none",
+  },
   timeZone: "geo",
   text: "system",
   spacing: false,
@@ -38,6 +46,7 @@ const MOTIONS: MotionValue[] = ["reduce", "system"];
 const CONTRASTS: ContrastValue[] = ["more", "system"];
 const TRANSPARENCIES: TransparencyValue[] = ["reduce", "system"];
 const DIRS: DirValue[] = ["ltr", "rtl", "system"];
+const GEO_ERRORS: GeoErrorValue[] = ["none", "denied", "unavailable", "timeout"];
 const VISIONS: VisionValue[] = [
   "none",
   "protanopia",
@@ -111,6 +120,7 @@ export function parse(json: string | null | undefined): DevknobsState {
       lng: num(geo.lng, DEFAULT_STATE.geo.lng),
       accuracy: num(geo.accuracy, DEFAULT_STATE.geo.accuracy),
       timeZone: text(geo.timeZone, DEFAULT_STATE.geo.timeZone),
+      error: oneOf(geo.error, GEO_ERRORS, DEFAULT_STATE.geo.error),
     },
     // A session stored before the knob had a field of its own follows geo, as it did then.
     timeZone: text(state.timeZone, "") || DEFAULT_STATE.timeZone,

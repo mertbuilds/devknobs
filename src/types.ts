@@ -22,6 +22,9 @@ export interface LocaleValue {
   dir: DirValue;
 }
 
+/** A failure to report instead of a position. `none` reports the position. */
+export type GeoErrorValue = "none" | "denied" | "unavailable" | "timeout";
+
 export interface GeoValue {
   /** A preset id, `custom` to use the explicit fields, or `system` to stop emulating. */
   preset: string;
@@ -30,6 +33,8 @@ export interface GeoValue {
   accuracy: number;
   /** The zone of a `custom` position, followed by a time zone knob set to `geo`. */
   timeZone: string;
+  /** Works without a position too, so a page can be tested for refusals alone. */
+  error: GeoErrorValue;
 }
 
 /**

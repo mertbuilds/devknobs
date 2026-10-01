@@ -1,4 +1,4 @@
-import type { GeoValue } from "../types";
+import type { GeoErrorValue, GeoValue } from "../types";
 
 export interface GeoPreset {
   id: string;
@@ -58,7 +58,49 @@ export function resolveGeo(value: GeoValue): GeoFix | null {
 
 const FAKE_WATCH_BASE = 1_000_000;
 
+/** The `code` of a `GeolocationPositionError` for each failure. */
+export const GEO_ERROR_CODES = { denied: 1, unavailable: 2, timeout: 3 } as const;
+
+type ErrorCode = (typeof GEO_ERROR_CODES)[keyof typeof GEO_ERROR_CODES];
+
+/** Chrome's messages. */
+const ERROR_MESSAGES: Record<ErrorCode, string> = {
+  1: "User denied Geolocation",
+  2: "Position update is unavailable",
+  3: "Timeout expired",
+};
+
+/**
+ * An error the page reads like the real one: the code, the message and the
+ * code constants, and `instanceof GeolocationPositionError` where it exists.
+ */
+export function positionError(code: ErrorCode): GeolocationPositionError {
+  const proto =
+    typeof GeolocationPositionError === "function"
+      ? GeolocationPositionError.prototype
+      : Object.prototype;
+  return Object.create(proto, {
+    code: { value: code, enumerable: true },
+    message: { value: ERROR_MESSAGES[code], enumerable: true },
+    PERMISSION_DENIED: { value: 1 },
+    POSITION_UNAVAILABLE: { value: 2 },
+    TIMEOUT: { value: 3 },
+  }) as GeolocationPositionError;
+}
+
+interface Request {
+  success: PositionCallback;
+  error?: PositionErrorCallback | null;
+  options?: PositionOptions;
+}
+
 let fix: GeoFix | null = null;
+let failure: GeoErrorValue = "none";
+/** What the last apply emulated, so that a knob that did not move pushes nothing. */
+let applied = "";
+/** The last position handed out, which `maximumAge` may hand out again. */
+let cached: GeolocationPosition | null = null;
+const watches = new Map<number, Request>();
 let nextWatchId = FAKE_WATCH_BASE;
 let geolocationDescriptors: Record<string, PropertyDescriptor | undefined> | null = null;
 let nativeGeolocation: {
@@ -66,6 +108,10 @@ let nativeGeolocation: {
   watchPosition: Geolocation["watchPosition"];
   clearWatch: Geolocation["clearWatch"];
 } | null = null;
+let nativeQuery: Permissions["query"] | null = null;
+let queryDescriptor: PropertyDescriptor | undefined;
+/** Geolocation permission statuses handed out while emulating, with the state each last reported. */
+const statuses = new Map<PermissionStatus, PermissionState>();
 
 function currentPosition(): GeolocationPosition {
   const value = fix!;
@@ -83,6 +129,48 @@ function currentPosition(): GeolocationPosition {
   } as unknown as GeolocationPosition;
 }
 
+/**
+ * The position to hand out: the last one while `maximumAge` allows it, a fresh
+ * one otherwise, and none when `timeout: 0` leaves no time to get one.
+ */
+function positionFor(options: PositionOptions | undefined): GeolocationPosition | null {
+  const maximumAge = options?.maximumAge ?? 0;
+  if (cached && Date.now() - cached.timestamp <= maximumAge) return cached;
+  if (options?.timeout === 0) return null;
+  cached = currentPosition();
+  return cached;
+}
+
+/**
+ * Answer a request a task later, the way the device would. A timeout failure
+ * only fires once `options.timeout` runs out, so without one it never does,
+ * like a fix that never comes. A watch cleared in between hears nothing.
+ */
+function respond(request: Request, watchId?: number): void {
+  const later = (delay: number, run: () => void) => {
+    setTimeout(() => {
+      if (watchId === undefined || watches.has(watchId)) run();
+    }, delay);
+  };
+  const fail = (code: ErrorCode, delay = 0) => {
+    later(delay, () => request.error?.(positionError(code)));
+  };
+  if (failure === "timeout") {
+    const timeout = request.options?.timeout;
+    if (typeof timeout === "number" && timeout >= 0 && Number.isFinite(timeout)) {
+      fail(GEO_ERROR_CODES.timeout, timeout);
+    }
+    return;
+  }
+  if (failure !== "none") {
+    fail(GEO_ERROR_CODES[failure]);
+    return;
+  }
+  const position = positionFor(request.options);
+  if (position) later(0, () => request.success(position));
+  else fail(GEO_ERROR_CODES.timeout);
+}
+
 function patchGeolocation(): void {
   const geolocation = navigator.geolocation;
   if (!geolocation) return;
@@ -98,16 +186,17 @@ function patchGeolocation(): void {
       clearWatch: Object.getOwnPropertyDescriptor(geolocation, "clearWatch"),
     };
   }
-  geolocation.getCurrentPosition = (success: PositionCallback) => {
-    setTimeout(() => success(currentPosition()), 0);
+  geolocation.getCurrentPosition = (success, error, options) => {
+    respond({ success, error, options });
   };
-  geolocation.watchPosition = (success: PositionCallback) => {
+  geolocation.watchPosition = (success, error, options) => {
     const id = ++nextWatchId;
-    setTimeout(() => success(currentPosition()), 0);
+    watches.set(id, { success, error, options });
+    respond({ success, error, options }, id);
     return id;
   };
   geolocation.clearWatch = (id: number) => {
-    if (id > FAKE_WATCH_BASE) return;
+    if (watches.delete(id)) return;
     nativeGeolocation?.clearWatch.call(geolocation, id);
   };
 }
@@ -123,16 +212,85 @@ function restoreGeolocation(): void {
   geolocationDescriptors = null;
 }
 
+/** What the permission reads while emulating: a fix needs no prompt, a refusal is final. */
+function permissionState(): PermissionState {
+  return failure === "denied" ? "denied" : "granted";
+}
+
+/** Give a status the emulated state, for as long as the emulation runs. */
+function track(status: PermissionStatus): PermissionStatus {
+  if (!statuses.has(status)) {
+    const proto: object = Object.getPrototypeOf(status);
+    Object.defineProperty(status, "state", {
+      configurable: true,
+      get: () => (nativeQuery ? permissionState() : Reflect.get(proto, "state", status)),
+    });
+  }
+  statuses.set(status, status.state);
+  return status;
+}
+
+/** Fire `change` on every status whose state moved since it last reported. */
+function notifyStatuses(): void {
+  for (const [status, reported] of statuses) {
+    const state = status.state;
+    if (state === reported) continue;
+    statuses.set(status, state);
+    status.dispatchEvent(new Event("change"));
+  }
+}
+
+function patchPermissions(): void {
+  const permissions = navigator.permissions;
+  if (!permissions || nativeQuery) return;
+  const query = permissions.query;
+  nativeQuery = query;
+  queryDescriptor = Object.getOwnPropertyDescriptor(permissions, "query");
+  permissions.query = (descriptor: PermissionDescriptor) => {
+    const status = query.call(permissions, descriptor);
+    return descriptor?.name === "geolocation" ? status.then(track) : status;
+  };
+}
+
+function restorePermissions(): void {
+  const permissions = navigator.permissions;
+  if (!permissions || !nativeQuery) return;
+  if (queryDescriptor) Object.defineProperty(permissions, "query", queryDescriptor);
+  else Reflect.deleteProperty(permissions, "query");
+  nativeQuery = null;
+  queryDescriptor = undefined;
+  for (const status of statuses.keys()) Reflect.deleteProperty(status, "state");
+  notifyStatuses();
+  statuses.clear();
+}
+
 export function apply(value: GeoValue): void {
-  fix = resolveGeo(value);
-  if (!fix) {
+  const next = resolveGeo(value);
+  const error = value.error;
+  if (!next && error === "none") {
     reset();
     return;
   }
+  const key = JSON.stringify([next, error]);
+  const moved = key !== applied;
+  fix = next;
+  failure = error;
+  applied = key;
   patchGeolocation();
+  patchPermissions();
+  if (!moved) return;
+  cached = null;
+  for (const [id, request] of watches) respond(request, id);
+  notifyStatuses();
 }
 
+/** Stop emulating. Watches started meanwhile end here: the device never heard of them. */
 export function reset(): void {
   fix = null;
+  failure = "none";
+  applied = "";
+  cached = null;
+  watches.clear();
+  restorePermissions();
   restoreGeolocation();
 }

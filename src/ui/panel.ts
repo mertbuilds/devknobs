@@ -9,6 +9,7 @@ import type {
   ContrastValue,
   DevknobsState,
   DirValue,
+  GeoErrorValue,
   MotionValue,
   SchemeValue,
   TransparencyValue,
@@ -127,6 +128,13 @@ const GEO: Group = {
   ],
   current: (state) => state.geo.preset,
   select: (value) => engine.setState({ geo: { preset: value } }),
+};
+
+const GEO_ERROR: Group = {
+  label: "geo error",
+  choices: choices("none", "denied", "unavailable", "timeout"),
+  current: (state) => state.geo.error,
+  select: (value) => engine.setState({ geo: { error: value as GeoErrorValue } }),
 };
 
 /** `America/New_York` reads as `new york` on a button. */
@@ -298,6 +306,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const fields = el("div", "fields");
   fields.append(lat, lng);
   geoBox.append(el("div", "label", "custom"), fields);
+  addGroup(panel, GEO_ERROR, bindings);
 
   const zoneBox = addGroup(panel, TIME_ZONE, bindings);
   const zone = field("field-tz", "Europe/Istanbul", "time zone");
