@@ -132,8 +132,47 @@ let pageTitle: string | null = null;
 /** Follows the frame's title, which a router sets after the url changes. */
 let titleObserver: MutationObserver | null = null;
 let latest: DevknobsState | null = null;
-/** Only the page nodes made inert here, so a reset never touches the page's own. */
-const inerted: Element[] = [];
+/** What a page node had before it was hidden here, so it gets exactly that back. */
+interface Hidden {
+  /** Made inert here. One the page made inert stays the page's. */
+  inert: boolean;
+  /** The inline `content-visibility` before, its priority, and whether there was a style at all. */
+  value: string;
+  priority: string;
+  styled: boolean;
+}
+
+const hidden = new Map<HTMLElement | SVGElement, Hidden>();
+/** Hides what the page adds to the body later, such as portals and toasts. */
+let bodyObserver: MutationObserver | null = null;
+
+/**
+ * Take a page node out of input and out of rendering while the frame covers
+ * it. It keeps running, but skips layout and paint.
+ */
+function hide(node: Node): void {
+  if (!(node instanceof HTMLElement || node instanceof SVGElement)) return;
+  if (node.hasAttribute("data-devknobs") || hidden.has(node)) return;
+  const style = node.style;
+  hidden.set(node, {
+    inert: !node.hasAttribute("inert"),
+    value: style.getPropertyValue("content-visibility"),
+    priority: style.getPropertyPriority("content-visibility"),
+    styled: node.hasAttribute("style"),
+  });
+  node.setAttribute("inert", "");
+  style.setProperty("content-visibility", "hidden", "important");
+}
+
+function unhide(): void {
+  for (const [node, was] of hidden) {
+    if (was.inert) node.removeAttribute("inert");
+    if (was.value) node.style.setProperty("content-visibility", was.value, was.priority);
+    else node.style.removeProperty("content-visibility");
+    if (!was.styled && node.getAttribute("style") === "") node.removeAttribute("style");
+  }
+  hidden.clear();
+}
 
 /** The window inside the frame, while there is one. */
 export function frameWindow(): Window | null {
@@ -419,11 +458,11 @@ function open(): void {
   stage.append(screen, notice);
   box.append(readout, stage);
   root.append(style, box);
-  for (const child of Array.from(body.children)) {
-    if (child.hasAttribute("data-devknobs") || child.hasAttribute("inert")) continue;
-    child.setAttribute("inert", "");
-    inerted.push(child);
-  }
+  for (const child of Array.from(body.children)) hide(child);
+  bodyObserver ??= new MutationObserver((records) => {
+    for (const record of records) record.addedNodes.forEach(hide);
+  });
+  bodyObserver.observe(body, { childList: true });
   ensureStyle(NAME).textContent = "html{overflow:hidden!important}";
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", resize);
@@ -453,8 +492,8 @@ function close(follow: boolean): void {
   frame = null;
   notice = null;
   readout = null;
-  for (const node of inerted) node.removeAttribute("inert");
-  inerted.length = 0;
+  bodyObserver?.disconnect();
+  unhide();
   removeStyle(NAME);
   if (target && target !== window.location.href) window.location.assign(target);
 }
