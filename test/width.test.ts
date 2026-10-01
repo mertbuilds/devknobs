@@ -306,6 +306,15 @@ describe("the frame over the page", () => {
     expect(widthStyle()).toBeUndefined();
   });
 
+  test("lets the frame lock the pointer, present and lock the orientation", () => {
+    apply(VIEWPORT);
+    const sandbox = frameElement().getAttribute("sandbox")?.split(" ");
+    expect(sandbox).toContain("allow-pointer-lock");
+    expect(sandbox).toContain("allow-presentation");
+    expect(sandbox).toContain("allow-orientation-lock");
+    expect(sandbox).not.toContain("allow-top-navigation");
+  });
+
   test("puts the page's own address back over the frame's", () => {
     apply(VIEWPORT);
     load(FRAMED);

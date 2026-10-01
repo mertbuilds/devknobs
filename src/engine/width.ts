@@ -20,9 +20,10 @@ export type ViewportValue = FrameKnobs & Pick<DevknobsState, "scheme">;
 const Z_INDEX = 2147483645;
 
 /**
- * Everything an app on this origin does, short of navigating the window above
- * on its own: a frame-busting script would reload the page into its frame
- * forever. A click can still, so `target="_top"` links work.
+ * Everything an app on this origin does unframed, pointer lock, presentation
+ * and orientation lock included, short of navigating the window above on its
+ * own: a frame-busting script would reload the page into its frame forever. A
+ * click still can, so `target="_top"` links work.
  */
 const SANDBOX = [
   "allow-scripts",
@@ -32,6 +33,9 @@ const SANDBOX = [
   "allow-popups-to-escape-sandbox",
   "allow-modals",
   "allow-downloads",
+  "allow-pointer-lock",
+  "allow-presentation",
+  "allow-orientation-lock",
   "allow-top-navigation-by-user-activation",
 ].join(" ");
 
