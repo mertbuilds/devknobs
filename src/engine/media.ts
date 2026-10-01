@@ -1,5 +1,6 @@
 import type { ContrastValue, MotionValue, SchemeValue, TransparencyValue } from "../types";
 import { addLayer, baseMatchMedia, removeLayer } from "./matchmedia";
+import { authoredMedia } from "./text";
 
 export type MediaFeature =
   | "prefers-color-scheme"
@@ -214,8 +215,9 @@ function applyCss(): void {
         const text = rule.media.mediaText;
         let original = originals.get(rule);
         if (original === undefined) {
-          if (!mentionsFeature(text)) return;
-          original = text;
+          // Text size follows a stylesheet updated in place, so it may have been first.
+          original = authoredMedia(rule) ?? text;
+          if (!mentionsFeature(original)) return;
           originals.set(rule, original);
         }
         const next = rewriteAll(original, current);

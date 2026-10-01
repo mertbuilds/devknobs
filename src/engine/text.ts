@@ -242,6 +242,15 @@ function rewriteMedia(): void {
   });
 }
 
+/**
+ * A rule's media text before text size took its em and rem to px, while that
+ * rewrite is still the one there. The prefers knobs take it as the author's.
+ */
+export function authoredMedia(rule: MediaBearingRule): string | undefined {
+  const known = rewrites.get(rule);
+  return known && rule.media.mediaText === known.written ? known.original : undefined;
+}
+
 function matches(query: string): boolean {
   try {
     return window.matchMedia(query).matches;

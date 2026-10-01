@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import * as media from "../src/engine/media";
 import {
   apply,
   cascade,
@@ -155,6 +156,26 @@ class CSSStyleRule {
   }
 }
 
+class CSSMediaRule {
+  readonly cssRules: unknown[] = [];
+  readonly media: { mediaText: string };
+
+  constructor(mediaText: string) {
+    this.media = { mediaText };
+  }
+}
+
+/** A list with the browser's own `matches` getter, for the prefers knobs to patch. */
+class FakeMediaQueryList extends EventTarget {
+  constructor(readonly media: string) {
+    super();
+  }
+
+  get matches(): boolean {
+    return this.media !== "print" && this.media !== "not all";
+  }
+}
+
 interface Sheet {
   cssRules: unknown[];
   media: { mediaText: string };
@@ -189,7 +210,7 @@ describe("text size on a page", () => {
     writes = 0;
     sheets = [];
     define("window", {
-      matchMedia: (query: string) => ({ media: query, matches: query !== "print" }),
+      matchMedia: (query: string) => new FakeMediaQueryList(query),
       addEventListener: () => {},
       removeEventListener: () => {},
     });
@@ -203,6 +224,10 @@ describe("text size on a page", () => {
             writes++;
             if (value) inline.set(name, { value, priority });
             else inline.delete(name);
+          },
+          removeProperty: (name: string) => {
+            writes++;
+            inline.delete(name);
           },
         },
       },
@@ -258,5 +283,39 @@ describe("text size on a page", () => {
     sheets.push(sheet([new CSSStyleRule("html", "125%")], "screen"));
     apply(20);
     expect(rootSize()).toBe("25px");
+  });
+
+  describe("with the prefers knobs", () => {
+    beforeEach(() => {
+      define("MediaQueryList", FakeMediaQueryList);
+    });
+
+    afterEach(() => {
+      media.destroy();
+      Reflect.deleteProperty(globalThis, "MediaQueryList");
+    });
+
+    /** As the engine applies the knobs: the prefers knobs, then text size. */
+    function knobs(scheme: "dark" | "system", size: 20 | "system"): void {
+      media.apply({ ...media.SYSTEM_MEDIA, scheme });
+      apply(size);
+    }
+
+    test("gives a rule updated in place its authored media back", () => {
+      const authored = "(min-width: 40em) and (prefers-color-scheme: dark)";
+      const style = sheet([new CSSMediaRule(authored)]);
+      sheets = [style];
+      knobs("system", 20);
+      // A hot update swaps the sheet's text in place, and text size follows it.
+      const updated = new CSSMediaRule(authored);
+      style.cssRules = [updated];
+      apply(20);
+      expect(updated.media.mediaText).toBe("(min-width: 800px) and (prefers-color-scheme: dark)");
+      knobs("dark", 20);
+      expect(updated.media.mediaText).toBe("(min-width: 800px) and (min-width: 0px)");
+      knobs("dark", "system");
+      knobs("system", "system");
+      expect(updated.media.mediaText).toBe(authored);
+    });
   });
 });
