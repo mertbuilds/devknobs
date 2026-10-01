@@ -84,6 +84,32 @@ iframe {
      page that leaves its background to the browser. */
   background: Canvas;
 }
+.blocked {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font: 12px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: rgba(255, 255, 255, 0.85);
+  background: #6e6e69;
+}
+.blocked[hidden] { display: none; }
+.blocked button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 2px 8px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.blocked button:hover { color: #fff; border-color: #fff; }
 `;
 
 let host: HTMLElement | null = null;
@@ -91,6 +117,10 @@ let stage: HTMLElement | null = null;
 let screen: HTMLElement | null = null;
 let frame: HTMLIFrameElement | null = null;
 let readout: HTMLElement | null = null;
+/** Says so when the page will not load in a frame. */
+let notice: HTMLElement | null = null;
+/** Turns every knob that keeps the frame up off. The engine hands it in. */
+let exit: (() => void) | null = null;
 let current: ViewportValue = { ...UNFRAMED, scheme: "system" };
 /** The frame's page has loaded, so what it reports can be trusted. */
 let loaded = false;
@@ -126,8 +156,41 @@ function locate(): string {
   return frameUrl;
 }
 
+export function onExit(handler: (() => void) | null): void {
+  exit = handler;
+}
+
+/** The page in the frame, or null once it is on another origin, or an error page. */
+function frameDocument(): Document | null {
+  try {
+    return frame?.contentDocument ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Over the frame when the page is out of reach: `X-Frame-Options` or a
+ * `frame-ancestors` policy left an error page there, or a link led away to
+ * another origin. Either way none of the knobs can follow it.
+ */
+function createNotice(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "blocked";
+  box.hidden = true;
+  const text = document.createElement("div");
+  text.textContent = "this page refuses to load in a frame";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "close the frame";
+  button.addEventListener("click", () => exit?.());
+  box.append(text, button);
+  return box;
+}
+
 function onLoad(): void {
   loaded = true;
+  if (notice) notice.hidden = frameDocument() !== null;
   locate();
   checkZoom();
   share();
@@ -287,8 +350,9 @@ function open(): void {
   loaded = false;
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
+  notice = createNotice();
   screen.append(frame);
-  stage.append(screen);
+  stage.append(screen, notice);
   box.append(readout, stage);
   root.append(style, box);
   for (const child of Array.from(body.children)) {
@@ -318,6 +382,7 @@ function close(follow: boolean): void {
   stage = null;
   screen = null;
   frame = null;
+  notice = null;
   readout = null;
   for (const node of inerted) node.removeAttribute("inert");
   inerted.length = 0;

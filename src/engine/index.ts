@@ -1,5 +1,5 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
-import { framed, isDevknobsFrame, nativeScheme, post, readMessage } from "./frame";
+import { framed, isDevknobsFrame, nativeScheme, post, readMessage, UNFRAMED } from "./frame";
 import * as geo from "./geo";
 import * as locale from "./locale";
 import * as media from "./media";
@@ -79,6 +79,8 @@ export function start(options: EngineOptions = {}): void {
   // state. It reads it, so the first paint is right, but a save would clobber it.
   persist = stored && !inFrame;
   if (inFrame) window.addEventListener("message", onMessage);
+  // A page that will not load in the frame offers this way out.
+  width.onExit(() => setState(UNFRAMED));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));
   if (inFrame) post(window.parent, { source: "devknobs", type: "ready" });
 }
@@ -89,6 +91,7 @@ export function stop(): void {
   running = false;
   window.removeEventListener("message", onMessage);
   inFrame = false;
+  width.onExit(null);
   media.destroy();
   locale.reset();
   geo.reset();
