@@ -126,6 +126,11 @@ let current: ViewportValue = { ...UNFRAMED, scheme: "system" };
 let loaded = false;
 /** Where the frame was last seen on this origin. */
 let frameUrl = "";
+/** The window's own address when the frame came up, and its title once the frame's took over. */
+let pageUrl = "";
+let pageTitle: string | null = null;
+/** Follows the frame's title, which a router sets after the url changes. */
+let titleObserver: MutationObserver | null = null;
 let latest: DevknobsState | null = null;
 /** Only the page nodes made inert here, so a reset never touches the page's own. */
 const inerted: Element[] = [];
@@ -188,10 +193,67 @@ function createNotice(): HTMLElement {
   return box;
 }
 
+/** Swap the window's url without a router in the page underneath hearing of it. */
+function replaceUrl(href: string): void {
+  if (href !== window.location.href) {
+    History.prototype.replaceState.call(window.history, window.history.state, "", href);
+  }
+}
+
+/** Put where the frame is in the window's address bar and tab, so a reload lands there. */
+function mirror(): void {
+  const doc = frameDocument();
+  if (!doc) return;
+  replaceUrl(locate());
+  if (doc.title === document.title) return;
+  pageTitle ??= document.title;
+  document.title = doc.title;
+}
+
+/**
+ * Mirror the frame's same-document navigations too. The navigation api's
+ * `currententrychange` comes after every url change, `pushState` included,
+ * where `navigate` comes before and skips it. Without it, wrap the frame's
+ * history. Both go with the frame's window on its next load.
+ */
+function watch(view: Window, doc: Document): void {
+  const navigation = (view as Window & { navigation?: EventTarget }).navigation;
+  if (navigation) {
+    navigation.addEventListener("currententrychange", mirror);
+  } else {
+    const history = view.history;
+    const push = history.pushState;
+    const replace = history.replaceState;
+    history.pushState = (...args: Parameters<History["pushState"]>) => {
+      push.apply(history, args);
+      mirror();
+    };
+    history.replaceState = (...args: Parameters<History["replaceState"]>) => {
+      replace.apply(history, args);
+      mirror();
+    };
+    view.addEventListener("popstate", mirror);
+    view.addEventListener("hashchange", mirror);
+  }
+  titleObserver ??= new MutationObserver(mirror);
+  titleObserver.disconnect();
+  titleObserver.observe(doc.head ?? doc.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+}
+
 function onLoad(): void {
   loaded = true;
-  if (notice) notice.hidden = frameDocument() !== null;
+  const doc = frameDocument();
+  if (notice) notice.hidden = doc !== null;
   locate();
+  const view = frameWindow();
+  if (view && doc) {
+    watch(view, doc);
+    mirror();
+  }
   checkZoom();
   share();
 }
@@ -347,6 +409,8 @@ function open(): void {
   frame.title = "devknobs viewport";
   frame.setAttribute("sandbox", SANDBOX);
   frameUrl = window.location.href;
+  pageUrl = frameUrl;
+  pageTitle = null;
   loaded = false;
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
@@ -377,6 +441,11 @@ function close(follow: boolean): void {
   window.removeEventListener("message", onMessage);
   window.removeEventListener("resize", resize);
   frame?.removeEventListener("load", onLoad);
+  titleObserver?.disconnect();
+  // The window shows its own page again, so its own address and title too.
+  replaceUrl(pageUrl);
+  if (pageTitle !== null) document.title = pageTitle;
+  pageTitle = null;
   host.remove();
   host = null;
   stage = null;
