@@ -97,7 +97,9 @@ motion, contrast and transparency on the spot, with no panel: the `matchMedia` a
 sheets arrive. the full script, however it is loaded, takes those patches
 over when it mounts instead of patching on top, and lists made in between
 still get their change events. it covers the media knobs only, and since it
-reads the stored state, it follows the knobs from the next load on.
+reads the stored state, it follows the knobs from the next load on. inside a
+frame that gets the scheme natively, it leaves the scheme to the browser, as
+the full script does.
 
 ## knobs
 
