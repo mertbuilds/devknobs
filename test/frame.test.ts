@@ -7,6 +7,7 @@ import {
   nativeScheme,
   needsFrame,
   readMessage,
+  UNFRAMED,
 } from "../src/engine/frame";
 import { DEFAULT_STATE } from "../src/engine/store";
 
@@ -37,8 +38,9 @@ describe("framed", () => {
     });
   });
 
-  test("turns the full-width frame off inside the frame", () => {
+  test("leaves the frame knobs off inside the frame", () => {
     expect(framed({ ...DEFAULT_STATE, frame: true })).toEqual(DEFAULT_STATE);
+    expect(framed({ ...DEFAULT_STATE, vision: "tritanopia" })).toEqual(DEFAULT_STATE);
   });
 
   test("hands back a state that is already full", () => {
@@ -48,14 +50,15 @@ describe("framed", () => {
 });
 
 describe("needsFrame", () => {
-  test("is true for a width or the frame knob", () => {
-    expect(needsFrame({ width: 390, frame: false })).toBe(true);
-    expect(needsFrame({ width: "full", frame: true })).toBe(true);
+  test("is true for a width, the frame knob or a vision deficiency", () => {
+    expect(needsFrame({ ...UNFRAMED, width: 390 })).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, frame: true })).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, vision: "blur" })).toBe(true);
   });
 
-  test("is false at full width with the frame off, or for a width that is no size", () => {
-    expect(needsFrame({ width: "full", frame: false })).toBe(false);
-    expect(needsFrame({ width: 0, frame: false })).toBe(false);
+  test("is false with every frame knob off, or for a width that is no size", () => {
+    expect(needsFrame(UNFRAMED)).toBe(false);
+    expect(needsFrame({ ...UNFRAMED, width: 0 })).toBe(false);
   });
 });
 

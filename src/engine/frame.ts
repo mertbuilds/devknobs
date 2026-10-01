@@ -53,14 +53,18 @@ export function nativeScheme(scheme: SchemeValue): boolean {
 }
 
 /** The knobs that bring the frame up. */
-export type FrameKnobs = Pick<DevknobsState, "width" | "frame">;
+export type FrameKnobs = Pick<DevknobsState, "width" | "frame" | "vision">;
 
 /** Each of those knobs at the value that leaves the frame down. */
-export const UNFRAMED: FrameKnobs = { width: "full", frame: false };
+export const UNFRAMED: FrameKnobs = { width: "full", frame: false, vision: "none" };
 
-/** Does any knob need the page inside the frame? */
+/**
+ * Does any knob need the page inside the frame? Vision does: its filter on the
+ * frame leaves the panel alone and fixed elements in place, where one on
+ * `<html>` would not.
+ */
 export function needsFrame(knobs: FrameKnobs): boolean {
-  return (typeof knobs.width === "number" && knobs.width > 0) || knobs.frame;
+  return (typeof knobs.width === "number" && knobs.width > 0) || knobs.frame || knobs.vision !== "none";
 }
 
 /** The knobs a framed page runs with. It is the viewport already, so it never frames itself. */

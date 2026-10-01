@@ -9,6 +9,7 @@ import {
   UNFRAMED,
 } from "./frame";
 import { ensureStyle, removeStyle } from "./style";
+import { visionFilter } from "./vision";
 
 const NAME = "width";
 
@@ -61,7 +62,7 @@ iframe {
 let host: HTMLElement | null = null;
 let frame: HTMLIFrameElement | null = null;
 let readout: HTMLElement | null = null;
-let current: ViewportValue = { width: "full", frame: false, scheme: "system" };
+let current: ViewportValue = { width: "full", frame: false, vision: "none", scheme: "system" };
 /** Where the frame was last seen on this origin. */
 let frameUrl = "";
 let latest: DevknobsState | null = null;
@@ -147,6 +148,7 @@ function resize(): void {
   const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
   if (native) frame.style.colorScheme = current.scheme;
   else frame.style.removeProperty("color-scheme");
+  frame.style.filter = visionFilter(current.vision);
 }
 
 /**

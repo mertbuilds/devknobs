@@ -31,6 +31,15 @@ export type TextValue = number | "system";
 /** Viewport width in px, rendered as a frame that wide, or `full` for the window. */
 export type WidthValue = number | "full";
 
+/** A vision deficiency drawn as a filter over the frame, or `none`. */
+export type VisionValue =
+  | "none"
+  | "protanopia"
+  | "deuteranopia"
+  | "tritanopia"
+  | "achromatopsia"
+  | "blur";
+
 export interface PanelValue {
   open: boolean;
   /** Handle offset from the top of the viewport, in px. */
@@ -49,6 +58,7 @@ export interface DevknobsState {
   width: WidthValue;
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;
+  vision: VisionValue;
   outlines: boolean;
   panel: PanelValue;
 }

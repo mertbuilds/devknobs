@@ -22,6 +22,7 @@ describe("parse", () => {
         text: 20,
         width: "full",
         frame: true,
+        vision: "tritanopia",
         outlines: "yes",
         panel: { open: false, y: 40, top: 24 },
         stray: 1,
@@ -36,9 +37,14 @@ describe("parse", () => {
       text: 20,
       width: "full",
       frame: true,
+      vision: "tritanopia",
       outlines: false,
       panel: { open: false, y: 40, top: 24 },
     });
+  });
+
+  test("drops a vision deficiency it does not know", () => {
+    expect(parse(JSON.stringify({ vision: "colorblind" })).vision).toBe("none");
   });
 
   test("puts the panel where the handle is when the session predates its top", () => {
