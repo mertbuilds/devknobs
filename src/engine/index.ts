@@ -11,6 +11,7 @@ import {
 import * as geo from "./geo";
 import * as locale from "./locale";
 import * as media from "./media";
+import * as network from "./network";
 import * as outlines from "./outlines";
 import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
@@ -66,6 +67,7 @@ export function applyState(next: DevknobsState): void {
   pseudo.apply(state.pseudo);
   geo.apply(state.geo);
   time.apply(time.resolveTimeZone(state.timeZone, state.geo));
+  network.apply(state.network);
   text.apply(state.text);
   spacing.apply(state.spacing);
   width.apply(state);
@@ -133,6 +135,7 @@ export function stop(): void {
   pseudo.reset();
   geo.reset();
   time.reset();
+  network.reset();
   text.reset();
   spacing.reset();
   width.reset();

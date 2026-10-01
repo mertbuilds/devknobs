@@ -7,6 +7,7 @@ import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
 export type {
+  ConnectionValue,
   ContrastValue,
   DevknobsState,
   DevknobsStatePatch,
@@ -17,7 +18,10 @@ export type {
   Knob,
   LocaleValue,
   MotionValue,
+  NetworkValue,
+  OnlineValue,
   PanelValue,
+  SaveDataValue,
   SchemeValue,
   SpeedValue,
   TextValue,

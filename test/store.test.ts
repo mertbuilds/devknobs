@@ -23,6 +23,7 @@ describe("parse", () => {
         locale: { lang: "tr", dir: "sideways" },
         pseudo: "yes",
         geo: { preset: "tokyo", lat: "x", error: "lost" },
+        network: { online: "offline", type: "5g" },
         text: 20,
         spacing: 1,
         width: "full",
@@ -45,6 +46,7 @@ describe("parse", () => {
       pseudo: false,
       geo: { ...DEFAULT_STATE.geo, preset: "tokyo" },
       timeZone: "geo",
+      network: { online: "offline", type: "system", saveData: "system" },
       text: 20,
       spacing: false,
       width: "full",
@@ -114,6 +116,15 @@ describe("merge", () => {
     const state = merge(DEFAULT_STATE, { geo: { preset: "tokyo" } });
     expect(state.geo).toEqual({ ...DEFAULT_STATE.geo, preset: "tokyo" });
     expect(state.locale).toEqual(DEFAULT_STATE.locale);
+  });
+
+  test("patches the network field by field", () => {
+    const state = merge(DEFAULT_STATE, { network: { online: "offline" } });
+    expect(merge(state, { network: { type: "3g" } }).network).toEqual({
+      online: "offline",
+      type: "3g",
+      saveData: "system",
+    });
   });
 
   test("leaves the panel top alone when only the handle moves", () => {

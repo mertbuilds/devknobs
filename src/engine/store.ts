@@ -1,10 +1,13 @@
 import type {
+  ConnectionValue,
   ContrastValue,
   DevknobsState,
   DevknobsStatePatch,
   DirValue,
   GeoErrorValue,
   MotionValue,
+  OnlineValue,
+  SaveDataValue,
   SchemeValue,
   TransparencyValue,
   VisionValue,
@@ -32,6 +35,7 @@ export const DEFAULT_STATE: DevknobsState = {
     speed: DEFAULT_SPEED,
   },
   timeZone: "geo",
+  network: { online: "system", type: "system", saveData: "system" },
   text: "system",
   spacing: false,
   width: "full",
@@ -49,6 +53,9 @@ const CONTRASTS: ContrastValue[] = ["more", "system"];
 const TRANSPARENCIES: TransparencyValue[] = ["reduce", "system"];
 const DIRS: DirValue[] = ["ltr", "rtl", "system"];
 const GEO_ERRORS: GeoErrorValue[] = ["none", "denied", "unavailable", "timeout"];
+const ONLINES: OnlineValue[] = ["offline", "system"];
+const CONNECTIONS: ConnectionValue[] = ["slow-2g", "2g", "3g", "4g", "system"];
+const SAVE_DATAS: SaveDataValue[] = ["on", "off", "system"];
 const VISIONS: VisionValue[] = [
   "none",
   "protanopia",
@@ -103,6 +110,7 @@ export function parse(json: string | null | undefined): DevknobsState {
   const state = raw as Record<string, unknown>;
   const locale = record(state.locale);
   const geo = record(state.geo);
+  const network = record(state.network);
   const panel = record(state.panel);
   const panelY = num(panel.y, DEFAULT_STATE.panel.y);
   return {
@@ -128,6 +136,11 @@ export function parse(json: string | null | undefined): DevknobsState {
     },
     // A session stored before the knob had a field of its own follows geo, as it did then.
     timeZone: text(state.timeZone, "") || DEFAULT_STATE.timeZone,
+    network: {
+      online: oneOf(network.online, ONLINES, DEFAULT_STATE.network.online),
+      type: oneOf(network.type, CONNECTIONS, DEFAULT_STATE.network.type),
+      saveData: oneOf(network.saveData, SAVE_DATAS, DEFAULT_STATE.network.saveData),
+    },
     text: numberOr(state.text, "system", DEFAULT_STATE.text),
     spacing: bool(state.spacing, DEFAULT_STATE.spacing),
     width: numberOr(state.width, "full", DEFAULT_STATE.width),
@@ -152,6 +165,7 @@ export function merge(state: DevknobsState, patch: DevknobsStatePatch): Devknobs
     ...patch,
     locale: { ...state.locale, ...patch.locale },
     geo: { ...state.geo, ...patch.geo },
+    network: { ...state.network, ...patch.network },
     panel: { ...state.panel, ...patch.panel },
   };
 }

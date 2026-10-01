@@ -50,6 +50,21 @@ export interface GeoValue {
  */
 export type TimeZoneValue = string;
 
+/** Emulated `navigator.onLine`. Requests still go out: only the flag and its events change. */
+export type OnlineValue = "offline" | "system";
+
+/** Emulated `navigator.connection.effectiveType`, where the browser has a connection. */
+export type ConnectionValue = "slow-2g" | "2g" | "3g" | "4g" | "system";
+
+/** Emulated `navigator.connection.saveData`. */
+export type SaveDataValue = "on" | "off" | "system";
+
+export interface NetworkValue {
+  online: OnlineValue;
+  type: ConnectionValue;
+  saveData: SaveDataValue;
+}
+
 /** Root font size in px, or `system` to stop emulating. */
 export type TextValue = number | "system";
 
@@ -87,6 +102,7 @@ export interface DevknobsState {
   pseudo: boolean;
   geo: GeoValue;
   timeZone: TimeZoneValue;
+  network: NetworkValue;
   text: TextValue;
   /** WCAG 1.4.12 text spacing. */
   spacing: boolean;

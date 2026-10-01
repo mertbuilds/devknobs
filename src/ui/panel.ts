@@ -6,11 +6,14 @@ import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone, TIME_ZONE_PRESETS } from "../engine/time";
 import { frameWindow } from "../engine/width";
 import type {
+  ConnectionValue,
   ContrastValue,
   DevknobsState,
   DirValue,
   GeoErrorValue,
   MotionValue,
+  OnlineValue,
+  SaveDataValue,
   SchemeValue,
   TransparencyValue,
   VisionValue,
@@ -151,6 +154,27 @@ const TIME_ZONE: Group = {
   ],
   current: (state) => state.timeZone,
   select: (value) => engine.setState({ timeZone: value }),
+};
+
+const ONLINE: Group = {
+  label: "online",
+  choices: choices("system", "offline"),
+  current: (state) => state.network.online,
+  select: (value) => engine.setState({ network: { online: value as OnlineValue } }),
+};
+
+const CONNECTION: Group = {
+  label: "connection",
+  choices: choices("system", "slow-2g", "2g", "3g", "4g"),
+  current: (state) => state.network.type,
+  select: (value) => engine.setState({ network: { type: value as ConnectionValue } }),
+};
+
+const SAVE_DATA: Group = {
+  label: "save data",
+  choices: choices("system", "on", "off"),
+  current: (state) => state.network.saveData,
+  select: (value) => engine.setState({ network: { saveData: value as SaveDataValue } }),
 };
 
 const TEXT: Group = {
@@ -323,6 +347,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
   zoneFields.append(zone);
   const zoneNote = el("div", "note");
   zoneBox.append(el("div", "label", "custom"), zoneFields, zoneNote);
+
+  addGroup(panel, ONLINE, bindings);
+  // Only Chromium has navigator.connection, so elsewhere these would do nothing.
+  if ("connection" in navigator) {
+    addGroup(panel, CONNECTION, bindings);
+    addGroup(panel, SAVE_DATA, bindings);
+  }
 
   addGroup(panel, TEXT, bindings);
   addGroup(panel, SPACING, bindings);
