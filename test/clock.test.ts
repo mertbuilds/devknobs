@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mergeClock, virtualNow } from "../src/engine/clock";
+import { early, mergeClock, virtualNow } from "../src/engine/clock";
+import { readMessage } from "../src/engine/frame";
 import { setDefaultLocale } from "../src/engine/intl";
 import { DEFAULT_STATE, merge, parse } from "../src/engine/store";
 import { apply, reset } from "../src/engine/time";
@@ -20,6 +21,33 @@ function clock(patch: Partial<ClockValue>): ClockValue {
 
 function frozen(at = AT): ClockValue {
   return clock({ mode: "frozen", at, since: REAL });
+}
+
+/** A stand in for Temporal: an instant knows its ms, its readings their zone. */
+function fakeTemporal() {
+  const reading = (kind: string, ms: number, zone: unknown) => `${kind} ${ms} ${zone}`;
+  const instant = (ms: number) => ({
+    ms,
+    toZonedDateTimeISO: (zone: unknown) => ({
+      ms,
+      zone,
+      toPlainDateTime: () => reading("datetime", ms, zone),
+      toPlainDate: () => reading("date", ms, zone),
+      toPlainTime: () => reading("time", ms, zone),
+    }),
+  });
+  const host = (kind: string) => (zone?: string) => `${kind} real ${zone ?? "host"}`;
+  const Now = {
+    instant: () => "instant real",
+    timeZoneId: () => "Europe/Berlin",
+    zonedDateTimeISO: host("zoned"),
+    plainDateTimeISO: host("datetime"),
+    plainDateISO: host("date"),
+    plainTimeISO: host("time"),
+  };
+  const temporal = { Now, Instant: { fromEpochMilliseconds: instant } };
+  Object.defineProperty(globalThis, "Temporal", { configurable: true, value: temporal });
+  return { Now, original: { ...Now } };
 }
 
 afterEach(() => {
@@ -114,6 +142,19 @@ describe("the stored clock", () => {
       REAL + 2 * DAY + closedFor * 60,
     );
   });
+
+  test("the frame reads the same anchors, so both read the same time", () => {
+    const top = merge(DEFAULT_STATE, { clock: { mode: "offset", at: REAL + DAY, speed: 3600 } });
+    const parent = {};
+    const message = readMessage(
+      { data: { source: "devknobs", type: "state", state: top }, origin: "o", source: parent },
+      parent,
+      "o",
+    );
+    const frame = message?.type === "state" ? message.state : DEFAULT_STATE;
+    const later = top.clock.since + 1234;
+    expect(virtualNow(frame.clock, later)).toBe(virtualNow(top.clock, later));
+  });
 });
 
 describe("Date on the clock", () => {
@@ -161,33 +202,6 @@ describe("Date on the clock", () => {
 });
 
 describe("Temporal.Now on the clock", () => {
-  /** A stand in for Temporal: an instant knows its ms, its readings their zone. */
-  function fakeTemporal() {
-    const reading = (kind: string, ms: number, zone: unknown) => `${kind} ${ms} ${zone}`;
-    const instant = (ms: number) => ({
-      ms,
-      toZonedDateTimeISO: (zone: unknown) => ({
-        ms,
-        zone,
-        toPlainDateTime: () => reading("datetime", ms, zone),
-        toPlainDate: () => reading("date", ms, zone),
-        toPlainTime: () => reading("time", ms, zone),
-      }),
-    });
-    const host = (kind: string) => (zone?: string) => `${kind} real ${zone ?? "host"}`;
-    const Now = {
-      instant: () => "instant real",
-      timeZoneId: () => "Europe/Berlin",
-      zonedDateTimeISO: host("zoned"),
-      plainDateTimeISO: host("datetime"),
-      plainDateISO: host("date"),
-      plainTimeISO: host("time"),
-    };
-    const temporal = { Now, Instant: { fromEpochMilliseconds: instant } };
-    Object.defineProperty(globalThis, "Temporal", { configurable: true, value: temporal });
-    return { Now, original: { ...Now } };
-  }
-
   test("every reader reads the clock, in the host zone or the one asked for", () => {
     const { Now } = fakeTemporal();
     apply(null, frozen());
@@ -314,4 +328,65 @@ describe("with the time zone and locale knobs", () => {
       expectNatives();
     });
   }
+});
+
+describe("the early script", () => {
+  const EARLY = Symbol.for("devknobs.early.clock");
+
+  afterEach(() => {
+    // The full script takes over whatever an early script left in place.
+    apply(null);
+    Reflect.deleteProperty(globalThis, EARLY);
+  });
+
+  test("sets the clock first, and the full script takes over with one Date of its own", () => {
+    Reflect.deleteProperty(globalThis, EARLY);
+    early(frozen());
+    const kept = Date;
+    expect(kept).not.toBe(NativeDate);
+    expect([Date.now(), new Date().getTime()]).toEqual([AT, AT]);
+    expect(new Date(0).getTime()).toBe(0);
+    apply(null, frozen(WINTER));
+    expect(Date).not.toBe(kept);
+    expect(Date.now()).toBe(WINTER);
+    // A Date the page kept from the early patch follows the knob still.
+    expect([kept.now(), new kept().getTime()]).toEqual([WINTER, WINTER]);
+    reset();
+    expect(Date).toBe(NativeDate);
+    expect(Math.abs(kept.now() - NativeDate.now())).toBeLessThan(1000);
+  });
+
+  test("the full script takes it over with the clock off too", () => {
+    Reflect.deleteProperty(globalThis, EARLY);
+    early(frozen());
+    apply(null);
+    expect(Date).toBe(NativeDate);
+    expect(Object.getOwnPropertyDescriptor(Date.prototype, "constructor")?.value).toBe(NativeDate);
+  });
+
+  test("Temporal.Now readers too", () => {
+    Reflect.deleteProperty(globalThis, EARLY);
+    const { Now, original } = fakeTemporal();
+    early(frozen());
+    expect(Now.instant()).toMatchObject({ ms: AT });
+    expect(Now.plainDateISO()).toBe(`date ${AT} Europe/Berlin`);
+    apply("Asia/Tokyo", frozen(WINTER));
+    expect(Now.plainDateISO()).toBe(`date ${WINTER} Asia/Tokyo`);
+    apply(null);
+    expect(Now).toEqual(original);
+  });
+
+  test("one that runs after the full script stays out", () => {
+    apply(null, frozen());
+    const full = Date;
+    early(frozen(WINTER));
+    expect(Date).toBe(full);
+    expect(Date.now()).toBe(AT);
+  });
+
+  test("the real clock stored leaves Date alone", () => {
+    Reflect.deleteProperty(globalThis, EARLY);
+    early(DEFAULT_STATE.clock);
+    expect(Date).toBe(NativeDate);
+  });
 });

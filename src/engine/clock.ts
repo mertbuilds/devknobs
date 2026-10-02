@@ -39,6 +39,37 @@ export function realNow(): number {
   return NativeDate.now();
 }
 
+/**
+ * What the clock reads at a real instant, in whole epoch ms: running from `at`
+ * since `since` at its speed, stopped at `at`, or the real time.
+ */
+export function virtualNow(clock: ClockValue, real: number): number {
+  if (clock.mode === "frozen") return clock.at;
+  if (clock.mode === "offset") return Math.floor(clock.at + (real - clock.since) * clock.speed);
+  return real;
+}
+
+type Anchor = "at" | "mode" | "speed";
+
+/**
+ * Patch a clock, anchoring it again whenever it moves: a new `at` runs from
+ * the real now, and a new mode or speed carries on from where the clock
+ * stands, so nothing jumps. A `since` of its own is taken as given.
+ */
+export function mergeClock(
+  clock: ClockValue,
+  patch: Partial<ClockValue> | undefined,
+  real = realNow(),
+): ClockValue {
+  if (!patch) return clock;
+  const next = { ...clock, ...patch };
+  if (patch.since !== undefined && patch.since !== clock.since) return next;
+  const moved = (key: Anchor) => patch[key] !== undefined && patch[key] !== clock[key];
+  if (moved("at")) return { ...next, since: real };
+  if (moved("mode") || moved("speed")) return { ...next, at: virtualNow(clock, real), since: real };
+  return next;
+}
+
 /** Set the clock the page reads, or put the real one back with null or `system`. */
 export function setClock(value: ClockValue | null): void {
   shared.clock = value && value.mode !== "system" ? { ...value } : null;
@@ -145,33 +176,58 @@ export function readNow(
   };
 }
 
-/**
- * What the clock reads at a real instant, in whole epoch ms: running from `at`
- * since `since` at its speed, stopped at `at`, or the real time.
- */
-export function virtualNow(clock: ClockValue, real: number): number {
-  if (clock.mode === "frozen") return clock.at;
-  if (clock.mode === "offset") return Math.floor(clock.at + (real - clock.since) * clock.speed);
-  return real;
+/** What the early script leaves for the full one to take over. */
+interface EarlyClock {
+  /** Put the engine's own `Date` and `Temporal.Now` back. The clock stays set. */
+  release(): void;
 }
 
-type Anchor = "at" | "mode" | "speed";
+/**
+ * Where the early script leaves its patches. The full script sets it to null
+ * once it applies, so an early script that runs after it stays out.
+ */
+const EARLY = Symbol.for("devknobs.early.clock");
+
+type EarlyScope = Record<symbol, EarlyClock | null | undefined>;
 
 /**
- * Patch a clock, anchoring it again whenever it moves: a new `at` runs from
- * the real now, and a new mode or speed carries on from where the clock
- * stands, so nothing jumps. A `since` of its own is taken as given.
+ * The early script's part: set the stored clock before any page script reads
+ * the time, with the same `Date` proxy and `Temporal.Now` readers the full
+ * script puts in, less the zone.
  */
-export function mergeClock(
-  clock: ClockValue,
-  patch: Partial<ClockValue> | undefined,
-  real = realNow(),
-): ClockValue {
-  if (!patch) return clock;
-  const next = { ...clock, ...patch };
-  if (patch.since !== undefined && patch.since !== clock.since) return next;
-  const moved = (key: Anchor) => patch[key] !== undefined && patch[key] !== clock[key];
-  if (moved("at")) return { ...next, since: real };
-  if (moved("mode") || moved("speed")) return { ...next, at: virtualNow(clock, real), since: real };
-  return next;
+export function early(value: ClockValue): void {
+  const scope = globalThis as unknown as EarlyScope;
+  if (EARLY in scope || value.mode === "system") return;
+  setClock(value);
+  const undo: (() => void)[] = [];
+  const swap = (target: object, key: string, next: unknown) => {
+    const original = Reflect.get(target, key);
+    if (!Reflect.set(target, key, next)) return;
+    undo.push(() => {
+      if (Reflect.get(target, key) === next) Reflect.set(target, key, original);
+    });
+  };
+  swap(globalThis, "Date", wrapDate(NativeDate));
+  swap(NativeDate.prototype, "constructor", globalThis.Date);
+  const now = temporalNow();
+  for (const key of NOW_READERS) {
+    const original = now?.[key];
+    if (now && typeof original === "function") {
+      const reader = readNow(key, original as NowReader, (timeZone) => timeZone);
+      swap(now, key, reader);
+    }
+  }
+  scope[EARLY] = {
+    release: () => {
+      for (const step of undo.reverse()) step();
+    },
+  };
+}
+
+/** Take the early script's patches off, once, before the full script puts its own on. */
+export function takeOver(): void {
+  const scope = globalThis as unknown as EarlyScope;
+  const patches = scope[EARLY];
+  scope[EARLY] = null;
+  patches?.release();
 }

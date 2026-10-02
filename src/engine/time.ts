@@ -5,6 +5,7 @@ import {
   NOW_READERS,
   readNow,
   setClock,
+  takeOver,
   temporalNow,
   wrapDate,
   type ZoneHooks,
@@ -490,6 +491,7 @@ function restoreTime(): void {
  * go once both are off, in whichever order they went off.
  */
 export function apply(value: string | null, clock?: ClockValue): void {
+  takeOver();
   const next = value ? canonicalZone(value) : null;
   if (next !== zone) offsetCache.clear();
   zone = next;
