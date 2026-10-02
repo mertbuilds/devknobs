@@ -9,6 +9,7 @@ import {
   UNFRAMED,
 } from "./frame";
 import * as geo from "./geo";
+import * as header from "./header";
 import * as locale from "./locale";
 import * as media from "./media";
 import * as network from "./network";
@@ -67,6 +68,7 @@ export function applyState(next: DevknobsState): void {
   pseudo.apply(state.pseudo);
   geo.apply(state.geo);
   time.apply(time.resolveTimeZone(state.timeZone, state.geo), state.clock);
+  header.apply(state.clock);
   network.apply(state.network);
   text.apply(state.text);
   spacing.apply(state.spacing);
@@ -135,6 +137,7 @@ export function stop(): void {
   pseudo.reset();
   geo.reset();
   time.reset();
+  header.reset();
   network.reset();
   text.reset();
   spacing.reset();
