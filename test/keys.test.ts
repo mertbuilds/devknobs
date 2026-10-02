@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { forwardKeys, hotkeyOf, keyAction, type KeyLike } from "../src/ui/keys";
+import { forwardKeys, hotkeyOf, isSearchKey, keyAction, type KeyLike } from "../src/ui/keys";
 
 function key(patch: Partial<KeyLike>): KeyLike {
   return {
@@ -53,6 +53,33 @@ describe("keyAction", () => {
     expect(keyAction(key({ target: element("DIV", true) }), "d")).toBeNull();
     expect(keyAction(key({ composedPath: () => [element("INPUT")] }), "d")).toBeNull();
     expect(keyAction(key({ target: element("DIV") }), "d")).toBe("toggle");
+  });
+});
+
+describe("isSearchKey", () => {
+  test("takes the slash, shift included for layouts that need it", () => {
+    expect(isSearchKey(key({ key: "/" }))).toBe(true);
+    expect(isSearchKey(key({ key: "/", shiftKey: true }))).toBe(true);
+  });
+
+  test("leaves every other key to the page", () => {
+    expect(isSearchKey(key({ key: "o" }))).toBe(false);
+    expect(isSearchKey(key({ key: "D", shiftKey: true }))).toBe(false);
+    expect(isSearchKey(key({ key: "+" }))).toBe(false);
+    expect(isSearchKey(key({ key: " " }))).toBe(false);
+    expect(isSearchKey(key({ key: "Enter" }))).toBe(false);
+  });
+
+  test("leaves the slash alone with a modifier", () => {
+    expect(isSearchKey(key({ key: "/", metaKey: true }))).toBe(false);
+    expect(isSearchKey(key({ key: "/", ctrlKey: true }))).toBe(false);
+    expect(isSearchKey(key({ key: "/", altKey: true }))).toBe(false);
+  });
+
+  test("leaves typing in a field alone", () => {
+    expect(isSearchKey(key({ key: "/", target: element("INPUT") }))).toBe(false);
+    expect(isSearchKey(key({ key: "/", composedPath: () => [element("TEXTAREA")] }))).toBe(false);
+    expect(isSearchKey(key({ key: "/", target: element("DIV", true) }))).toBe(false);
   });
 });
 

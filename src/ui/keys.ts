@@ -28,6 +28,17 @@ export function keyAction(event: KeyLike, hotkey: string): KeyAction | null {
 }
 
 /**
+ * Whether a keydown is the `/` that focuses the panel's search. Shift is fine,
+ * as some layouts need it for `/`, but no other modifier, and never in a field.
+ * Every other key belongs to the page.
+ */
+export function isSearchKey(event: KeyLike): boolean {
+  if (event.key !== "/" || event.altKey || event.ctrlKey || event.metaKey) return false;
+  const target = event.composedPath?.()[0] ?? event.target;
+  return !isEditable(target);
+}
+
+/**
  * Inside the width knob's frame the keys stay in the frame while it has focus,
  * so send the panel's keys up to the page that has the panel. Returns the way
  * to stop.

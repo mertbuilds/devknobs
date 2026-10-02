@@ -85,6 +85,29 @@ dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 drag the handle to move it up and down the edge of the window. hold shift while
 dragging to move the panel and the handle together.
 
+## the panel
+
+the panel lists only the knobs that are off their default, one row each, with
+related knobs together: width, device pixel ratio, frame and vision are one
+viewport row, the clock with its mode, speed and server header is another.
+click a row to open its editor, and `×` puts that row back to its default.
+
+the field at the top finds knobs and values. type `dark`, `390`, `+2d`, `tr`,
+`tokyo`, `rtl`, `pause` or `offline` and enter sets the first result. a value
+typed out in full works too: `500` for a width, `3d` for the clock, `pt-BR`,
+`Europe/Paris`, or `36.9, 30.7` for a position. a knob's name opens its
+editor, and with nothing typed the list shows every knob by category. arrows
+move through the results, escape clears the query, then leaves the field,
+then closes an open editor, and then the panel.
+
+while the panel is out and the focus is in no field, `/` focuses the search.
+every other key goes to the page as it would without the panel. the hotkey
+toggles the panel everywhere except in a field, the search included, so in the
+search `d` is just a letter.
+
+the panel keeps the real color scheme and motion preference of the browser,
+whatever the knobs emulate for the page.
+
 ## early script
 
 optional. a page that reads a media query or the time while it boots, before
@@ -131,7 +154,7 @@ the full script does.
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | vision | protanopia, deuteranopia, tritanopia, achromatopsia, blur, none | an svg color matrix (machado et al. 2009, as chromium devtools uses) or a 2px blur, as a `filter` on the frame, so fixed elements inside keep their place and the panel stays readable. brings the frame up |
-| overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count next to width. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
+| overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count in its debug row and footer. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
 | outlines | on, off | injects one style rule that outlines every element |
 | replay | action | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
 
