@@ -50,6 +50,24 @@ export interface GeoValue {
  */
 export type TimeZoneValue = string;
 
+/** The real clock, one that runs on from a set instant, or one stopped there. */
+export type ClockMode = "system" | "offset" | "frozen";
+
+export interface ClockValue {
+  mode: ClockMode;
+  /** The instant the clock read at `since`, in epoch ms. A frozen clock stays there. */
+  at: number;
+  /**
+   * The real instant `at` was set at, in epoch ms. The engine stamps it on
+   * every change, so a patch leaves it out.
+   */
+  since: number;
+  /** Clock ms per real ms while it runs. */
+  speed: number;
+  /** Send the clock's instant to the page's own origin, in an `x-devknobs-now` header. */
+  header: boolean;
+}
+
 /** Emulated `navigator.onLine`. Requests still go out: only the flag and its events change. */
 export type OnlineValue = "offline" | "system";
 
@@ -102,6 +120,7 @@ export interface DevknobsState {
   pseudo: boolean;
   geo: GeoValue;
   timeZone: TimeZoneValue;
+  clock: ClockValue;
   network: NetworkValue;
   text: TextValue;
   /** WCAG 1.4.12 text spacing. */

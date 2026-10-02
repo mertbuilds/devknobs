@@ -1,4 +1,5 @@
 import type {
+  ClockMode,
   ConnectionValue,
   ContrastValue,
   DevknobsState,
@@ -12,6 +13,7 @@ import type {
   TransparencyValue,
   VisionValue,
 } from "../types";
+import { mergeClock } from "./clock";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
 
 export const STORAGE_KEY = "devknobs";
@@ -35,6 +37,7 @@ export const DEFAULT_STATE: DevknobsState = {
     speed: DEFAULT_SPEED,
   },
   timeZone: "geo",
+  clock: { mode: "system", at: 0, since: 0, speed: 1, header: false },
   network: { online: "system", type: "system", saveData: "system" },
   text: "system",
   spacing: false,
@@ -53,6 +56,7 @@ const CONTRASTS: ContrastValue[] = ["more", "system"];
 const TRANSPARENCIES: TransparencyValue[] = ["reduce", "system"];
 const DIRS: DirValue[] = ["ltr", "rtl", "system"];
 const GEO_ERRORS: GeoErrorValue[] = ["none", "denied", "unavailable", "timeout"];
+const CLOCK_MODES: ClockMode[] = ["system", "offset", "frozen"];
 const ONLINES: OnlineValue[] = ["offline", "system"];
 const CONNECTIONS: ConnectionValue[] = ["slow-2g", "2g", "3g", "4g", "system"];
 const SAVE_DATAS: SaveDataValue[] = ["on", "off", "system"];
@@ -110,6 +114,7 @@ export function parse(json: string | null | undefined): DevknobsState {
   const state = raw as Record<string, unknown>;
   const locale = record(state.locale);
   const geo = record(state.geo);
+  const clock = record(state.clock);
   const network = record(state.network);
   const panel = record(state.panel);
   const panelY = num(panel.y, DEFAULT_STATE.panel.y);
@@ -136,6 +141,14 @@ export function parse(json: string | null | undefined): DevknobsState {
     },
     // A session stored before the knob had a field of its own follows geo, as it did then.
     timeZone: text(state.timeZone, "") || DEFAULT_STATE.timeZone,
+    // A session stored before the clock had a knob reads the real one.
+    clock: {
+      mode: oneOf(clock.mode, CLOCK_MODES, DEFAULT_STATE.clock.mode),
+      at: num(clock.at, DEFAULT_STATE.clock.at),
+      since: num(clock.since, DEFAULT_STATE.clock.since),
+      speed: rate(clock.speed, DEFAULT_STATE.clock.speed),
+      header: bool(clock.header, DEFAULT_STATE.clock.header),
+    },
     network: {
       online: oneOf(network.online, ONLINES, DEFAULT_STATE.network.online),
       type: oneOf(network.type, CONNECTIONS, DEFAULT_STATE.network.type),
@@ -158,13 +171,17 @@ export function parse(json: string | null | undefined): DevknobsState {
   };
 }
 
-/** Merge a patch into a state, one level deep for the object knobs. */
+/**
+ * Merge a patch into a state, one level deep for the object knobs. The clock
+ * takes a new anchor when it moves.
+ */
 export function merge(state: DevknobsState, patch: DevknobsStatePatch): DevknobsState {
   return {
     ...state,
     ...patch,
     locale: { ...state.locale, ...patch.locale },
     geo: { ...state.geo, ...patch.geo },
+    clock: mergeClock(state.clock, patch.clock),
     network: { ...state.network, ...patch.network },
     panel: { ...state.panel, ...patch.panel },
   };

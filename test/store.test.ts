@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_STATE, merge, parse } from "../src/engine/store";
-import type { DevknobsState } from "../src/types";
+import type { ClockValue, DevknobsState } from "../src/types";
 
 describe("parse", () => {
   test("falls back to the defaults", () => {
@@ -46,6 +46,7 @@ describe("parse", () => {
       pseudo: false,
       geo: { ...DEFAULT_STATE.geo, preset: "tokyo" },
       timeZone: "geo",
+      clock: DEFAULT_STATE.clock,
       network: { online: "offline", type: "system", saveData: "system" },
       text: 20,
       spacing: false,
@@ -78,6 +79,20 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ timeZone: "" })).timeZone).toBe("geo");
     expect(parse(JSON.stringify({ timeZone: 3 })).timeZone).toBe("geo");
     expect(parse(JSON.stringify({ timeZone: "Asia/Kathmandu" })).timeZone).toBe("Asia/Kathmandu");
+  });
+
+  test("reads the real clock when the session predates the knob, and keeps a set one", () => {
+    expect(parse(JSON.stringify({ scheme: "dark" })).clock).toEqual(DEFAULT_STATE.clock);
+    const clock: ClockValue = {
+      mode: "offset",
+      at: 1_800_000_000_000,
+      since: 1_700_000_000_000,
+      speed: 60,
+      header: true,
+    };
+    expect(parse(JSON.stringify({ clock })).clock).toEqual(clock);
+    const junk = { mode: "backwards", at: "soon", speed: -60, header: 1 };
+    expect(parse(JSON.stringify({ clock: junk })).clock).toEqual(DEFAULT_STATE.clock);
   });
 
   test("keeps a speed of zero, which pauses, and drops a negative one", () => {
