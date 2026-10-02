@@ -64,8 +64,12 @@ export interface DevknobsState {
   contrast: ContrastValue;
   transparency: TransparencyValue;
   locale: LocaleValue;
+  /** Pseudo-localize the page's text. */
+  pseudo: boolean;
   geo: GeoValue;
   text: TextValue;
+  /** WCAG 1.4.12 text spacing. */
+  spacing: boolean;
   width: WidthValue;
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;

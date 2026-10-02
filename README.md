@@ -110,10 +110,12 @@ the full script does.
 | animation speed | 1, 0.25, 0.1, pause | sets `playbackRate` (through `updatePlaybackRate`, so nothing jumps) on every animation `getAnimations()` returns, css animations and transitions included, in the document and every open shadow root. new ones are taken as they start: `animationstart` and `transitionrun` listeners, a patched `Element.prototype.animate`, and a light sweep every frame while the knob is off 1. scroll-driven animations keep following the scroll. when `window.gsap` exists, its global timeline's `timeScale` follows too. back to 1, every rate goes back to what it was |
 | contrast | more, system | rewrites `prefers-contrast` media rules and patches `matchMedia` the same way |
 | reduced transparency | reduce, system | rewrites `prefers-reduced-transparency` media rules and patches `matchMedia` the same way. a browser that does not know the feature drops those rules while it parses them, so there only `matchMedia` follows the knob |
-| locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and patches `navigator.language` / `navigator.languages`. direction defaults to rtl for ar, he, fa and ur. also writes the `PARAGLIDE_LOCALE` cookie and reloads when it changes, so paraglide (cookie strategy) server-rendered strings follow the knob |
+| locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and puts them back if the page writes them over, patches `navigator.language` / `navigator.languages`, and makes the tag the default locale of every `Intl` service, the `toLocaleString` family and `localeCompare` (a call that names its own locale keeps it). direction comes from `Intl.Locale` text info, with ar, he, fa and ur as the fallback. also writes the tag into the stores i18n libraries read and reloads when it changes: the paraglide cookie always, paraglide and i18next local storage, the i18next session key and cookie when the page has them, and `NEXT_LOCALE` on next.js pages. back to system, each store gets its old value, unless the page changed it since |
+| pseudo | on, off | rewrites the page's text and its `placeholder`, `title`, `aria-label` and `alt` attributes to accented, padded, bracketed strings (`[Ŝéţţîñĝš ···]`), once the page is loaded and idle so hydration never sees it. new and changed text follows. skips scripts, styles, textareas, contenteditable and options without a value, whose text is what their form sends. text the page reads back and writes again stays one layer deep. off puts the originals back, in nodes the page detached since too |
 | geolocation | a city preset, custom coordinates, system | patches `navigator.geolocation.getCurrentPosition` and `watchPosition` with a fixed position |
 | time zone | comes with the geo preset | patches `Intl.DateTimeFormat` so calls without an explicit `timeZone` use the emulated one, and patches `Date.prototype.getTimezoneOffset` |
-| root font size | px, system | sets `font-size` on `<html>`, so everything in rem scales |
+| text size | px, system | emulates the browser's default font size setting. a root `font-size` in %, em, rem or a keyword, or none at all, is taken against the knob's size (62.5% at 20 gives 12.5px), and a px root size is left alone, as the real setting does. em and rem in media queries and `matchMedia` move with it |
+| text spacing | on, off | applies the wcag 1.4.12 text spacing values: line height 1.5, letter spacing 0.12em, word spacing 0.16em, 2em after paragraphs |
 | viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. a width wider than the window is scaled down to fit, and the readout says by how much. back to full, the window goes wherever the frame navigated |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
@@ -178,6 +180,10 @@ the speed knob reaches what the Web Animations API can see. an animation
 that javascript drives frame by frame (a `requestAnimationFrame` loop, a
 spring in Motion) keeps its own pace. Motion's global config has no time scale
 to set, so only its WAAPI-backed animations slow down.
+
+the text size knob reads the root `font-size` from same-origin stylesheets; one
+set in a cross-origin sheet is taken as relative. a `matchMedia` list made from
+an em or rem query keeps the size it was made at when the knob changes later.
 
 the frame loads the page a second time, so in-memory state (a half-filled form,
 a client store) is not shared between the two, and the page under the frame

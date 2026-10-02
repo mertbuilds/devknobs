@@ -21,8 +21,10 @@ describe("parse", () => {
         contrast: "more",
         transparency: "clear",
         locale: { lang: "tr", dir: "sideways" },
+        pseudo: "yes",
         geo: { preset: "tokyo", lat: "x" },
         text: 20,
+        spacing: 1,
         width: "full",
         frame: true,
         dpr: 2,
@@ -40,8 +42,10 @@ describe("parse", () => {
       contrast: "more",
       transparency: "system",
       locale: { lang: "tr", dir: "system" },
+      pseudo: false,
       geo: { preset: "tokyo", lat: 0, lng: 0, accuracy: DEFAULT_STATE.geo.accuracy, timeZone: "" },
       text: 20,
+      spacing: false,
       width: "full",
       frame: true,
       dpr: 2,
@@ -88,6 +92,8 @@ describe("parse", () => {
       motion: "reduce",
       speed: 0.1,
       transparency: "reduce",
+      pseudo: true,
+      spacing: true,
     };
     expect(parse(JSON.stringify(state))).toEqual(state);
   });

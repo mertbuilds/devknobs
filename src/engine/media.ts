@@ -1,4 +1,6 @@
 import type { ContrastValue, MotionValue, SchemeValue, TransparencyValue } from "../types";
+import { addLayer, baseMatchMedia, removeLayer } from "./matchmedia";
+import { authoredMedia } from "./text";
 
 export type MediaFeature =
   | "prefers-color-scheme"
@@ -155,7 +157,6 @@ const heard = new WeakMap<MediaQueryList, boolean>();
 const queries = new WeakMap<MediaQueryList, string>();
 
 let current: MediaValue = SYSTEM_MEDIA;
-let nativeMatchMedia: ((query: string) => MediaQueryList) | null = null;
 /** `matches` as `MediaQueryList.prototype` had it, to put back. */
 let nativeMatches: PropertyDescriptor | null = null;
 let readMatches: ((this: MediaQueryList) => boolean) | null = null;
@@ -214,8 +215,9 @@ function applyCss(): void {
         const text = rule.media.mediaText;
         let original = originals.get(rule);
         if (original === undefined) {
-          if (!mentionsFeature(text)) return;
-          original = text;
+          // Text size follows a stylesheet updated in place, so it may have been first.
+          original = authoredMedia(rule) ?? text;
+          if (!mentionsFeature(original)) return;
           originals.set(rule, original);
         }
         const next = rewriteAll(original, current);
@@ -261,9 +263,8 @@ function emulating(): boolean {
 
 /** What a query matches with the emulated values, read through the native getter. */
 function evaluate(query: string): boolean {
-  if (!nativeMatchMedia) return false;
   try {
-    const list = nativeMatchMedia.call(window, rewriteAll(query, current));
+    const list = baseMatchMedia(rewriteAll(query, current));
     return readMatches ? readMatches.call(list) : list.matches;
   } catch {
     return false;
@@ -327,6 +328,13 @@ function track(list: MediaQueryList, query: string): void {
   list.addEventListener("change", guard);
 }
 
+/** This knob's layer of the shared `matchMedia` patch: a list that names a feature is tracked. */
+function trackLists(query: string, next: (query: string) => MediaQueryList): MediaQueryList {
+  const list = next(query);
+  if (mentionsFeature(query)) track(list, query);
+  return list;
+}
+
 /**
  * Patch `matches` on the prototype, so a list made before devknobs mounted
  * reads the emulated value too. Only lists made after can be told about a
@@ -338,18 +346,14 @@ function ensureMatchMedia(): void {
   const early = scope[EARLY];
   scope[EARLY] = null;
   const handed = early?.release(guard) ?? [];
-  nativeMatchMedia ??= window.matchMedia.bind(window);
   patched = true;
   for (const { list, query, heard: value } of handed) {
     queries.set(list, query);
     heard.set(list, value);
     tracked.add(new WeakRef(list));
   }
-  window.matchMedia = (query: string): MediaQueryList => {
-    const list = nativeMatchMedia!.call(window, query);
-    if (mentionsFeature(query)) track(list, query);
-    return list;
-  };
+  // Only once the early script let go, so the patch goes over the browser's own.
+  addLayer("media", trackLists);
   const descriptor = Object.getOwnPropertyDescriptor(MediaQueryList.prototype, "matches");
   const read = descriptor?.get;
   if (!descriptor || !read) return;
@@ -394,8 +398,8 @@ function teardown(): void {
     cancelAnimationFrame(frame);
     frame = 0;
   }
-  if (patched && nativeMatchMedia) {
-    window.matchMedia = nativeMatchMedia;
+  if (patched) {
+    removeLayer("media");
     if (nativeMatches) Object.defineProperty(MediaQueryList.prototype, "matches", nativeMatches);
     nativeMatches = null;
     readMatches = null;

@@ -111,6 +111,13 @@ const DIRECTION: Group = {
   select: (value) => engine.setState({ locale: { dir: value as DirValue } }),
 };
 
+const PSEUDO: Group = {
+  label: "pseudo",
+  choices: choices("off", "on"),
+  current: (state) => (state.pseudo ? "on" : "off"),
+  select: (value) => engine.setState({ pseudo: value === "on" }),
+};
+
 const GEO: Group = {
   label: "geo",
   choices: [
@@ -126,6 +133,13 @@ const TEXT: Group = {
   choices: choices("system", "13", "15", "17", "20"),
   current: (state) => String(state.text),
   select: (value) => engine.setState({ text: value === "system" ? "system" : Number(value) }),
+};
+
+const SPACING: Group = {
+  label: "spacing",
+  choices: choices("off", "on"),
+  current: (state) => (state.spacing ? "on" : "off"),
+  select: (value) => engine.setState({ spacing: value === "on" }),
 };
 
 const WIDTH: Group = {
@@ -260,6 +274,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   addGroup(panel, TRANSPARENCY, bindings);
   addGroup(panel, LOCALE, bindings);
   addGroup(panel, DIRECTION, bindings);
+  addGroup(panel, PSEUDO, bindings);
 
   const geoBox = addGroup(panel, GEO, bindings);
   const lat = numberField("lat");
@@ -271,6 +286,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   geoBox.append(el("div", "label", "custom"), fields, zoneNote);
 
   addGroup(panel, TEXT, bindings);
+  addGroup(panel, SPACING, bindings);
   const widthBox = addGroup(panel, WIDTH, bindings);
   const badge = el("span", "badge");
   widthBox.firstElementChild?.append(badge);
