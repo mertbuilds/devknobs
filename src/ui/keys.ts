@@ -28,6 +28,18 @@ export function keyAction(event: KeyLike, hotkey: string): KeyAction | null {
 }
 
 /**
+ * The character a keydown would type into the panel's search, or null. Only a
+ * printable key outside any field counts, and never space, which pages scroll
+ * and press buttons with. The hotkey is the caller's to rule out first.
+ */
+export function typedKey(event: KeyLike): string | null {
+  if (event.altKey || event.ctrlKey || event.metaKey) return null;
+  if (event.key.length !== 1 || event.key === " ") return null;
+  const target = event.composedPath?.()[0] ?? event.target;
+  return isEditable(target) ? null : event.key;
+}
+
+/**
  * Inside the width knob's frame the keys stay in the frame while it has focus,
  * so send the panel's keys up to the page that has the panel. Returns the way
  * to stop.

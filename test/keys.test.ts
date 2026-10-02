@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { forwardKeys, hotkeyOf, keyAction, type KeyLike } from "../src/ui/keys";
+import { forwardKeys, hotkeyOf, keyAction, type KeyLike, typedKey } from "../src/ui/keys";
 
 function key(patch: Partial<KeyLike>): KeyLike {
   return {
@@ -53,6 +53,30 @@ describe("keyAction", () => {
     expect(keyAction(key({ target: element("DIV", true) }), "d")).toBeNull();
     expect(keyAction(key({ composedPath: () => [element("INPUT")] }), "d")).toBeNull();
     expect(keyAction(key({ target: element("DIV") }), "d")).toBe("toggle");
+  });
+});
+
+describe("typedKey", () => {
+  test("hands a printable key to the search, shift included", () => {
+    expect(typedKey(key({ key: "o" }))).toBe("o");
+    expect(typedKey(key({ key: "D", shiftKey: true }))).toBe("D");
+    expect(typedKey(key({ key: "+" }))).toBe("+");
+    expect(typedKey(key({ key: "/" }))).toBe("/");
+  });
+
+  test("leaves space, named keys and shortcuts to the page", () => {
+    expect(typedKey(key({ key: " " }))).toBeNull();
+    expect(typedKey(key({ key: "Enter" }))).toBeNull();
+    expect(typedKey(key({ key: "ArrowDown" }))).toBeNull();
+    expect(typedKey(key({ key: "k", metaKey: true }))).toBeNull();
+    expect(typedKey(key({ key: "k", ctrlKey: true }))).toBeNull();
+    expect(typedKey(key({ key: "k", altKey: true }))).toBeNull();
+  });
+
+  test("leaves typing in a field alone", () => {
+    expect(typedKey(key({ key: "o", target: element("INPUT") }))).toBeNull();
+    expect(typedKey(key({ key: "o", composedPath: () => [element("TEXTAREA")] }))).toBeNull();
+    expect(typedKey(key({ key: "o", target: element("DIV", true) }))).toBeNull();
   });
 });
 
