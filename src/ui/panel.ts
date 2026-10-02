@@ -1,4 +1,5 @@
 import * as engine from "../engine";
+import { CLOCK_PRESETS, now, realNow } from "../engine/clock";
 import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
@@ -6,6 +7,8 @@ import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone, TIME_ZONE_PRESETS } from "../engine/time";
 import { frameWindow } from "../engine/width";
 import type {
+  ClockMode,
+  ClockValue,
   ConnectionValue,
   ContrastValue,
   DevknobsState,
@@ -156,6 +159,56 @@ const TIME_ZONE: Group = {
   select: (value) => engine.setState({ timeZone: value }),
 };
 
+/** Set the clock to an instant, running unless it stands frozen already. */
+function travel(at: number, since = realNow()): void {
+  const frozen = engine.getState().clock.mode === "frozen";
+  engine.setState({ clock: { mode: frozen ? "frozen" : "offset", at, since } });
+}
+
+const CLOCK: Group = {
+  label: "clock",
+  choices: [
+    { label: "system", value: "system" },
+    ...CLOCK_PRESETS.map((preset) => ({ label: preset.label, value: String(preset.ms) })),
+  ],
+  // A preset stays on until the clock moves some other way.
+  current: (state) =>
+    state.clock.mode === "system" ? "system" : String(state.clock.at - state.clock.since),
+  select: (value) => {
+    if (value === "system") {
+      engine.setState({ clock: { mode: "system" } });
+      return;
+    }
+    const real = realNow();
+    travel(real + Number(value), real);
+  },
+};
+
+const CLOCK_MODE: Group = {
+  label: "clock mode",
+  choices: choices("offset", "frozen"),
+  current: (state) => state.clock.mode,
+  select: (value) => engine.setState({ clock: { mode: value as ClockMode } }),
+};
+
+const CLOCK_SPEED: Group = {
+  label: "clock speed",
+  choices: choices("1", "60", "3600"),
+  current: (state) => String(state.clock.speed),
+  // A speed only shows on a running clock, so the real one starts running from here.
+  select: (value) => {
+    const { mode } = engine.getState().clock;
+    engine.setState({ clock: { mode: mode === "system" ? "offset" : mode, speed: Number(value) } });
+  },
+};
+
+const CLOCK_HEADER: Group = {
+  label: "send to server",
+  choices: choices("off", "on"),
+  current: (state) => (state.clock.header ? "on" : "off"),
+  select: (value) => engine.setState({ clock: { header: value === "on" } }),
+};
+
 const ONLINE: Group = {
   label: "online",
   choices: choices("system", "offline"),
@@ -239,6 +292,22 @@ const OUTLINES: Group = {
  */
 export function overflowBadge(on: boolean, count: number | null): string {
   return on && count !== null ? ` · ${count} overflowing` : "";
+}
+
+/**
+ * `2026-10-04T09:30`, an instant the way a `datetime-local` input reads it,
+ * on the page's own clock face.
+ */
+export function wallInput(time: number): string {
+  const date = new Date(time);
+  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
+  const day = `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return `${day}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** What the clock note says: the time the page reads, or that it reads the real one. */
+function clockReadout(clock: ClockValue): string {
+  return clock.mode === "system" ? "clock: system" : `now: ${new Date(now()).toLocaleString()}`;
 }
 
 function el(tag: string, className: string, text?: string): HTMLElement {
@@ -348,6 +417,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const zoneNote = el("div", "note");
   zoneBox.append(el("div", "label", "custom"), zoneFields, zoneNote);
 
+  const clockBox = addGroup(panel, CLOCK, bindings);
+  const clockAt = field("field-clock", "", "clock date and time");
+  clockAt.type = "datetime-local";
+  const clockFields = el("div", "fields");
+  clockFields.append(clockAt);
+  const clockNote = el("div", "note");
+  clockBox.append(el("div", "label", "custom"), clockFields, clockNote);
+  addGroup(panel, CLOCK_MODE, bindings);
+  addGroup(panel, CLOCK_SPEED, bindings);
+  addGroup(panel, CLOCK_HEADER, bindings);
+
   addGroup(panel, ONLINE, bindings);
   // Only Chromium has navigator.connection, so elsewhere these would do nothing.
   if ("connection" in navigator) {
@@ -422,6 +502,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const keyword = state.timeZone === "geo" || state.timeZone === "system";
     fill(zone, keyword ? "" : state.timeZone);
     zoneNote.textContent = `time zone: ${resolveTimeZone(state.timeZone, state.geo) ?? "system"}`;
+    fill(clockAt, state.clock.mode === "system" ? "" : wallInput(state.clock.at));
+    clockNote.textContent = clockReadout(state.clock);
     const framed = needsFrame(state);
     if (!framed) frameCount = null;
     const count = framed ? frameCount : overflowCount();
@@ -528,10 +610,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
     engine.setState({ timeZone: zone.value.trim() || "geo" });
   }
 
+  /** A date and time picked whole runs the clock from there. */
+  function commitClock(): void {
+    const at = Date.parse(clockAt.value);
+    if (!Number.isNaN(at)) travel(at);
+  }
+
   for (const input of [lat, lng]) input.addEventListener("input", () => queue(commitCustom));
   route.addEventListener("input", () => queue(commitRoute));
   speed.addEventListener("input", () => queue(commitSpeed));
   zone.addEventListener("input", () => queue(commitZone));
+  clockAt.addEventListener("change", commitClock);
   replayButton.addEventListener("click", () => engine.replay());
   resetButton.addEventListener("click", () => engine.reset());
 
@@ -642,6 +731,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     render();
   }
 
+  // The clock runs between knob changes, and its readout with it.
+  const ticker = window.setInterval(() => {
+    clockNote.textContent = clockReadout(engine.getState().clock);
+  }, 1000);
   const unsubscribe = engine.subscribe(render);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
@@ -662,6 +755,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     destroy(): void {
       unsubscribe();
       stopCount();
+      clearInterval(ticker);
       for (const timer of pending.values()) clearTimeout(timer);
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("message", onMessage);
