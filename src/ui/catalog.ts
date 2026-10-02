@@ -506,7 +506,8 @@ const CLOCK: Knob = {
   id: "clock",
   label: "clock",
   category: "location and time",
-  control: "chips",
+  // Segments, not chips: six presets wrap as chips at the panel's width.
+  control: "segments",
   options: [
     { value: "system", label: "system" },
     ...CLOCK_PRESETS.map((preset) => ({
