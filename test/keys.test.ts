@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { forwardKeys, hotkeyOf, keyAction, type KeyLike, typedKey } from "../src/ui/keys";
+import { forwardKeys, hotkeyOf, isSearchKey, keyAction, type KeyLike } from "../src/ui/keys";
 
 function key(patch: Partial<KeyLike>): KeyLike {
   return {
@@ -56,27 +56,30 @@ describe("keyAction", () => {
   });
 });
 
-describe("typedKey", () => {
-  test("hands a printable key to the search, shift included", () => {
-    expect(typedKey(key({ key: "o" }))).toBe("o");
-    expect(typedKey(key({ key: "D", shiftKey: true }))).toBe("D");
-    expect(typedKey(key({ key: "+" }))).toBe("+");
-    expect(typedKey(key({ key: "/" }))).toBe("/");
+describe("isSearchKey", () => {
+  test("takes the slash, shift included for layouts that need it", () => {
+    expect(isSearchKey(key({ key: "/" }))).toBe(true);
+    expect(isSearchKey(key({ key: "/", shiftKey: true }))).toBe(true);
   });
 
-  test("leaves space, named keys and shortcuts to the page", () => {
-    expect(typedKey(key({ key: " " }))).toBeNull();
-    expect(typedKey(key({ key: "Enter" }))).toBeNull();
-    expect(typedKey(key({ key: "ArrowDown" }))).toBeNull();
-    expect(typedKey(key({ key: "k", metaKey: true }))).toBeNull();
-    expect(typedKey(key({ key: "k", ctrlKey: true }))).toBeNull();
-    expect(typedKey(key({ key: "k", altKey: true }))).toBeNull();
+  test("leaves every other key to the page", () => {
+    expect(isSearchKey(key({ key: "o" }))).toBe(false);
+    expect(isSearchKey(key({ key: "D", shiftKey: true }))).toBe(false);
+    expect(isSearchKey(key({ key: "+" }))).toBe(false);
+    expect(isSearchKey(key({ key: " " }))).toBe(false);
+    expect(isSearchKey(key({ key: "Enter" }))).toBe(false);
+  });
+
+  test("leaves the slash alone with a modifier", () => {
+    expect(isSearchKey(key({ key: "/", metaKey: true }))).toBe(false);
+    expect(isSearchKey(key({ key: "/", ctrlKey: true }))).toBe(false);
+    expect(isSearchKey(key({ key: "/", altKey: true }))).toBe(false);
   });
 
   test("leaves typing in a field alone", () => {
-    expect(typedKey(key({ key: "o", target: element("INPUT") }))).toBeNull();
-    expect(typedKey(key({ key: "o", composedPath: () => [element("TEXTAREA")] }))).toBeNull();
-    expect(typedKey(key({ key: "o", target: element("DIV", true) }))).toBeNull();
+    expect(isSearchKey(key({ key: "/", target: element("INPUT") }))).toBe(false);
+    expect(isSearchKey(key({ key: "/", composedPath: () => [element("TEXTAREA")] }))).toBe(false);
+    expect(isSearchKey(key({ key: "/", target: element("DIV", true) }))).toBe(false);
   });
 });
 

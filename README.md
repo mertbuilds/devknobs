@@ -100,10 +100,10 @@ editor, and with nothing typed the list shows every knob by category. arrows
 move through the results, escape clears the query, then leaves the field,
 then closes an open editor, and then the panel.
 
-while the panel is out and the focus is in no field, any printable key but the
-hotkey starts a search, and `/` focuses the field. the hotkey toggles the panel
-everywhere except in a field, the search included, so in the search `d` is
-just a letter.
+while the panel is out and the focus is in no field, `/` focuses the search.
+every other key goes to the page as it would without the panel. the hotkey
+toggles the panel everywhere except in a field, the search included, so in the
+search `d` is just a letter.
 
 the panel keeps the real color scheme and motion preference of the browser,
 whatever the knobs emulate for the page.

@@ -28,15 +28,14 @@ export function keyAction(event: KeyLike, hotkey: string): KeyAction | null {
 }
 
 /**
- * The character a keydown would type into the panel's search, or null. Only a
- * printable key outside any field counts, and never space, which pages scroll
- * and press buttons with. The hotkey is the caller's to rule out first.
+ * Whether a keydown is the `/` that focuses the panel's search. Shift is fine,
+ * as some layouts need it for `/`, but no other modifier, and never in a field.
+ * Every other key belongs to the page.
  */
-export function typedKey(event: KeyLike): string | null {
-  if (event.altKey || event.ctrlKey || event.metaKey) return null;
-  if (event.key.length !== 1 || event.key === " ") return null;
+export function isSearchKey(event: KeyLike): boolean {
+  if (event.key !== "/" || event.altKey || event.ctrlKey || event.metaKey) return false;
   const target = event.composedPath?.()[0] ?? event.target;
-  return isEditable(target) ? null : event.key;
+  return !isEditable(target);
 }
 
 /**

@@ -22,7 +22,7 @@ import {
   summary,
   wallInput,
 } from "./catalog";
-import { hotkeyOf, keyAction, typedKey } from "./keys";
+import { hotkeyOf, isSearchKey, keyAction } from "./keys";
 import { filterOptions, type Result, resultText, search } from "./search";
 import { CSS } from "./styles";
 
@@ -205,7 +205,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     home,
     ` · dev only · press ${hotkey}`,
     el("br", ""),
-    "type to search · shift-drag moves",
+    "/ to search · shift-drag moves",
   );
   foot.append(actions, meta);
 
@@ -911,20 +911,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   /**
    * The hotkey toggles the panel unless the focus is in a field, the search
-   * included. Any other printable key, while the panel is out and the focus is
-   * in no field, goes to the search and starts a query; `/` only focuses it.
+   * included. While the panel is out and the focus is in no field, `/` focuses
+   * the search without typing into it. Every other key goes to the page.
    */
   function onKeydown(event: KeyboardEvent): void {
     const action = keyAction(event, hotkey);
     if (action === "close") escape();
     else if (action) onAction(action);
-    if (action || dragging || !engine.getState().panel.open) return;
-    const typed = typedKey(event);
-    if (typed === null) return;
+    if (action || dragging || !engine.getState().panel.open || !isSearchKey(event)) return;
     event.preventDefault();
     event.stopPropagation();
     searchInput.focus();
-    if (typed !== "/") setQuery(typed);
   }
 
   /**
