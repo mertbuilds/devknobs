@@ -4,8 +4,14 @@ export type SchemeValue = "light" | "dark" | "system";
 /** Emulated value for `prefers-reduced-motion`. */
 export type MotionValue = "reduce" | "system";
 
+/** Playback rate for every animation on the page. 1 is normal speed and 0 pauses. */
+export type SpeedValue = number;
+
 /** Emulated value for `prefers-contrast`. */
 export type ContrastValue = "more" | "system";
+
+/** Emulated value for `prefers-reduced-transparency`. */
+export type TransparencyValue = "reduce" | "system";
 
 /** Writing direction. `system` derives the direction from the language tag. */
 export type DirValue = "ltr" | "rtl" | "system";
@@ -54,7 +60,9 @@ export interface PanelValue {
 export interface DevknobsState {
   scheme: SchemeValue;
   motion: MotionValue;
+  speed: SpeedValue;
   contrast: ContrastValue;
+  transparency: TransparencyValue;
   locale: LocaleValue;
   geo: GeoValue;
   text: TextValue;
@@ -63,6 +71,8 @@ export interface DevknobsState {
   frame: boolean;
   dpr: DprValue;
   vision: VisionValue;
+  /** Mark the boxes that stick out of the viewport sideways. */
+  overflow: boolean;
   outlines: boolean;
   panel: PanelValue;
 }

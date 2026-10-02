@@ -5,6 +5,7 @@ import type {
   DirValue,
   MotionValue,
   SchemeValue,
+  TransparencyValue,
   VisionValue,
 } from "../types";
 import { DEFAULT_ACCURACY } from "./geo";
@@ -14,7 +15,9 @@ export const STORAGE_KEY = "devknobs";
 export const DEFAULT_STATE: DevknobsState = {
   scheme: "system",
   motion: "system",
+  speed: 1,
   contrast: "system",
+  transparency: "system",
   locale: { lang: "system", dir: "system" },
   geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
   text: "system",
@@ -22,6 +25,7 @@ export const DEFAULT_STATE: DevknobsState = {
   frame: false,
   dpr: "system",
   vision: "none",
+  overflow: false,
   outlines: false,
   panel: { open: true, y: 16, top: 16 },
 };
@@ -29,6 +33,7 @@ export const DEFAULT_STATE: DevknobsState = {
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
 const MOTIONS: MotionValue[] = ["reduce", "system"];
 const CONTRASTS: ContrastValue[] = ["more", "system"];
+const TRANSPARENCIES: TransparencyValue[] = ["reduce", "system"];
 const DIRS: DirValue[] = ["ltr", "rtl", "system"];
 const VISIONS: VisionValue[] = [
   "none",
@@ -66,6 +71,11 @@ function numberOr<T extends string>(value: unknown, keyword: T, fallback: number
   return fallback;
 }
 
+/** A playback rate. Zero pauses, so only a negative or a non-number falls back. */
+function rate(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 /** Read a stored state, falling back to the defaults field by field. */
 export function parse(json: string | null | undefined): DevknobsState {
   if (!json) return { ...DEFAULT_STATE };
@@ -84,7 +94,9 @@ export function parse(json: string | null | undefined): DevknobsState {
   return {
     scheme: oneOf(state.scheme, SCHEMES, DEFAULT_STATE.scheme),
     motion: oneOf(state.motion, MOTIONS, DEFAULT_STATE.motion),
+    speed: rate(state.speed, DEFAULT_STATE.speed),
     contrast: oneOf(state.contrast, CONTRASTS, DEFAULT_STATE.contrast),
+    transparency: oneOf(state.transparency, TRANSPARENCIES, DEFAULT_STATE.transparency),
     locale: {
       lang: text(locale.lang, DEFAULT_STATE.locale.lang),
       dir: oneOf(locale.dir, DIRS, DEFAULT_STATE.locale.dir),
@@ -101,6 +113,7 @@ export function parse(json: string | null | undefined): DevknobsState {
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
+    overflow: bool(state.overflow, DEFAULT_STATE.overflow),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),

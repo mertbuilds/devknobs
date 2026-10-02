@@ -93,6 +93,7 @@ export const CSS = `
 
 .group + .group { margin-top: 10px; }
 .label { color: var(--faint); }
+.badge.hot { color: #e5484d; }
 /* A second label inside a group, e.g. direction under locale. */
 .row + .label { margin-top: 4px; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; }

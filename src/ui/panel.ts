@@ -1,7 +1,8 @@
 import * as engine from "../engine";
-import { type KeyAction, readMessage } from "../engine/frame";
+import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
+import { onCount, overflowCount } from "../engine/overflow";
 import { frameWindow } from "../engine/width";
 import type {
   ContrastValue,
@@ -9,6 +10,7 @@ import type {
   DirValue,
   MotionValue,
   SchemeValue,
+  TransparencyValue,
   VisionValue,
 } from "../types";
 import { hotkeyOf, keyAction } from "./keys";
@@ -71,11 +73,25 @@ const MOTION: Group = {
   select: (value) => engine.setState({ motion: value as MotionValue }),
 };
 
+const SPEED: Group = {
+  label: "speed",
+  choices: [...choices("1", "0.25", "0.1"), { label: "pause", value: "0" }],
+  current: (state) => String(state.speed),
+  select: (value) => engine.setState({ speed: Number(value) }),
+};
+
 const CONTRAST: Group = {
   label: "contrast",
   choices: choices("system", "more"),
   current: (state) => state.contrast,
   select: (value) => engine.setState({ contrast: value as ContrastValue }),
+};
+
+const TRANSPARENCY: Group = {
+  label: "transparency",
+  choices: choices("system", "reduce"),
+  current: (state) => state.transparency,
+  select: (value) => engine.setState({ transparency: value as TransparencyValue }),
 };
 
 const LOCALE: Group = {
@@ -140,12 +156,27 @@ const VISION: Group = {
   select: (value) => engine.setState({ vision: value as VisionValue }),
 };
 
+const OVERFLOW: Group = {
+  label: "overflow",
+  choices: choices("off", "on"),
+  current: (state) => (state.overflow ? "on" : "off"),
+  select: (value) => engine.setState({ overflow: value === "on" }),
+};
+
 const OUTLINES: Group = {
   label: "outlines",
   choices: choices("off", "on"),
   current: (state) => (state.outlines ? "on" : "off"),
   select: (value) => engine.setState({ outlines: value === "on" }),
 };
+
+/**
+ * What the width label says about the overflow knob, such as ` · 2 overflowing`.
+ * Nothing while the knob is off, or before the count is known.
+ */
+export function overflowBadge(on: boolean, count: number | null): string {
+  return on && count !== null ? ` · ${count} overflowing` : "";
+}
 
 function el(tag: string, className: string, text?: string): HTMLElement {
   const node = document.createElement(tag);
@@ -224,7 +255,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   addGroup(panel, SCHEME, bindings);
   addGroup(panel, MOTION, bindings);
+  addGroup(panel, SPEED, bindings);
   addGroup(panel, CONTRAST, bindings);
+  addGroup(panel, TRANSPARENCY, bindings);
   addGroup(panel, LOCALE, bindings);
   addGroup(panel, DIRECTION, bindings);
 
@@ -238,10 +271,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
   geoBox.append(el("div", "label", "custom"), fields, zoneNote);
 
   addGroup(panel, TEXT, bindings);
-  addGroup(panel, WIDTH, bindings);
+  const widthBox = addGroup(panel, WIDTH, bindings);
+  const badge = el("span", "badge");
+  widthBox.firstElementChild?.append(badge);
   addGroup(panel, FRAME, bindings);
   addGroup(panel, DPR, bindings);
   addGroup(panel, VISION, bindings);
+  addGroup(panel, OVERFLOW, bindings);
   addGroup(panel, OUTLINES, bindings);
 
   const actions = el("div", "group");
@@ -277,6 +313,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (input.value !== value) input.value = value;
   }
 
+  /** What the copy inside the width knob's frame last counted, null until it says. */
+  let frameCount: number | null = null;
+
   function render(): void {
     const state = engine.getState();
     const open = state.panel.open;
@@ -294,6 +333,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     fill(lng, fix ? String(fix.lng) : "");
     fill(zone, fix?.timeZone ?? "");
     zoneNote.textContent = `time zone: ${fix?.timeZone || "system"}`;
+    const framed = needsFrame(state);
+    if (!framed) frameCount = null;
+    const count = framed ? frameCount : overflowCount();
+    badge.textContent = overflowBadge(state.overflow, count);
+    badge.hidden = badge.textContent === "";
+    badge.classList.toggle("hot", count !== null && count > 0);
     shiftPanel(state.panel.y);
   }
 
@@ -474,10 +519,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (action) onAction(action);
   }
 
-  /** The width knob's frame keeps the keys while it has focus, and sends these up. */
+  /**
+   * The width knob's frame keeps the keys while it has focus and sends these
+   * up, along with how many boxes stick out inside it.
+   */
   function onMessage(event: MessageEvent): void {
     const message = readMessage(event, frameWindow(), window.location.origin);
     if (message?.type === "key") onAction(message.action);
+    else if (message?.type === "overflow") {
+      frameCount = message.count;
+      render();
+    }
   }
 
   function onSchemeChange(): void {
@@ -485,6 +537,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   const unsubscribe = engine.subscribe(render);
+  const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", clampY);
@@ -502,6 +555,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   return {
     destroy(): void {
       unsubscribe();
+      stopCount();
       clearTimeout(debounce);
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("message", onMessage);

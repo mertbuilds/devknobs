@@ -1,9 +1,17 @@
-import { describe, expect, test } from "bun:test";
-import { rewriteAll, rewriteMediaText, splitQueryList, SYSTEM_MEDIA } from "../src/engine/media";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  apply,
+  destroy,
+  rewriteAll,
+  rewriteMediaText,
+  splitQueryList,
+  SYSTEM_MEDIA,
+} from "../src/engine/media";
 
 const SCHEME = "prefers-color-scheme";
 const MOTION = "prefers-reduced-motion";
 const CONTRAST = "prefers-contrast";
+const TRANSPARENCY = "prefers-reduced-transparency";
 const TRUE_TOKEN = "(min-width: 0px)";
 
 describe("splitQueryList", () => {
@@ -85,6 +93,14 @@ describe("rewriteMediaText", () => {
     expect(rewriteMediaText(`(${CONTRAST}: no-preference)`, CONTRAST, "more")).toBe("not all");
   });
 
+  test("handles reduced transparency", () => {
+    expect(rewriteMediaText(`(${TRANSPARENCY}: reduce)`, TRANSPARENCY, "reduce")).toBe(TRUE_TOKEN);
+    expect(rewriteMediaText(`(${TRANSPARENCY}: no-preference)`, TRANSPARENCY, "reduce")).toBe(
+      "not all",
+    );
+    expect(rewriteMediaText(`(${TRANSPARENCY})`, TRANSPARENCY, "reduce")).toBe(TRUE_TOKEN);
+  });
+
   test("rewrites every occurrence in one query", () => {
     expect(rewriteMediaText(`(${SCHEME}: dark) and (${SCHEME}: light)`, SCHEME, "dark")).toBe(
       "not all",
@@ -101,14 +117,118 @@ describe("rewriteAll", () => {
 
   test("applies every emulated feature", () => {
     const text = `(${SCHEME}: dark) and (${MOTION}: reduce)`;
-    expect(rewriteAll(text, { scheme: "dark", motion: "reduce", contrast: "system" })).toBe(
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "dark", motion: "reduce" })).toBe(
       `${TRUE_TOKEN} and ${TRUE_TOKEN}`,
     );
-    expect(rewriteAll(text, { scheme: "dark", motion: "system", contrast: "system" })).toBe(
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "dark" })).toBe(
       `${TRUE_TOKEN} and (${MOTION}: reduce)`,
     );
-    expect(rewriteAll(text, { scheme: "light", motion: "reduce", contrast: "system" })).toBe(
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "light", motion: "reduce" })).toBe(
       "not all",
     );
+  });
+});
+
+/** What the browser itself matches: a light system, where `(min-width: 0px)` always holds. */
+function holds(query: string): boolean {
+  return query === "all" || query === "(min-width: 0px)" || query === `(${SCHEME}: light)`;
+}
+
+/** A list with the browser's own `matches` getter on its prototype, for the knobs to patch. */
+class FakeMediaQueryList extends EventTarget {
+  constructor(readonly media: string) {
+    super();
+  }
+
+  get matches(): boolean {
+    return holds(this.media);
+  }
+}
+
+class FakeMediaQueryListEvent extends Event {
+  readonly media: string;
+  readonly matches: boolean;
+
+  constructor(type: string, init: { media: string; matches: boolean }) {
+    super(type);
+    this.media = init.media;
+    this.matches = init.matches;
+  }
+}
+
+/** Where the early script leaves its patches for the full one. */
+const EARLY = Symbol.for("devknobs.early");
+const DARK = `(${SCHEME}: dark)`;
+
+/** Every `matches` a list's change events carried, in order. */
+function hear(list: FakeMediaQueryList): boolean[] {
+  const heard: boolean[] = [];
+  list.addEventListener("change", (event) => {
+    heard.push((event as FakeMediaQueryListEvent).matches);
+  });
+  return heard;
+}
+
+function define(name: string, value: unknown): void {
+  Object.defineProperty(globalThis, name, { configurable: true, value });
+}
+
+describe("the prefers knobs across an unmount", () => {
+  beforeEach(() => {
+    define("window", { matchMedia: (query: string) => new FakeMediaQueryList(query) });
+    const style = new Map<string, string>();
+    define("document", {
+      documentElement: {
+        style: {
+          getPropertyValue: (name: string) => style.get(name) ?? "",
+          setProperty: (name: string, value: string) => style.set(name, value),
+          removeProperty: (name: string) => style.delete(name),
+        },
+      },
+      styleSheets: [],
+      adoptedStyleSheets: [],
+    });
+    define("MediaQueryList", FakeMediaQueryList);
+    define("MediaQueryListEvent", FakeMediaQueryListEvent);
+  });
+
+  afterEach(() => {
+    destroy();
+    for (const name of ["window", "document", "MediaQueryList", "MediaQueryListEvent"]) {
+      Reflect.deleteProperty(globalThis, name);
+    }
+  });
+
+  test("tell a list made before the unmount about a scheme set after the next mount", () => {
+    apply(SYSTEM_MEDIA);
+    const list = window.matchMedia(DARK);
+    const heard = hear(list as unknown as FakeMediaQueryList);
+    destroy();
+    apply(SYSTEM_MEDIA);
+    apply({ ...SYSTEM_MEDIA, scheme: "dark" });
+    expect(list.matches).toBe(true);
+    expect(heard).toEqual([true]);
+  });
+
+  test("tell a list the early script handed over, after an unmount and a mount", () => {
+    const list = new FakeMediaQueryList(DARK);
+    let forward: ((event: Event) => void) | null = null;
+    // The early script's guard, first in line, passes every event on once released.
+    list.addEventListener("change", (event) => forward?.(event));
+    const heard = hear(list);
+    Object.assign(window, {
+      [EARLY]: {
+        release(next: (event: Event) => void) {
+          forward = next;
+          return [{ list, query: DARK, heard: false }];
+        },
+      },
+    });
+    apply(SYSTEM_MEDIA);
+    destroy();
+    apply(SYSTEM_MEDIA);
+    apply({ ...SYSTEM_MEDIA, scheme: "dark" });
+    expect(list.matches).toBe(true);
+    expect(heard).toEqual([true]);
   });
 });

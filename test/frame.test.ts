@@ -106,6 +106,18 @@ describe("readMessage", () => {
     });
   });
 
+  test("reads the overflow count the frame reports", () => {
+    expect(from({ source: "devknobs", type: "overflow", count: 3 })).toEqual({
+      source: "devknobs",
+      type: "overflow",
+      count: 3,
+    });
+    expect(from({ source: "devknobs", type: "overflow", count: -1 })).toBeNull();
+    expect(from({ source: "devknobs", type: "overflow", count: 1.5 })).toBeNull();
+    expect(from({ source: "devknobs", type: "overflow", count: "3" })).toBeNull();
+    expect(from({ source: "devknobs", type: "overflow" })).toBeNull();
+  });
+
   test("refuses another origin or another window", () => {
     const message = { source: "devknobs", type: "ready" };
     expect(from(message, parent, "http://evil.test")).toBeNull();

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_STATE, merge, parse } from "../src/engine/store";
+import type { DevknobsState } from "../src/types";
 
 describe("parse", () => {
   test("falls back to the defaults", () => {
@@ -16,7 +17,9 @@ describe("parse", () => {
       JSON.stringify({
         scheme: "dark",
         motion: "loud",
+        speed: "fast",
         contrast: "more",
+        transparency: "clear",
         locale: { lang: "tr", dir: "sideways" },
         geo: { preset: "tokyo", lat: "x" },
         text: 20,
@@ -24,6 +27,7 @@ describe("parse", () => {
         frame: true,
         dpr: 2,
         vision: "tritanopia",
+        overflow: true,
         outlines: "yes",
         panel: { open: false, y: 40, top: 24 },
         stray: 1,
@@ -32,7 +36,9 @@ describe("parse", () => {
     expect(state).toEqual({
       scheme: "dark",
       motion: "system",
+      speed: 1,
       contrast: "more",
+      transparency: "system",
       locale: { lang: "tr", dir: "system" },
       geo: { preset: "tokyo", lat: 0, lng: 0, accuracy: DEFAULT_STATE.geo.accuracy, timeZone: "" },
       text: 20,
@@ -40,6 +46,7 @@ describe("parse", () => {
       frame: true,
       dpr: 2,
       vision: "tritanopia",
+      overflow: true,
       outlines: false,
       panel: { open: false, y: 40, top: 24 },
     });
@@ -57,6 +64,12 @@ describe("parse", () => {
     });
   });
 
+  test("keeps a speed of zero, which pauses, and drops a negative one", () => {
+    expect(parse(JSON.stringify({ speed: 0 })).speed).toBe(0);
+    expect(parse(JSON.stringify({ speed: 0.25 })).speed).toBe(0.25);
+    expect(parse(JSON.stringify({ speed: -1 })).speed).toBe(1);
+  });
+
   test("rejects sizes that are not positive numbers", () => {
     expect(parse(JSON.stringify({ text: 0, width: -10, dpr: 0 }))).toMatchObject({
       text: "system",
@@ -67,6 +80,16 @@ describe("parse", () => {
       text: "system",
       width: 420,
     });
+  });
+
+  test("reads back every valid value it was given", () => {
+    const state: DevknobsState = {
+      ...DEFAULT_STATE,
+      motion: "reduce",
+      speed: 0.1,
+      transparency: "reduce",
+    };
+    expect(parse(JSON.stringify(state))).toEqual(state);
   });
 });
 

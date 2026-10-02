@@ -17,7 +17,9 @@ export type {
   MotionValue,
   PanelValue,
   SchemeValue,
+  SpeedValue,
   TextValue,
+  TransparencyValue,
   VisionValue,
   WidthValue,
 } from "./types";
