@@ -3,12 +3,17 @@ import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
 import { onCount, overflowCount } from "../engine/overflow";
+import { resolveTimeZone, TIME_ZONE_PRESETS } from "../engine/time";
 import { frameWindow } from "../engine/width";
 import type {
+  ConnectionValue,
   ContrastValue,
   DevknobsState,
   DirValue,
+  GeoErrorValue,
   MotionValue,
+  OnlineValue,
+  SaveDataValue,
   SchemeValue,
   TransparencyValue,
   VisionValue,
@@ -123,9 +128,53 @@ const GEO: Group = {
   choices: [
     { label: "system", value: "system" },
     ...GEO_PRESETS.map((preset) => ({ label: preset.label.toLowerCase(), value: preset.id })),
+    { label: "route", value: "route" },
   ],
   current: (state) => state.geo.preset,
   select: (value) => engine.setState({ geo: { preset: value } }),
+};
+
+const GEO_ERROR: Group = {
+  label: "geo error",
+  choices: choices("none", "denied", "unavailable", "timeout"),
+  current: (state) => state.geo.error,
+  select: (value) => engine.setState({ geo: { error: value as GeoErrorValue } }),
+};
+
+/** `America/New_York` reads as `new york` on a button. */
+function zoneLabel(zone: string): string {
+  return (zone.split("/").pop() ?? zone).replace(/_/g, " ").toLowerCase();
+}
+
+const TIME_ZONE: Group = {
+  label: "time zone",
+  choices: [
+    ...choices("geo", "system"),
+    ...TIME_ZONE_PRESETS.map((zone) => ({ label: zoneLabel(zone), value: zone })),
+  ],
+  current: (state) => state.timeZone,
+  select: (value) => engine.setState({ timeZone: value }),
+};
+
+const ONLINE: Group = {
+  label: "online",
+  choices: choices("system", "offline"),
+  current: (state) => state.network.online,
+  select: (value) => engine.setState({ network: { online: value as OnlineValue } }),
+};
+
+const CONNECTION: Group = {
+  label: "connection",
+  choices: choices("system", "slow-2g", "2g", "3g", "4g"),
+  current: (state) => state.network.type,
+  select: (value) => engine.setState({ network: { type: value as ConnectionValue } }),
+};
+
+const SAVE_DATA: Group = {
+  label: "save data",
+  choices: choices("system", "on", "off"),
+  current: (state) => state.network.saveData,
+  select: (value) => engine.setState({ network: { saveData: value as SaveDataValue } }),
 };
 
 const TEXT: Group = {
@@ -279,11 +328,32 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const geoBox = addGroup(panel, GEO, bindings);
   const lat = numberField("lat");
   const lng = numberField("lng");
-  const zone = field("field-tz", "Europe/Istanbul", "time zone");
   const fields = el("div", "fields");
-  fields.append(lat, lng, zone);
+  fields.append(lat, lng);
+  const route = document.createElement("textarea");
+  route.className = "field field-route";
+  route.placeholder = "lat,lng per line, or gpx";
+  route.spellcheck = false;
+  route.setAttribute("aria-label", "route");
+  const speed = numberField("km/h");
+  const routeFields = el("div", "fields");
+  routeFields.append(route, speed);
+  geoBox.append(el("div", "label", "custom"), fields, el("div", "label", "route"), routeFields);
+  addGroup(panel, GEO_ERROR, bindings);
+
+  const zoneBox = addGroup(panel, TIME_ZONE, bindings);
+  const zone = field("field-tz", "Europe/Istanbul", "time zone");
+  const zoneFields = el("div", "fields");
+  zoneFields.append(zone);
   const zoneNote = el("div", "note");
-  geoBox.append(el("div", "label", "custom"), fields, zoneNote);
+  zoneBox.append(el("div", "label", "custom"), zoneFields, zoneNote);
+
+  addGroup(panel, ONLINE, bindings);
+  // Only Chromium has navigator.connection, so elsewhere these would do nothing.
+  if ("connection" in navigator) {
+    addGroup(panel, CONNECTION, bindings);
+    addGroup(panel, SAVE_DATA, bindings);
+  }
 
   addGroup(panel, TEXT, bindings);
   addGroup(panel, SPACING, bindings);
@@ -324,7 +394,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   /** Leave an input alone while it has the caret, so typing is never cut off. */
-  function fill(input: HTMLInputElement, value: string): void {
+  function fill(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
     if (root.activeElement === input) return;
     if (input.value !== value) input.value = value;
   }
@@ -347,8 +417,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const fix = resolveGeo(state.geo);
     fill(lat, fix ? String(fix.lat) : "");
     fill(lng, fix ? String(fix.lng) : "");
-    fill(zone, fix?.timeZone ?? "");
-    zoneNote.textContent = `time zone: ${fix?.timeZone || "system"}`;
+    fill(route, state.geo.route);
+    fill(speed, String(state.geo.speed));
+    const keyword = state.timeZone === "geo" || state.timeZone === "system";
+    fill(zone, keyword ? "" : state.timeZone);
+    zoneNote.textContent = `time zone: ${resolveTimeZone(state.timeZone, state.geo) ?? "system"}`;
     const framed = needsFrame(state);
     if (!framed) frameCount = null;
     const count = framed ? frameCount : overflowCount();
@@ -422,26 +495,43 @@ export function createPanel(options: PanelOptions = {}): Panel {
     clampY();
   }
 
-  let debounce = 0;
+  /** Typing commits once it pauses, each field on a timer of its own. */
+  const pending = new Map<() => void, number>();
+
+  function queue(commit: () => void): void {
+    clearTimeout(pending.get(commit));
+    pending.set(
+      commit,
+      window.setTimeout(() => {
+        pending.delete(commit);
+        commit();
+      }, CUSTOM_DEBOUNCE),
+    );
+  }
 
   function commitCustom(): void {
-    debounce = 0;
     engine.setState({
-      geo: {
-        preset: "custom",
-        lat: toNumber(lat.value),
-        lng: toNumber(lng.value),
-        timeZone: zone.value.trim(),
-      },
+      geo: { preset: "custom", lat: toNumber(lat.value), lng: toNumber(lng.value) },
     });
   }
 
-  function queueCustom(): void {
-    clearTimeout(debounce);
-    debounce = window.setTimeout(commitCustom, CUSTOM_DEBOUNCE);
+  function commitRoute(): void {
+    engine.setState({ geo: { preset: "route", route: route.value } });
   }
 
-  for (const input of [lat, lng, zone]) input.addEventListener("input", queueCustom);
+  function commitSpeed(): void {
+    engine.setState({ geo: { speed: toNumber(speed.value) } });
+  }
+
+  /** An emptied field goes back to following geo. */
+  function commitZone(): void {
+    engine.setState({ timeZone: zone.value.trim() || "geo" });
+  }
+
+  for (const input of [lat, lng]) input.addEventListener("input", () => queue(commitCustom));
+  route.addEventListener("input", () => queue(commitRoute));
+  speed.addEventListener("input", () => queue(commitSpeed));
+  zone.addEventListener("input", () => queue(commitZone));
   replayButton.addEventListener("click", () => engine.replay());
   resetButton.addEventListener("click", () => engine.reset());
 
@@ -572,7 +662,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     destroy(): void {
       unsubscribe();
       stopCount();
-      clearTimeout(debounce);
+      for (const timer of pending.values()) clearTimeout(timer);
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("message", onMessage);
       window.removeEventListener("resize", clampY);

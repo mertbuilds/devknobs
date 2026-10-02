@@ -136,6 +136,7 @@ export const CSS = `
 .field::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .field-num { width: 70px; }
 .field-tz { width: 100%; }
+.field-route { width: 100%; height: 44px; resize: vertical; }
 
 .note { margin-top: 2px; color: var(--faint); font-size: 10px; line-height: 1.4; }
 .foot { margin-top: 12px; color: var(--faint); font-size: 10px; line-height: 1.4; }

@@ -1,14 +1,18 @@
 import type {
+  ConnectionValue,
   ContrastValue,
   DevknobsState,
   DevknobsStatePatch,
   DirValue,
+  GeoErrorValue,
   MotionValue,
+  OnlineValue,
+  SaveDataValue,
   SchemeValue,
   TransparencyValue,
   VisionValue,
 } from "../types";
-import { DEFAULT_ACCURACY } from "./geo";
+import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
 
 export const STORAGE_KEY = "devknobs";
 
@@ -20,7 +24,18 @@ export const DEFAULT_STATE: DevknobsState = {
   transparency: "system",
   locale: { lang: "system", dir: "system" },
   pseudo: false,
-  geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
+  geo: {
+    preset: "system",
+    lat: 0,
+    lng: 0,
+    accuracy: DEFAULT_ACCURACY,
+    timeZone: "",
+    error: "none",
+    route: "",
+    speed: DEFAULT_SPEED,
+  },
+  timeZone: "geo",
+  network: { online: "system", type: "system", saveData: "system" },
   text: "system",
   spacing: false,
   width: "full",
@@ -37,6 +52,10 @@ const MOTIONS: MotionValue[] = ["reduce", "system"];
 const CONTRASTS: ContrastValue[] = ["more", "system"];
 const TRANSPARENCIES: TransparencyValue[] = ["reduce", "system"];
 const DIRS: DirValue[] = ["ltr", "rtl", "system"];
+const GEO_ERRORS: GeoErrorValue[] = ["none", "denied", "unavailable", "timeout"];
+const ONLINES: OnlineValue[] = ["offline", "system"];
+const CONNECTIONS: ConnectionValue[] = ["slow-2g", "2g", "3g", "4g", "system"];
+const SAVE_DATAS: SaveDataValue[] = ["on", "off", "system"];
 const VISIONS: VisionValue[] = [
   "none",
   "protanopia",
@@ -91,6 +110,7 @@ export function parse(json: string | null | undefined): DevknobsState {
   const state = raw as Record<string, unknown>;
   const locale = record(state.locale);
   const geo = record(state.geo);
+  const network = record(state.network);
   const panel = record(state.panel);
   const panelY = num(panel.y, DEFAULT_STATE.panel.y);
   return {
@@ -110,6 +130,16 @@ export function parse(json: string | null | undefined): DevknobsState {
       lng: num(geo.lng, DEFAULT_STATE.geo.lng),
       accuracy: num(geo.accuracy, DEFAULT_STATE.geo.accuracy),
       timeZone: text(geo.timeZone, DEFAULT_STATE.geo.timeZone),
+      error: oneOf(geo.error, GEO_ERRORS, DEFAULT_STATE.geo.error),
+      route: text(geo.route, DEFAULT_STATE.geo.route),
+      speed: num(geo.speed, DEFAULT_STATE.geo.speed),
+    },
+    // A session stored before the knob had a field of its own follows geo, as it did then.
+    timeZone: text(state.timeZone, "") || DEFAULT_STATE.timeZone,
+    network: {
+      online: oneOf(network.online, ONLINES, DEFAULT_STATE.network.online),
+      type: oneOf(network.type, CONNECTIONS, DEFAULT_STATE.network.type),
+      saveData: oneOf(network.saveData, SAVE_DATAS, DEFAULT_STATE.network.saveData),
     },
     text: numberOr(state.text, "system", DEFAULT_STATE.text),
     spacing: bool(state.spacing, DEFAULT_STATE.spacing),
@@ -135,6 +165,7 @@ export function merge(state: DevknobsState, patch: DevknobsStatePatch): Devknobs
     ...patch,
     locale: { ...state.locale, ...patch.locale },
     geo: { ...state.geo, ...patch.geo },
+    network: { ...state.network, ...patch.network },
     panel: { ...state.panel, ...patch.panel },
   };
 }

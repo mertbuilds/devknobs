@@ -62,6 +62,9 @@ api: `mount(options?)`, `unmount()`, `getState()`, `setState(patch)`,
 ```js
 setState({ scheme: "dark" });
 setState({ geo: { preset: "tokyo" } });
+setState({ geo: { error: "denied" } });
+setState({ timeZone: "Asia/Kathmandu" });
+setState({ network: { online: "offline" } });
 setState({ locale: { lang: "ar" } });
 ```
 
@@ -112,8 +115,11 @@ the full script does.
 | reduced transparency | reduce, system | rewrites `prefers-reduced-transparency` media rules and patches `matchMedia` the same way. a browser that does not know the feature drops those rules while it parses them, so there only `matchMedia` follows the knob |
 | locale | any bcp 47 tag, plus a direction | sets `lang` and `dir` on `<html>` and puts them back if the page writes them over, patches `navigator.language` / `navigator.languages`, and makes the tag the default locale of every `Intl` service, the `toLocaleString` family and `localeCompare` (a call that names its own locale keeps it). direction comes from `Intl.Locale` text info, with ar, he, fa and ur as the fallback. also writes the tag into the stores i18n libraries read and reloads when it changes: the paraglide cookie always, paraglide and i18next local storage, the i18next session key and cookie when the page has them, and `NEXT_LOCALE` on next.js pages. back to system, each store gets its old value, unless the page changed it since |
 | pseudo | on, off | rewrites the page's text and its `placeholder`, `title`, `aria-label` and `alt` attributes to accented, padded, bracketed strings (`[Ŝéţţîñĝš ···]`), once the page is loaded and idle so hydration never sees it. new and changed text follows. skips scripts, styles, textareas, contenteditable and options without a value, whose text is what their form sends. text the page reads back and writes again stays one layer deep. off puts the originals back, in nodes the page detached since too |
-| geolocation | a city preset, custom coordinates, system | patches `navigator.geolocation.getCurrentPosition` and `watchPosition` with a fixed position |
-| time zone | comes with the geo preset | patches `Intl.DateTimeFormat` so calls without an explicit `timeZone` use the emulated one, and patches `Date.prototype.getTimezoneOffset` |
+| geolocation | a city preset, custom coordinates, a route, system | patches `navigator.geolocation`. answers come a task later, `maximumAge` can hand back the last position and `timeout: 0` without one fails like a real device. active watches hear every knob move, and `clearWatch` stops them. a route takes `lat,lng` per line or a pasted gpx file and plays it on a loop at a set speed, with `heading` and `speed` in the coordinates and a new position for watches every second |
+| geo error | none, denied, unavailable, timeout | calls the error callback with an error that reads like `GeolocationPositionError` (`code`, `message`, the code constants). timeout waits for `options.timeout`, and never fires without one, like a fix that never comes. works with geo on system too. `navigator.permissions.query({ name: "geolocation" })` reports granted, or denied for denied, and fires `change` when the knob moves |
+| time zone | follow geo, system, an iana zone | follows the geo preset's zone unless set. replaces the page's `Date`: local getters and setters, `getTimezoneOffset`, `new Date(y, m, d, ...)`, `Date.parse` and `new Date(string)` for strings with no zone of their own, `toString`, `toDateString`, `toTimeString` and `toLocale*String` all use the emulated zone, with gaps and overlaps resolved the way browsers do. utc methods, `toISOString` and `toJSON` are untouched, and `instanceof Date` holds for dates made before. also patches `Intl.DateTimeFormat` (so `resolvedOptions().timeZone` reports the zone) and `Temporal.Now` where the browser has it. with the locale knob set too, a formatter or `toLocale*String` call that names neither gets both the knob's locale and its zone |
+| online | offline, system | mimicry only: `navigator.onLine` reads false and `online` / `offline` fire on `window`. requests still succeed |
+| connection, save data | slow-2g, 2g, 3g, 4g / on, off, system | mimicry only, and chromium only: `navigator.connection` reports the effective type with a matching `rtt` and `downlink`, and `saveData`, and fires `change`. nothing is throttled |
 | text size | px, system | emulates the browser's default font size setting. a root `font-size` in %, em, rem or a keyword, or none at all, is taken against the knob's size (62.5% at 20 gives 12.5px), and a px root size is left alone, as the real setting does. em and rem in media queries and `matchMedia` move with it |
 | text spacing | on, off | applies the wcag 1.4.12 text spacing values: line height 1.5, letter spacing 0.12em, word spacing 0.16em, 2em after paragraphs |
 | viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. a width wider than the window is scaled down to fit, and the readout says by how much. back to full, the window goes wherever the frame navigated |
@@ -172,9 +178,14 @@ because the getter is patched on the prototype, but it gets no change event:
 there is no way to find it. reload once the knob is set, so the page makes its
 lists after the mount, or load the early script first.
 
-`Date.prototype.toString` and `toLocaleString` are out of scope: they read the
-real system zone, so they keep showing local time even while `Intl` and
-`getTimezoneOffset` report the emulated one.
+the time zone knob lives in the page, so workers, service workers and server
+rendering keep the host zone, and a server rendered date can mismatch on
+hydration. code that kept a reference to `Date` from before devknobs loaded
+builds dates from local fields in the host zone (reading them is still
+emulated), and an `Intl.DateTimeFormat` made before then keeps the host zone.
+`Date.parse` reads a string as local time unless it has a `Z`, an offset or a
+zone name such as `GMT` or `EST`. an old date in a zone that has since dropped
+daylight time can show a different zone name in `toString`.
 
 the speed knob reaches what the Web Animations API can see. an animation
 that javascript drives frame by frame (a `requestAnimationFrame` loop, a
@@ -197,7 +208,8 @@ them:
 - `forced-colors` and high contrast mode (rendering panel)
 - print media (rendering panel, or print preview)
 - pointer and hover type, touch emulation (device toolbar)
-- network throttling and offline (network panel)
+- network throttling and a real offline (network panel)
+- the time zone of workers and of the page before devknobs loads (sensors panel, or a `TZ` environment variable when the browser starts)
 
 ## license
 

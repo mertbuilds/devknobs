@@ -22,13 +22,47 @@ export interface LocaleValue {
   dir: DirValue;
 }
 
+/** A failure to report instead of a position. `none` reports the position. */
+export type GeoErrorValue = "none" | "denied" | "unavailable" | "timeout";
+
 export interface GeoValue {
-  /** A preset id, `custom` to use the explicit fields, or `system` to stop emulating. */
+  /**
+   * A preset id, `custom` to use the explicit fields, `route` to travel the
+   * route, or `system` to stop emulating.
+   */
   preset: string;
   lat: number;
   lng: number;
   accuracy: number;
+  /** The zone of a `custom` position, followed by a time zone knob set to `geo`. */
   timeZone: string;
+  /** Works without a position too, so a page can be tested for refusals alone. */
+  error: GeoErrorValue;
+  /** The path of the `route` preset: `lat,lng` per line, or a pasted GPX file. */
+  route: string;
+  /** How fast the `route` preset travels its path, in km/h. */
+  speed: number;
+}
+
+/**
+ * An IANA zone such as `Asia/Kathmandu`, `geo` to follow the geolocation
+ * preset, or `system` to stop emulating.
+ */
+export type TimeZoneValue = string;
+
+/** Emulated `navigator.onLine`. Requests still go out: only the flag and its events change. */
+export type OnlineValue = "offline" | "system";
+
+/** Emulated `navigator.connection.effectiveType`, where the browser has a connection. */
+export type ConnectionValue = "slow-2g" | "2g" | "3g" | "4g" | "system";
+
+/** Emulated `navigator.connection.saveData`. */
+export type SaveDataValue = "on" | "off" | "system";
+
+export interface NetworkValue {
+  online: OnlineValue;
+  type: ConnectionValue;
+  saveData: SaveDataValue;
 }
 
 /** Root font size in px, or `system` to stop emulating. */
@@ -67,6 +101,8 @@ export interface DevknobsState {
   /** Pseudo-localize the page's text. */
   pseudo: boolean;
   geo: GeoValue;
+  timeZone: TimeZoneValue;
+  network: NetworkValue;
   text: TextValue;
   /** WCAG 1.4.12 text spacing. */
   spacing: boolean;

@@ -11,6 +11,7 @@ import {
 import * as geo from "./geo";
 import * as locale from "./locale";
 import * as media from "./media";
+import * as network from "./network";
 import * as outlines from "./outlines";
 import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
@@ -19,6 +20,7 @@ import * as spacing from "./spacing";
 import * as speed from "./speed";
 import { clear, DEFAULT_STATE, load, merge, save } from "./store";
 import * as text from "./text";
+import * as time from "./time";
 import * as width from "./width";
 
 export interface EngineOptions {
@@ -64,6 +66,8 @@ export function applyState(next: DevknobsState): void {
   locale.apply(state.locale);
   pseudo.apply(state.pseudo);
   geo.apply(state.geo);
+  time.apply(time.resolveTimeZone(state.timeZone, state.geo));
+  network.apply(state.network);
   text.apply(state.text);
   spacing.apply(state.spacing);
   width.apply(state);
@@ -130,6 +134,8 @@ export function stop(): void {
   locale.reset();
   pseudo.reset();
   geo.reset();
+  time.reset();
+  network.reset();
   text.reset();
   spacing.reset();
   width.reset();
