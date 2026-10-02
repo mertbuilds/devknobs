@@ -7,6 +7,8 @@ import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
 export type {
+  ClockMode,
+  ClockValue,
   ConnectionValue,
   ContrastValue,
   DevknobsState,

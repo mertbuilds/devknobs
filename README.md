@@ -64,6 +64,8 @@ setState({ scheme: "dark" });
 setState({ geo: { preset: "tokyo" } });
 setState({ geo: { error: "denied" } });
 setState({ timeZone: "Asia/Kathmandu" });
+setState({ clock: { mode: "frozen", at: Date.parse("2026-12-24T18:00") } });
+setState({ clock: { mode: "offset", speed: 60 } });
 setState({ network: { online: "offline" } });
 setState({ locale: { lang: "ar" } });
 ```
@@ -85,10 +87,10 @@ dragging to move the panel and the handle together.
 
 ## early script
 
-optional. a page that reads a media query while it boots, before devknobs
-mounts (a theme script, a module that checks `prefers-reduced-motion` once),
-only sees the knob if the patch is already in place. put the early script
-first in `<head>`:
+optional. a page that reads a media query or the time while it boots, before
+devknobs mounts (a theme script, a module that checks `prefers-reduced-motion`
+once, a store that stamps `Date.now()`), only sees the knob if the patch is
+already in place. put the early script first in `<head>`:
 
 ```html
 <script src="//unpkg.com/devknobs/dist/early.global.js"></script>
@@ -97,9 +99,11 @@ first in `<head>`:
 it is also `devknobs/early` in the package. it applies the stored scheme,
 motion, contrast and transparency on the spot, with no panel: the `matchMedia` and
 `matches` patches, `color-scheme` on `<html>`, and the stylesheet rewrite as
-sheets arrive. the full script, however it is loaded, takes those patches
+sheets arrive. it sets the stored clock the same way, through `Date` and
+`Temporal.Now`. the full script, however it is loaded, takes those patches
 over when it mounts instead of patching on top, and lists made in between
-still get their change events. it covers the media knobs only, and since it
+still get their change events. a `Date` the page kept in between follows the
+clock still. it covers the media knobs and the clock only, and since it
 reads the stored state, it follows the knobs from the next load on. inside a
 frame that gets the scheme natively, it leaves the scheme to the browser, as
 the full script does.
@@ -118,6 +122,7 @@ the full script does.
 | geolocation | a city preset, custom coordinates, a route, system | patches `navigator.geolocation`. answers come a task later, `maximumAge` can hand back the last position and `timeout: 0` without one fails like a real device. active watches hear every knob move, and `clearWatch` stops them. a route takes `lat,lng` per line or a pasted gpx file and plays it on a loop at a set speed, with `heading` and `speed` in the coordinates and a new position for watches every second |
 | geo error | none, denied, unavailable, timeout | calls the error callback with an error that reads like `GeolocationPositionError` (`code`, `message`, the code constants). timeout waits for `options.timeout`, and never fires without one, like a fix that never comes. works with geo on system too. `navigator.permissions.query({ name: "geolocation" })` reports granted, or denied for denied, and fires `change` when the knob moves |
 | time zone | follow geo, system, an iana zone | follows the geo preset's zone unless set. replaces the page's `Date`: local getters and setters, `getTimezoneOffset`, `new Date(y, m, d, ...)`, `Date.parse` and `new Date(string)` for strings with no zone of their own, `toString`, `toDateString`, `toTimeString` and `toLocale*String` all use the emulated zone, with gaps and overlaps resolved the way browsers do. utc methods, `toISOString` and `toJSON` are untouched, and `instanceof Date` holds for dates made before. also patches `Intl.DateTimeFormat` (so `resolvedOptions().timeZone` reports the zone) and `Temporal.Now` where the browser has it. with the locale knob set too, a formatter or `toLocale*String` call that names neither gets both the knob's locale and its zone |
+| clock | system, +1h to +30d, a date and time, offset or frozen, speed 1, 60, 3600 | `Date.now()`, `new Date()` and `Date()` read the clock, and so do `Temporal.Now.instant()` and the zoned and plain readers. offset runs on from the set instant at its speed, frozen stays there. a date built from an argument (`new Date(ms)`, `new Date(y, m, d)`, a string) names its own instant and is left alone. one `Date` proxy serves this knob and the time zone knob, and either can go first or come off first. the presets count from the real now. the clock is stored as the instant it was set to and the real time it was set at, so a reload carries on where it was and the frame reads the same time. `setState({ clock: { at } })` takes epoch ms and stamps that real time itself. durations keep real time, see limits |
 | online | offline, system | mimicry only: `navigator.onLine` reads false and `online` / `offline` fire on `window`. requests still succeed |
 | connection, save data | slow-2g, 2g, 3g, 4g / on, off, system | mimicry only, and chromium only: `navigator.connection` reports the effective type with a matching `rtt` and `downlink`, and `saveData`, and fires `change`. nothing is throttled |
 | text size | px, system | emulates the browser's default font size setting. a root `font-size` in %, em, rem or a keyword, or none at all, is taken against the knob's size (62.5% at 20 gives 12.5px), and a px root size is left alone, as the real setting does. em and rem in media queries and `matchMedia` move with it |
@@ -167,6 +172,64 @@ underneath is `inert` and `content-visibility: hidden` until the frame goes,
 and its scroll position comes back after. meanwhile its modal dialogs open as
 plain ones and its popovers stay hidden, as both would paint over the frame.
 
+## the clock and your server
+
+optional, and dev only. the clock lives in the page, so a server that decides
+whether a trial ran out or a feature is unlocked keeps its own time. turn on
+"send to server" (`setState({ clock: { header: true } })`) and every `fetch`
+and `XMLHttpRequest` to the page's own origin carries the clock's instant:
+
+```
+x-devknobs-now: 2026-10-04T09:30:00.000Z
+```
+
+a request to any other origin never gets it: a custom header there sets off a
+CORS preflight, and would hand your clock to someone else's server. nothing
+goes out while the clock is on system.
+
+the server reads it with a few lines of its own, behind a dev check. generic
+`Request` (hono, remix, sveltekit, `Bun.serve`):
+
+```ts
+const now = (request: Request) => {
+  const header =
+    process.env.NODE_ENV === "development" ? request.headers.get("x-devknobs-now") : null;
+  return header ? new Date(header) : new Date();
+};
+```
+
+tanstack start server function:
+
+```ts
+import { createServerFn } from "@tanstack/react-start";
+import { getRequestHeader } from "@tanstack/react-start/server";
+
+export const getTrial = createServerFn().handler(async () => {
+  const header = import.meta.env.DEV ? getRequestHeader("x-devknobs-now") : undefined;
+  const now = header ? new Date(header) : new Date();
+  // ...
+});
+```
+
+next.js route handler:
+
+```ts
+// app/api/trial/route.ts
+export async function GET(request: Request) {
+  const header =
+    process.env.NODE_ENV === "development" ? request.headers.get("x-devknobs-now") : null;
+  const now = header ? new Date(header) : new Date();
+  // ...
+}
+```
+
+the first load of a page is a navigation, not a fetch, so it never carries the
+header, and server rendering on that load keeps real time.
+
+never honor the header in production. any client can send any header, so a
+server that trusts it lets anyone pick the day their trial ends. gate it on a
+flag that is false in production builds, as above.
+
 ## limits
 
 only same-origin stylesheets can be rewritten. a cross-origin `<link>` keeps
@@ -186,6 +249,24 @@ emulated), and an `Intl.DateTimeFormat` made before then keeps the host zone.
 `Date.parse` reads a string as local time unless it has a `Z`, an offset or a
 zone name such as `GMT` or `EST`. an old date in a zone that has since dropped
 daylight time can show a different zone name in `toString`.
+
+the clock moves the time a page reads, not the time that passes.
+`performance.now()`, `setTimeout`, `setInterval`, `requestAnimationFrame` and
+event `timeStamp`s keep real time: they measure durations, which a date jump
+does not change, and a stopped or racing timer would hang or flood the page. a
+countdown that ticks every second still ticks every second, and what each
+tick reads off `Date.now()` follows the clock, so at speed 60 each tick moves
+a minute. an offset clock is anchored to real time, so it keeps running while
+the tab is closed or reloading: an hour away at speed 60 is 60 hours on the
+clock. a frozen clock waits. like the time zone, the clock lives in the page:
+workers, service workers and the server keep real time (see the header above
+for the server), and a server rendered timestamp can mismatch on hydration.
+code that kept `Date`, `Date.now` or a `Temporal.Now` reader from before
+devknobs loaded reads the real time, so load the early script first.
+`Intl.DateTimeFormat` `format()` with no date, `document.lastModified` and a
+file's `lastModified` read the real time too. only `fetch` and
+`XMLHttpRequest` carry the header: forms, links, `sendBeacon`, `EventSource`
+and websockets do not.
 
 the speed knob reaches what the Web Animations API can see. an animation
 that javascript drives frame by frame (a `requestAnimationFrame` loop, a

@@ -136,6 +136,8 @@ export const CSS = `
 .field::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .field-num { width: 70px; }
 .field-tz { width: 100%; }
+.field-clock { width: 100%; color-scheme: light; }
+.wrap[data-scheme="dark"] .field-clock { color-scheme: dark; }
 .field-route { width: 100%; height: 44px; resize: vertical; }
 
 .note { margin-top: 2px; color: var(--faint); font-size: 10px; line-height: 1.4; }

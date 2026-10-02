@@ -1,4 +1,15 @@
-import type { GeoValue, TimeZoneValue } from "../types";
+import type { ClockValue, GeoValue, TimeZoneValue } from "../types";
+import {
+  clockOn,
+  NativeDate,
+  NOW_READERS,
+  readNow,
+  setClock,
+  takeOver,
+  temporalNow,
+  wrapDate,
+  type ZoneHooks,
+} from "./clock";
 import { resolveGeo } from "./geo";
 import { underLocale } from "./intl";
 
@@ -18,14 +29,13 @@ export const TIME_ZONE_PRESETS = [
 type Method = (this: Date, ...args: unknown[]) => unknown;
 type NowMethod = (this: unknown, timeZone?: unknown) => unknown;
 
-const NativeDate = Date;
 const NativeDateTimeFormat = Intl.DateTimeFormat;
-const dateMethods = Date.prototype as unknown as Record<string, Method>;
-const nativeGetTime = Date.prototype.getTime;
-const nativeSetTime = Date.prototype.setTime;
-const nativeHostOffset = Date.prototype.getTimezoneOffset;
-const nativeParse = Date.parse;
-const nativeUTC = Date.UTC;
+const dateMethods = NativeDate.prototype as unknown as Record<string, Method>;
+const nativeGetTime = NativeDate.prototype.getTime;
+const nativeSetTime = NativeDate.prototype.setTime;
+const nativeHostOffset = NativeDate.prototype.getTimezoneOffset;
+const nativeParse = NativeDate.parse;
+const nativeUTC = NativeDate.UTC;
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -298,6 +308,13 @@ function localArgs(args: unknown[], zone: string): unknown[] {
   return [fromWall(Reflect.apply(nativeUTC, NativeDate, args), zone)];
 }
 
+/** What the zone adds to the `Date` proxy the clock shares. */
+const ZONE: ZoneHooks = {
+  on: () => zone !== null,
+  args: (args) => (zone ? localArgs(args, zone) : args),
+  parse,
+};
+
 function withTimeZone(
   options: Intl.DateTimeFormatOptions | undefined,
 ): Intl.DateTimeFormatOptions | undefined {
@@ -330,8 +347,9 @@ function install<T>(target: object, key: string, make: (original: T) => T): void
 }
 
 /**
- * Every patch reads the zone on each call and passes straight through without
- * one, so a patch that someone else has since wrapped can stay in place.
+ * The patches go in while either the zone or the clock is set. Every one reads
+ * both on each call and passes straight through without them, so a patch that
+ * someone else has since wrapped can stay in place.
  */
 function patchTime(): void {
   if (timePatched) return;
@@ -416,25 +434,8 @@ function patchTime(): void {
     );
   }
   // The constructor is wrapped only for what the prototype cannot reach: dates
-  // built from local fields or parsed from strings. The prototype is the same
-  // object, so `instanceof Date` holds for dates from before the patch too.
-  install<DateConstructor>(
-    globalThis,
-    "Date",
-    (original) =>
-      new Proxy(original, {
-        construct(target, args: unknown[], newTarget) {
-          return Reflect.construct(target, zone ? localArgs(args, zone) : args, newTarget);
-        },
-        apply(target, thisArg, args: unknown[]) {
-          if (!zone) return Reflect.apply(target, thisArg, args);
-          return String(new NativeDate());
-        },
-        get(target, key, receiver) {
-          return key === "parse" ? parse : Reflect.get(target, key, receiver);
-        },
-      }),
-  );
+  // built from local fields or parsed from strings, and the clock.
+  install<DateConstructor>(globalThis, "Date", (original) => wrapDate(original, ZONE));
   install<DateConstructor>(dateMethods, "constructor", () => globalThis.Date);
   install<typeof Intl.DateTimeFormat>(
     Intl,
@@ -454,8 +455,9 @@ function patchTime(): void {
         },
       }),
   );
-  // Temporal reads the system zone only through Now, and only without a zone argument.
-  const now = (globalThis as { Temporal?: { Now?: object } }).Temporal?.Now;
+  // Temporal reads the system zone and the time only through Now, the zone
+  // only without a zone argument.
+  const now = temporalNow();
   if (!now) return;
   install<NowMethod>(
     now,
@@ -465,14 +467,9 @@ function patchTime(): void {
         return zone ?? original.call(this);
       },
   );
-  for (const key of ["zonedDateTimeISO", "plainDateTimeISO", "plainDateISO", "plainTimeISO"]) {
-    install<NowMethod>(
-      now,
-      key,
-      (original) =>
-        function (this: unknown, timeZone?: unknown) {
-          return original.call(this, timeZone === undefined && zone ? zone : timeZone);
-        },
+  for (const key of NOW_READERS) {
+    install<NowMethod>(now, key, (original) =>
+      readNow(key, original, (timeZone) => (timeZone === undefined && zone ? zone : timeZone)),
     );
   }
 }
@@ -488,12 +485,18 @@ function restoreTime(): void {
   timePatched = false;
 }
 
-/** Emulate an IANA zone, or hand the host zone back for null. */
-export function apply(value: string | null): void {
+/**
+ * Emulate an IANA zone, or hand the host zone back for null, and set the
+ * clock, the real one when left out. The two share one set of patches, which
+ * go once both are off, in whichever order they went off.
+ */
+export function apply(value: string | null, clock?: ClockValue): void {
+  takeOver();
   const next = value ? canonicalZone(value) : null;
   if (next !== zone) offsetCache.clear();
   zone = next;
-  if (!zone) {
+  setClock(clock ?? null);
+  if (!zone && !clockOn()) {
     restoreTime();
     return;
   }
@@ -502,6 +505,7 @@ export function apply(value: string | null): void {
 
 export function reset(): void {
   zone = null;
+  setClock(null);
   offsetCache.clear();
   restoreTime();
 }
