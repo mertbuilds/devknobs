@@ -21,6 +21,9 @@ describe("parse", () => {
         geo: { preset: "tokyo", lat: "x" },
         text: 20,
         width: "full",
+        frame: true,
+        dpr: 2,
+        vision: "tritanopia",
         outlines: "yes",
         panel: { open: false, y: 40, top: 24 },
         stray: 1,
@@ -34,9 +37,16 @@ describe("parse", () => {
       geo: { preset: "tokyo", lat: 0, lng: 0, accuracy: DEFAULT_STATE.geo.accuracy, timeZone: "" },
       text: 20,
       width: "full",
+      frame: true,
+      dpr: 2,
+      vision: "tritanopia",
       outlines: false,
       panel: { open: false, y: 40, top: 24 },
     });
+  });
+
+  test("drops a vision deficiency it does not know", () => {
+    expect(parse(JSON.stringify({ vision: "colorblind" })).vision).toBe("none");
   });
 
   test("puts the panel where the handle is when the session predates its top", () => {
@@ -48,9 +58,10 @@ describe("parse", () => {
   });
 
   test("rejects sizes that are not positive numbers", () => {
-    expect(parse(JSON.stringify({ text: 0, width: -10 }))).toMatchObject({
+    expect(parse(JSON.stringify({ text: 0, width: -10, dpr: 0 }))).toMatchObject({
       text: "system",
       width: "full",
+      dpr: "system",
     });
     expect(parse(JSON.stringify({ text: "16px", width: 420 }))).toMatchObject({
       text: "system",

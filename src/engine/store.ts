@@ -5,6 +5,7 @@ import type {
   DirValue,
   MotionValue,
   SchemeValue,
+  VisionValue,
 } from "../types";
 import { DEFAULT_ACCURACY } from "./geo";
 
@@ -18,6 +19,9 @@ export const DEFAULT_STATE: DevknobsState = {
   geo: { preset: "system", lat: 0, lng: 0, accuracy: DEFAULT_ACCURACY, timeZone: "" },
   text: "system",
   width: "full",
+  frame: false,
+  dpr: "system",
+  vision: "none",
   outlines: false,
   panel: { open: true, y: 16, top: 16 },
 };
@@ -26,6 +30,14 @@ const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
 const MOTIONS: MotionValue[] = ["reduce", "system"];
 const CONTRASTS: ContrastValue[] = ["more", "system"];
 const DIRS: DirValue[] = ["ltr", "rtl", "system"];
+const VISIONS: VisionValue[] = [
+  "none",
+  "protanopia",
+  "deuteranopia",
+  "tritanopia",
+  "achromatopsia",
+  "blur",
+];
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -86,6 +98,9 @@ export function parse(json: string | null | undefined): DevknobsState {
     },
     text: numberOr(state.text, "system", DEFAULT_STATE.text),
     width: numberOr(state.width, "full", DEFAULT_STATE.width),
+    frame: bool(state.frame, DEFAULT_STATE.frame),
+    dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
+    vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),

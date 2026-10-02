@@ -1,5 +1,5 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
-import { framed, isDevknobsFrame, post, readMessage } from "./frame";
+import { framed, isDevknobsFrame, nativeScheme, post, readMessage, UNFRAMED } from "./frame";
 import * as geo from "./geo";
 import * as locale from "./locale";
 import * as media from "./media";
@@ -39,11 +39,13 @@ export function subscribe(listener: Listener): () => void {
 
 export function applyState(next: DevknobsState): void {
   state = inFrame ? framed(next) : next;
-  media.apply({ scheme: state.scheme, motion: state.motion, contrast: state.contrast });
+  // In a frame that gets the scheme natively, the rewrite and the patch step aside.
+  const scheme = inFrame && nativeScheme(state.scheme) ? "system" : state.scheme;
+  media.apply({ scheme, motion: state.motion, contrast: state.contrast });
   locale.apply(state.locale);
   geo.apply(state.geo);
   text.apply(state.text);
-  width.apply(state.width);
+  width.apply(state);
   outlines.apply(state.outlines);
   if (persist) save(state);
   width.sync(state);
@@ -77,6 +79,8 @@ export function start(options: EngineOptions = {}): void {
   // state. It reads it, so the first paint is right, but a save would clobber it.
   persist = stored && !inFrame;
   if (inFrame) window.addEventListener("message", onMessage);
+  // A page that will not load in the frame offers this way out.
+  width.onExit(() => setState(UNFRAMED));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));
   if (inFrame) post(window.parent, { source: "devknobs", type: "ready" });
 }
@@ -87,6 +91,7 @@ export function stop(): void {
   running = false;
   window.removeEventListener("message", onMessage);
   inFrame = false;
+  width.onExit(null);
   media.destroy();
   locale.reset();
   geo.reset();

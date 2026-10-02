@@ -4,11 +4,30 @@ import {
   FRAME_NAME,
   framed,
   isDevknobsFrame,
+  nativeScheme,
+  needsFrame,
   readMessage,
+  UNFRAMED,
 } from "../src/engine/frame";
 import { DEFAULT_STATE } from "../src/engine/store";
 
 const ORIGIN = "http://localhost:3000";
+
+function setWindow(frameElement: () => unknown, name = ""): void {
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      name,
+      get frameElement() {
+        return frameElement();
+      },
+    },
+  });
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(globalThis, "window");
+});
 
 describe("framed", () => {
   test("keeps the width full inside the frame", () => {
@@ -19,9 +38,30 @@ describe("framed", () => {
     });
   });
 
+  test("leaves the frame knobs off inside the frame", () => {
+    expect(framed({ ...DEFAULT_STATE, frame: true })).toEqual(DEFAULT_STATE);
+    expect(framed({ ...DEFAULT_STATE, vision: "tritanopia" })).toEqual(DEFAULT_STATE);
+    expect(framed({ ...DEFAULT_STATE, dpr: 3 })).toEqual(DEFAULT_STATE);
+  });
+
   test("hands back a state that is already full", () => {
     const state = { ...DEFAULT_STATE, text: 20 };
     expect(framed(state)).toBe(state);
+  });
+});
+
+describe("needsFrame", () => {
+  test("is true for a width, the frame knob, a ratio or a vision deficiency", () => {
+    expect(needsFrame({ ...UNFRAMED, width: 390 })).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, frame: true })).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, vision: "blur" })).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, dpr: 2 })).toBe(true);
+  });
+
+  test("is false with every frame knob off, or for a width that is no size", () => {
+    expect(needsFrame(UNFRAMED)).toBe(false);
+    expect(needsFrame({ ...UNFRAMED, width: 0 })).toBe(false);
+    expect(needsFrame({ ...UNFRAMED, dpr: 0 })).toBe(false);
   });
 });
 
@@ -88,22 +128,6 @@ describe("readMessage", () => {
 });
 
 describe("isDevknobsFrame", () => {
-  function setWindow(frameElement: () => unknown, name = ""): void {
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: {
-        name,
-        get frameElement() {
-          return frameElement();
-        },
-      },
-    });
-  }
-
-  afterEach(() => {
-    Reflect.deleteProperty(globalThis, "window");
-  });
-
   test("knows its frame by the attribute", () => {
     setWindow(() => ({ hasAttribute: (name: string) => name === FRAME_ATTRIBUTE }));
     expect(isDevknobsFrame()).toBe(true);
@@ -127,5 +151,38 @@ describe("isDevknobsFrame", () => {
       throw new Error("cross-origin");
     });
     expect(isDevknobsFrame()).toBe(false);
+  });
+});
+
+describe("nativeScheme", () => {
+  /** A frame element with this inline `color-scheme`. */
+  function owner(colorScheme: string) {
+    return {
+      style: { getPropertyValue: (name: string) => (name === "color-scheme" ? colorScheme : "") },
+    };
+  }
+
+  test("is true when the frame element carries the same scheme", () => {
+    setWindow(() => owner("dark"));
+    expect(nativeScheme("dark")).toBe(true);
+    setWindow(() => owner("light"));
+    expect(nativeScheme("light")).toBe(true);
+  });
+
+  test("is false for system, another scheme or none at all", () => {
+    setWindow(() => owner("dark"));
+    expect(nativeScheme("system")).toBe(false);
+    expect(nativeScheme("light")).toBe(false);
+    setWindow(() => owner(""));
+    expect(nativeScheme("dark")).toBe(false);
+    setWindow(() => null);
+    expect(nativeScheme("dark")).toBe(false);
+  });
+
+  test("is false when the frame element is out of reach", () => {
+    setWindow(() => {
+      throw new Error("cross-origin");
+    });
+    expect(nativeScheme("dark")).toBe(false);
   });
 });

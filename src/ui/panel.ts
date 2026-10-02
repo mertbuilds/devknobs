@@ -9,6 +9,7 @@ import type {
   DirValue,
   MotionValue,
   SchemeValue,
+  VisionValue,
 } from "../types";
 import { hotkeyOf, keyAction } from "./keys";
 import { CSS } from "./styles";
@@ -118,6 +119,27 @@ const WIDTH: Group = {
   select: (value) => engine.setState({ width: value === "full" ? "full" : Number(value) }),
 };
 
+const FRAME: Group = {
+  label: "frame",
+  choices: choices("off", "on"),
+  current: (state) => (state.frame ? "on" : "off"),
+  select: (value) => engine.setState({ frame: value === "on" }),
+};
+
+const DPR: Group = {
+  label: "dpr",
+  choices: choices("system", "1", "2", "3"),
+  current: (state) => String(state.dpr),
+  select: (value) => engine.setState({ dpr: value === "system" ? "system" : Number(value) }),
+};
+
+const VISION: Group = {
+  label: "vision",
+  choices: choices("none", "protanopia", "deuteranopia", "tritanopia", "achromatopsia", "blur"),
+  current: (state) => state.vision,
+  select: (value) => engine.setState({ vision: value as VisionValue }),
+};
+
 const OUTLINES: Group = {
   label: "outlines",
   choices: choices("off", "on"),
@@ -217,6 +239,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   addGroup(panel, TEXT, bindings);
   addGroup(panel, WIDTH, bindings);
+  addGroup(panel, FRAME, bindings);
+  addGroup(panel, DPR, bindings);
+  addGroup(panel, VISION, bindings);
   addGroup(panel, OUTLINES, bindings);
 
   const actions = el("div", "group");

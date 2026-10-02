@@ -1,4 +1,4 @@
-import type { DevknobsState } from "../types";
+import type { DevknobsState, SchemeValue } from "../types";
 import { parse } from "./store";
 
 /** Marks the iframe the width knob renders the page in. */
@@ -37,9 +37,43 @@ export function isDevknobsFrame(): boolean {
   return window.name === FRAME_NAME;
 }
 
-/** The knobs a framed page runs with. It is the viewport already, so its width stays `full`. */
+/**
+ * Inside the frame: does the frame element carry the scheme? The page above
+ * only sets it there when the browser hands it down as this page's real
+ * `prefers-color-scheme`, so there is nothing left to emulate.
+ */
+export function nativeScheme(scheme: SchemeValue): boolean {
+  if (scheme === "system") return false;
+  try {
+    const owner = window.frameElement as HTMLElement | null;
+    return owner?.style.getPropertyValue("color-scheme") === scheme;
+  } catch {
+    return false;
+  }
+}
+
+/** The knobs that bring the frame up. */
+export type FrameKnobs = Pick<DevknobsState, "width" | "frame" | "dpr" | "vision">;
+
+/** Each of those knobs at the value that leaves the frame down. */
+export const UNFRAMED: FrameKnobs = { width: "full", frame: false, dpr: "system", vision: "none" };
+
+function positive(value: number | string): boolean {
+  return typeof value === "number" && value > 0;
+}
+
+/**
+ * Does any knob need the page inside the frame? Device pixels only exist in a
+ * frame. Vision does too: its filter on the frame leaves the panel alone and
+ * fixed elements in place, where one on `<html>` would not.
+ */
+export function needsFrame(knobs: FrameKnobs): boolean {
+  return positive(knobs.width) || knobs.frame || positive(knobs.dpr) || knobs.vision !== "none";
+}
+
+/** The knobs a framed page runs with. It is the viewport already, so it never frames itself. */
 export function framed(state: DevknobsState): DevknobsState {
-  return state.width === "full" ? state : { ...state, width: "full" };
+  return needsFrame(state) ? { ...state, ...UNFRAMED } : state;
 }
 
 /**

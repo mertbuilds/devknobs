@@ -10,6 +10,7 @@ export type {
   DevknobsState,
   DevknobsStatePatch,
   DirValue,
+  DprValue,
   GeoValue,
   Knob,
   LocaleValue,
@@ -17,6 +18,7 @@ export type {
   PanelValue,
   SchemeValue,
   TextValue,
+  VisionValue,
   WidthValue,
 } from "./types";
 export type { GeoPreset } from "./engine/geo";
