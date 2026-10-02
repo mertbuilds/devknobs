@@ -39,6 +39,112 @@ export function realNow(): number {
   return NativeDate.now();
 }
 
+/** Set the clock the page reads, or put the real one back with null or `system`. */
+export function setClock(value: ClockValue | null): void {
+  shared.clock = value && value.mode !== "system" ? { ...value } : null;
+}
+
+export function clockOn(): boolean {
+  return shared.clock !== null;
+}
+
+/** What `Date.now()` reads: the clock's instant, or the real one with no clock set. */
+export function now(): number {
+  return shared.clock ? virtualNow(shared.clock, realNow()) : realNow();
+}
+
+/** What the time zone knob adds to the `Date` proxy. The early script goes without. */
+export interface ZoneHooks {
+  on(): boolean;
+  /** Constructor arguments that name the same instant in the emulated zone. */
+  args(args: unknown[]): unknown[];
+  parse(value: unknown): number;
+}
+
+/**
+ * The page's `Date`, one proxy for the clock and the time zone knob. Built
+ * with no arguments it lands on the clock's instant, and `Date()` prints that
+ * instant. Any argument names an instant of its own, which the clock leaves
+ * alone. The prototype is the same object, so `instanceof Date` holds for
+ * dates from before the patch too.
+ */
+export function wrapDate(original: DateConstructor, zone?: ZoneHooks): DateConstructor {
+  return new Proxy(original, {
+    construct(target, args: unknown[], newTarget) {
+      if (args.length === 0 && shared.clock) return Reflect.construct(target, [now()], newTarget);
+      return Reflect.construct(target, zone ? zone.args(args) : args, newTarget);
+    },
+    apply(target, thisArg, args: unknown[]) {
+      if (!shared.clock && !zone?.on()) return Reflect.apply(target, thisArg, args);
+      return String(new NativeDate(now()));
+    },
+    get(target, key, receiver) {
+      if (key === "now") return now;
+      if (key === "parse" && zone) return zone.parse;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+}
+
+interface ZonedDateTime {
+  toPlainDateTime(): unknown;
+  toPlainDate(): unknown;
+  toPlainTime(): unknown;
+}
+
+interface Instant {
+  toZonedDateTimeISO(timeZone: unknown): ZonedDateTime;
+}
+
+interface TemporalScope {
+  Temporal?: {
+    Now?: Record<string, unknown>;
+    Instant?: { fromEpochMilliseconds(time: number): Instant };
+  };
+}
+
+/** What each `Temporal.Now` reader makes of the current instant, in a zone. */
+const READERS = {
+  instant: (instant: Instant) => instant,
+  zonedDateTimeISO: (instant: Instant, zone: unknown) => instant.toZonedDateTimeISO(zone),
+  plainDateTimeISO: (instant: Instant, zone: unknown) =>
+    instant.toZonedDateTimeISO(zone).toPlainDateTime(),
+  plainDateISO: (instant: Instant, zone: unknown) => instant.toZonedDateTimeISO(zone).toPlainDate(),
+  plainTimeISO: (instant: Instant, zone: unknown) => instant.toZonedDateTimeISO(zone).toPlainTime(),
+};
+
+export type NowReaderName = keyof typeof READERS;
+
+export const NOW_READERS = Object.keys(READERS) as NowReaderName[];
+
+export type NowReader = (this: unknown, timeZone?: unknown) => unknown;
+
+/** `Temporal.Now`, where the engine has it. */
+export function temporalNow(): Record<string, unknown> | undefined {
+  return (globalThis as TemporalScope).Temporal?.Now;
+}
+
+/**
+ * A `Temporal.Now` reader at the clock's instant. `zoneOf` picks the zone for
+ * the zone argument a call gave, undefined included; with no zone the reader
+ * takes the one `Temporal.Now.timeZoneId()` reports.
+ */
+export function readNow(
+  key: NowReaderName,
+  original: NowReader,
+  zoneOf: (timeZone: unknown) => unknown,
+): NowReader {
+  return function (this: unknown, timeZone?: unknown) {
+    const zone = zoneOf(timeZone);
+    const temporal = (globalThis as TemporalScope).Temporal;
+    if (!shared.clock || !temporal?.Instant) return original.call(this, zone);
+    const instant = temporal.Instant.fromEpochMilliseconds(now());
+    const timeZoneId = temporal.Now?.timeZoneId;
+    const host = typeof timeZoneId === "function" ? timeZoneId.call(temporal.Now) : undefined;
+    return READERS[key](instant, zone ?? host);
+  };
+}
+
 /**
  * What the clock reads at a real instant, in whole epoch ms: running from `at`
  * since `since` at its speed, stopped at `at`, or the real time.

@@ -66,7 +66,7 @@ export function applyState(next: DevknobsState): void {
   locale.apply(state.locale);
   pseudo.apply(state.pseudo);
   geo.apply(state.geo);
-  time.apply(time.resolveTimeZone(state.timeZone, state.geo));
+  time.apply(time.resolveTimeZone(state.timeZone, state.geo), state.clock);
   network.apply(state.network);
   text.apply(state.text);
   spacing.apply(state.spacing);
