@@ -1,28 +1,32 @@
 import * as engine from "../engine";
-import { CLOCK_PRESETS, now, realNow } from "../engine/clock";
+import { now, realNow } from "../engine/clock";
 import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
-import { GEO_PRESETS, resolveGeo } from "../engine/geo";
-import { LOCALE_PRESETS } from "../engine/locale";
 import { onCount, overflowCount } from "../engine/overflow";
-import { resolveTimeZone, TIME_ZONE_PRESETS } from "../engine/time";
+import { resolveTimeZone } from "../engine/time";
 import { frameWindow } from "../engine/width";
-import type {
-  ClockMode,
-  ClockValue,
-  ConnectionValue,
-  ContrastValue,
-  DevknobsState,
-  DirValue,
-  GeoErrorValue,
-  MotionValue,
-  OnlineValue,
-  SaveDataValue,
-  SchemeValue,
-  TransparencyValue,
-  VisionValue,
-} from "../types";
-import { hotkeyOf, keyAction } from "./keys";
+import type { ClockValue, DevknobsState } from "../types";
+import {
+  browse,
+  isActive,
+  type Knob,
+  type KnobId,
+  knobsOf,
+  type Live,
+  nameOf,
+  type Option,
+  ROWS,
+  type Row,
+  type RowId,
+  resetPatch,
+  rowOf,
+  summary,
+  wallInput,
+} from "./catalog";
+import { hotkeyOf, keyAction, typedKey } from "./keys";
+import { filterOptions, type Result, resultText, search } from "./search";
 import { CSS } from "./styles";
+
+export { wallInput } from "./catalog";
 
 export interface PanelOptions {
   /** Key that toggles the panel. Defaults to `d`. */
@@ -34,23 +38,23 @@ export interface Panel {
   destroy(): void;
 }
 
-interface Choice {
-  label: string;
-  value: string;
+/** What an editor control keeps in step with the knobs. */
+type Update = (state: DevknobsState) => void;
+
+interface RowView {
+  row: Row;
+  box: HTMLElement;
+  main: HTMLButtonElement;
+  value: HTMLElement;
+  clear: HTMLButtonElement;
+  editor: HTMLElement;
+  updates: Update[];
 }
 
-interface Group {
-  label: string;
-  choices: Choice[];
-  /** The value that is on right now. */
-  current(state: DevknobsState): string;
-  select(value: string): void;
-}
-
-interface Binding {
-  button: HTMLButtonElement;
-  group: Group;
-  value: string;
+/** A line of the results or the browse list, and what picking it does. */
+interface Entry {
+  node: HTMLElement;
+  pick(): void;
 }
 
 /** Pointer travel that turns a click on the handle into a drag. */
@@ -71,246 +75,12 @@ const SITE_URL = "https://knobs.dev/?utm_source=devknobs&utm_medium=panel&utm_ca
  */
 export const HOST_STYLE = "position:fixed;right:0;top:0;z-index:2147483646;pointer-events:none";
 
-function choices(...values: string[]): Choice[] {
-  return values.map((value) => ({ label: value, value }));
-}
-
-const SCHEME: Group = {
-  label: "scheme",
-  choices: choices("system", "light", "dark"),
-  current: (state) => state.scheme,
-  select: (value) => engine.setState({ scheme: value as SchemeValue }),
-};
-
-const MOTION: Group = {
-  label: "motion",
-  choices: choices("system", "reduce"),
-  current: (state) => state.motion,
-  select: (value) => engine.setState({ motion: value as MotionValue }),
-};
-
-const SPEED: Group = {
-  label: "speed",
-  choices: [...choices("1", "0.25", "0.1"), { label: "pause", value: "0" }],
-  current: (state) => String(state.speed),
-  select: (value) => engine.setState({ speed: Number(value) }),
-};
-
-const CONTRAST: Group = {
-  label: "contrast",
-  choices: choices("system", "more"),
-  current: (state) => state.contrast,
-  select: (value) => engine.setState({ contrast: value as ContrastValue }),
-};
-
-const TRANSPARENCY: Group = {
-  label: "transparency",
-  choices: choices("system", "reduce"),
-  current: (state) => state.transparency,
-  select: (value) => engine.setState({ transparency: value as TransparencyValue }),
-};
-
-const LOCALE: Group = {
-  label: "locale",
-  choices: [
-    { label: "system", value: "system" },
-    ...LOCALE_PRESETS.map((tag) => ({ label: tag.toLowerCase(), value: tag })),
-  ],
-  current: (state) => state.locale.lang,
-  select: (value) => engine.setState({ locale: { lang: value } }),
-};
-
-const DIRECTION: Group = {
-  label: "direction",
-  choices: choices("system", "ltr", "rtl"),
-  current: (state) => state.locale.dir,
-  select: (value) => engine.setState({ locale: { dir: value as DirValue } }),
-};
-
-const PSEUDO: Group = {
-  label: "pseudo",
-  choices: choices("off", "on"),
-  current: (state) => (state.pseudo ? "on" : "off"),
-  select: (value) => engine.setState({ pseudo: value === "on" }),
-};
-
-const GEO: Group = {
-  label: "geo",
-  choices: [
-    { label: "system", value: "system" },
-    ...GEO_PRESETS.map((preset) => ({ label: preset.label.toLowerCase(), value: preset.id })),
-    { label: "route", value: "route" },
-  ],
-  current: (state) => state.geo.preset,
-  select: (value) => engine.setState({ geo: { preset: value } }),
-};
-
-const GEO_ERROR: Group = {
-  label: "geo error",
-  choices: choices("none", "denied", "unavailable", "timeout"),
-  current: (state) => state.geo.error,
-  select: (value) => engine.setState({ geo: { error: value as GeoErrorValue } }),
-};
-
-/** `America/New_York` reads as `new york` on a button. */
-function zoneLabel(zone: string): string {
-  return (zone.split("/").pop() ?? zone).replace(/_/g, " ").toLowerCase();
-}
-
-const TIME_ZONE: Group = {
-  label: "time zone",
-  choices: [
-    ...choices("geo", "system"),
-    ...TIME_ZONE_PRESETS.map((zone) => ({ label: zoneLabel(zone), value: zone })),
-  ],
-  current: (state) => state.timeZone,
-  select: (value) => engine.setState({ timeZone: value }),
-};
-
-/** Set the clock to an instant, running unless it stands frozen already. */
-function travel(at: number, since = realNow()): void {
-  const frozen = engine.getState().clock.mode === "frozen";
-  engine.setState({ clock: { mode: frozen ? "frozen" : "offset", at, since } });
-}
-
-const CLOCK: Group = {
-  label: "clock",
-  choices: [
-    { label: "system", value: "system" },
-    ...CLOCK_PRESETS.map((preset) => ({ label: preset.label, value: String(preset.ms) })),
-  ],
-  // A preset stays on until the clock moves some other way.
-  current: (state) =>
-    state.clock.mode === "system" ? "system" : String(state.clock.at - state.clock.since),
-  select: (value) => {
-    if (value === "system") {
-      engine.setState({ clock: { mode: "system" } });
-      return;
-    }
-    const real = realNow();
-    travel(real + Number(value), real);
-  },
-};
-
-const CLOCK_MODE: Group = {
-  label: "clock mode",
-  choices: choices("offset", "frozen"),
-  current: (state) => state.clock.mode,
-  select: (value) => engine.setState({ clock: { mode: value as ClockMode } }),
-};
-
-const CLOCK_SPEED: Group = {
-  label: "clock speed",
-  choices: choices("1", "60", "3600"),
-  current: (state) => String(state.clock.speed),
-  // A speed only shows on a running clock, so the real one starts running from here.
-  select: (value) => {
-    const { mode } = engine.getState().clock;
-    engine.setState({ clock: { mode: mode === "system" ? "offset" : mode, speed: Number(value) } });
-  },
-};
-
-const CLOCK_HEADER: Group = {
-  label: "send to server",
-  choices: choices("off", "on"),
-  current: (state) => (state.clock.header ? "on" : "off"),
-  select: (value) => engine.setState({ clock: { header: value === "on" } }),
-};
-
-const ONLINE: Group = {
-  label: "online",
-  choices: choices("system", "offline"),
-  current: (state) => state.network.online,
-  select: (value) => engine.setState({ network: { online: value as OnlineValue } }),
-};
-
-const CONNECTION: Group = {
-  label: "connection",
-  choices: choices("system", "slow-2g", "2g", "3g", "4g"),
-  current: (state) => state.network.type,
-  select: (value) => engine.setState({ network: { type: value as ConnectionValue } }),
-};
-
-const SAVE_DATA: Group = {
-  label: "save data",
-  choices: choices("system", "on", "off"),
-  current: (state) => state.network.saveData,
-  select: (value) => engine.setState({ network: { saveData: value as SaveDataValue } }),
-};
-
-const TEXT: Group = {
-  label: "text",
-  choices: choices("system", "13", "15", "17", "20"),
-  current: (state) => String(state.text),
-  select: (value) => engine.setState({ text: value === "system" ? "system" : Number(value) }),
-};
-
-const SPACING: Group = {
-  label: "spacing",
-  choices: choices("off", "on"),
-  current: (state) => (state.spacing ? "on" : "off"),
-  select: (value) => engine.setState({ spacing: value === "on" }),
-};
-
-const WIDTH: Group = {
-  label: "width",
-  choices: choices("full", "1024", "768", "390"),
-  current: (state) => String(state.width),
-  select: (value) => engine.setState({ width: value === "full" ? "full" : Number(value) }),
-};
-
-const FRAME: Group = {
-  label: "frame",
-  choices: choices("off", "on"),
-  current: (state) => (state.frame ? "on" : "off"),
-  select: (value) => engine.setState({ frame: value === "on" }),
-};
-
-const DPR: Group = {
-  label: "dpr",
-  choices: choices("system", "1", "2", "3"),
-  current: (state) => String(state.dpr),
-  select: (value) => engine.setState({ dpr: value === "system" ? "system" : Number(value) }),
-};
-
-const VISION: Group = {
-  label: "vision",
-  choices: choices("none", "protanopia", "deuteranopia", "tritanopia", "achromatopsia", "blur"),
-  current: (state) => state.vision,
-  select: (value) => engine.setState({ vision: value as VisionValue }),
-};
-
-const OVERFLOW: Group = {
-  label: "overflow",
-  choices: choices("off", "on"),
-  current: (state) => (state.overflow ? "on" : "off"),
-  select: (value) => engine.setState({ overflow: value === "on" }),
-};
-
-const OUTLINES: Group = {
-  label: "outlines",
-  choices: choices("off", "on"),
-  current: (state) => (state.outlines ? "on" : "off"),
-  select: (value) => engine.setState({ outlines: value === "on" }),
-};
-
 /**
- * What the width label says about the overflow knob, such as ` · 2 overflowing`.
+ * What the footer says about the overflow knob, such as ` · 2 overflowing`.
  * Nothing while the knob is off, or before the count is known.
  */
 export function overflowBadge(on: boolean, count: number | null): string {
   return on && count !== null ? ` · ${count} overflowing` : "";
-}
-
-/**
- * `2026-10-04T09:30`, an instant the way a `datetime-local` input reads it,
- * on the page's own clock face.
- */
-export function wallInput(time: number): string {
-  const date = new Date(time);
-  const pad = (value: number, length = 2) => String(value).padStart(length, "0");
-  const day = `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return `${day}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 /** What the clock note says: the time the page reads, or that it reads the real one. */
@@ -343,8 +113,8 @@ function field(className: string, placeholder: string, label: string): HTMLInput
   return node;
 }
 
-function numberField(placeholder: string): HTMLInputElement {
-  const node = field("field-num", placeholder, placeholder);
+function numberField(placeholder: string, label = placeholder): HTMLInputElement {
+  const node = field("field-num", placeholder, label);
   node.type = "number";
   node.step = "any";
   node.inputMode = "decimal";
@@ -357,25 +127,28 @@ function toNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function addGroup(parent: HTMLElement, group: Group, bindings: Binding[]): HTMLElement {
-  const box = el("div", "group");
-  box.append(el("div", "label", group.label));
-  const row = el("div", "row");
-  for (const choice of group.choices) {
-    const node = button("btn", choice.label);
-    node.addEventListener("click", () => group.select(choice.value));
-    bindings.push({ button: node, group, value: choice.value });
-    row.append(node);
-  }
-  box.append(row);
-  parent.append(box);
-  return box;
+/** Mark a control as on or off, for the eye and for assistive tech. */
+function mark(node: HTMLElement, on: boolean, attribute = "aria-pressed"): void {
+  node.classList.toggle("on", on);
+  node.setAttribute(attribute, on ? "true" : "false");
+}
+
+/** Scroll a box just enough to show a node in it. The box is the node's offset parent. */
+function reveal(node: HTMLElement, box: HTMLElement): void {
+  const top = node.offsetTop;
+  const bottom = top + node.offsetHeight;
+  if (top < box.scrollTop) box.scrollTop = top;
+  else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight;
 }
 
 /**
  * Build the panel, put it on the page and keep it in step with the engine. The
  * host carries an open shadow root, so the page cannot style the panel and the
  * panel cannot style the page.
+ *
+ * The panel lists only the knobs that are off their default, one row each, and
+ * a row opens into an editor. Everything else is a search away: the field at
+ * the top finds knobs and values, and with nothing typed lists every knob.
  */
 export function createPanel(options: PanelOptions = {}): Panel {
   const hotkey = hotkeyOf(options.hotkey);
@@ -391,95 +164,62 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const handle = button("handle", "knobs");
   handle.setAttribute("aria-label", `devknobs, press ${hotkey}`);
   const panel = el("div", "panel");
-  const bindings: Binding[] = [];
 
-  addGroup(panel, SCHEME, bindings);
-  addGroup(panel, MOTION, bindings);
-  addGroup(panel, SPEED, bindings);
-  addGroup(panel, CONTRAST, bindings);
-  addGroup(panel, TRANSPARENCY, bindings);
-  addGroup(panel, LOCALE, bindings);
-  addGroup(panel, DIRECTION, bindings);
-  addGroup(panel, PSEUDO, bindings);
+  // A label, so a click on the name lands in the field too.
+  const head = el("label", "head");
+  const searchInput = document.createElement("input");
+  searchInput.className = "search";
+  searchInput.placeholder = "add a knob";
+  searchInput.autocomplete = "off";
+  searchInput.spellcheck = false;
+  searchInput.setAttribute("role", "combobox");
+  searchInput.setAttribute("aria-label", "find a knob");
+  searchInput.setAttribute("aria-autocomplete", "list");
+  searchInput.setAttribute("aria-controls", "devknobs-results");
+  searchInput.setAttribute("aria-expanded", "false");
+  head.append(el("span", "name", "knobs"), searchInput);
 
-  const geoBox = addGroup(panel, GEO, bindings);
-  const lat = numberField("lat");
-  const lng = numberField("lng");
-  const fields = el("div", "fields");
-  fields.append(lat, lng);
-  const route = document.createElement("textarea");
-  route.className = "field field-route";
-  route.placeholder = "lat,lng per line, or gpx";
-  route.spellcheck = false;
-  route.setAttribute("aria-label", "route");
-  const speed = numberField("km/h");
-  const routeFields = el("div", "fields");
-  routeFields.append(route, speed);
-  geoBox.append(el("div", "label", "custom"), fields, el("div", "label", "route"), routeFields);
-  addGroup(panel, GEO_ERROR, bindings);
-
-  const zoneBox = addGroup(panel, TIME_ZONE, bindings);
-  const zone = field("field-tz", "Europe/Istanbul", "time zone");
-  const zoneFields = el("div", "fields");
-  zoneFields.append(zone);
-  const zoneNote = el("div", "note");
-  zoneBox.append(el("div", "label", "custom"), zoneFields, zoneNote);
-
-  const clockBox = addGroup(panel, CLOCK, bindings);
-  const clockAt = field("field-clock", "", "clock date and time");
-  clockAt.type = "datetime-local";
-  const clockFields = el("div", "fields");
-  clockFields.append(clockAt);
-  const clockNote = el("div", "note");
-  clockBox.append(el("div", "label", "custom"), clockFields, clockNote);
-  addGroup(panel, CLOCK_MODE, bindings);
-  addGroup(panel, CLOCK_SPEED, bindings);
-  addGroup(panel, CLOCK_HEADER, bindings);
-
-  addGroup(panel, ONLINE, bindings);
-  // Only Chromium has navigator.connection, so elsewhere these would do nothing.
-  if ("connection" in navigator) {
-    addGroup(panel, CONNECTION, bindings);
-    addGroup(panel, SAVE_DATA, bindings);
-  }
-
-  addGroup(panel, TEXT, bindings);
-  addGroup(panel, SPACING, bindings);
-  const widthBox = addGroup(panel, WIDTH, bindings);
-  const badge = el("span", "badge");
-  widthBox.firstElementChild?.append(badge);
-  addGroup(panel, FRAME, bindings);
-  addGroup(panel, DPR, bindings);
-  addGroup(panel, VISION, bindings);
-  addGroup(panel, OVERFLOW, bindings);
-  addGroup(panel, OUTLINES, bindings);
-
-  const actions = el("div", "group");
-  const actionRow = el("div", "row");
-  const replayButton = button("btn", "replay");
-  const resetButton = button("btn", "reset");
-  actionRow.append(replayButton, resetButton);
-  actions.append(actionRow);
+  const body = el("div", "body");
+  const empty = el("div", "empty", "nothing emulated");
+  const rows = el("div", "rows");
+  const results = el("div", "results");
+  results.id = "devknobs-results";
+  results.setAttribute("role", "listbox");
+  results.setAttribute("aria-label", "knobs");
+  body.append(empty, rows, results);
 
   const foot = el("div", "foot");
+  const actions = el("div", "actions");
+  const replayButton = button("act", "replay");
+  const resetButton = button("act", "reset all");
+  const badge = el("span", "badge");
+  actions.append(replayButton, resetButton, badge);
   const home = document.createElement("a");
   home.className = "foot-link";
   home.href = SITE_URL;
   home.target = "_blank";
   home.rel = "noopener noreferrer";
   home.textContent = "knobs.dev";
-  foot.append(home, ` · dev only · press ${hotkey}`, el("br", ""), "shift-drag moves the panel");
-  panel.append(actions, foot);
+  const meta = el("div", "meta");
+  meta.append(
+    home,
+    ` · dev only · press ${hotkey}`,
+    el("br", ""),
+    "type to search · shift-drag moves",
+  );
+  foot.append(actions, meta);
 
+  panel.append(head, body, foot);
   wrap.append(handle, panel);
   root.append(style, wrap);
 
-  const darkQuery = window.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
-
-  function schemeOf(state: DevknobsState): SchemeValue {
-    if (state.scheme !== "system") return state.scheme;
-    return darkQuery?.matches ? "dark" : "light";
-  }
+  /** The row whose editor is open. */
+  let openRow: RowId | null = null;
+  /** The search has focus and lists every knob, as nothing is typed. */
+  let browsing = false;
+  /** What the results or the browse list show, and which one Enter picks. */
+  let entries: Entry[] = [];
+  let cursor = 0;
 
   /** Leave an input alone while it has the caret, so typing is never cut off. */
   function fill(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -487,38 +227,461 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (input.value !== value) input.value = value;
   }
 
+  function set(knob: Knob, value: string): void {
+    engine.setState(knob.write(value, engine.getState()));
+  }
+
+  /** Typing commits once it pauses, each field on a timer of its own. */
+  const pending = new Map<() => void, number>();
+
+  function queue(commit: () => void): void {
+    clearTimeout(pending.get(commit));
+    pending.set(
+      commit,
+      window.setTimeout(() => {
+        pending.delete(commit);
+        commit();
+      }, CUSTOM_DEBOUNCE),
+    );
+  }
+
+  function segments(knob: Knob): [HTMLElement, Update] {
+    const track = el("div", "seg");
+    track.setAttribute("role", "radiogroup");
+    track.setAttribute("aria-label", knob.label);
+    const items = knob.options.map((option) => {
+      const node = button("seg-item", option.label);
+      node.setAttribute("role", "radio");
+      node.addEventListener("click", () => set(knob, option.value));
+      track.append(node);
+      return { node, value: option.value };
+    });
+    return [
+      track,
+      (state) => {
+        const current = knob.read(state);
+        for (const item of items) mark(item.node, item.value === current, "aria-checked");
+      },
+    ];
+  }
+
+  /**
+   * Presets as chips. A value set some other way, from search say, shows as a
+   * chip of its own, or in the custom field where the knob has one.
+   */
+  function chips(knob: Knob, custom: HTMLInputElement | null): [HTMLElement, Update] {
+    const box = el("div", "chips");
+    box.setAttribute("aria-label", knob.label);
+    const items = knob.options.map((option) => {
+      const node = button("chip", option.label);
+      node.addEventListener("click", () => set(knob, option.value));
+      box.append(node);
+      return { node, value: option.value };
+    });
+    const other = el("span", "chip on");
+    box.append(custom ?? other);
+    return [
+      box,
+      (state) => {
+        const current = knob.read(state);
+        let known = false;
+        for (const item of items) {
+          mark(item.node, item.value === current);
+          known ||= item.value === current;
+        }
+        if (custom) {
+          custom.classList.toggle("on", !known);
+          fill(custom, known ? "" : current);
+          return;
+        }
+        other.hidden = known || current === "";
+        other.textContent = nameOf(knob, current);
+      },
+    ];
+  }
+
+  function toggleSwitch(knob: Knob): [HTMLElement, Update] {
+    const [off, on] = knob.options;
+    const node = button("switch", "");
+    node.setAttribute("role", "switch");
+    node.setAttribute("aria-label", knob.label);
+    node.addEventListener("click", () => {
+      if (!off || !on) return;
+      set(knob, knob.read(engine.getState()) === on.value ? off.value : on.value);
+    });
+    return [node, (state) => mark(node, knob.read(state) === on?.value, "aria-checked")];
+  }
+
+  function pickOption(knob: Knob, option: Option): void {
+    set(knob, option.value);
+    if (option.opens) openEditor(rowOf(knob.id).id);
+  }
+
+  /** A long list with a filter that also takes a value typed out in full. */
+  function list(knob: Knob): [HTMLElement, Update] {
+    const box = el("div", "list");
+    const filter = field("filter", "filter", `filter ${knob.label}`);
+    const items = el("div", "items");
+    items.setAttribute("role", "listbox");
+    items.setAttribute("aria-label", knob.label);
+    // A pick keeps the focus where it was, as the list is drawn again under it.
+    items.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
+    box.append(filter, items);
+    let shown: Option[] = [];
+    let at = -1;
+    const draw = (state: DevknobsState) => {
+      const current = knob.read(state);
+      shown = filterOptions(knob, filter.value);
+      if (filter.value.trim() === "" && !shown.some((option) => option.value === current)) {
+        shown.unshift({ value: current, label: nameOf(knob, current) });
+      }
+      items.replaceChildren(
+        ...shown.map((option, index) => {
+          const node = button("item", option.label);
+          node.setAttribute("role", "option");
+          node.tabIndex = -1;
+          mark(node, option.value === current, "aria-selected");
+          node.classList.toggle("cursor", index === at);
+          node.addEventListener("click", () => pickOption(knob, option));
+          return node;
+        }),
+      );
+      const cursorNode = items.children[at];
+      if (cursorNode instanceof HTMLElement) reveal(cursorNode, items);
+    };
+    filter.addEventListener("input", () => {
+      at = filter.value.trim() ? 0 : -1;
+      items.scrollTop = 0;
+      draw(engine.getState());
+    });
+    filter.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        at = Math.min(Math.max(at + step, 0), shown.length - 1);
+        draw(engine.getState());
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        const option = shown[Math.max(at, 0)];
+        if (option) pickOption(knob, option);
+      }
+    });
+    return [box, draw];
+  }
+
+  const widthField = field("chip chip-field", "other", "custom width in pixels");
+  widthField.type = "number";
+  widthField.inputMode = "numeric";
+
+  function commitWidth(): void {
+    const width = Number(widthField.value);
+    if (Number.isFinite(width) && width > 0) engine.setState({ width });
+  }
+
+  widthField.addEventListener("input", () => queue(commitWidth));
+
+  function control(knob: Knob): [HTMLElement, Update] {
+    if (knob.control === "switch") return toggleSwitch(knob);
+    if (knob.control === "segments") return segments(knob);
+    if (knob.control === "list") return list(knob);
+    return chips(knob, knob.id === "width" ? widthField : null);
+  }
+
+  /** Set the clock to an instant, running unless it stands frozen already. */
+  function travel(at: number, since = realNow()): void {
+    const frozen = engine.getState().clock.mode === "frozen";
+    engine.setState({ clock: { mode: frozen ? "frozen" : "offset", at, since } });
+  }
+
+  function clockExtra(): [HTMLElement, Update] {
+    const box = el("div", "extra");
+    const at = field("field-clock", "", "clock date and time");
+    at.type = "datetime-local";
+    const note = el("div", "note");
+    box.append(at, note);
+    // A date and time picked whole runs the clock from there.
+    at.addEventListener("change", () => {
+      const time = Date.parse(at.value);
+      if (!Number.isNaN(time)) travel(time);
+    });
+    return [
+      box,
+      (state) => {
+        fill(at, state.clock.mode === "system" ? "" : wallInput(state.clock.at));
+        note.textContent = clockReadout(state.clock);
+      },
+    ];
+  }
+
+  function geoExtra(): [HTMLElement, Update] {
+    const box = el("div", "extra");
+    const lat = numberField("lat", "latitude");
+    const lng = numberField("lng", "longitude");
+    const custom = el("div", "fields");
+    custom.append(el("span", "unit", "lat"), lat, el("span", "unit", "lng"), lng);
+    const route = document.createElement("textarea");
+    route.className = "field field-route";
+    route.placeholder = "lat,lng per line, or gpx";
+    route.spellcheck = false;
+    route.setAttribute("aria-label", "route");
+    const speed = numberField("speed", "route speed in kilometers per hour");
+    const pace = el("div", "fields");
+    pace.append(speed, el("span", "unit", "kilometers per hour"));
+    const travelBox = el("div", "extra");
+    travelBox.append(route, pace);
+    box.append(custom, travelBox);
+    const commitCustom = () =>
+      engine.setState({
+        geo: { preset: "custom", lat: toNumber(lat.value), lng: toNumber(lng.value) },
+      });
+    const commitRoute = () => engine.setState({ geo: { preset: "route", route: route.value } });
+    const commitSpeed = () => engine.setState({ geo: { speed: toNumber(speed.value) } });
+    for (const input of [lat, lng]) input.addEventListener("input", () => queue(commitCustom));
+    route.addEventListener("input", () => queue(commitRoute));
+    speed.addEventListener("input", () => queue(commitSpeed));
+    return [
+      box,
+      (state) => {
+        custom.hidden = state.geo.preset !== "custom";
+        travelBox.hidden = state.geo.preset !== "route";
+        fill(lat, String(state.geo.lat));
+        fill(lng, String(state.geo.lng));
+        fill(route, state.geo.route);
+        fill(speed, String(state.geo.speed));
+      },
+    ];
+  }
+
+  function zoneExtra(): [HTMLElement, Update] {
+    const note = el("div", "note");
+    return [
+      note,
+      (state) => {
+        note.textContent = `in use: ${resolveTimeZone(state.timeZone, state.geo) ?? "system"}`;
+      },
+    ];
+  }
+
+  /** What some knobs add under their control: free values and readouts. */
+  const EXTRAS: Partial<Record<KnobId, () => [HTMLElement, Update]>> = {
+    clock: clockExtra,
+    geo: geoExtra,
+    timeZone: zoneExtra,
+  };
+
+  function buildEditor(row: Row, editor: HTMLElement): Update[] {
+    const updates: Update[] = [];
+    for (const knob of knobsOf(row)) {
+      const line = el("div", `knob knob-${knob.control}`);
+      const [node, update] = control(knob);
+      line.append(el("div", "knob-label", knob.label), node);
+      updates.push(update);
+      const extra = EXTRAS[knob.id]?.();
+      if (extra) {
+        line.append(extra[0]);
+        updates.push(extra[1]);
+      }
+      editor.append(line);
+    }
+    return updates;
+  }
+
+  const views: RowView[] = ROWS.map((row) => {
+    const box = el("div", "row");
+    const line = el("div", "line");
+    const main = button("main", "");
+    main.setAttribute("aria-expanded", "false");
+    const value = el("span", "row-value");
+    main.append(el("span", "row-label", row.label), value);
+    const clear = button("clear", "×");
+    clear.setAttribute("aria-label", `reset ${row.label}`);
+    line.append(main, clear);
+    const editor = el("div", "editor");
+    box.append(line, editor);
+    rows.append(box);
+    main.addEventListener("click", () => openEditor(openRow === row.id ? null : row.id));
+    clear.addEventListener("click", () => {
+      if (openRow === row.id) openRow = null;
+      engine.setState(resetPatch(row));
+    });
+    return { row, box, main, value, clear, editor, updates: buildEditor(row, editor) };
+  });
+
+  function viewOf(id: RowId): RowView | undefined {
+    return views.find((view) => view.row.id === id);
+  }
+
+  /** Open one row's editor, closing any other, or close them all with null. */
+  function openEditor(id: RowId | null): void {
+    openRow = id;
+    render();
+    const view = id ? viewOf(id) : undefined;
+    if (!view) return;
+    reveal(view.box, body);
+    // A long list opens on the value that is on.
+    for (const items of Array.from(view.editor.querySelectorAll<HTMLElement>(".items"))) {
+      const on = items.querySelector<HTMLElement>(".on");
+      if (on) reveal(on, items);
+    }
+  }
+
   /** What the copy inside the width knob's frame last counted, null until it says. */
   let frameCount: number | null = null;
+
+  function liveOf(state: DevknobsState): Live {
+    const framed = needsFrame(state);
+    if (!framed) frameCount = null;
+    return { now: now(), real: realNow(), overflow: framed ? frameCount : overflowCount() };
+  }
+
+  function setCursor(index: number): void {
+    cursor = Math.min(Math.max(index, 0), entries.length - 1);
+    entries.forEach((entry, at) => {
+      entry.node.classList.toggle("cursor", at === cursor);
+      entry.node.setAttribute("aria-selected", at === cursor ? "true" : "false");
+    });
+    const current = entries[cursor];
+    if (current) {
+      searchInput.setAttribute("aria-activedescendant", current.node.id);
+      reveal(current.node, body);
+    } else searchInput.removeAttribute("aria-activedescendant");
+  }
+
+  function entry(id: number, pick: () => void, ...parts: (HTMLElement | string)[]): Entry {
+    const node = el("div", "entry");
+    node.id = `devknobs-entry-${id}`;
+    node.setAttribute("role", "option");
+    node.append(...parts);
+    node.addEventListener("click", pick);
+    node.addEventListener("pointermove", () => {
+      if (entries[cursor]?.node === node) return;
+      setCursor(entries.findIndex((item) => item.node === node));
+    });
+    return { node, pick };
+  }
+
+  function resultEntries(query: string, state: DevknobsState): Entry[] {
+    return search(query).map((result, index) => {
+      const text = resultText(result);
+      const value = el("span", "entry-value", text.value);
+      const current = result.option !== null && result.knob.read(state) === result.option.value;
+      value.classList.toggle("current", current);
+      return entry(index, () => pick(result), el("span", "entry-knob", text.knob), value);
+    });
+  }
+
+  function browseEntries(state: DevknobsState): { nodes: HTMLElement[]; list: Entry[] } {
+    const nodes: HTMLElement[] = [];
+    const list: Entry[] = [];
+    for (const group of browse()) {
+      nodes.push(el("div", "group-label", group.category));
+      for (const knob of group.knobs) {
+        const item = entry(
+          list.length,
+          () => openKnob(knob),
+          el("span", "entry-name", knob.label),
+          el("span", "entry-now", nameOf(knob, knob.read(state))),
+        );
+        list.push(item);
+        nodes.push(item.node);
+      }
+    }
+    return { nodes, list };
+  }
+
+  /** Show the active rows, the results of a query, or every knob to browse. */
+  function renderBody(state: DevknobsState): void {
+    const query = searchInput.value.trim();
+    const mode = query ? "results" : browsing ? "browse" : "rows";
+    wrap.dataset.mode = mode;
+    searchInput.setAttribute("aria-expanded", mode === "rows" ? "false" : "true");
+    if (mode === "results") {
+      entries = resultEntries(query, state);
+      const nodes = entries.map((item) => item.node);
+      results.replaceChildren(...(nodes.length ? nodes : [el("div", "empty", "no knob found")]));
+    } else if (mode === "browse") {
+      const { nodes, list: items } = browseEntries(state);
+      entries = items;
+      results.replaceChildren(...nodes);
+    } else {
+      entries = [];
+      results.replaceChildren();
+    }
+    setCursor(cursor);
+  }
+
+  function setQuery(text: string): void {
+    searchInput.value = text;
+    cursor = 0;
+    body.scrollTop = 0;
+    render();
+  }
+
+  /** Set a result's value, or open the editor of a knob found by name. */
+  function pick(result: Result): void {
+    if (!result.option) {
+      openKnob(result.knob);
+      return;
+    }
+    searchInput.value = "";
+    browsing = false;
+    cursor = 0;
+    set(result.knob, result.option.value);
+    if (result.option.opens) openEditor(rowOf(result.knob.id).id);
+    else render();
+  }
+
+  function openKnob(knob: Knob): void {
+    searchInput.value = "";
+    browsing = false;
+    searchInput.blur();
+    openEditor(rowOf(knob.id).id);
+    viewOf(rowOf(knob.id).id)?.main.focus();
+  }
 
   function render(): void {
     const state = engine.getState();
     const open = state.panel.open;
     wrap.dataset.open = open ? "true" : "false";
-    wrap.dataset.scheme = schemeOf(state);
-    wrap.dataset.motion = state.motion;
     host.style.top = `${state.panel.y}px`;
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
-    for (const binding of bindings) {
-      binding.button.classList.toggle("on", binding.group.current(state) === binding.value);
+    const live = liveOf(state);
+    let anyActive = false;
+    let anyShown = false;
+    for (const view of views) {
+      const active = isActive(view.row, state);
+      const expanded = openRow === view.row.id;
+      anyActive ||= active;
+      anyShown ||= active || expanded;
+      view.box.hidden = !active && !expanded;
+      view.box.classList.toggle("open", expanded);
+      view.main.setAttribute("aria-expanded", expanded ? "true" : "false");
+      view.value.textContent = summary(view.row, state, live);
+      view.clear.hidden = !active;
+      view.editor.hidden = !expanded;
+      if (expanded) for (const update of view.updates) update(state);
     }
-    const fix = resolveGeo(state.geo);
-    fill(lat, fix ? String(fix.lat) : "");
-    fill(lng, fix ? String(fix.lng) : "");
-    fill(route, state.geo.route);
-    fill(speed, String(state.geo.speed));
-    const keyword = state.timeZone === "geo" || state.timeZone === "system";
-    fill(zone, keyword ? "" : state.timeZone);
-    zoneNote.textContent = `time zone: ${resolveTimeZone(state.timeZone, state.geo) ?? "system"}`;
-    fill(clockAt, state.clock.mode === "system" ? "" : wallInput(state.clock.at));
-    clockNote.textContent = clockReadout(state.clock);
-    const framed = needsFrame(state);
-    if (!framed) frameCount = null;
-    const count = framed ? frameCount : overflowCount();
-    badge.textContent = overflowBadge(state.overflow, count);
+    const hot = state.overflow && live.overflow !== null && live.overflow > 0;
+    viewOf("debug")?.value.classList.toggle("hot", hot);
+    empty.hidden = anyShown;
+    resetButton.disabled = !anyActive;
+    badge.textContent = overflowBadge(state.overflow, live.overflow);
     badge.hidden = badge.textContent === "";
-    badge.classList.toggle("hot", count !== null && count > 0);
+    badge.classList.toggle("hot", hot);
+    renderBody(state);
     shiftPanel(state.panel.y);
+  }
+
+  /** The clock runs between knob changes, and its readouts with it. */
+  function tick(): void {
+    const state = engine.getState();
+    if (!state.panel.open) return;
+    const live = liveOf(state);
+    for (const view of views) {
+      if (!view.box.hidden) view.value.textContent = summary(view.row, state, live);
+    }
+    if (openRow === "clock") for (const update of viewOf("clock")?.updates ?? []) update(state);
   }
 
   /**
@@ -581,56 +744,53 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   function toggle(open?: boolean): void {
     const next = open ?? !engine.getState().panel.open;
+    // A closed panel keeps no focus, so the next keys go to the page.
+    if (!next) {
+      browsing = false;
+      const focused = root.activeElement;
+      if (focused instanceof HTMLElement) focused.blur();
+    }
     engine.setState({ panel: { open: next } });
     clampY();
   }
 
-  /** Typing commits once it pauses, each field on a timer of its own. */
-  const pending = new Map<() => void, number>();
+  searchInput.addEventListener("focus", () => {
+    browsing = true;
+    render();
+  });
+  searchInput.addEventListener("blur", () => {
+    browsing = false;
+    render();
+  });
+  searchInput.addEventListener("input", () => {
+    browsing = true;
+    cursor = 0;
+    body.scrollTop = 0;
+    render();
+  });
+  searchInput.addEventListener("keydown", (event: KeyboardEvent) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!browsing && !searchInput.value.trim()) {
+        browsing = true;
+        render();
+        return;
+      }
+      setCursor(cursor + (event.key === "ArrowDown" ? 1 : -1));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      entries[cursor]?.pick();
+    }
+  });
+  // A click on a result keeps the focus in the search, so the list stays put under it.
+  results.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
 
-  function queue(commit: () => void): void {
-    clearTimeout(pending.get(commit));
-    pending.set(
-      commit,
-      window.setTimeout(() => {
-        pending.delete(commit);
-        commit();
-      }, CUSTOM_DEBOUNCE),
-    );
-  }
-
-  function commitCustom(): void {
-    engine.setState({
-      geo: { preset: "custom", lat: toNumber(lat.value), lng: toNumber(lng.value) },
-    });
-  }
-
-  function commitRoute(): void {
-    engine.setState({ geo: { preset: "route", route: route.value } });
-  }
-
-  function commitSpeed(): void {
-    engine.setState({ geo: { speed: toNumber(speed.value) } });
-  }
-
-  /** An emptied field goes back to following geo. */
-  function commitZone(): void {
-    engine.setState({ timeZone: zone.value.trim() || "geo" });
-  }
-
-  /** A date and time picked whole runs the clock from there. */
-  function commitClock(): void {
-    const at = Date.parse(clockAt.value);
-    if (!Number.isNaN(at)) travel(at);
-  }
-
-  for (const input of [lat, lng]) input.addEventListener("input", () => queue(commitCustom));
-  route.addEventListener("input", () => queue(commitRoute));
-  speed.addEventListener("input", () => queue(commitSpeed));
-  zone.addEventListener("input", () => queue(commitZone));
-  clockAt.addEventListener("change", commitClock);
   replayButton.addEventListener("click", () => engine.replay());
-  resetButton.addEventListener("click", () => engine.reset());
+  resetButton.addEventListener("click", () => {
+    openRow = null;
+    searchInput.value = "";
+    engine.reset();
+  });
 
   let dragging = false;
   let dragged = false;
@@ -717,9 +877,54 @@ export function createPanel(options: PanelOptions = {}): Panel {
     else if (engine.getState().panel.open) toggle(false);
   }
 
+  /**
+   * Escape takes one step back at a time: it clears the query, leaves the
+   * search, then closes the open editor, and only then the panel. With the
+   * focus out on the page, it closes the panel straight away.
+   */
+  function escape(): void {
+    if (dragging || !engine.getState().panel.open) return;
+    const focused = root.activeElement;
+    if (focused === searchInput) {
+      if (searchInput.value) setQuery("");
+      else searchInput.blur();
+      return;
+    }
+    const filter = focused instanceof HTMLInputElement && focused.classList.contains("filter");
+    if (filter && focused.value) {
+      focused.value = "";
+      focused.dispatchEvent(new Event("input"));
+      return;
+    }
+    if (searchInput.value) {
+      setQuery("");
+      return;
+    }
+    const view = openRow ? viewOf(openRow) : undefined;
+    if (focused && view) {
+      openEditor(null);
+      view.main.focus();
+      return;
+    }
+    toggle(false);
+  }
+
+  /**
+   * The hotkey toggles the panel unless the focus is in a field, the search
+   * included. Any other printable key, while the panel is out and the focus is
+   * in no field, goes to the search and starts a query; `/` only focuses it.
+   */
   function onKeydown(event: KeyboardEvent): void {
     const action = keyAction(event, hotkey);
-    if (action) onAction(action);
+    if (action === "close") escape();
+    else if (action) onAction(action);
+    if (action || dragging || !engine.getState().panel.open) return;
+    const typed = typedKey(event);
+    if (typed === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    searchInput.focus();
+    if (typed !== "/") setQuery(typed);
   }
 
   /**
@@ -735,20 +940,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
   }
 
-  function onSchemeChange(): void {
-    render();
-  }
-
-  // The clock runs between knob changes, and its readout with it.
-  const ticker = window.setInterval(() => {
-    clockNote.textContent = clockReadout(engine.getState().clock);
-  }, 1000);
+  const ticker = window.setInterval(tick, 1000);
   const unsubscribe = engine.subscribe(render);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", clampY);
-  darkQuery?.addEventListener("change", onSchemeChange);
 
   function attach(): void {
     if (document.body && host.parentNode !== document.body) document.body.append(host);
@@ -768,7 +965,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("message", onMessage);
       window.removeEventListener("resize", clampY);
-      darkQuery?.removeEventListener("change", onSchemeChange);
       document.removeEventListener("DOMContentLoaded", attach);
       host.remove();
     },
