@@ -1,4 +1,5 @@
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
+import { DEVICES, deviceOf } from "../engine/devices";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
 import { DEFAULT_STATE } from "../engine/store";
@@ -58,6 +59,8 @@ export interface Option {
   aliases?: readonly string[];
   /** Picking it opens the knob's editor too, which has more to fill in. */
   opens?: boolean;
+  /** The heading a long list shows it under. */
+  group?: string;
 }
 
 /** What changes without a knob moving. */
@@ -91,6 +94,7 @@ export type KnobId =
   | "online"
   | "connection"
   | "saveData"
+  | "device"
   | "width"
   | "dpr"
   | "frame"
@@ -629,6 +633,67 @@ const SAVE_DATA: Knob = {
   available: hasConnection,
 };
 
+/** The smallest and largest frame a size typed out can ask for, in px. */
+const MIN_SIZE = 120;
+const MAX_SIZE = 8192;
+
+/** `390x844`, `390 × 844` or `390*844` as a width and a height. */
+function parseSize(text: string): Option | null {
+  const match = /^(\d+)\s*[x×*]\s*(\d+)(?:\s*px)?$/i.exec(text.trim());
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if ([width, height].some((size) => size < MIN_SIZE || size > MAX_SIZE)) return null;
+  return { value: `${width}x${height}`, label: `${width} × ${height}` };
+}
+
+const ORIENTATIONS = options("portrait", "landscape");
+
+/** The frame's size as the device knob reads it, such as `390x844` or `fullx700`. */
+function sizeValue(state: DevknobsState): string {
+  return typeof state.height === "number" ? `${state.width}x${state.height}` : "none";
+}
+
+const DEVICE: Knob = {
+  id: "device",
+  label: "device",
+  category: "viewport",
+  control: "list",
+  options: [
+    { value: "none", label: "none" },
+    ...DEVICES.map((device) => ({
+      value: device.id,
+      label: device.label,
+      aliases: [device.kind, ...device.ua.split("-")],
+      group: device.kind,
+    })),
+  ],
+  aliases: ["devices", "height", "orientation", "rotate"],
+  read: (state) => (state.device === "none" ? sizeValue(state) : state.device),
+  write: (value, state) => {
+    if (value === "portrait" || value === "landscape") return { orientation: value };
+    const size = /^(\d+|full)x(\d+)$/.exec(value);
+    if (size) {
+      return { width: size[1] === "full" ? "full" : Number(size[1]), height: Number(size[2]) };
+    }
+    if (value !== "none") return { device: value };
+    // None takes away what the device brought, a dpr set since too.
+    const device = deviceOf(state.device);
+    return device && state.dpr === device.dpr
+      ? { device: "none", width: "full", height: "full", dpr: "system" }
+      : { device: "none", width: "full", height: "full" };
+  },
+  reset: { device: DEFAULT_STATE.device, height: DEFAULT_STATE.height },
+  brief: (state) => {
+    const device = deviceOf(state.device);
+    return device ? `${device.label} · ${state.orientation}` : nameOf(DEVICE, sizeValue(state));
+  },
+  name: (value) => value.replace("x", " × "),
+  parse: parseSize,
+  bare: true,
+  extra: () => ORIENTATIONS,
+};
+
 const WIDTH: Knob = {
   id: "width",
   label: "width",
@@ -644,9 +709,11 @@ const WIDTH: Knob = {
   read: (state) => String(state.width),
   write: (value) => ({ width: value === "full" ? "full" : Number(value) }),
   reset: { width: DEFAULT_STATE.width },
+  // With a height too, the device knob says the size.
+  brief: (state) => (typeof state.height === "number" ? "" : String(state.width)),
   parse: (text) => {
     const match = /^(\d+)(?:\s*px)?$/i.exec(text.trim());
-    return match ? numberIn(match[1] ?? "", 120, 8192) : null;
+    return match ? numberIn(match[1] ?? "", MIN_SIZE, MAX_SIZE) : null;
   },
   bare: true,
 };
@@ -666,7 +733,8 @@ const DPR: Knob = {
   read: (state) => String(state.dpr),
   write: (value) => ({ dpr: value === "system" ? "system" : Number(value) }),
   reset: { dpr: DEFAULT_STATE.dpr },
-  brief: (state) => `dpr ${state.dpr}`,
+  // A device says its own.
+  brief: (state) => (deviceOf(state.device)?.dpr === state.dpr ? "" : `dpr ${state.dpr}`),
   parse: (text) => numberIn(text, 0.25, 5),
 };
 
@@ -758,6 +826,7 @@ export const KNOBS: readonly Knob[] = [
   ONLINE,
   CONNECTION,
   SAVE_DATA,
+  DEVICE,
   WIDTH,
   DPR,
   FRAME,
@@ -779,7 +848,7 @@ export const ROWS: readonly Row[] = [
   { id: "timeZone", label: "time zone", knobs: ["timeZone"] },
   { id: "clock", label: "clock", knobs: ["clock", "clockMode", "clockSpeed", "header"] },
   { id: "network", label: "network", knobs: ["online", "connection", "saveData"] },
-  { id: "viewport", label: "viewport", knobs: ["width", "dpr", "frame", "vision"] },
+  { id: "viewport", label: "viewport", knobs: ["device", "width", "dpr", "frame", "vision"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },
 ];
 
