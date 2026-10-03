@@ -85,8 +85,9 @@ dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 the panel starts closed, as a handle on the edge of the window. click it or
 press the hotkey to open it, and it stays open across reloads.
 
-drag the handle to move it up and down the edge of the window. hold shift while
-dragging to move the panel and the handle together.
+drag the handle to move the panel and the handle together up and down the edge
+of the window. hold shift while dragging to move the handle alone along the
+panel. with the panel closed, a drag moves the handle.
 
 ## the panel
 

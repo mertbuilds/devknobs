@@ -82,6 +82,15 @@ export function overflowBadge(on: boolean, count: number | null): string {
   return on && count !== null ? ` · ${count} overflowing` : "";
 }
 
+/**
+ * What a drag on the handle moves: a plain one the panel and the handle as
+ * one, a shift one the handle alone along the panel's edge. A closed panel
+ * has only the handle to move.
+ */
+export function dragTarget(shift: boolean, open: boolean): "panel" | "handle" {
+  return open && !shift ? "panel" : "handle";
+}
+
 /** What the clock note says: the time the page reads, or that it reads the real one. */
 function clockReadout(clock: ClockValue): string {
   return clock.mode === "system" ? "clock: system" : `now: ${new Date(now()).toLocaleString()}`;
@@ -208,7 +217,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     home,
     ` · dev only · press ${hotkey}`,
     el("br", ""),
-    "/ to search · shift-drag moves",
+    "/ to search · shift-drag moves the handle",
   );
   foot.append(actions, meta);
 
@@ -869,13 +878,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     lastPointer = event.clientY;
     if (!dragged && Math.abs(event.clientY - startPointer) < DRAG_SLOP) return;
     dragged = true;
-    // Shift moves the panel and the handle as one, until the panel meets the
-    // viewport gap. A closed panel has nothing to move, so there shift is an
-    // ordinary drag.
-    const movePanel = event.shiftKey && engine.getState().panel.open;
-    wrap.dataset.drag = movePanel ? "panel" : "true";
+    // The panel and the handle move as one until the panel meets the viewport
+    // gap, and shift lets the handle go alone, halfway through a drag too.
+    const target = dragTarget(event.shiftKey, engine.getState().panel.open);
+    wrap.dataset.drag = target;
     // Not through the store: a pointermove is no reason to re-apply every knob.
-    if (movePanel) {
+    if (target === "panel") {
       const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - panel.offsetHeight);
       const nextPanelTop = Math.min(Math.max(dragPanelTop + step, PANEL_GAP), room);
       dragTop = clamp(dragTop + (nextPanelTop - dragPanelTop));

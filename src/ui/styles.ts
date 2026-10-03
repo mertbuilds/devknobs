@@ -116,8 +116,8 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 }
 .handle:hover { color: var(--fg); }
 .handle:focus-visible { outline-offset: 2px; }
-.wrap[data-drag="true"] .handle { cursor: grabbing; }
-.wrap[data-drag="panel"] .handle { cursor: ns-resize; }
+.wrap[data-drag="panel"] .handle { cursor: grabbing; }
+.wrap[data-drag="handle"] .handle { cursor: ns-resize; }
 
 .panel {
   flex: none;

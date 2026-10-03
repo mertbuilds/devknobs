@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { apply, reset } from "../src/engine/time";
-import { HOST_STYLE, overflowBadge, wallInput } from "../src/ui/panel";
+import { dragTarget, HOST_STYLE, overflowBadge, wallInput } from "../src/ui/panel";
 import { CSS } from "../src/ui/styles";
 
 describe("overflowBadge", () => {
@@ -16,6 +16,21 @@ describe("overflowBadge", () => {
 
   test("says nothing before the frame reports a count", () => {
     expect(overflowBadge(true, null)).toBe("");
+  });
+});
+
+describe("dragTarget", () => {
+  test("a plain drag moves the open panel with its handle", () => {
+    expect(dragTarget(false, true)).toBe("panel");
+  });
+
+  test("a shift drag moves the handle alone", () => {
+    expect(dragTarget(true, true)).toBe("handle");
+  });
+
+  test("a closed panel has only the handle to move", () => {
+    expect(dragTarget(false, false)).toBe("handle");
+    expect(dragTarget(true, false)).toBe("handle");
   });
 });
 
