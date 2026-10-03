@@ -307,6 +307,7 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 .fields .field-num { flex: 1; min-width: 0; }
 .field-clock { width: 100%; }
 .field-route { width: 100%; height: 44px; padding: 3px 6px; resize: vertical; }
+.field-ua { width: 100%; height: 56px; padding: 3px 6px; resize: vertical; }
 .unit { flex: none; font-size: 11px; color: var(--faint); }
 .extra { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .note { padding: 0 6px; font-size: 10.5px; line-height: 1.4; color: var(--faint); }

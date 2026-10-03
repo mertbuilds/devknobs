@@ -58,6 +58,7 @@ const BUSY = state({
   frame: true,
   dpr: 2,
   vision: "deuteranopia",
+  ua: { preset: "iphone-safari" },
   overflow: true,
   outlines: true,
 });
@@ -131,6 +132,8 @@ describe("summary", () => {
     expect(says("timeZone", { timeZone: "Asia/Tokyo" })).toBe("Asia/Tokyo");
     expect(says("timeZone", { timeZone: "system" })).toBe("system");
     expect(says("network", { network: { online: "offline" } })).toBe("offline");
+    expect(says("ua", { ua: { preset: "googlebot" } })).toBe("googlebot");
+    expect(says("ua", { ua: { preset: "custom", custom: "curl/8.7.1" } })).toBe("custom");
   });
 
   test("related knobs read as one row", () => {
@@ -254,6 +257,19 @@ describe("write", () => {
     expect(geo.write("custom", state({ geo: { preset: "tokyo" } }))).toEqual({
       geo: { preset: "custom", lat: 35.6762, lng: 139.6503 },
     });
+  });
+
+  test("user agent takes a preset, a string typed out, or custom from the one in use", () => {
+    const ua = knobOf("ua");
+    expect(ua.write("googlebot", DEFAULT_STATE)).toEqual({ ua: { preset: "googlebot" } });
+    expect(ua.write("system", DEFAULT_STATE)).toEqual({ ua: { preset: "system" } });
+    expect(ua.write("curl/8.7.1", DEFAULT_STATE)).toEqual({
+      ua: { preset: "custom", custom: "curl/8.7.1" },
+    });
+    const custom = ua.write("custom", state({ ua: { preset: "linux-firefox" } })).ua?.custom;
+    expect(custom).toContain("Firefox/");
+    const typed = state({ ua: { preset: "system", custom: "curl/8.7.1" } });
+    expect(ua.write("custom", typed)).toEqual({ ua: { preset: "custom", custom: "curl/8.7.1" } });
   });
 
   test("numbers and keywords go back to their types", () => {

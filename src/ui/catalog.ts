@@ -3,6 +3,7 @@ import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
 import { DEFAULT_STATE } from "../engine/store";
 import { canonicalZone, TIME_ZONE_PRESETS } from "../engine/time";
+import { UA_PRESETS, uaPreset } from "../engine/ua";
 import type {
   ClockMode,
   ConnectionValue,
@@ -32,6 +33,7 @@ export type Category =
   | "location and time"
   | "network"
   | "viewport"
+  | "device"
   | "debug";
 
 export const CATEGORIES: readonly Category[] = [
@@ -41,6 +43,7 @@ export const CATEGORIES: readonly Category[] = [
   "location and time",
   "network",
   "viewport",
+  "device",
   "debug",
 ];
 
@@ -95,6 +98,7 @@ export type KnobId =
   | "dpr"
   | "frame"
   | "vision"
+  | "ua"
   | "overflow"
   | "outlines";
 
@@ -141,6 +145,7 @@ export type RowId =
   | "clock"
   | "network"
   | "viewport"
+  | "ua"
   | "debug";
 
 /** One line of the active list, with the knobs that read best together. */
@@ -287,6 +292,25 @@ function allZones(): readonly Option[] {
   }
   return zones;
 }
+
+/** A user agent typed out: a product and its version up front, such as `curl/8.7.1`. */
+function parseUserAgent(text: string): Option | null {
+  const trimmed = text.trim();
+  return /^[\w.!#$%&'*+^`|~-]+\/\S/.test(trimmed) ? { value: trimmed, label: trimmed } : null;
+}
+
+/** More words each user agent preset is found by. */
+const UA_ALIASES: Record<string, readonly string[]> = {
+  "iphone-safari": ["ios", "mobile"],
+  "android-chrome": ["mobile", "pixel"],
+  "ipad-safari": ["ipados", "tablet"],
+  "mac-safari": ["macos"],
+  "mac-chrome": ["macos"],
+  "windows-chrome": ["pc"],
+  "windows-edge": ["microsoft", "pc"],
+  "linux-firefox": ["gecko", "mozilla"],
+  googlebot: ["bot", "crawler", "google", "seo"],
+};
 
 function hasConnection(): boolean {
   return typeof navigator !== "undefined" && "connection" in navigator;
@@ -706,6 +730,34 @@ const VISION: Knob = {
   reset: { vision: DEFAULT_STATE.vision },
 };
 
+const UA: Knob = {
+  id: "ua",
+  label: "user agent",
+  category: "device",
+  control: "list",
+  options: [
+    { value: "system", label: "system" },
+    ...UA_PRESETS.map((preset) => ({
+      value: preset.id,
+      label: preset.label.toLowerCase(),
+      aliases: UA_ALIASES[preset.id] ?? [],
+    })),
+    { value: "custom", label: "custom", opens: true },
+  ],
+  aliases: ["ua", "useragent", "browser"],
+  read: (state) => state.ua.preset,
+  write: (value, state) => {
+    if (value === "system" || uaPreset(value)) return { ua: { preset: value } };
+    if (value !== "custom") return { ua: { preset: "custom", custom: value } };
+    // Custom starts from the user agent in use, so it can be edited from there.
+    const real = typeof navigator === "undefined" ? "" : navigator.userAgent;
+    const custom = uaPreset(state.ua.preset)?.userAgent || state.ua.custom || real;
+    return { ua: { preset: "custom", custom } };
+  },
+  reset: { ua: { preset: DEFAULT_STATE.ua.preset } },
+  parse: parseUserAgent,
+};
+
 const OVERFLOW: Knob = {
   id: "overflow",
   label: "overflow",
@@ -762,6 +814,7 @@ export const KNOBS: readonly Knob[] = [
   DPR,
   FRAME,
   VISION,
+  UA,
   OVERFLOW,
   OUTLINES,
 ];
@@ -780,6 +833,7 @@ export const ROWS: readonly Row[] = [
   { id: "clock", label: "clock", knobs: ["clock", "clockMode", "clockSpeed", "header"] },
   { id: "network", label: "network", knobs: ["online", "connection", "saveData"] },
   { id: "viewport", label: "viewport", knobs: ["width", "dpr", "frame", "vision"] },
+  { id: "ua", label: "user agent", knobs: ["ua"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },
 ];
 

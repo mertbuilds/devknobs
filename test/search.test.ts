@@ -101,6 +101,18 @@ describe("search", () => {
     expect(search("a", KNOBS).length).toBeLessThanOrEqual(40);
   });
 
+  test("user agent presets by browser, system or bot", () => {
+    expect(top("ua")).toEqual(["ua -"]);
+    expect(top("user agent")).toEqual(["ua -"]);
+    expect(top("android")).toEqual(["ua android-chrome"]);
+    expect(top("googlebot")).toEqual(["ua googlebot"]);
+    expect(top("bot")).toEqual(["ua googlebot"]);
+    expect(top("firefox")).toEqual(["ua linux-firefox"]);
+    expect(top("iphone", 2)).toContain("ua iphone-safari");
+    expect(top("ua curl/8.7.1")).toEqual(["ua curl/8.7.1"]);
+    expect(search("europe/paris", KNOBS).some((result) => result.knob.id === "ua")).toBe(false);
+  });
+
   test("leaves out the knobs the browser cannot use", () => {
     const usable = KNOBS.filter((knob) => knob.id !== "connection");
     expect(search("3g", usable)).toEqual([]);
@@ -139,6 +151,14 @@ describe("filterOptions", () => {
     ]);
     expect(filterOptions(knobOf("locale"), "pt-br").map((option) => option.value)).toEqual([
       "pt-BR",
+    ]);
+    expect(filterOptions(knobOf("ua"), "curl/8.7.1").map((option) => option.value)).toEqual([
+      "curl/8.7.1",
+    ]);
+    expect(filterOptions(knobOf("ua"), "safari").map((option) => option.value)).toEqual([
+      "iphone-safari",
+      "ipad-safari",
+      "mac-safari",
     ]);
   });
 });

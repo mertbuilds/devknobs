@@ -3,6 +3,7 @@ import { now, realNow } from "../engine/clock";
 import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
+import { userAgentOf } from "../engine/ua";
 import { frameWindow } from "../engine/width";
 import type { ClockValue, DevknobsState } from "../types";
 import {
@@ -462,11 +463,24 @@ export function createPanel(options: PanelOptions = {}): Panel {
     ];
   }
 
+  /** The user agent in use, and editing it makes it the custom one. */
+  function uaExtra(): [HTMLElement, Update] {
+    const custom = document.createElement("textarea");
+    custom.className = "field field-ua";
+    custom.placeholder = "custom user agent";
+    custom.spellcheck = false;
+    custom.setAttribute("aria-label", "custom user agent");
+    const commit = () => engine.setState({ ua: { preset: "custom", custom: custom.value } });
+    custom.addEventListener("input", () => queue(commit));
+    return [custom, (state) => fill(custom, userAgentOf(state.ua))];
+  }
+
   /** What some knobs add under their control: free values and readouts. */
   const EXTRAS: Partial<Record<KnobId, () => [HTMLElement, Update]>> = {
     clock: clockExtra,
     geo: geoExtra,
     timeZone: zoneExtra,
+    ua: uaExtra,
   };
 
   function buildEditor(row: Row, editor: HTMLElement): Update[] {
