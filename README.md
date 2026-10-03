@@ -68,6 +68,7 @@ setState({ clock: { mode: "frozen", at: Date.parse("2026-12-24T18:00") } });
 setState({ clock: { mode: "offset", speed: 60 } });
 setState({ network: { online: "offline" } });
 setState({ locale: { lang: "ar" } });
+setState({ ua: { preset: "iphone-safari" } });
 ```
 
 `mount()` and `<DevKnobs />` take the same options:
@@ -123,13 +124,14 @@ it is also `devknobs/early` in the package. it applies the stored scheme,
 motion, contrast and transparency on the spot, with no panel: the `matchMedia` and
 `matches` patches, `color-scheme` on `<html>`, and the stylesheet rewrite as
 sheets arrive. it sets the stored clock the same way, through `Date` and
-`Temporal.Now`. the full script, however it is loaded, takes those patches
-over when it mounts instead of patching on top, and lists made in between
-still get their change events. a `Date` the page kept in between follows the
-clock still. it covers the media knobs and the clock only, and since it
-reads the stored state, it follows the knobs from the next load on. inside a
-frame that gets the scheme natively, it leaves the scheme to the browser, as
-the full script does.
+`Temporal.Now`, and the stored user agent on `navigator`, so a page that
+sniffs it while it boots sees the preset. the full script, however it is
+loaded, takes those patches over when it mounts instead of patching on top,
+and lists made in between still get their change events. a `Date` the page
+kept in between follows the clock still. it covers the media knobs, the clock
+and the user agent only, and since it reads the stored state, it follows the
+knobs from the next load on. inside a frame that gets the scheme natively, it
+leaves the scheme to the browser, as the full script does.
 
 ## knobs
 
@@ -153,6 +155,7 @@ the full script does.
 | viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. a width wider than the window is scaled down to fit, and the readout says by how much. back to full, the window goes wherever the frame navigated |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
+| user agent | iphone safari, android chrome, ipad safari, mac safari, mac chrome, windows chrome, windows edge, linux firefox, googlebot, a custom string, system | patches `userAgent`, `appVersion`, `platform`, `vendor` and `maxTouchPoints` on `Navigator.prototype`, and `navigator.userAgentData`: its brands, `mobile`, `platform`, `toJSON` and `getHighEntropyValues` (platform version, model, architecture, bitness, full version list), all from the same browser. safari and firefox have no `userAgentData`, so their presets take it away. the ipad is the one iPadOS shows sites by default, a mac with touch points. a custom string sets `userAgent` and `appVersion` alone, as chrome devtools does: platform, vendor and touch points stay the browser's, and a `userAgentData` the browser has reports no brands. the field under the list shows the string in use, and editing it makes it the custom one. back to system, every property is the browser's own again |
 | vision | protanopia, deuteranopia, tritanopia, achromatopsia, blur, none | an svg color matrix (machado et al. 2009, as chromium devtools uses) or a 2px blur, as a `filter` on the frame, so fixed elements inside keep their place and the panel stays readable. brings the frame up |
 | overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count in its debug row and footer. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
 | outlines | on, off | injects one style rule that outlines every element |
@@ -290,6 +293,15 @@ devknobs loaded reads the real time, so load the early script first.
 file's `lastModified` read the real time too. only `fetch` and
 `XMLHttpRequest` carry the header: forms, links, `sendBeacon`, `EventSource`
 and websockets do not.
+
+the user agent knob changes what page code reads, not what goes over the
+wire. the server still sees the real `User-Agent` request header, as browsers
+do not let page code change it on the page's own loads, so server-side
+sniffing (a mobile redirect, a bot check, rendering per device) does not
+follow the knob. the `Sec-CH-UA` client hint headers stay real too. workers
+and service workers keep the real `navigator`, and code that read the user
+agent before the knob moved keeps what it read: reload, or load the early
+script first.
 
 the speed knob reaches what the Web Animations API can see. an animation
 that javascript drives frame by frame (a `requestAnimationFrame` loop, a
