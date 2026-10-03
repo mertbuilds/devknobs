@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_STATE, merge, parse } from "../src/engine/store";
+import { ZOOM_MAX, ZOOM_MIN } from "../src/engine/zoom";
 import type { ClockValue, DevknobsState } from "../src/types";
 
 describe("parse", () => {
@@ -32,6 +33,7 @@ describe("parse", () => {
         orientation: "sideways",
         frame: true,
         dpr: 2,
+        zoom: "huge",
         vision: "tritanopia",
         ua: { preset: "iphone-safari", custom: 3 },
         overflow: true,
@@ -60,6 +62,7 @@ describe("parse", () => {
       orientation: "portrait",
       frame: true,
       dpr: 2,
+      zoom: "fit",
       vision: "tritanopia",
       ua: { preset: "iphone-safari", custom: "" },
       overflow: true,
@@ -79,6 +82,17 @@ describe("parse", () => {
     const stored = { width: 874, height: 402, device: "iphone-16-pro", orientation: "landscape" };
     expect(parse(JSON.stringify(stored))).toMatchObject(stored);
     expect(parse(JSON.stringify({ height: 0 })).height).toBe("full");
+  });
+
+  test("fits the frame when the session predates the zoom, and keeps a zoom in reason", () => {
+    expect(parse(JSON.stringify({ width: 390 })).zoom).toBe("fit");
+    expect(parse(JSON.stringify({ zoom: "fit" })).zoom).toBe("fit");
+    expect(parse(JSON.stringify({ zoom: 1.25 })).zoom).toBe(1.25);
+    expect(parse(JSON.stringify({ zoom: 0 })).zoom).toBe("fit");
+    expect(parse(JSON.stringify({ zoom: -1 })).zoom).toBe("fit");
+    expect(parse(JSON.stringify({ zoom: "125%" })).zoom).toBe("fit");
+    expect(parse(JSON.stringify({ zoom: 0.01 })).zoom).toBe(ZOOM_MIN);
+    expect(parse(JSON.stringify({ zoom: 40 })).zoom).toBe(ZOOM_MAX);
   });
 
   test("drops a vision deficiency it does not know", () => {
@@ -158,6 +172,7 @@ describe("parse", () => {
       transparency: "reduce",
       pseudo: true,
       spacing: true,
+      zoom: 1.5,
     };
     expect(parse(JSON.stringify(state))).toEqual(state);
   });

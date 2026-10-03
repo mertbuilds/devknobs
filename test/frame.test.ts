@@ -92,6 +92,17 @@ describe("readMessage", () => {
     ).toEqual({ source: "devknobs", type: "state", state: DEFAULT_STATE });
   });
 
+  test("reads the zoom keys", () => {
+    for (const action of ["zoom-in", "zoom-out", "zoom-fit"] as const) {
+      expect(from({ source: "devknobs", type: "key", action })).toEqual({
+        source: "devknobs",
+        type: "key",
+        action,
+      });
+    }
+    expect(from({ source: "devknobs", type: "key", action: "zoom-max" })).toBeNull();
+  });
+
   test("reads keys, ready and replay", () => {
     expect(from({ source: "devknobs", type: "key", action: "toggle" })).toEqual({
       source: "devknobs",

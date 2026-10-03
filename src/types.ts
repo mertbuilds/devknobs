@@ -98,6 +98,13 @@ export type OrientationValue = "portrait" | "landscape";
 /** Device pixel ratio inside the frame, or `system` for the screen's own. */
 export type DprValue = number | "system";
 
+/**
+ * How big the frame is drawn: `fit` for as big as the window allows, up to its
+ * own size, or a scale such as 1.25 for 125%. The page inside sees the same
+ * viewport and device pixel ratio either way.
+ */
+export type ZoomValue = "fit" | number;
+
 /** A vision deficiency drawn as a filter over the frame, or `none`. */
 export type VisionValue =
   | "none"
@@ -158,6 +165,7 @@ export interface DevknobsState {
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;
   dpr: DprValue;
+  zoom: ZoomValue;
   vision: VisionValue;
   ua: UaValue;
   /** Mark the boxes that stick out of the viewport sideways. */

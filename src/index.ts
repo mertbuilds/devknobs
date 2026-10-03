@@ -36,6 +36,7 @@ export type {
   UaValue,
   VisionValue,
   WidthValue,
+  ZoomValue,
 } from "./types";
 export type { DeviceKind, DevicePreset } from "./engine/devices";
 export type { GeoPreset } from "./engine/geo";

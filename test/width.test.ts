@@ -1,102 +1,193 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { DEVICES, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
-import { apply, fit, label, reset } from "../src/engine/width";
+import { apply, fit, label, onZoom, origin, reset, STRIP, zoomKey } from "../src/engine/width";
+import type { ZoomValue } from "../src/types";
 
+/** A letterbox that leaves 1200 by 800 under its readout strip. */
+const BOX = { width: 1200, height: 800 + STRIP };
 const ROOM = { width: 1200, height: 800 };
+const FULL = { width: "full", height: "full", zoom: "fit" } as const;
+const PHONE = { width: 402, height: 874, zoom: "fit" } as const;
+const DESKTOP = { width: 1920, height: 1080, zoom: "fit" } as const;
+/** What the open panel covers of the right edge. */
+const PANEL = 261;
 
 describe("fit", () => {
-  test("keeps a frame that fits at its own size, centered", () => {
-    expect(fit(390, ROOM)).toEqual({
+  test("keeps a frame that fits at its own size, under the strip, with a margin across", () => {
+    expect(fit({ ...FULL, width: 390 }, BOX)).toEqual({
       width: 390,
       height: 800,
       zoom: 1,
       scale: 1,
+      fit: 1,
       transform: 1,
-      left: 405,
+      box: { width: 438, height: 800 },
+      left: 24,
       top: 0,
     });
   });
 
-  test("fills the room at full width", () => {
-    expect(fit("full", ROOM)).toMatchObject({ width: 1200, height: 800, scale: 1, left: 0 });
-  });
-
-  test("scales a wider frame down and makes it taller by as much", () => {
-    const place = fit(1600, ROOM);
-    expect(place.scale).toBe(0.75);
-    expect(place.width).toBe(1600);
-    expect(place.height * place.scale).toBe(800);
-    expect(place.left).toBe(0);
-  });
-
-  test("undoes the zoom in the wrapper and keeps the css size", () => {
-    const place = fit(390, ROOM, 1.5);
-    expect(place).toMatchObject({ width: 390, height: 800, zoom: 1.5, scale: 1, left: 405 });
-    expect(place.transform * place.zoom).toBe(1);
-    const wide = fit(1600, ROOM, 0.5);
-    expect(wide.transform).toBe(1.5);
-    expect(wide.width * wide.zoom * wide.transform).toBe(1200);
-  });
-
-  test("leaves the scale alone when there is no room to measure", () => {
-    expect(fit("full", { width: 0, height: 0 }).scale).toBe(1);
-    expect(fit(390, { width: 0, height: 0 }, 1, 844).scale).toBe(1);
-  });
-
-  test("keeps a height that fits, centered both ways", () => {
-    expect(fit(402, ROOM, 1, 600)).toEqual({
-      width: 402,
-      height: 600,
-      zoom: 1,
+  test("is the whole window at full size, with no strip and no margin", () => {
+    expect(fit(FULL, BOX)).toMatchObject({
+      width: 1200,
+      height: 824,
       scale: 1,
-      transform: 1,
-      left: 399,
-      top: 100,
+      box: { width: 1200, height: 824 },
+      left: 0,
+      top: 0,
     });
   });
 
-  test("scales a taller frame down to fit the height, and keeps its size", () => {
-    const place = fit(402, ROOM, 1, 1000);
-    expect(place).toMatchObject({ width: 402, height: 1000, scale: 0.8, top: 0 });
-    expect(place.left).toBeCloseTo((1200 - 402 * 0.8) / 2);
+  test("scales a wider frame down inside its margins, and makes it taller by as much", () => {
+    const place = fit({ ...FULL, width: 1600 }, BOX);
+    expect(place.scale).toBe(0.72);
+    expect(place.width).toBe(1600);
+    expect(place.height * place.scale).toBeCloseTo(800);
+    expect(place.box.width).toBeCloseTo(1200);
   });
 
-  test("scales by the tighter axis", () => {
-    const wide = fit(1920, ROOM, 1, 1080);
-    expect(wide.scale).toBe(0.625);
-    expect(wide).toMatchObject({ width: 1920, height: 1080, left: 0, top: 62.5 });
-    const tall = fit(1032, ROOM, 1, 1376);
-    expect(tall.scale).toBeCloseTo(800 / 1376);
-    expect(tall.top).toBe(0);
-    expect(tall.left).toBeCloseTo((1200 - 1032 * tall.scale) / 2);
+  test("keeps a height that fits, and a margin all round", () => {
+    expect(fit({ ...PHONE, height: 600 }, BOX)).toMatchObject({
+      width: 402,
+      height: 600,
+      scale: 1,
+      box: { width: 450, height: 648 },
+      left: 24,
+      top: 24,
+    });
   });
 
-  test("undoes the zoom in the wrapper with a height too", () => {
-    const place = fit(1920, ROOM, 0.5, 1080);
-    expect(place.width * place.zoom * place.transform).toBe(1200);
-    expect(place.height * place.zoom * place.transform).toBe(675);
+  test("scales by the tighter axis, inside the margins", () => {
+    const wide = fit(DESKTOP, BOX);
+    expect(wide.scale).toBe(0.6);
+    expect(wide.box.width).toBeCloseTo(1200);
+    expect(wide.box.height).toBeCloseTo(696);
+    const tall = fit({ width: 1032, height: 1376, zoom: "fit" }, BOX);
+    expect(tall.scale).toBeCloseTo(752 / 1376);
+    expect(tall.box.height).toBeCloseTo(800);
   });
 
-  test("a height at full width keeps the window's width", () => {
-    expect(fit("full", ROOM, 1, 600)).toMatchObject({ width: 1200, height: 600, top: 100 });
+  test("shows every device whole with a margin, either way up, in any window", () => {
+    const windows = [
+      { width: 1200, height: 805 },
+      { width: 1440, height: 900 },
+      { width: 1920, height: 1080 },
+      { width: 800, height: 600 },
+      { width: 390, height: 700 },
+    ];
+    for (const device of DEVICES) {
+      for (const way of ["portrait", "landscape"] as const) {
+        const size = turn(device, way);
+        for (const letterbox of windows) {
+          for (const aside of [0, PANEL]) {
+            const place = fit({ ...size, zoom: "fit" }, letterbox, { aside });
+            expect(place.box.width).toBeLessThanOrEqual(letterbox.width + 1e-9);
+            expect(place.box.height).toBeLessThanOrEqual(letterbox.height - STRIP + 1e-9);
+            expect(place.left).toBeGreaterThan(0);
+            expect(place.top).toBeGreaterThan(0);
+            expect(place.width * place.scale + 2 * place.left).toBeLessThanOrEqual(
+              place.box.width + 1e-9,
+            );
+            expect(place.height * place.scale + 2 * place.top).toBeCloseTo(place.box.height);
+          }
+        }
+      }
+    }
+  });
+
+  test("draws the frame at the zoom picked, at the same css size, in a box that scrolls", () => {
+    const place = fit({ ...PHONE, zoom: 1.5 }, BOX);
+    expect(place).toMatchObject({ width: 402, height: 874, scale: 1.5, transform: 1.5 });
+    expect(place.fit).toBeCloseTo(752 / 874);
+    expect(place.box.width).toBeCloseTo(402 * 1.5 + 48);
+    expect(place.box.height).toBeCloseTo(874 * 1.5 + 48);
+    expect(fit({ ...PHONE, zoom: 0.5 }, BOX).box).toEqual({ width: 249, height: 485 });
+  });
+
+  test("keeps the css height of a frame without one of its own at any zoom", () => {
+    const fitted = fit({ ...FULL, width: 1600 }, BOX);
+    for (const zoom of [0.5, 1, 1.25]) {
+      const place = fit({ ...FULL, width: 1600, zoom }, BOX);
+      expect(place.height).toBe(fitted.height);
+      expect(place.box.height).toBeCloseTo(fitted.height * zoom);
+    }
+  });
+
+  test("reads out a zoom at full size too, under the strip", () => {
+    expect(fit({ ...FULL, zoom: 0.5 }, BOX)).toMatchObject({
+      width: 1200,
+      height: 800,
+      scale: 0.5,
+      box: { width: 600, height: 400 },
+    });
+  });
+
+  test("undoes the device pixel ratio's zoom in the wrapper, and keeps the css size", () => {
+    const place = fit({ ...FULL, width: 390 }, BOX, { frameZoom: 1.5 });
+    expect(place).toMatchObject({ width: 390, height: 800, zoom: 1.5, scale: 1 });
+    expect(place.transform * place.zoom).toBe(1);
+    const wide = fit(DESKTOP, BOX, { frameZoom: 0.5 });
+    expect(wide.transform).toBeCloseTo(1.2);
+    expect(wide.width * wide.zoom * wide.transform).toBeCloseTo(1152);
+    expect(wide.height * wide.zoom * wide.transform).toBeCloseTo(648);
+  });
+
+  test("fits a frame the open panel would cover into the room left of it", () => {
+    const place = fit(DESKTOP, BOX, { aside: PANEL });
+    expect(place.scale).toBeCloseTo((1200 - PANEL - 48) / 1920);
+    expect(place.fit).toBe(place.scale);
+    expect(place.box.width).toBeCloseTo(1200);
+    expect(place.width * place.scale + 2 * place.left).toBeCloseTo(1200 - PANEL);
+  });
+
+  test("leaves a frame clear of the panel where it is, a zoom too", () => {
+    expect(fit(PHONE, BOX, { aside: PANEL })).toEqual(fit(PHONE, BOX));
+    expect(fit({ ...DESKTOP, zoom: 1 }, BOX, { aside: PANEL }).box.width).toBe(1968);
+    expect(fit({ ...FULL, height: 600 }, BOX, { aside: PANEL })).toEqual(
+      fit({ ...FULL, height: 600 }, BOX),
+    );
+  });
+
+  test("lets a panel over most of the room cover the frame", () => {
+    const narrow = { width: 500, height: 900 };
+    expect(fit(DESKTOP, narrow, { aside: PANEL })).toEqual(fit(DESKTOP, narrow));
+  });
+
+  test("leaves the scale alone when there is no room to measure", () => {
+    expect(fit(FULL, { width: 0, height: 0 }).scale).toBe(1);
+    expect(fit({ ...FULL, width: 390, height: 844 }, { width: 0, height: 0 }).scale).toBe(1);
+  });
+});
+
+describe("origin", () => {
+  test("centers a box smaller than the room, margins and all", () => {
+    const place = fit({ ...PHONE, zoom: 0.5 }, BOX);
+    expect(origin(place, ROOM)).toEqual({ x: (1200 - 249) / 2 + 24, y: (800 - 485) / 2 + 24 });
+  });
+
+  test("starts a box bigger than the room at its edge, so all of it scrolls into view", () => {
+    expect(origin(fit({ ...DESKTOP, zoom: 1 }, BOX), ROOM)).toEqual({ x: 24, y: 24 });
+    expect(origin(fit({ ...PHONE, zoom: 1.5 }, BOX), ROOM)).toEqual({ x: 298.5, y: 24 });
   });
 });
 
 const NO_DEVICE = { dpr: "system", height: "full", device: "none" } as const;
 
 describe("label", () => {
-  test("names the width, the scale when the frame is drawn smaller, and the ratio", () => {
-    expect(label(fit(390, ROOM), NO_DEVICE)).toBe("390");
-    expect(label(fit(1920, ROOM), NO_DEVICE)).toBe("1920 at 63%");
-    expect(label(fit(1920, ROOM, 1.5), { ...NO_DEVICE, dpr: 3 })).toBe("1920 at 63% · 3x");
+  test("names the width and the ratio, and leaves the scale to the zoom control", () => {
+    expect(label(fit({ ...FULL, width: 390 }, BOX), NO_DEVICE)).toBe("390");
+    expect(label(fit({ ...FULL, width: 1920 }, BOX), NO_DEVICE)).toBe("1920");
+    expect(label(fit({ ...FULL, width: 1920 }, BOX), { ...NO_DEVICE, dpr: 3 })).toBe("1920 · 3x");
   });
 
   test("names a height of its own, and the device", () => {
-    expect(label(fit(390, ROOM, 1, 700), { ...NO_DEVICE, height: 700 })).toBe("390 × 700");
+    const tall = fit({ ...FULL, width: 390, height: 700 }, BOX);
+    expect(label(tall, { ...NO_DEVICE, height: 700 })).toBe("390 × 700");
     const phone = { dpr: 3, height: 874, device: "iphone-16-pro" };
-    expect(label(fit(402, ROOM, 1, 874), phone)).toBe("iPhone 16 Pro · 402 × 874 at 92% · 3x");
+    expect(label(fit(PHONE, BOX), phone)).toBe("iPhone 16 Pro · 402 × 874 · 3x");
     const desk = { dpr: 1, height: 1080, device: "desktop" };
-    expect(label(fit(1920, ROOM, 1, 1080), desk)).toBe("desktop · 1920 × 1080 at 63% · 1x");
+    expect(label(fit(DESKTOP, BOX), desk)).toBe("desktop · 1920 × 1080 · 1x");
   });
 });
 
@@ -168,6 +259,11 @@ class FakeElement extends EventTarget {
     }
   }
 
+  replaceChildren(...nodes: FakeElement[]): void {
+    this.children.length = 0;
+    this.append(...nodes);
+  }
+
   appendChild(node: FakeElement): FakeElement {
     this.append(node);
     return node;
@@ -227,7 +323,14 @@ const PAGE = "http://localhost:3000/settings";
 const FRAMED = "http://localhost:3000/settings/billing";
 const EARLIER = "http://localhost:3000/";
 const SCROLL_Y = 600;
-const VIEWPORT = { ...UNFRAMED, scheme: "system", device: "none", width: 390 } as const;
+const KNOBS = {
+  ...UNFRAMED,
+  scheme: "system",
+  device: "none",
+  zoom: "fit",
+  panel: { open: false },
+} as const;
+const VIEWPORT = { ...KNOBS, width: 390 } as const;
 const NATIVE_SHOW_MODAL = FakeDialog.prototype.showModal;
 
 let body: FakeElement;
@@ -278,6 +381,7 @@ beforeEach(() => {
     scrollY: SCROLL_Y,
     devicePixelRatio: 1,
     scrollTo: (options: ScrollToOptions) => scrolls.push(options),
+    requestAnimationFrame: () => 0,
     addEventListener: () => {},
     removeEventListener: () => {},
   });
@@ -309,6 +413,7 @@ beforeEach(() => {
 
 afterEach(() => {
   reset();
+  onZoom(null);
   FakeDialog.prototype.showModal = NATIVE_SHOW_MODAL;
   for (const name of [
     "window",
@@ -366,10 +471,44 @@ describe("the frame over the page", () => {
   });
 
   test("comes up for a height alone, that tall, and reads it out", () => {
-    apply({ ...UNFRAMED, scheme: "system", device: "none", height: 700 });
+    apply({ ...KNOBS, height: 700 });
     expect(Reflect.get(frameElement().style, "height")).toBe("700px");
     const readout = everything().find((element) => Reflect.get(element, "className") === "size");
     expect(readout && Reflect.get(readout, "hidden")).toBe(false);
+  });
+
+  test("offers fit, the presets and a zoom of the wheel's own, and stores a pick", () => {
+    const zooms: ZoomValue[] = [];
+    onZoom((zoom) => zooms.push(zoom));
+    apply({ ...VIEWPORT, zoom: 0.8 });
+    const picker = everything().find((element) => element.tagName === "SELECT");
+    if (!picker) throw new Error("no zoom control");
+    expect(picker.children.map((option) => option.textContent)).toEqual([
+      "fit 100%",
+      "50%",
+      "75%",
+      "80%",
+      "100%",
+      "125%",
+      "150%",
+    ]);
+    expect(Reflect.get(picker, "value")).toBe("0.8");
+    Reflect.set(picker, "value", "1.25");
+    picker.dispatchEvent(new Event("change"));
+    Reflect.set(picker, "value", "fit");
+    picker.dispatchEvent(new Event("change"));
+    expect(zooms).toEqual([1.25, "fit"]);
+  });
+
+  test("steps the zoom from the scale the frame is drawn at, and goes back to fit", () => {
+    const zooms: ZoomValue[] = [];
+    onZoom((zoom) => zooms.push(zoom));
+    expect(zoomKey("zoom-in")).toBe(false);
+    apply(VIEWPORT);
+    expect(zoomKey("zoom-in")).toBe(true);
+    expect(zoomKey("zoom-out")).toBe(true);
+    expect(zoomKey("zoom-fit")).toBe(true);
+    expect(zooms).toEqual([1.1, 0.9, "fit"]);
   });
 
   test("puts the page's own address back over the frame's", () => {
@@ -398,7 +537,7 @@ describe("the frame over the page", () => {
   test("sends the window after the frame instead, when the knobs go off", () => {
     apply(VIEWPORT);
     load(FRAMED);
-    apply({ ...UNFRAMED, scheme: "system", device: "none" });
+    apply(KNOBS);
     expect(assigned).toEqual([FRAMED]);
     expect(scrolls).toEqual([]);
   });
@@ -407,7 +546,7 @@ describe("the frame over the page", () => {
     apply(VIEWPORT);
     load(FRAMED);
     location.href = EARLIER;
-    apply({ ...UNFRAMED, scheme: "system", device: "none" });
+    apply(KNOBS);
     expect(assigned).toEqual([]);
     expect(location.href).toBe(EARLIER);
   });

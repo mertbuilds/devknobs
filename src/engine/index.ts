@@ -127,6 +127,8 @@ export function start(options: EngineOptions = {}): void {
   if (inFrame) window.addEventListener("message", onMessage);
   // A page that will not load in the frame offers this way out.
   width.onExit(() => setState(UNFRAMED));
+  // The letterbox zooms the frame from its own control, the wheel and the keys.
+  width.onZoom((zoom) => setState({ zoom }));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));
   if (!inFrame) return;
   relay(overflow.overflowCount());
@@ -143,6 +145,7 @@ export function stop(): void {
   stopRelay = null;
   inFrame = false;
   width.onExit(null);
+  width.onZoom(null);
   media.destroy();
   touch.reset();
   speed.reset();

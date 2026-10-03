@@ -17,6 +17,7 @@ import type {
 import { mergeClock } from "./clock";
 import { deviceOf, hold, settle } from "./devices";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
+import { clampZoom } from "./zoom";
 
 export const STORAGE_KEY = "devknobs";
 
@@ -49,6 +50,7 @@ export const DEFAULT_STATE: DevknobsState = {
   orientation: "portrait",
   frame: false,
   dpr: "system",
+  zoom: "fit",
   vision: "none",
   ua: { preset: "system", custom: "" },
   overflow: false,
@@ -134,6 +136,7 @@ export function parse(json: string | null | undefined): DevknobsState {
   const panel = record(state.panel);
   const panelY = num(panel.y, DEFAULT_STATE.panel.y);
   const device = text(state.device, DEFAULT_STATE.device);
+  const zoom = numberOr(state.zoom, "fit", DEFAULT_STATE.zoom);
   return {
     scheme: oneOf(state.scheme, SCHEMES, DEFAULT_STATE.scheme),
     motion: oneOf(state.motion, MOTIONS, DEFAULT_STATE.motion),
@@ -178,6 +181,8 @@ export function parse(json: string | null | undefined): DevknobsState {
     orientation: oneOf(state.orientation, ORIENTATIONS, DEFAULT_STATE.orientation),
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
+    // A session stored before the zoom knob fits the frame, as it did then.
+    zoom: zoom === "fit" ? zoom : clampZoom(zoom),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
     ua: {
       preset: text(ua.preset, DEFAULT_STATE.ua.preset),

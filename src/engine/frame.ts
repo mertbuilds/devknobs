@@ -11,8 +11,13 @@ export const FRAME_ATTRIBUTE = "data-devknobs-frame";
  */
 export const FRAME_NAME = "devknobs-frame";
 
+/** What a zoom key asks of the frame: a step in or out, or back to fit. */
+export type ZoomAction = "zoom-in" | "zoom-out" | "zoom-fit";
+
 /** What a key pressed inside the frame asks of the panel above it. */
-export type KeyAction = "toggle" | "close";
+export type KeyAction = "toggle" | "close" | ZoomAction;
+
+const KEY_ACTIONS: readonly KeyAction[] = ["toggle", "close", "zoom-in", "zoom-out", "zoom-fit"];
 
 /** Everything the page and its frame say to each other. */
 export type DevknobsMessage =
@@ -109,9 +114,8 @@ export function readMessage(
     return { source: "devknobs", type, state: parse(JSON.stringify(message.state)) };
   }
   if (type === "key") {
-    const action = message.action;
-    if (action !== "toggle" && action !== "close") return null;
-    return { source: "devknobs", type, action };
+    const action = KEY_ACTIONS.find((known) => known === message.action);
+    return action ? { source: "devknobs", type, action } : null;
   }
   if (type === "overflow") {
     const count = message.count;
