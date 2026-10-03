@@ -1,4 +1,5 @@
 import * as engine from "./engine";
+import { DEVICES } from "./engine/devices";
 import { isDevknobsFrame } from "./engine/frame";
 import { GEO_PRESETS } from "./engine/geo";
 import { LOCALE_PRESETS } from "./engine/locale";
@@ -18,11 +19,13 @@ export type {
   DprValue,
   GeoErrorValue,
   GeoValue,
+  HeightValue,
   Knob,
   LocaleValue,
   MotionValue,
   NetworkValue,
   OnlineValue,
+  OrientationValue,
   PanelValue,
   SaveDataValue,
   SchemeValue,
@@ -34,6 +37,7 @@ export type {
   VisionValue,
   WidthValue,
 } from "./types";
+export type { DeviceKind, DevicePreset } from "./engine/devices";
 export type { GeoPreset } from "./engine/geo";
 export type { UaBrand, UaHints, UaPreset } from "./engine/ua";
 export type { EngineOptions } from "./engine";
@@ -50,6 +54,7 @@ export const PRESETS = {
   geo: GEO_PRESETS,
   timeZone: TIME_ZONE_PRESETS,
   ua: UA_PRESETS,
+  device: DEVICES,
 };
 
 let panel: Panel | null = null;

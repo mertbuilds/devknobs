@@ -9,6 +9,7 @@ import {
   KNOBS,
   knobOf,
   type Live,
+  nameOf,
   parseShift,
   ROWS,
   type Row,
@@ -55,6 +56,7 @@ const BUSY = state({
   text: 17,
   spacing: true,
   width: 390,
+  height: 844,
   frame: true,
   dpr: 2,
   vision: "deuteranopia",
@@ -151,6 +153,24 @@ describe("summary", () => {
     expect(says("location", { geo: { preset: "custom", lat: 36.8969, lng: 30.7133 } })).toBe(
       "36.9, 30.71",
     );
+  });
+
+  test("a device says its name and how it is held, and the size what the device does not", () => {
+    expect(says("viewport", { device: "iphone-16-pro" })).toBe("iPhone 16 Pro · portrait");
+    expect(says("viewport", { device: "iphone-16-pro", orientation: "landscape" })).toBe(
+      "iPhone 16 Pro · landscape",
+    );
+    expect(says("viewport", { device: "pixel-9", dpr: 1 })).toBe("Pixel 9 · portrait · dpr 1");
+    expect(says("viewport", { device: "desktop", vision: "blur" })).toBe(
+      "desktop · landscape · blur",
+    );
+  });
+
+  test("a size without a device reads as width by height", () => {
+    expect(says("viewport", { width: 390, height: 844 })).toBe("390 × 844");
+    expect(says("viewport", { width: 390, height: 844, dpr: 2 })).toBe("390 × 844 · dpr 2");
+    expect(says("viewport", { height: 700 })).toBe("full × 700");
+    expect(says("viewport", { device: "iphone-se", width: 500 })).toBe("500 × 667 · dpr 2");
   });
 
   test("a value from outside the presets reads as itself", () => {
@@ -282,6 +302,52 @@ describe("write", () => {
   });
 });
 
+describe("the device knob", () => {
+  const device = knobOf("device");
+
+  test("picks a device, a size or a way to hold it", () => {
+    expect(device.write("iphone-16", DEFAULT_STATE)).toEqual({ device: "iphone-16" });
+    expect(device.write("390x844", DEFAULT_STATE)).toEqual({ width: 390, height: 844 });
+    expect(device.write("fullx700", DEFAULT_STATE)).toEqual({ width: "full", height: 700 });
+    expect(device.write("landscape", DEFAULT_STATE)).toEqual({ orientation: "landscape" });
+  });
+
+  test("none takes the device's size away, and its dpr unless one was set since", () => {
+    const phone = state({ device: "iphone-16" });
+    const none = { device: "none", width: "full", height: "full" } as const;
+    expect(device.write("none", phone)).toEqual({ ...none, dpr: "system" });
+    expect(device.write("none", merge(phone, { dpr: 1 }))).toEqual(none);
+    expect(merge(phone, device.write("none", phone))).toEqual(DEFAULT_STATE);
+  });
+
+  test("reads the device, else the size, and names a size", () => {
+    expect(device.read(state({ device: "pixel-9" }))).toBe("pixel-9");
+    expect(device.read(state({ width: 390, height: 844 }))).toBe("390x844");
+    expect(device.read(state({ width: 390 }))).toBe("none");
+    expect(nameOf(device, "390x844")).toBe("390 × 844");
+    expect(nameOf(device, "pixel-9")).toBe("Pixel 9");
+  });
+
+  test("takes a size typed out, in reason", () => {
+    expect(device.parse?.("390x844")).toEqual({ value: "390x844", label: "390 × 844" });
+    expect(device.parse?.("1920 × 1080 px")?.value).toBe("1920x1080");
+    expect(device.parse?.("390*844")?.value).toBe("390x844");
+    expect(device.parse?.("390")).toBeNull();
+    expect(device.parse?.("10x844")).toBeNull();
+  });
+
+  test("lists its devices under their kind", () => {
+    const groups = device.options.map((option) => option.group ?? "");
+    expect(groups.filter((group, index) => group !== groups[index - 1])).toEqual([
+      "",
+      "phone",
+      "tablet",
+      "laptop",
+      "desktop",
+    ]);
+  });
+});
+
 describe("resetPatch", () => {
   test("puts one row back and leaves the rest", () => {
     for (const entry of ROWS) {
@@ -303,10 +369,19 @@ describe("resetPatch", () => {
   test("the viewport takes the frame down", () => {
     const after = merge(BUSY, resetPatch(row("viewport")));
     expect(after.width).toBe("full");
+    expect(after.height).toBe("full");
     expect(after.dpr).toBe("system");
     expect(after.frame).toBe(false);
     expect(after.vision).toBe("none");
     expect(after.scheme).toBe("dark");
+    const phone = merge(BUSY, { device: "ipad-mini", orientation: "landscape" });
+    expect(merge(phone, resetPatch(row("viewport")))).toMatchObject({
+      device: "none",
+      orientation: "portrait",
+      width: "full",
+      height: "full",
+      dpr: "system",
+    });
   });
 
   test("location keeps the route that was typed", () => {

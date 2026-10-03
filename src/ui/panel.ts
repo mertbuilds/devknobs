@@ -337,7 +337,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (option.opens) openEditor(rowOf(knob.id).id);
   }
 
-  /** A long list with a filter that also takes a value typed out in full. */
+  /**
+   * A long list with a filter that also takes a value typed out in full.
+   * Unfiltered, grouped values sit under their headings.
+   */
   function list(knob: Knob): [HTMLElement, Update] {
     const box = el("div", "list");
     const filter = field("filter", "filter", `filter ${knob.label}`);
@@ -355,18 +358,24 @@ export function createPanel(options: PanelOptions = {}): Panel {
       if (filter.value.trim() === "" && !shown.some((option) => option.value === current)) {
         shown.unshift({ value: current, label: nameOf(knob, current) });
       }
-      items.replaceChildren(
-        ...shown.map((option, index) => {
-          const node = button("item", option.label);
-          node.setAttribute("role", "option");
-          node.tabIndex = -1;
-          mark(node, option.value === current, "aria-selected");
-          node.classList.toggle("cursor", index === at);
-          node.addEventListener("click", () => pickOption(knob, option));
-          return node;
-        }),
-      );
-      const cursorNode = items.children[at];
+      const grouped = filter.value.trim() === "";
+      const nodes: HTMLElement[] = [];
+      let group: string | undefined;
+      shown.forEach((option, index) => {
+        if (grouped && option.group && option.group !== group) {
+          nodes.push(el("div", "group-label", option.group));
+        }
+        group = option.group;
+        const node = button("item", option.label);
+        node.setAttribute("role", "option");
+        node.tabIndex = -1;
+        mark(node, option.value === current, "aria-selected");
+        node.classList.toggle("cursor", index === at);
+        node.addEventListener("click", () => pickOption(knob, option));
+        nodes.push(node);
+      });
+      items.replaceChildren(...nodes);
+      const cursorNode = items.querySelector(".cursor");
       if (cursorNode instanceof HTMLElement) reveal(cursorNode, items);
     };
     filter.addEventListener("input", () => {
@@ -472,6 +481,34 @@ export function createPanel(options: PanelOptions = {}): Panel {
     ];
   }
 
+  /** A width and a height of the frame's own, and a turn of it. */
+  function deviceExtra(): [HTMLElement, Update] {
+    const box = el("div", "fields");
+    const width = numberField("width", "viewport width in pixels");
+    const height = numberField("height", "viewport height in pixels");
+    const rotate = button("chip", "rotate");
+    box.append(width, el("span", "unit", "×"), height, rotate);
+    // An empty field is the window's own size.
+    const size = (input: HTMLInputElement) => {
+      const value = toNumber(input.value);
+      return value > 0 ? value : "full";
+    };
+    const commit = () => engine.setState({ width: size(width), height: size(height) });
+    for (const input of [width, height]) input.addEventListener("input", () => queue(commit));
+    rotate.addEventListener("click", () => {
+      const turned = engine.getState().orientation === "portrait" ? "landscape" : "portrait";
+      engine.setState({ orientation: turned });
+    });
+    return [
+      box,
+      (state) => {
+        fill(width, typeof state.width === "number" ? String(state.width) : "");
+        fill(height, typeof state.height === "number" ? String(state.height) : "");
+        rotate.hidden = typeof state.width !== "number" || typeof state.height !== "number";
+      },
+    ];
+  }
+
   function zoneExtra(): [HTMLElement, Update] {
     const note = el("div", "note");
     return [
@@ -497,6 +534,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /** What some knobs add under their control: free values and readouts. */
   const EXTRAS: Partial<Record<KnobId, () => [HTMLElement, Update]>> = {
     clock: clockExtra,
+    device: deviceExtra,
     geo: geoExtra,
     timeZone: zoneExtra,
     ua: uaExtra,

@@ -89,6 +89,12 @@ export type TextValue = number | "system";
 /** Viewport width in px, rendered as a frame that wide, or `full` for the window. */
 export type WidthValue = number | "full";
 
+/** Viewport height in px, rendered as a frame that tall, or `full` for the window. */
+export type HeightValue = number | "full";
+
+/** Which way the frame is held. Landscape puts its long side across. */
+export type OrientationValue = "portrait" | "landscape";
+
 /** Device pixel ratio inside the frame, or `system` for the screen's own. */
 export type DprValue = number | "system";
 
@@ -141,6 +147,14 @@ export interface DevknobsState {
   /** WCAG 1.4.12 text spacing. */
   spacing: boolean;
   width: WidthValue;
+  height: HeightValue;
+  /** A device preset id, or `none`. Picking one sets the width, height and dpr. */
+  device: string;
+  /**
+   * Follows the width and height. Setting it turns a frame that has both, and
+   * holds a device that way.
+   */
+  orientation: OrientationValue;
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;
   dpr: DprValue;

@@ -27,6 +27,9 @@ describe("parse", () => {
         text: 20,
         spacing: 1,
         width: "full",
+        height: "tall",
+        device: "pixel-42",
+        orientation: "sideways",
         frame: true,
         dpr: 2,
         vision: "tritanopia",
@@ -52,6 +55,9 @@ describe("parse", () => {
       text: 20,
       spacing: false,
       width: "full",
+      height: "full",
+      device: "none",
+      orientation: "portrait",
       frame: true,
       dpr: 2,
       vision: "tritanopia",
@@ -67,6 +73,12 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ panel: { y: 40 } })).panel.open).toBe(false);
     expect(parse(JSON.stringify({ panel: { open: "yes" } })).panel.open).toBe(false);
     expect(parse(JSON.stringify({ panel: { open: true } })).panel.open).toBe(true);
+  });
+
+  test("keeps a device it knows, with its height and orientation", () => {
+    const stored = { width: 874, height: 402, device: "iphone-16-pro", orientation: "landscape" };
+    expect(parse(JSON.stringify(stored))).toMatchObject(stored);
+    expect(parse(JSON.stringify({ height: 0 })).height).toBe("full");
   });
 
   test("drops a vision deficiency it does not know", () => {

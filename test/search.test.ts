@@ -50,10 +50,30 @@ describe("search", () => {
 
   test("aliases", () => {
     expect(top("dark mode")).toEqual(["scheme dark"]);
-    expect(top("phone")).toEqual(["width 390"]);
+    expect(top("mobile")).toEqual(["width 390"]);
     expect(top("turkish")).toEqual(["locale tr"]);
     expect(top("high contrast")).toEqual(["contrast more"]);
     expect(top("retina")).toEqual(["dpr 2"]);
+  });
+
+  test("devices by name, kind and browser, and a size typed out", () => {
+    expect(top("iphone")).toEqual(["device iphone-16"]);
+    expect(top("iphone pro max")).toEqual(["device iphone-16-pro-max"]);
+    expect(top("pixel")).toEqual(["device pixel-9"]);
+    expect(top("galaxy", 2)).toEqual(["device galaxy-s25", "device galaxy-s25-ultra"]);
+    expect(top("ipad")).toEqual(["device ipad-mini"]);
+    expect(top("macbook")).toEqual(["device macbook-air-13"]);
+    expect(top("phone")).toEqual(["device iphone-16"]);
+    expect(top("tablet", 3)).toEqual([
+      "device ipad-mini",
+      "device ipad-air-11",
+      "device ipad-pro-13",
+    ]);
+    expect(top("android")).toEqual(["device pixel-9"]);
+    expect(top("landscape")).toEqual(["device landscape"]);
+    expect(top("rotate")).toEqual(["device -"]);
+    expect(top("390x844")).toEqual(["device 390x844"]);
+    expect(top("390 × 844")).toEqual(["device 390x844"]);
   });
 
   test("one word, every knob it names a value of", () => {
@@ -104,11 +124,11 @@ describe("search", () => {
   test("user agent presets by browser, system or bot", () => {
     expect(top("ua")).toEqual(["ua -"]);
     expect(top("user agent")).toEqual(["ua -"]);
-    expect(top("android")).toEqual(["ua android-chrome"]);
+    expect(top("ua android")).toEqual(["ua android-chrome"]);
     expect(top("googlebot")).toEqual(["ua googlebot"]);
     expect(top("bot")).toEqual(["ua googlebot"]);
     expect(top("firefox")).toEqual(["ua linux-firefox"]);
-    expect(top("iphone", 2)).toContain("ua iphone-safari");
+    expect(top("ua iphone")).toEqual(["ua iphone-safari"]);
     expect(top("ua curl/8.7.1")).toEqual(["ua curl/8.7.1"]);
     expect(search("europe/paris", KNOBS).some((result) => result.knob.id === "ua")).toBe(false);
   });
