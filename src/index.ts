@@ -3,6 +3,7 @@ import { isDevknobsFrame } from "./engine/frame";
 import { GEO_PRESETS } from "./engine/geo";
 import { LOCALE_PRESETS } from "./engine/locale";
 import { TIME_ZONE_PRESETS } from "./engine/time";
+import { UA_PRESETS } from "./engine/ua";
 import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
@@ -29,10 +30,12 @@ export type {
   TextValue,
   TimeZoneValue,
   TransparencyValue,
+  UaValue,
   VisionValue,
   WidthValue,
 } from "./types";
 export type { GeoPreset } from "./engine/geo";
+export type { UaBrand, UaHints, UaPreset } from "./engine/ua";
 export type { EngineOptions } from "./engine";
 
 export interface MountOptions extends engine.EngineOptions {
@@ -46,6 +49,7 @@ export const PRESETS = {
   locale: LOCALE_PRESETS,
   geo: GEO_PRESETS,
   timeZone: TIME_ZONE_PRESETS,
+  ua: UA_PRESETS,
 };
 
 let panel: Panel | null = null;

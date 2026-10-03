@@ -101,6 +101,16 @@ export type VisionValue =
   | "achromatopsia"
   | "blur";
 
+export interface UaValue {
+  /**
+   * A preset id such as `iphone-safari`, `custom` to use the custom string, or
+   * `system` to stop emulating.
+   */
+  preset: string;
+  /** The user agent of the `custom` preset. */
+  custom: string;
+}
+
 export interface PanelValue {
   open: boolean;
   /** Handle offset from the top of the viewport, in px. */
@@ -130,6 +140,7 @@ export interface DevknobsState {
   frame: boolean;
   dpr: DprValue;
   vision: VisionValue;
+  ua: UaValue;
   /** Mark the boxes that stick out of the viewport sideways. */
   overflow: boolean;
   outlines: boolean;

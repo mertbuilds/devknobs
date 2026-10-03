@@ -30,6 +30,7 @@ describe("parse", () => {
         frame: true,
         dpr: 2,
         vision: "tritanopia",
+        ua: { preset: "iphone-safari", custom: 3 },
         overflow: true,
         outlines: "yes",
         panel: { open: false, y: 40, top: 24 },
@@ -54,6 +55,7 @@ describe("parse", () => {
       frame: true,
       dpr: 2,
       vision: "tritanopia",
+      ua: { preset: "iphone-safari", custom: "" },
       overflow: true,
       outlines: false,
       panel: { open: false, y: 40, top: 24 },
@@ -93,6 +95,14 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ clock })).clock).toEqual(clock);
     const junk = { mode: "backwards", at: "soon", speed: -60, header: 1 };
     expect(parse(JSON.stringify({ clock: junk })).clock).toEqual(DEFAULT_STATE.clock);
+  });
+
+  test("leaves the user agent alone when the session predates the knob, and keeps a set one", () => {
+    expect(parse(JSON.stringify({ scheme: "dark" })).ua).toEqual({ preset: "system", custom: "" });
+    expect(parse(JSON.stringify({ ua: "googlebot" })).ua).toEqual(DEFAULT_STATE.ua);
+    expect(parse(JSON.stringify({ ua: { preset: 1, custom: null } })).ua).toEqual(DEFAULT_STATE.ua);
+    const ua = { preset: "custom", custom: "curl/8.7.1" };
+    expect(parse(JSON.stringify({ ua })).ua).toEqual(ua);
   });
 
   test("keeps a speed of zero, which pauses, and drops a negative one", () => {
@@ -139,6 +149,14 @@ describe("merge", () => {
       online: "offline",
       type: "3g",
       saveData: "system",
+    });
+  });
+
+  test("patches the user agent field by field", () => {
+    const state = merge(DEFAULT_STATE, { ua: { preset: "custom", custom: "curl/8.7.1" } });
+    expect(merge(state, { ua: { preset: "googlebot" } }).ua).toEqual({
+      preset: "googlebot",
+      custom: "curl/8.7.1",
     });
   });
 

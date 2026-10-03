@@ -45,6 +45,7 @@ export const DEFAULT_STATE: DevknobsState = {
   frame: false,
   dpr: "system",
   vision: "none",
+  ua: { preset: "system", custom: "" },
   overflow: false,
   outlines: false,
   panel: { open: true, y: 16, top: 16 },
@@ -116,6 +117,7 @@ export function parse(json: string | null | undefined): DevknobsState {
   const geo = record(state.geo);
   const clock = record(state.clock);
   const network = record(state.network);
+  const ua = record(state.ua);
   const panel = record(state.panel);
   const panelY = num(panel.y, DEFAULT_STATE.panel.y);
   return {
@@ -160,6 +162,10 @@ export function parse(json: string | null | undefined): DevknobsState {
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
+    ua: {
+      preset: text(ua.preset, DEFAULT_STATE.ua.preset),
+      custom: text(ua.custom, DEFAULT_STATE.ua.custom),
+    },
     overflow: bool(state.overflow, DEFAULT_STATE.overflow),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     panel: {
@@ -183,6 +189,7 @@ export function merge(state: DevknobsState, patch: DevknobsStatePatch): Devknobs
     geo: { ...state.geo, ...patch.geo },
     clock: mergeClock(state.clock, patch.clock),
     network: { ...state.network, ...patch.network },
+    ua: { ...state.ua, ...patch.ua },
     panel: { ...state.panel, ...patch.panel },
   };
 }

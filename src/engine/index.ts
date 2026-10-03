@@ -22,6 +22,7 @@ import * as speed from "./speed";
 import { clear, DEFAULT_STATE, load, merge, save } from "./store";
 import * as text from "./text";
 import * as time from "./time";
+import * as ua from "./ua";
 import * as width from "./width";
 
 export interface EngineOptions {
@@ -72,6 +73,7 @@ export function applyState(next: DevknobsState): void {
   network.apply(state.network);
   text.apply(state.text);
   spacing.apply(state.spacing);
+  ua.apply(state.ua);
   width.apply(state);
   // While the frame is up, the copy inside it looks at the page at that width.
   overflow.apply(state.overflow && !needsFrame(state));
@@ -141,6 +143,7 @@ export function stop(): void {
   network.reset();
   text.reset();
   spacing.reset();
+  ua.reset();
   width.reset();
   overflow.reset();
   outlines.reset();
