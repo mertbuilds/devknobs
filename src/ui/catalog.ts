@@ -5,6 +5,7 @@ import { LOCALE_PRESETS } from "../engine/locale";
 import { DEFAULT_STATE } from "../engine/store";
 import { canonicalZone, TIME_ZONE_PRESETS } from "../engine/time";
 import { UA_PRESETS, uaPreset } from "../engine/ua";
+import { percent, ZOOM_MAX, ZOOM_MIN, ZOOM_PRESETS } from "../engine/zoom";
 import type {
   ClockMode,
   ConnectionValue,
@@ -100,6 +101,7 @@ export type KnobId =
   | "device"
   | "width"
   | "dpr"
+  | "zoom"
   | "frame"
   | "vision"
   | "ua"
@@ -762,6 +764,37 @@ const DPR: Knob = {
   parse: (text) => numberIn(text, 0.25, 5),
 };
 
+/** `80` or `80%` as a zoom, in reason. */
+function parseZoom(text: string): Option | null {
+  const match = /^(\d+(?:\.\d+)?)\s*%?$/.exec(text.trim());
+  const scale = Number(match?.[1]) / 100;
+  if (!match || !(scale >= ZOOM_MIN && scale <= ZOOM_MAX)) return null;
+  return { value: String(scale), label: percent(scale) };
+}
+
+const ZOOM: Knob = {
+  id: "zoom",
+  label: "zoom",
+  category: "viewport",
+  // Segments, not chips: six presets wrap as chips at the panel's width.
+  control: "segments",
+  options: [
+    { value: "fit", label: "fit", aliases: ["window"] },
+    ...ZOOM_PRESETS.map((scale) => ({
+      value: String(scale),
+      label: String(Math.round(scale * 100)),
+      long: percent(scale),
+    })),
+  ],
+  aliases: ["scale", "magnify", "magnification"],
+  read: (state) => String(state.zoom),
+  write: (value) => ({ zoom: value === "fit" ? "fit" : Number(value) }),
+  reset: { zoom: DEFAULT_STATE.zoom },
+  brief: (state) => percent(Number(state.zoom)),
+  name: (value) => percent(Number(value)),
+  parse: parseZoom,
+};
+
 const FRAME: Knob = {
   id: "frame",
   label: "frame",
@@ -881,6 +914,7 @@ export const KNOBS: readonly Knob[] = [
   DEVICE,
   WIDTH,
   DPR,
+  ZOOM,
   FRAME,
   VISION,
   UA,
@@ -901,7 +935,11 @@ export const ROWS: readonly Row[] = [
   { id: "timeZone", label: "time zone", knobs: ["timeZone"] },
   { id: "clock", label: "clock", knobs: ["clock", "clockMode", "clockSpeed", "header"] },
   { id: "network", label: "network", knobs: ["online", "connection", "saveData"] },
-  { id: "viewport", label: "viewport", knobs: ["device", "width", "dpr", "frame", "vision"] },
+  {
+    id: "viewport",
+    label: "viewport",
+    knobs: ["device", "width", "dpr", "zoom", "frame", "vision"],
+  },
   { id: "ua", label: "user agent", knobs: ["ua"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },
 ];

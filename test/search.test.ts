@@ -105,6 +105,13 @@ describe("search", () => {
     expect(top("paris")).toEqual(["timeZone Europe/Paris"]);
   });
 
+  test("zoom by its percent, typed out too, and fit", () => {
+    expect(top("zoom 50")).toEqual(["zoom 0.5"]);
+    expect(top("zoom 125%")).toEqual(["zoom 1.25"]);
+    expect(top("zoom 80")).toEqual(["zoom 0.8"]);
+    expect(top("fit")).toEqual(["zoom fit"]);
+  });
+
   test("a bare number names no text size or dpr, the knob's name does", () => {
     expect(top("text 18")).toEqual(["text 18"]);
     expect(top("dpr 1.5")).toEqual(["dpr 1.5"]);

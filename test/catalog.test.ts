@@ -166,6 +166,14 @@ describe("summary", () => {
     );
   });
 
+  test("a zoom off fit says its percent", () => {
+    expect(says("viewport", { device: "iphone-16-pro", zoom: 1.25 })).toBe(
+      "iPhone 16 Pro · portrait · 125%",
+    );
+    expect(says("viewport", { width: 390, zoom: 0.8333 })).toBe("390 · 83%");
+    expect(says("viewport", { width: 390, zoom: "fit" })).toBe("390");
+  });
+
   test("a size without a device reads as width by height", () => {
     expect(says("viewport", { width: 390, height: 844 })).toBe("390 × 844");
     expect(says("viewport", { width: 390, height: 844, dpr: 2 })).toBe("390 × 844 · dpr 2");
@@ -290,6 +298,17 @@ describe("write", () => {
     expect(custom).toContain("Firefox/");
     const typed = state({ ua: { preset: "system", custom: "curl/8.7.1" } });
     expect(ua.write("custom", typed)).toEqual({ ua: { preset: "custom", custom: "curl/8.7.1" } });
+  });
+
+  test("zoom takes fit or a scale, and a percent typed out in reason", () => {
+    const zoom = knobOf("zoom");
+    expect(zoom.write("fit", DEFAULT_STATE)).toEqual({ zoom: "fit" });
+    expect(zoom.write("1.25", DEFAULT_STATE)).toEqual({ zoom: 1.25 });
+    expect(zoom.parse?.("80%")).toEqual({ value: "0.8", label: "80%" });
+    expect(zoom.parse?.("10")).toBeNull();
+    expect(zoom.parse?.("fit")).toBeNull();
+    expect(nameOf(zoom, "1.5")).toBe("150");
+    expect(nameOf(zoom, "0.8")).toBe("80%");
   });
 
   test("numbers and keywords go back to their types", () => {
