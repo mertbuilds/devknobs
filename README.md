@@ -95,12 +95,13 @@ a row set from the panel stays in the list, back at its default too, until its
 `×` takes it off or reset all clears the list.
 
 the field at the top finds knobs and values. type `dark`, `390`, `+2d`, `tr`,
-`tokyo`, `rtl`, `pause` or `offline` and enter sets the first result. a value
-typed out in full works too: `500` for a width, `3d` for the clock, `pt-BR`,
-`Europe/Paris`, or `36.9, 30.7` for a position. a knob's name opens its
-editor, and with nothing typed the list shows every knob by category. arrows
-move through the results, escape clears the query, then leaves the field,
-then closes an open editor, and then the panel.
+`tokyo`, `rtl`, `pause` or `offline` and enter sets the first result and shows
+its row. a value typed out in full works too: `500` for a width, `3d` for the
+clock, `pt-BR`, `Europe/Paris`, or `36.9, 30.7` for a position. a knob's name
+opens its editor, and with nothing typed the list shows every knob by
+category. arrows move through the results. escape leaves the search, query and
+all, then closes an open editor, and then the panel. a click anywhere outside
+the search and its results, or on the `×` at its end, leaves it too.
 
 while the panel is out and the focus is in no field, `/` focuses the search.
 every other key goes to the page as it would without the panel. the hotkey

@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { forwardKeys, hotkeyOf, isSearchKey, keyAction, type KeyLike } from "../src/ui/keys";
+import {
+  type EscapeScene,
+  escapeStep,
+  forwardKeys,
+  hotkeyOf,
+  isSearchKey,
+  keyAction,
+  type KeyLike,
+} from "../src/ui/keys";
 
 function key(patch: Partial<KeyLike>): KeyLike {
   return {
@@ -80,6 +88,24 @@ describe("isSearchKey", () => {
     expect(isSearchKey(key({ key: "/", target: element("INPUT") }))).toBe(false);
     expect(isSearchKey(key({ key: "/", composedPath: () => [element("TEXTAREA")] }))).toBe(false);
     expect(isSearchKey(key({ key: "/", target: element("DIV", true) }))).toBe(false);
+  });
+});
+
+describe("escapeStep", () => {
+  const idle: EscapeScene = { search: false, filter: false, editor: false };
+
+  test("leaves the search in one step, query and all", () => {
+    expect(escapeStep({ ...idle, search: true })).toBe("search");
+    expect(escapeStep({ search: true, filter: true, editor: true })).toBe("search");
+  });
+
+  test("then clears a list filter, then closes the editor", () => {
+    expect(escapeStep({ ...idle, filter: true, editor: true })).toBe("filter");
+    expect(escapeStep({ ...idle, editor: true })).toBe("editor");
+  });
+
+  test("closes the panel when nothing else is open", () => {
+    expect(escapeStep(idle)).toBe("panel");
   });
 });
 

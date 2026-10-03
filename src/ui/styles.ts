@@ -159,6 +159,23 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 .name { flex: none; font-size: 11px; color: var(--faint); }
 .search { flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; }
 .search::placeholder { color: var(--faint); }
+/* 4 in from the search's edges, so 4 round. */
+.search-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: -6px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--faint);
+  border-radius: 4px;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.search-close:hover { color: var(--fg); background: var(--track); }
+/* Only while the search is open: it has the focus, or a query. */
+.wrap[data-mode="rows"] .search-close { display: none; }
 
 .body {
   position: relative;
