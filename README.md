@@ -67,6 +67,8 @@ setState({ timeZone: "Asia/Kathmandu" });
 setState({ clock: { mode: "frozen", at: Date.parse("2026-12-24T18:00") } });
 setState({ clock: { mode: "offset", speed: 60 } });
 setState({ network: { online: "offline" } });
+setState({ device: "iphone-16-pro", orientation: "landscape" });
+setState({ width: 390, height: 844 });
 setState({ locale: { lang: "ar" } });
 ```
 
@@ -88,8 +90,9 @@ dragging to move the panel and the handle together.
 ## the panel
 
 the panel lists only the knobs that are off their default, one row each, with
-related knobs together: width, device pixel ratio, frame and vision are one
-viewport row, the clock with its mode, speed and server header is another.
+related knobs together: device, width, device pixel ratio, frame and vision
+are one viewport row, the clock with its mode, speed and server header is
+another.
 click a row to open its editor, and `×` puts that row back to its default.
 
 the field at the top finds knobs and values. type `dark`, `390`, `+2d`, `tr`,
@@ -120,7 +123,8 @@ already in place. put the early script first in `<head>`:
 ```
 
 it is also `devknobs/early` in the package. it applies the stored scheme,
-motion, contrast and transparency on the spot, with no panel: the `matchMedia` and
+motion, contrast and transparency on the spot, and in a device's frame its
+pointer and hover, with no panel: the `matchMedia` and
 `matches` patches, `color-scheme` on `<html>`, and the stylesheet rewrite as
 sheets arrive. it sets the stored clock the same way, through `Date` and
 `Temporal.Now`. the full script, however it is loaded, takes those patches
@@ -151,6 +155,9 @@ the full script does.
 | text size | px, system | emulates the browser's default font size setting. a root `font-size` in %, em, rem or a keyword, or none at all, is taken against the knob's size (62.5% at 20 gives 12.5px), and a px root size is left alone, as the real setting does. em and rem in media queries and `matchMedia` move with it |
 | text spacing | on, off | applies the wcag 1.4.12 text spacing values: line height 1.5, letter spacing 0.12em, word spacing 0.16em, 2em after paragraphs |
 | viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. a width wider than the window is scaled down to fit, and the readout says by how much. back to full, the window goes wherever the frame navigated |
+| viewport height | px, full | makes the frame that tall, centered in the window both ways, so `innerHeight`, `100vh`, `svh`, `dvh` and height media queries see it. a frame taller or wider than the window is scaled down to fit both ways |
+| device | a preset, none | sets the width, height and device pixel ratio of a phone, tablet, laptop or desktop together, and a touch screen where it has one. see devices below |
+| orientation | portrait, landscape | turns a frame that has a width and a height, a device's or a custom one. it follows the size, so a size set across reads as landscape |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | vision | protanopia, deuteranopia, tritanopia, achromatopsia, blur, none | an svg color matrix (machado et al. 2009, as chromium devtools uses) or a 2px blur, as a `filter` on the frame, so fixed elements inside keep their place and the panel stays readable. brings the frame up |
@@ -169,8 +176,9 @@ carry the real verdict.
 
 ## the frame
 
-width, frame, device pixel ratio and vision render the page in a same-origin
-iframe, a real viewport, and lean on what browsers do natively for frames:
+width, height, device, frame, device pixel ratio and vision render the page in
+a same-origin iframe, a real viewport, and lean on what browsers do natively
+for frames:
 
 - color scheme: the frame element's `color-scheme` becomes the framed page's
   `prefers-color-scheme` (css color adjust, csswg #7493; chrome 129+, firefox
@@ -181,7 +189,9 @@ iframe, a real viewport, and lean on what browsers do natively for frames:
   (csswg #9644, chromium since 2024). a browser seen not to hand it down loses
   the zoom, and the knob does nothing there.
 - fit: `transform: scale()`, never `zoom`, so the ratio inside stays the
-  screen's and clicks land where they are drawn.
+  screen's and clicks land where they are drawn. a frame with a height is
+  fitted to the window both ways, and the readout says the device, the size,
+  the scale and the ratio: `iPhone 16 Pro · 402 × 874 at 89% · 3x`.
 
 the frame is sandboxed without `allow-top-navigation`, so a frame-busting
 script cannot reload the window into its frame forever. a click still can, so
@@ -194,6 +204,46 @@ frame was. a page that refuses to be framed (`x-frame-options`,
 underneath is `inert` and `content-visibility: hidden` until the frame goes,
 and its scroll position comes back after. meanwhile its modal dialogs open as
 plain ones and its popovers stay hidden, as both would paint over the frame.
+
+## devices
+
+the device knob sets a size, a ratio and a touch screen in one pick. the list
+in the panel groups them by kind, and search finds them by name, kind or
+platform (`iphone`, `pixel`, `galaxy`, `ipad`, `macbook`, `phone`, `tablet`,
+`android`). `landscape` turns the frame, and a size typed out such as
+`390x844` sets a custom one. the presets are also `PRESETS.device`.
+
+| device | css px | dpr | touch |
+| --- | --- | --- | --- |
+| iPhone 16 | 393 × 852 | 3 | yes |
+| iPhone 16 Pro | 402 × 874 | 3 | yes |
+| iPhone 16 Pro Max | 440 × 956 | 3 | yes |
+| iPhone SE | 375 × 667 | 2 | yes |
+| Pixel 9 | 412 × 924 | 2.625 | yes |
+| Galaxy S25 | 360 × 780 | 3 | yes |
+| Galaxy S25 Ultra | 384 × 832 | 3.75 | yes |
+| iPad mini | 744 × 1133 | 2 | yes |
+| iPad Air 11 | 820 × 1180 | 2 | yes |
+| iPad Pro 13 | 1032 × 1376 | 2 | yes |
+| MacBook Air 13 | 1470 × 956 | 2 | no |
+| laptop | 1366 × 768 | 1 | no |
+| desktop | 1920 × 1080 | 1 | no |
+
+each size is the whole screen in css px, the device held its usual way:
+phones and tablets upright, laptops and desktops across. a browser on the
+device shows a little less, as its own address bar and toolbars take some of
+the height, and a laptop's menu bar and window frame do too.
+
+a phone or tablet picked after another is held the same way, anything else
+comes up its usual way, unless the patch names an orientation. a width or
+height set by hand that is no longer the device's drops the device and keeps
+the size, and a device pixel ratio set by hand keeps the device.
+
+a device with a touch screen gets one inside its frame: `(pointer: coarse)`,
+`(any-pointer: coarse)`, `(hover: none)` and `(any-hover: none)` match, in
+stylesheets and `matchMedia` alike, through the same rewrite as the prefers
+knobs, `'ontouchstart' in window` is true, and `navigator.maxTouchPoints` reads
+5. the page above the frame keeps its own pointer.
 
 ## the clock and your server
 
@@ -300,6 +350,13 @@ the text size knob reads the root `font-size` from same-origin stylesheets; one
 set in a cross-origin sheet is taken as relative. a `matchMedia` list made from
 an em or rem query keeps the size it was made at when the knob changes later.
 
+a device's touch screen is what the page reads, not how it is used. the mouse
+stays a mouse: it clicks, hovers and fires mouse and pointer events with
+`pointerType: "mouse"`, and no touch events are made from it, so `:hover`
+styles still show under it and touch gesture code never runs. `ontouchstart`
+is on the window only, not on elements or the document. `screen.width`,
+`screen.height` and `screen.orientation` keep the real screen's.
+
 the frame loads the page a second time, so in-memory state (a half-filled form,
 a client store) is not shared between the two, and the page under the frame
 keeps running, though it skips rendering. navigations to another origin inside
@@ -308,10 +365,10 @@ the frame are not tracked, and get the refusal notice.
 these cannot be faked from inside a page, so use the browser devtools for
 them:
 
-- viewport height, and device pixel ratio outside chromium (device toolbar)
+- device pixel ratio outside chromium (device toolbar)
 - `forced-colors` and high contrast mode (rendering panel)
 - print media (rendering panel, or print preview)
-- pointer and hover type, touch emulation (device toolbar)
+- touch events from the mouse (device toolbar)
 - network throttling and a real offline (network panel)
 - the time zone of workers and of the page before devknobs loads (sensors panel, or a `TZ` environment variable when the browser starts)
 
