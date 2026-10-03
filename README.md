@@ -95,9 +95,9 @@ panel. with the panel closed, a drag moves the handle.
 ## the panel
 
 the panel lists only the knobs that are off their default, one row each, with
-related knobs together: device, width, device pixel ratio, frame and vision
-are one viewport row, the clock with its mode, speed and server header is
-another.
+related knobs together: device, width, device pixel ratio, zoom, frame and
+vision are one viewport row, the clock with its mode, speed and server header
+is another.
 click a row to open its editor, and `×` puts that row back to its default.
 a row set from the panel stays in the list, back at its default too, until its
 `×` takes it off or reset all clears the list.
@@ -112,6 +112,8 @@ all, then closes an open editor, and then the panel. a click anywhere outside
 the search and its results, or on the `×` at its end, leaves it too.
 
 while the panel is out and the focus is in no field, `/` focuses the search.
+while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
+and with `0` fit it again, from the frame too, unless the focus is in a field.
 every other key goes to the page as it would without the panel. the hotkey
 toggles the panel everywhere except in a field, the search included, so in the
 search `d` is just a letter.
@@ -163,12 +165,13 @@ leaves the scheme to the browser, as the full script does.
 | connection, save data | slow-2g, 2g, 3g, 4g / on, off, system | mimicry only, and chromium only: `navigator.connection` reports the effective type with a matching `rtt` and `downlink`, and `saveData`, and fires `change`. nothing is throttled |
 | text size | px, system | emulates the browser's default font size setting. a root `font-size` in %, em, rem or a keyword, or none at all, is taken against the knob's size (62.5% at 20 gives 12.5px), and a px root size is left alone, as the real setting does. em and rem in media queries and `matchMedia` move with it |
 | text spacing | on, off | applies the wcag 1.4.12 text spacing values: line height 1.5, letter spacing 0.12em, word spacing 0.16em, 2em after paragraphs |
-| viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. a width wider than the window is scaled down to fit, and the readout says by how much. back to full, the window goes wherever the frame navigated |
+| viewport width | px, full | renders the page in a same-origin iframe of that width, so media queries, fixed elements, `vw` units and container queries all see a real viewport. the other knobs follow the page into the frame. a width wider than the window is scaled down to fit, see zoom. back to full, the window goes wherever the frame navigated |
 | viewport height | px, full | makes the frame that tall, centered in the window both ways, so `innerHeight`, `100vh`, `svh`, `dvh` and height media queries see it. a frame taller or wider than the window is scaled down to fit both ways |
 | device | a preset, none | sets the width, height and device pixel ratio of a phone, tablet, laptop or desktop together, and a touch screen where it has one. see devices below |
 | orientation | portrait, landscape | turns a frame that has a width and a height, a device's or a custom one. it follows the size, so a size set across reads as landscape |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
+| zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
 | user agent | iphone safari, android chrome, ipad safari, mac safari, mac chrome, windows chrome, windows edge, linux firefox, googlebot, a custom string, system | patches `userAgent`, `appVersion`, `platform`, `vendor` and `maxTouchPoints` on `Navigator.prototype`, and `navigator.userAgentData`: its brands, `mobile`, `platform`, `toJSON` and `getHighEntropyValues` (platform version, model, architecture, bitness, full version list), all from the same browser. safari and firefox have no `userAgentData`, so their presets take it away. the ipad is the one iPadOS shows sites by default, a mac with touch points. a custom string sets `userAgent` and `appVersion` alone, as chrome devtools does: platform, vendor and touch points stay the browser's, and a `userAgentData` the browser has reports no brands. the field under the list shows the string in use, and editing it makes it the custom one. back to system, every property is the browser's own again |
 | vision | protanopia, deuteranopia, tritanopia, achromatopsia, blur, none | an svg color matrix (machado et al. 2009, as chromium devtools uses) or a 2px blur, as a `filter` on the frame, so fixed elements inside keep their place and the panel stays readable. brings the frame up |
 | overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count in its debug row and footer. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
@@ -198,10 +201,12 @@ for frames:
 - device pixel ratio: `zoom` on an iframe multiplies the ratio inside it
   (csswg #9644, chromium since 2024). a browser seen not to hand it down loses
   the zoom, and the knob does nothing there.
-- fit: `transform: scale()`, never `zoom`, so the ratio inside stays the
-  screen's and clicks land where they are drawn. a frame with a height is
-  fitted to the window both ways, and the readout says the device, the size,
-  the scale and the ratio: `iPhone 16 Pro · 402 × 874 at 89% · 3x`.
+- fit and zoom: `transform: scale()`, never `zoom`, so the ratio inside stays
+  the screen's and clicks land where they are drawn. a frame with a height is
+  fitted to the window both ways, with a margin, and one with a set width
+  stays clear of the open panel. the readout says the device, the size and
+  the ratio, `iPhone 16 Pro · 402 × 874 · 3x`, and its zoom control the
+  scale: `fit 89%`, or the zoom picked.
 
 the frame is sandboxed without `allow-top-navigation`, so a frame-busting
 script cannot reload the window into its frame forever. a click still can, so
