@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { apply, reset } from "../src/engine/time";
-import { HOST_STYLE, overflowBadge, wallInput } from "../src/ui/panel";
+import { dragTarget, HOST_STYLE, overflowBadge, wallInput } from "../src/ui/panel";
 import { CSS } from "../src/ui/styles";
 
 describe("overflowBadge", () => {
@@ -16,6 +16,21 @@ describe("overflowBadge", () => {
 
   test("says nothing before the frame reports a count", () => {
     expect(overflowBadge(true, null)).toBe("");
+  });
+});
+
+describe("dragTarget", () => {
+  test("a plain drag moves the open panel with its handle", () => {
+    expect(dragTarget(false, true)).toBe("panel");
+  });
+
+  test("a shift drag moves the handle alone", () => {
+    expect(dragTarget(true, true)).toBe("handle");
+  });
+
+  test("a closed panel has only the handle to move", () => {
+    expect(dragTarget(false, false)).toBe("handle");
+    expect(dragTarget(true, false)).toBe("handle");
   });
 });
 
@@ -73,5 +88,14 @@ describe("pointer events", () => {
 
   test("the handle and a panel that is out are the only surfaces that take one", () => {
     expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+  });
+});
+
+describe("closed panel", () => {
+  test("paints nothing but the handle, once it has slid out", () => {
+    expect(body(".panel")).toMatch(/visibility:\s*hidden/);
+    expect(body(".panel")).toMatch(/transition:\s*visibility 0s linear 150ms/);
+    expect(body('.wrap[data-open="true"] .panel')).toMatch(/visibility:\s*visible/);
+    expect(body('.wrap[data-open="true"] .panel')).toMatch(/transition-delay:\s*0s/);
   });
 });

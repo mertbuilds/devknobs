@@ -116,8 +116,8 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 }
 .handle:hover { color: var(--fg); }
 .handle:focus-visible { outline-offset: 2px; }
-.wrap[data-drag="true"] .handle { cursor: grabbing; }
-.wrap[data-drag="panel"] .handle { cursor: ns-resize; }
+.wrap[data-drag="panel"] .handle { cursor: grabbing; }
+.wrap[data-drag="handle"] .handle { cursor: ns-resize; }
 
 .panel {
   flex: none;
@@ -134,10 +134,20 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   border: 1px solid var(--line);
   border-right: 0;
   border-radius: 13px 0 0 13px;
+  /* Closed, the wrapper slides out only as far as the handle's width, and the
+     handle overlaps the panel by a pixel, so the panel's left border would
+     stay on the window's edge as a line the panel's height. It hides once
+     the slide is over. */
+  visibility: hidden;
+  transition: visibility 0s linear 150ms;
 }
 /* Only a panel that is out catches anything. The attribute flips the moment
    the close starts, so the slide back leaves nothing hit-testable behind. */
-.wrap[data-open="true"] .panel { pointer-events: auto; }
+.wrap[data-open="true"] .panel {
+  pointer-events: auto;
+  visibility: visible;
+  transition-delay: 0s;
+}
 /* The handle covers one of these corners while the panel is out, so square
    that one off. A panel the handle meets in the middle keeps both radii. */
 .wrap[data-open="true"][data-tab="top"] .panel { border-top-left-radius: 0; }
@@ -159,6 +169,23 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 .name { flex: none; font-size: 11px; color: var(--faint); }
 .search { flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; }
 .search::placeholder { color: var(--faint); }
+/* 4 in from the search's edges, so 4 round. */
+.search-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: -6px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--faint);
+  border-radius: 4px;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.search-close:hover { color: var(--fg); background: var(--track); }
+/* Only while the search is open: it has the focus, or a query. */
+.wrap[data-mode="rows"] .search-close { display: none; }
 
 .body {
   position: relative;
@@ -198,6 +225,8 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   white-space: nowrap;
   text-align: right;
 }
+/* A row kept in the list with its knobs back at their defaults. */
+.row-value.idle { color: var(--faint); }
 .row-value.hot { color: var(--hot); }
 .clear {
   flex: none;

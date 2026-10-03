@@ -48,7 +48,8 @@ export const DEFAULT_STATE: DevknobsState = {
   ua: { preset: "system", custom: "" },
   overflow: false,
   outlines: false,
-  panel: { open: true, y: 16, top: 16 },
+  // Closed, the handle alone, until the user opens it.
+  panel: { open: false, y: 16, top: 16, pinned: [] },
 };
 
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
@@ -100,6 +101,12 @@ function numberOr<T extends string>(value: unknown, keyword: T, fallback: number
 /** A playback rate. Zero pauses, so only a negative or a non-number falls back. */
 function rate(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+/** The strings of a list, each once. Anything but a list reads as an empty one. */
+function strings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.filter((item): item is string => typeof item === "string")));
 }
 
 /** Read a stored state, falling back to the defaults field by field. */
@@ -173,8 +180,18 @@ export function parse(json: string | null | undefined): DevknobsState {
       y: panelY,
       // A session stored before the panel had a place of its own only has `y`.
       top: num(panel.top, panelY),
+      // One stored before rows stayed listed has none pinned.
+      pinned: strings(panel.pinned),
     },
   };
+}
+
+/**
+ * What reset all leaves: every knob at its default and no row pinned, with
+ * the panel where it is.
+ */
+export function resetState(state: DevknobsState): DevknobsState {
+  return { ...DEFAULT_STATE, panel: { ...state.panel, pinned: [] } };
 }
 
 /**
@@ -215,13 +232,5 @@ export function save(state: DevknobsState): void {
     storage()?.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
     // Private mode, disabled storage: knobs still work, they just do not stick.
-  }
-}
-
-export function clear(): void {
-  try {
-    storage()?.removeItem(STORAGE_KEY);
-  } catch {
-    // Same.
   }
 }

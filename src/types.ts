@@ -117,6 +117,11 @@ export interface PanelValue {
   y: number;
   /** Panel offset from the top of the viewport, in px. The handle pushes it. */
   top: number;
+  /**
+   * Ids of the rows set from the panel. Each stays in the list, back at its
+   * default too, until its `×` or reset all takes it off.
+   */
+  pinned: string[];
 }
 
 export interface DevknobsState {

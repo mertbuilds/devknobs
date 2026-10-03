@@ -5,7 +5,7 @@ import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
 import { userAgentOf } from "../engine/ua";
 import { frameWindow } from "../engine/width";
-import type { ClockValue, DevknobsState } from "../types";
+import type { ClockValue, DevknobsState, DevknobsStatePatch } from "../types";
 import {
   browse,
   isActive,
@@ -18,12 +18,11 @@ import {
   ROWS,
   type Row,
   type RowId,
-  resetPatch,
   rowOf,
-  summary,
   wallInput,
 } from "./catalog";
-import { hotkeyOf, isSearchKey, keyAction } from "./keys";
+import { escapeStep, hotkeyOf, isSearchKey, keyAction } from "./keys";
+import { isListed, pinPatch, removePatch, rowText } from "./list";
 import { filterOptions, type Result, resultText, search } from "./search";
 import { CSS } from "./styles";
 
@@ -82,6 +81,15 @@ export const HOST_STYLE = "position:fixed;right:0;top:0;z-index:2147483646;point
  */
 export function overflowBadge(on: boolean, count: number | null): string {
   return on && count !== null ? ` · ${count} overflowing` : "";
+}
+
+/**
+ * What a drag on the handle moves: a plain one the panel and the handle as
+ * one, a shift one the handle alone along the panel's edge. A closed panel
+ * has only the handle to move.
+ */
+export function dragTarget(shift: boolean, open: boolean): "panel" | "handle" {
+  return open && !shift ? "panel" : "handle";
 }
 
 /** What the clock note says: the time the page reads, or that it reads the real one. */
@@ -147,8 +155,8 @@ function reveal(node: HTMLElement, box: HTMLElement): void {
  * host carries an open shadow root, so the page cannot style the panel and the
  * panel cannot style the page.
  *
- * The panel lists only the knobs that are off their default, one row each, and
- * a row opens into an editor. Everything else is a search away: the field at
+ * The panel lists the knobs that are off their default or were set from it,
+ * one row each, and a row opens into an editor. Everything else is a search away: the field at
  * the top finds knobs and values, and with nothing typed lists every knob.
  */
 export function createPanel(options: PanelOptions = {}): Panel {
@@ -178,7 +186,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
   searchInput.setAttribute("aria-autocomplete", "list");
   searchInput.setAttribute("aria-controls", "devknobs-results");
   searchInput.setAttribute("aria-expanded", "false");
-  head.append(el("span", "name", "knobs"), searchInput);
+  // For the pointer: escape does the same from the keys.
+  const closeSearch = button("search-close", "×");
+  closeSearch.tabIndex = -1;
+  closeSearch.setAttribute("aria-label", "close the search");
+  head.append(el("span", "name", "knobs"), searchInput, closeSearch);
 
   const body = el("div", "body");
   const empty = el("div", "empty", "nothing emulated");
@@ -206,7 +218,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     home,
     ` · dev only · press ${hotkey}`,
     el("br", ""),
-    "/ to search · shift-drag moves",
+    "/ to search · shift-drag moves the handle",
   );
   foot.append(actions, meta);
 
@@ -218,6 +230,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   let openRow: RowId | null = null;
   /** The search has focus and lists every knob, as nothing is typed. */
   let browsing = false;
+  /** A pointer is down, so a blur it caused waits for its click to land. */
+  let pressing = false;
   /** What the results or the browse list show, and which one Enter picks. */
   let entries: Entry[] = [];
   let cursor = 0;
@@ -228,8 +242,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (input.value !== value) input.value = value;
   }
 
+  /** Set knobs from the panel. Their row stays listed from here on. */
+  function commit(row: RowId, patch: DevknobsStatePatch): void {
+    engine.setState(pinPatch(engine.getState(), row, patch));
+  }
+
   function set(knob: Knob, value: string): void {
-    engine.setState(knob.write(value, engine.getState()));
+    commit(rowOf(knob.id).id, knob.write(value, engine.getState()));
   }
 
   /** Typing commits once it pauses, each field on a timer of its own. */
@@ -376,7 +395,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   function commitWidth(): void {
     const width = Number(widthField.value);
-    if (Number.isFinite(width) && width > 0) engine.setState({ width });
+    if (Number.isFinite(width) && width > 0) commit("viewport", { width });
   }
 
   widthField.addEventListener("input", () => queue(commitWidth));
@@ -391,7 +410,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /** Set the clock to an instant, running unless it stands frozen already. */
   function travel(at: number, since = realNow()): void {
     const frozen = engine.getState().clock.mode === "frozen";
-    engine.setState({ clock: { mode: frozen ? "frozen" : "offset", at, since } });
+    commit("clock", { clock: { mode: frozen ? "frozen" : "offset", at, since } });
   }
 
   function clockExtra(): [HTMLElement, Update] {
@@ -432,11 +451,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     travelBox.append(route, pace);
     box.append(custom, travelBox);
     const commitCustom = () =>
-      engine.setState({
+      commit("location", {
         geo: { preset: "custom", lat: toNumber(lat.value), lng: toNumber(lng.value) },
       });
-    const commitRoute = () => engine.setState({ geo: { preset: "route", route: route.value } });
-    const commitSpeed = () => engine.setState({ geo: { speed: toNumber(speed.value) } });
+    const commitRoute = () => commit("location", { geo: { preset: "route", route: route.value } });
+    const commitSpeed = () => commit("location", { geo: { speed: toNumber(speed.value) } });
     for (const input of [lat, lng]) input.addEventListener("input", () => queue(commitCustom));
     route.addEventListener("input", () => queue(commitRoute));
     speed.addEventListener("input", () => queue(commitSpeed));
@@ -516,7 +535,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     main.addEventListener("click", () => openEditor(openRow === row.id ? null : row.id));
     clear.addEventListener("click", () => {
       if (openRow === row.id) openRow = null;
-      engine.setState(resetPatch(row));
+      engine.setState(removePatch(engine.getState(), row));
     });
     return { row, box, main, value, clear, editor, updates: buildEditor(row, editor) };
   });
@@ -624,33 +643,44 @@ export function createPanel(options: PanelOptions = {}): Panel {
     setCursor(cursor);
   }
 
-  function setQuery(text: string): void {
-    searchInput.value = text;
+  /** Close the results and leave the search, query and all, for the rows. */
+  function leaveSearch(): void {
+    searchInput.value = "";
+    browsing = false;
     cursor = 0;
     body.scrollTop = 0;
-    render();
+    // The blur renders.
+    if (root.activeElement === searchInput) searchInput.blur();
+    else render();
+  }
+
+  /** Bring a row into view and hand it the focus the search had. */
+  function showRow(id: RowId): void {
+    const view = viewOf(id);
+    if (!view) return;
+    reveal(view.box, body);
+    view.main.focus();
   }
 
   /** Set a result's value, or open the editor of a knob found by name. */
   function pick(result: Result): void {
-    if (!result.option) {
-      openKnob(result.knob);
+    const { knob, option } = result;
+    if (!option) {
+      openKnob(knob);
       return;
     }
-    searchInput.value = "";
-    browsing = false;
-    cursor = 0;
-    set(result.knob, result.option.value);
-    if (result.option.opens) openEditor(rowOf(result.knob.id).id);
-    else render();
+    const id = rowOf(knob.id).id;
+    leaveSearch();
+    set(knob, option.value);
+    if (option.opens) openEditor(id);
+    showRow(id);
   }
 
   function openKnob(knob: Knob): void {
-    searchInput.value = "";
-    browsing = false;
-    searchInput.blur();
-    openEditor(rowOf(knob.id).id);
-    viewOf(rowOf(knob.id).id)?.main.focus();
+    const id = rowOf(knob.id).id;
+    leaveSearch();
+    openEditor(id);
+    showRow(id);
   }
 
   function render(): void {
@@ -661,25 +691,26 @@ export function createPanel(options: PanelOptions = {}): Panel {
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     const live = liveOf(state);
-    let anyActive = false;
+    let anyListed = false;
     let anyShown = false;
     for (const view of views) {
-      const active = isActive(view.row, state);
+      const listed = isListed(view.row, state);
       const expanded = openRow === view.row.id;
-      anyActive ||= active;
-      anyShown ||= active || expanded;
-      view.box.hidden = !active && !expanded;
+      anyListed ||= listed;
+      anyShown ||= listed || expanded;
+      view.box.hidden = !listed && !expanded;
       view.box.classList.toggle("open", expanded);
       view.main.setAttribute("aria-expanded", expanded ? "true" : "false");
-      view.value.textContent = summary(view.row, state, live);
-      view.clear.hidden = !active;
+      view.value.textContent = rowText(view.row, state, live);
+      view.value.classList.toggle("idle", !isActive(view.row, state));
+      view.clear.hidden = !listed;
       view.editor.hidden = !expanded;
       if (expanded) for (const update of view.updates) update(state);
     }
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
     viewOf("debug")?.value.classList.toggle("hot", hot);
     empty.hidden = anyShown;
-    resetButton.disabled = !anyActive;
+    resetButton.disabled = !anyListed;
     badge.textContent = overflowBadge(state.overflow, live.overflow);
     badge.hidden = badge.textContent === "";
     badge.classList.toggle("hot", hot);
@@ -693,7 +724,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (!state.panel.open) return;
     const live = liveOf(state);
     for (const view of views) {
-      if (!view.box.hidden) view.value.textContent = summary(view.row, state, live);
+      if (!view.box.hidden) view.value.textContent = rowText(view.row, state, live);
     }
     if (openRow === "clock") for (const update of viewOf("clock")?.updates ?? []) update(state);
   }
@@ -761,6 +792,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     // A closed panel keeps no focus, so the next keys go to the page.
     if (!next) {
       browsing = false;
+      searchInput.value = "";
       const focused = root.activeElement;
       if (focused instanceof HTMLElement) focused.blur();
     }
@@ -773,8 +805,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     render();
   });
   searchInput.addEventListener("blur", () => {
-    browsing = false;
-    render();
+    // The window lost the focus and the search kept it, or a press took it and
+    // leaves the search once its click has landed.
+    if (root.activeElement === searchInput || pressing) return;
+    leaveSearch();
   });
   searchInput.addEventListener("input", () => {
     browsing = true;
@@ -796,8 +830,30 @@ export function createPanel(options: PanelOptions = {}): Panel {
       entries[cursor]?.pick();
     }
   });
-  // A click on a result keeps the focus in the search, so the list stays put under it.
-  results.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
+  // A press on a result or the scrollbar keeps the focus in the search, so the
+  // list stays put under it.
+  body.addEventListener("mousedown", (event: MouseEvent) => {
+    if (wrap.dataset.mode !== "rows") event.preventDefault();
+  });
+  closeSearch.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
+  closeSearch.addEventListener("click", leaveSearch);
+
+  function onPointerDown(): void {
+    pressing = true;
+  }
+
+  /**
+   * A press anywhere but the search and its results leaves the search. It
+   * does so after the click, as the rows that come back move what was under
+   * the pointer, and the click would land on something else.
+   */
+  function onPointerUp(): void {
+    pressing = false;
+    if (!browsing && !searchInput.value) return;
+    window.setTimeout(() => {
+      if (root.activeElement !== searchInput && (browsing || searchInput.value)) leaveSearch();
+    });
+  }
 
   replayButton.addEventListener("click", () => engine.replay());
   resetButton.addEventListener("click", () => {
@@ -836,13 +892,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     lastPointer = event.clientY;
     if (!dragged && Math.abs(event.clientY - startPointer) < DRAG_SLOP) return;
     dragged = true;
-    // Shift moves the panel and the handle as one, until the panel meets the
-    // viewport gap. A closed panel has nothing to move, so there shift is an
-    // ordinary drag.
-    const movePanel = event.shiftKey && engine.getState().panel.open;
-    wrap.dataset.drag = movePanel ? "panel" : "true";
+    // The panel and the handle move as one until the panel meets the viewport
+    // gap, and shift lets the handle go alone, halfway through a drag too.
+    const target = dragTarget(event.shiftKey, engine.getState().panel.open);
+    wrap.dataset.drag = target;
     // Not through the store: a pointermove is no reason to re-apply every knob.
-    if (movePanel) {
+    if (target === "panel") {
       const room = Math.max(PANEL_GAP, window.innerHeight - PANEL_GAP - panel.offsetHeight);
       const nextPanelTop = Math.min(Math.max(dragPanelTop + step, PANEL_GAP), room);
       dragTop = clamp(dragTop + (nextPanelTop - dragPanelTop));
@@ -892,35 +947,28 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   /**
-   * Escape takes one step back at a time: it clears the query, leaves the
-   * search, then closes the open editor, and only then the panel. With the
-   * focus out on the page, it closes the panel straight away.
+   * Escape takes one step back at a time, as `escapeStep` says. With the focus
+   * out on the page, it closes the panel straight away.
    */
   function escape(): void {
     if (dragging || !engine.getState().panel.open) return;
     const focused = root.activeElement;
-    if (focused === searchInput) {
-      if (searchInput.value) setQuery("");
-      else searchInput.blur();
-      return;
-    }
-    const filter = focused instanceof HTMLInputElement && focused.classList.contains("filter");
-    if (filter && focused.value) {
-      focused.value = "";
-      focused.dispatchEvent(new Event("input"));
-      return;
-    }
-    if (searchInput.value) {
-      setQuery("");
-      return;
-    }
+    const filter =
+      focused instanceof HTMLInputElement && focused.classList.contains("filter") ? focused : null;
     const view = openRow ? viewOf(openRow) : undefined;
-    if (focused && view) {
+    const step = escapeStep({
+      search: focused === searchInput || browsing || searchInput.value !== "",
+      filter: filter !== null && filter.value !== "",
+      editor: focused !== null && view !== undefined,
+    });
+    if (step === "search") leaveSearch();
+    else if (step === "filter" && filter) {
+      filter.value = "";
+      filter.dispatchEvent(new Event("input"));
+    } else if (step === "editor" && view) {
       openEditor(null);
       view.main.focus();
-      return;
-    }
-    toggle(false);
+    } else if (step === "panel") toggle(false);
   }
 
   /**
@@ -955,6 +1003,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const unsubscribe = engine.subscribe(render);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
+  window.addEventListener("pointerdown", onPointerDown, true);
+  window.addEventListener("pointerup", onPointerUp, true);
+  window.addEventListener("pointercancel", onPointerUp, true);
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", clampY);
 
@@ -974,6 +1025,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
       clearInterval(ticker);
       for (const timer of pending.values()) clearTimeout(timer);
       window.removeEventListener("keydown", onKeydown, true);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener("pointercancel", onPointerUp, true);
       window.removeEventListener("message", onMessage);
       window.removeEventListener("resize", clampY);
       document.removeEventListener("DOMContentLoaded", attach);

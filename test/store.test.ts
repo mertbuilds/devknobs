@@ -33,7 +33,7 @@ describe("parse", () => {
         ua: { preset: "iphone-safari", custom: 3 },
         overflow: true,
         outlines: "yes",
-        panel: { open: false, y: 40, top: 24 },
+        panel: { open: false, y: 40, top: 24, pinned: ["scheme", 3, "clock", "scheme"] },
         stray: 1,
       }),
     );
@@ -58,8 +58,15 @@ describe("parse", () => {
       ua: { preset: "iphone-safari", custom: "" },
       overflow: true,
       outlines: false,
-      panel: { open: false, y: 40, top: 24 },
+      panel: { open: false, y: 40, top: 24, pinned: ["scheme", "clock"] },
     });
+  });
+
+  test("starts the panel closed, and keeps one stored open", () => {
+    expect(parse(null).panel.open).toBe(false);
+    expect(parse(JSON.stringify({ panel: { y: 40 } })).panel.open).toBe(false);
+    expect(parse(JSON.stringify({ panel: { open: "yes" } })).panel.open).toBe(false);
+    expect(parse(JSON.stringify({ panel: { open: true } })).panel.open).toBe(true);
   });
 
   test("drops a vision deficiency it does not know", () => {
@@ -71,7 +78,15 @@ describe("parse", () => {
       open: DEFAULT_STATE.panel.open,
       y: 200,
       top: 200,
+      pinned: [],
     });
+  });
+
+  test("pins no row when the session predates pinned rows or stored junk", () => {
+    expect(parse(JSON.stringify({ panel: { y: 40 } })).panel.pinned).toEqual([]);
+    expect(parse(JSON.stringify({ panel: { pinned: "scheme" } })).panel.pinned).toEqual([]);
+    expect(parse(JSON.stringify({ panel: { pinned: null } })).panel.pinned).toEqual([]);
+    expect(parse(JSON.stringify({ panel: { pinned: ["text"] } })).panel.pinned).toEqual(["text"]);
   });
 
   test("follows geo for the time zone when the session predates the knob", () => {
