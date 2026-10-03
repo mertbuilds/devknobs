@@ -333,6 +333,8 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 .chip-field.on { background: var(--raised); box-shadow: var(--lift); }
 .chip-field:focus { box-shadow: inset 0 0 0 1px var(--faint); }
 .fields { display: flex; align-items: center; gap: 4px; }
+/* A device's size, set apart from the list over it. */
+.knob-list > .fields { margin-top: 5px; }
 .fields .field-num { flex: 1; min-width: 0; }
 .field-clock { width: 100%; }
 .field-route { width: 100%; height: 44px; padding: 3px 6px; resize: vertical; }

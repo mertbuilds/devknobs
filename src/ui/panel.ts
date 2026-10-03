@@ -142,12 +142,22 @@ function mark(node: HTMLElement, on: boolean, attribute = "aria-pressed"): void 
   node.setAttribute(attribute, on ? "true" : "false");
 }
 
-/** Scroll a box just enough to show a node in it. The box is the node's offset parent. */
+/**
+ * Scroll a box just enough to show a node in it, its top first where all of
+ * it does not fit. The box is the node's offset parent.
+ */
 function reveal(node: HTMLElement, box: HTMLElement): void {
   const top = node.offsetTop;
   const bottom = top + node.offsetHeight;
   if (top < box.scrollTop) box.scrollTop = top;
-  else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight;
+  else if (bottom > box.scrollTop + box.clientHeight) {
+    box.scrollTop = Math.min(top, bottom - box.clientHeight);
+  }
+}
+
+/** Scroll a box to put a node in its middle. The box is the node's offset parent. */
+function center(node: HTMLElement, box: HTMLElement): void {
+  box.scrollTop = node.offsetTop - (box.clientHeight - node.offsetHeight) / 2;
 }
 
 /**
@@ -589,10 +599,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const view = id ? viewOf(id) : undefined;
     if (!view) return;
     reveal(view.box, body);
-    // A long list opens on the value that is on.
+    // A long list opens with the value that is on in its middle.
     for (const items of Array.from(view.editor.querySelectorAll<HTMLElement>(".items"))) {
       const on = items.querySelector<HTMLElement>(".on");
-      if (on) reveal(on, items);
+      if (on) center(on, items);
     }
   }
 
