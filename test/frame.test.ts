@@ -42,6 +42,12 @@ describe("framed", () => {
     expect(framed({ ...DEFAULT_STATE, frame: true })).toEqual(DEFAULT_STATE);
     expect(framed({ ...DEFAULT_STATE, vision: "tritanopia" })).toEqual(DEFAULT_STATE);
     expect(framed({ ...DEFAULT_STATE, dpr: 3 })).toEqual(DEFAULT_STATE);
+    expect(framed({ ...DEFAULT_STATE, height: 874 })).toEqual(DEFAULT_STATE);
+  });
+
+  test("keeps the device inside the frame, for its touch screen", () => {
+    const phone = { ...DEFAULT_STATE, width: 402, height: 874, dpr: 3, device: "iphone-16-pro" };
+    expect(framed(phone)).toEqual({ ...DEFAULT_STATE, device: "iphone-16-pro" });
   });
 
   test("hands back a state that is already full", () => {
@@ -51,8 +57,9 @@ describe("framed", () => {
 });
 
 describe("needsFrame", () => {
-  test("is true for a width, the frame knob, a ratio or a vision deficiency", () => {
+  test("is true for a width, a height, the frame knob, a ratio or a vision deficiency", () => {
     expect(needsFrame({ ...UNFRAMED, width: 390 })).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, height: 700 })).toBe(true);
     expect(needsFrame({ ...UNFRAMED, frame: true })).toBe(true);
     expect(needsFrame({ ...UNFRAMED, vision: "blur" })).toBe(true);
     expect(needsFrame({ ...UNFRAMED, dpr: 2 })).toBe(true);

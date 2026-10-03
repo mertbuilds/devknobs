@@ -8,12 +8,14 @@ import type {
   GeoErrorValue,
   MotionValue,
   OnlineValue,
+  OrientationValue,
   SaveDataValue,
   SchemeValue,
   TransparencyValue,
   VisionValue,
 } from "../types";
 import { mergeClock } from "./clock";
+import { deviceOf, hold, settle } from "./devices";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
 
 export const STORAGE_KEY = "devknobs";
@@ -42,6 +44,9 @@ export const DEFAULT_STATE: DevknobsState = {
   text: "system",
   spacing: false,
   width: "full",
+  height: "full",
+  device: "none",
+  orientation: "portrait",
   frame: false,
   dpr: "system",
   vision: "none",
@@ -60,6 +65,7 @@ const CLOCK_MODES: ClockMode[] = ["system", "offset", "frozen"];
 const ONLINES: OnlineValue[] = ["offline", "system"];
 const CONNECTIONS: ConnectionValue[] = ["slow-2g", "2g", "3g", "4g", "system"];
 const SAVE_DATAS: SaveDataValue[] = ["on", "off", "system"];
+const ORIENTATIONS: OrientationValue[] = ["portrait", "landscape"];
 const VISIONS: VisionValue[] = [
   "none",
   "protanopia",
@@ -118,6 +124,7 @@ export function parse(json: string | null | undefined): DevknobsState {
   const network = record(state.network);
   const panel = record(state.panel);
   const panelY = num(panel.y, DEFAULT_STATE.panel.y);
+  const device = text(state.device, DEFAULT_STATE.device);
   return {
     scheme: oneOf(state.scheme, SCHEMES, DEFAULT_STATE.scheme),
     motion: oneOf(state.motion, MOTIONS, DEFAULT_STATE.motion),
@@ -157,6 +164,9 @@ export function parse(json: string | null | undefined): DevknobsState {
     text: numberOr(state.text, "system", DEFAULT_STATE.text),
     spacing: bool(state.spacing, DEFAULT_STATE.spacing),
     width: numberOr(state.width, "full", DEFAULT_STATE.width),
+    height: numberOr(state.height, "full", DEFAULT_STATE.height),
+    device: deviceOf(device) ? device : DEFAULT_STATE.device,
+    orientation: oneOf(state.orientation, ORIENTATIONS, DEFAULT_STATE.orientation),
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
@@ -173,18 +183,20 @@ export function parse(json: string | null | undefined): DevknobsState {
 
 /**
  * Merge a patch into a state, one level deep for the object knobs. The clock
- * takes a new anchor when it moves.
+ * takes a new anchor when it moves. A device brings its size, and the device
+ * fields follow the size the frame ends up with.
  */
 export function merge(state: DevknobsState, patch: DevknobsStatePatch): DevknobsState {
-  return {
+  const held = hold(state, patch);
+  return settle({
     ...state,
-    ...patch,
-    locale: { ...state.locale, ...patch.locale },
-    geo: { ...state.geo, ...patch.geo },
-    clock: mergeClock(state.clock, patch.clock),
-    network: { ...state.network, ...patch.network },
-    panel: { ...state.panel, ...patch.panel },
-  };
+    ...held,
+    locale: { ...state.locale, ...held.locale },
+    geo: { ...state.geo, ...held.geo },
+    clock: mergeClock(state.clock, held.clock),
+    network: { ...state.network, ...held.network },
+    panel: { ...state.panel, ...held.panel },
+  });
 }
 
 function storage(): Storage | null {
