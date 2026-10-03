@@ -75,3 +75,12 @@ describe("pointer events", () => {
     expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
   });
 });
+
+describe("closed panel", () => {
+  test("paints nothing but the handle, once it has slid out", () => {
+    expect(body(".panel")).toMatch(/visibility:\s*hidden/);
+    expect(body(".panel")).toMatch(/transition:\s*visibility 0s linear 150ms/);
+    expect(body('.wrap[data-open="true"] .panel')).toMatch(/visibility:\s*visible/);
+    expect(body('.wrap[data-open="true"] .panel')).toMatch(/transition-delay:\s*0s/);
+  });
+});

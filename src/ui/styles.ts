@@ -134,10 +134,20 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   border: 1px solid var(--line);
   border-right: 0;
   border-radius: 13px 0 0 13px;
+  /* Closed, the wrapper slides out only as far as the handle's width, and the
+     handle overlaps the panel by a pixel, so the panel's left border would
+     stay on the window's edge as a line the panel's height. It hides once
+     the slide is over. */
+  visibility: hidden;
+  transition: visibility 0s linear 150ms;
 }
 /* Only a panel that is out catches anything. The attribute flips the moment
    the close starts, so the slide back leaves nothing hit-testable behind. */
-.wrap[data-open="true"] .panel { pointer-events: auto; }
+.wrap[data-open="true"] .panel {
+  pointer-events: auto;
+  visibility: visible;
+  transition-delay: 0s;
+}
 /* The handle covers one of these corners while the panel is out, so square
    that one off. A panel the handle meets in the middle keeps both radii. */
 .wrap[data-open="true"][data-tab="top"] .panel { border-top-left-radius: 0; }
