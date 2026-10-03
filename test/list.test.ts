@@ -62,6 +62,16 @@ describe("pinned rows", () => {
     expect(listed(removed)).toEqual(["locale"]);
   });
 
+  test("the viewport's × takes a device and the user agent it brought", () => {
+    const phone = use(DEFAULT_STATE, "viewport", { device: "iphone-16-pro" });
+    expect(listed(phone)).toEqual(["viewport", "ua"]);
+    expect(rowText(row("ua"), phone, LIVE)).toBe("iphone safari");
+    const removed = merge(phone, removePatch(phone, row("viewport")));
+    expect(removed).toMatchObject({ device: "none", width: "full", height: "full" });
+    expect(removed.ua.preset).toBe("system");
+    expect(listed(removed)).toEqual([]);
+  });
+
   test("the × takes a row at its default off too", () => {
     const back = use(use(DEFAULT_STATE, "pseudo", { pseudo: true }), "pseudo", { pseudo: false });
     expect(listed(merge(back, removePatch(back, row("pseudo"))))).toEqual([]);

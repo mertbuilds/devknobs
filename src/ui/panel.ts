@@ -493,11 +493,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
       const value = toNumber(input.value);
       return value > 0 ? value : "full";
     };
-    const commit = () => engine.setState({ width: size(width), height: size(height) });
-    for (const input of [width, height]) input.addEventListener("input", () => queue(commit));
+    const commitSize = () => commit("viewport", { width: size(width), height: size(height) });
+    for (const input of [width, height]) input.addEventListener("input", () => queue(commitSize));
     rotate.addEventListener("click", () => {
       const turned = engine.getState().orientation === "portrait" ? "landscape" : "portrait";
-      engine.setState({ orientation: turned });
+      commit("viewport", { orientation: turned });
     });
     return [
       box,
@@ -526,8 +526,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     custom.placeholder = "custom user agent";
     custom.spellcheck = false;
     custom.setAttribute("aria-label", "custom user agent");
-    const commit = () => engine.setState({ ua: { preset: "custom", custom: custom.value } });
-    custom.addEventListener("input", () => queue(commit));
+    const commitCustom = () => commit("ua", { ua: { preset: "custom", custom: custom.value } });
+    custom.addEventListener("input", () => queue(commitCustom));
     return [custom, (state) => fill(custom, userAgentOf(state.ua))];
   }
 
