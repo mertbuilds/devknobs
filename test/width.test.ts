@@ -13,6 +13,7 @@ describe("fit", () => {
       scale: 1,
       transform: 1,
       left: 405,
+      top: 0,
     });
   });
 
@@ -39,14 +40,63 @@ describe("fit", () => {
 
   test("leaves the scale alone when there is no room to measure", () => {
     expect(fit("full", { width: 0, height: 0 }).scale).toBe(1);
+    expect(fit(390, { width: 0, height: 0 }, 1, 844).scale).toBe(1);
+  });
+
+  test("keeps a height that fits, centered both ways", () => {
+    expect(fit(402, ROOM, 1, 600)).toEqual({
+      width: 402,
+      height: 600,
+      zoom: 1,
+      scale: 1,
+      transform: 1,
+      left: 399,
+      top: 100,
+    });
+  });
+
+  test("scales a taller frame down to fit the height, and keeps its size", () => {
+    const place = fit(402, ROOM, 1, 1000);
+    expect(place).toMatchObject({ width: 402, height: 1000, scale: 0.8, top: 0 });
+    expect(place.left).toBeCloseTo((1200 - 402 * 0.8) / 2);
+  });
+
+  test("scales by the tighter axis", () => {
+    const wide = fit(1920, ROOM, 1, 1080);
+    expect(wide.scale).toBe(0.625);
+    expect(wide).toMatchObject({ width: 1920, height: 1080, left: 0, top: 62.5 });
+    const tall = fit(1032, ROOM, 1, 1376);
+    expect(tall.scale).toBeCloseTo(800 / 1376);
+    expect(tall.top).toBe(0);
+    expect(tall.left).toBeCloseTo((1200 - 1032 * tall.scale) / 2);
+  });
+
+  test("undoes the zoom in the wrapper with a height too", () => {
+    const place = fit(1920, ROOM, 0.5, 1080);
+    expect(place.width * place.zoom * place.transform).toBe(1200);
+    expect(place.height * place.zoom * place.transform).toBe(675);
+  });
+
+  test("a height at full width keeps the window's width", () => {
+    expect(fit("full", ROOM, 1, 600)).toMatchObject({ width: 1200, height: 600, top: 100 });
   });
 });
 
+const NO_DEVICE = { dpr: "system", height: "full", device: "none" } as const;
+
 describe("label", () => {
   test("names the width, the scale when the frame is drawn smaller, and the ratio", () => {
-    expect(label(fit(390, ROOM), "system")).toBe("390");
-    expect(label(fit(1920, ROOM), "system")).toBe("1920 at 63%");
-    expect(label(fit(1920, ROOM, 1.5), 3)).toBe("1920 at 63% · 3x");
+    expect(label(fit(390, ROOM), NO_DEVICE)).toBe("390");
+    expect(label(fit(1920, ROOM), NO_DEVICE)).toBe("1920 at 63%");
+    expect(label(fit(1920, ROOM, 1.5), { ...NO_DEVICE, dpr: 3 })).toBe("1920 at 63% · 3x");
+  });
+
+  test("names a height of its own, and the device", () => {
+    expect(label(fit(390, ROOM, 1, 700), { ...NO_DEVICE, height: 700 })).toBe("390 × 700");
+    const phone = { dpr: 3, height: 874, device: "iphone-16-pro" };
+    expect(label(fit(402, ROOM, 1, 874), phone)).toBe("iPhone 16 Pro · 402 × 874 at 92% · 3x");
+    const desk = { dpr: 1, height: 1080, device: "desktop" };
+    expect(label(fit(1920, ROOM, 1, 1080), desk)).toBe("desktop · 1920 × 1080 at 63% · 1x");
   });
 });
 
@@ -177,7 +227,7 @@ const PAGE = "http://localhost:3000/settings";
 const FRAMED = "http://localhost:3000/settings/billing";
 const EARLIER = "http://localhost:3000/";
 const SCROLL_Y = 600;
-const VIEWPORT = { ...UNFRAMED, scheme: "system", width: 390 } as const;
+const VIEWPORT = { ...UNFRAMED, scheme: "system", device: "none", width: 390 } as const;
 const NATIVE_SHOW_MODAL = FakeDialog.prototype.showModal;
 
 let body: FakeElement;
@@ -315,6 +365,13 @@ describe("the frame over the page", () => {
     expect(sandbox).not.toContain("allow-top-navigation");
   });
 
+  test("comes up for a height alone, that tall, and reads it out", () => {
+    apply({ ...UNFRAMED, scheme: "system", device: "none", height: 700 });
+    expect(Reflect.get(frameElement().style, "height")).toBe("700px");
+    const readout = everything().find((element) => Reflect.get(element, "className") === "size");
+    expect(readout && Reflect.get(readout, "hidden")).toBe(false);
+  });
+
   test("puts the page's own address back over the frame's", () => {
     apply(VIEWPORT);
     load(FRAMED);
@@ -341,7 +398,7 @@ describe("the frame over the page", () => {
   test("sends the window after the frame instead, when the knobs go off", () => {
     apply(VIEWPORT);
     load(FRAMED);
-    apply({ ...UNFRAMED, scheme: "system" });
+    apply({ ...UNFRAMED, scheme: "system", device: "none" });
     expect(assigned).toEqual([FRAMED]);
     expect(scrolls).toEqual([]);
   });
@@ -350,7 +407,7 @@ describe("the frame over the page", () => {
     apply(VIEWPORT);
     load(FRAMED);
     location.href = EARLIER;
-    apply({ ...UNFRAMED, scheme: "system" });
+    apply({ ...UNFRAMED, scheme: "system", device: "none" });
     expect(assigned).toEqual([]);
     expect(location.href).toBe(EARLIER);
   });

@@ -1,4 +1,5 @@
-import type { DevknobsState, DprValue, WidthValue } from "../types";
+import type { DevknobsState, DprValue, HeightValue, WidthValue } from "../types";
+import { deviceOf } from "./devices";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -14,7 +15,7 @@ import { visionFilter } from "./vision";
 const NAME = "width";
 
 /** What the frame takes from the knobs. */
-export type ViewportValue = FrameKnobs & Pick<DevknobsState, "scheme">;
+export type ViewportValue = FrameKnobs & Pick<DevknobsState, "scheme" | "device">;
 
 /** One under the panel host, so the panel stays on top of the frame. */
 const Z_INDEX = 2147483645;
@@ -125,7 +126,7 @@ let readout: HTMLElement | null = null;
 let notice: HTMLElement | null = null;
 /** Turns every knob that keeps the frame up off. The engine hands it in. */
 let exit: (() => void) | null = null;
-let current: ViewportValue = { ...UNFRAMED, scheme: "system" };
+let current: ViewportValue = { ...UNFRAMED, scheme: "system", device: "none" };
 /** The frame's page has loaded, so what it reports can be trusted. */
 let loaded = false;
 /** Where the frame was last seen on this origin. */
@@ -384,33 +385,50 @@ export interface Fit {
   scale: number;
   /** `transform: scale()` on the frame's wrapper: the fit, and the zoom undone. */
   transform: number;
-  /** Offset of the frame from the left, which centers it. */
+  /** Offset of the frame from the left and from the top, which centers it. */
   left: number;
+  top: number;
 }
 
 /**
  * Fit a frame `width` wide into `room`. One wider than the room is drawn
- * smaller, and made taller by as much, so it still fills the height. A zoom
- * keeps the frame's css size, and the wrapper takes it back out of the drawing.
+ * smaller, and without a `height` of its own made taller by as much, so it
+ * still fills the height. One with a height is drawn small enough to fit both
+ * ways. A zoom keeps the frame's css size, and the wrapper takes it back out of
+ * the drawing.
  */
-export function fit(width: WidthValue, room: { width: number; height: number }, zoom = 1): Fit {
+export function fit(
+  width: WidthValue,
+  room: { width: number; height: number },
+  zoom = 1,
+  height: HeightValue = "full",
+): Fit {
   const size = typeof width === "number" ? width : room.width;
-  const scale = size > 0 && room.width > 0 ? Math.min(1, room.width / size) : 1;
+  const across = size > 0 && room.width > 0 ? room.width / size : 1;
+  const tall = typeof height === "number" && height > 0 && room.height > 0;
+  const scale = Math.min(1, across, tall ? room.height / height : 1);
+  const frameHeight = typeof height === "number" ? height : room.height / scale;
   return {
     width: size,
-    height: room.height / scale,
+    height: frameHeight,
     zoom,
     scale,
     transform: scale / zoom,
     left: Math.max(0, (room.width - size * scale) / 2),
+    top: Math.max(0, (room.height - frameHeight * scale) / 2),
   };
 }
 
-/** What the letterbox says about the frame, such as `1440 at 62% · 2x`. */
-export function label(place: Fit, dpr: DprValue): string {
-  let text = String(place.width);
+/**
+ * What the letterbox says about the frame, such as `1440 at 62% · 2x`, or
+ * `iPhone 16 Pro · 402 × 874 · 3x` for a device. A height of its own is named.
+ */
+export function label(place: Fit, knobs: Pick<DevknobsState, "dpr" | "height" | "device">): string {
+  const name = deviceOf(knobs.device)?.label;
+  let text = name ? `${name} · ${place.width}` : String(place.width);
+  if (typeof knobs.height === "number") text += ` × ${place.height}`;
   if (place.scale < 1) text += ` at ${Math.round(place.scale * 100)}%`;
-  if (typeof dpr === "number") text += ` · ${dpr}x`;
+  if (typeof knobs.dpr === "number") text += ` · ${knobs.dpr}x`;
   return text;
 }
 
@@ -443,16 +461,17 @@ function checkZoom(): void {
 
 function resize(): void {
   if (!frame || !stage || !screen || !readout) return;
-  // At full width the frame is the window, and there is nothing to read out.
+  // At full size the frame is the window, and there is nothing to read out.
   // This goes first, as it changes the room the frame has.
-  readout.hidden = typeof current.width !== "number";
+  readout.hidden = typeof current.width !== "number" && typeof current.height !== "number";
   const room = { width: stage.clientWidth, height: stage.clientHeight };
-  const place = fit(current.width, room, zoomFor(current.dpr));
-  readout.textContent = label(place, zoomWorks ? current.dpr : "system");
+  const place = fit(current.width, room, zoomFor(current.dpr), current.height);
+  readout.textContent = label(place, { ...current, dpr: zoomWorks ? current.dpr : "system" });
   frame.style.width = `${place.width}px`;
   frame.style.height = `${place.height}px`;
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
   screen.style.left = `${place.left}px`;
+  screen.style.top = `${place.top}px`;
   screen.style.transform = place.transform === 1 ? "" : `scale(${place.transform})`;
   // Natively, the page inside gets the scheme as its real preference. System
   // leaves the frame to follow the window.
