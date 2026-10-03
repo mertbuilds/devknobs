@@ -4,7 +4,7 @@ import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
 import { userAgentOf } from "../engine/ua";
-import { frameWindow } from "../engine/width";
+import { frameWindow, zoomKey } from "../engine/width";
 import type { ClockValue, DevknobsState, DevknobsStatePatch } from "../types";
 import {
   browse,
@@ -21,7 +21,7 @@ import {
   rowOf,
   wallInput,
 } from "./catalog";
-import { escapeStep, hotkeyOf, isSearchKey, keyAction } from "./keys";
+import { escapeStep, hotkeyOf, isSearchKey, keyAction, zoomAction } from "./keys";
 import { isListed, pinPatch, removePatch, rowText } from "./list";
 import { filterOptions, type Result, resultText, search } from "./search";
 import { CSS } from "./styles";
@@ -978,6 +978,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
   });
 
   function onAction(action: KeyAction): void {
+    if (action === "zoom-in" || action === "zoom-out" || action === "zoom-fit") {
+      zoomKey(action);
+      return;
+    }
     // A drag owns the handle until the pointer is up, hotkey and escape too.
     if (dragging) return;
     if (action === "toggle") toggle();
@@ -1012,9 +1016,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /**
    * The hotkey toggles the panel unless the focus is in a field, the search
    * included. While the panel is out and the focus is in no field, `/` focuses
-   * the search without typing into it. Every other key goes to the page.
+   * the search without typing into it. While the frame is up, the zoom keys
+   * zoom it instead of the browser. Every other key goes to the page.
    */
   function onKeydown(event: KeyboardEvent): void {
+    const zoom = zoomAction(event);
+    if (zoom && zoomKey(zoom)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const action = keyAction(event, hotkey);
     if (action === "close") escape();
     else if (action) onAction(action);

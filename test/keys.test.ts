@@ -7,6 +7,7 @@ import {
   isSearchKey,
   keyAction,
   type KeyLike,
+  zoomAction,
 } from "../src/ui/keys";
 
 function key(patch: Partial<KeyLike>): KeyLike {
@@ -91,6 +92,34 @@ describe("isSearchKey", () => {
   });
 });
 
+describe("zoomAction", () => {
+  test("zooms in on plus, out on minus and back to fit on 0, with meta or ctrl", () => {
+    expect(zoomAction(key({ key: "=", metaKey: true }))).toBe("zoom-in");
+    expect(zoomAction(key({ key: "+", metaKey: true, shiftKey: true }))).toBe("zoom-in");
+    expect(zoomAction(key({ key: "-", ctrlKey: true }))).toBe("zoom-out");
+    expect(zoomAction(key({ key: "_", ctrlKey: true, shiftKey: true }))).toBe("zoom-out");
+    expect(zoomAction(key({ key: "0", metaKey: true }))).toBe("zoom-fit");
+  });
+
+  test("leaves the keys alone without meta or ctrl, with alt, and for other keys", () => {
+    expect(zoomAction(key({ key: "=" }))).toBeNull();
+    expect(zoomAction(key({ key: "0", shiftKey: true }))).toBeNull();
+    expect(zoomAction(key({ key: "0", metaKey: true, altKey: true }))).toBeNull();
+    expect(zoomAction(key({ key: "9", metaKey: true }))).toBeNull();
+    expect(zoomAction(key({ key: "d", metaKey: true }))).toBeNull();
+  });
+
+  test("leaves them to the browser while typing, but not on a select", () => {
+    expect(zoomAction(key({ key: "0", metaKey: true, target: element("INPUT") }))).toBeNull();
+    const typing = { key: "-", ctrlKey: true, composedPath: () => [element("TEXTAREA")] };
+    expect(zoomAction(key(typing))).toBeNull();
+    expect(zoomAction(key({ key: "=", metaKey: true, target: element("DIV", true) }))).toBeNull();
+    expect(zoomAction(key({ key: "0", metaKey: true, target: element("SELECT") }))).toBe(
+      "zoom-fit",
+    );
+  });
+});
+
 describe("escapeStep", () => {
   const idle: EscapeScene = { search: false, filter: false, editor: false };
 
@@ -147,6 +176,22 @@ describe("forwardKeys", () => {
       [{ source: "devknobs", type: "key", action: "toggle" }, "/"],
       [{ source: "devknobs", type: "key", action: "close" }, "/"],
     ]);
+  });
+
+  test("posts the zoom keys up too, and keeps them from the browser's own zoom", () => {
+    forwardKeys();
+    let prevented = 0;
+    const zoomKey = (patch: Partial<KeyLike>) =>
+      Object.assign(key({ metaKey: true, ...patch }), { preventDefault: () => prevented++ });
+    listener?.(zoomKey({ key: "=" }));
+    listener?.(zoomKey({ key: "0" }));
+    listener?.(zoomKey({ key: "-", target: element("INPUT") }));
+    listener?.(zoomKey({ key: "r" }));
+    expect(posted).toEqual([
+      [{ source: "devknobs", type: "key", action: "zoom-in" }, "/"],
+      [{ source: "devknobs", type: "key", action: "zoom-fit" }, "/"],
+    ]);
+    expect(prevented).toBe(2);
   });
 
   test("stops listening when told to", () => {

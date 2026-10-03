@@ -1,4 +1,4 @@
-import { type KeyAction, post } from "../engine/frame";
+import { type KeyAction, post, type ZoomAction } from "../engine/frame";
 
 /** The parts of a keydown that decide what it asks of the panel. */
 export type KeyLike = Pick<
@@ -11,11 +11,16 @@ export function hotkeyOf(hotkey?: string): string {
   return (hotkey ?? "d").toLowerCase();
 }
 
-function isEditable(node: EventTarget | null): boolean {
+/** A field that takes typing. */
+function isTyping(node: EventTarget | null): boolean {
   const element = node as HTMLElement | null;
   const tag = element?.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (tag === "INPUT" || tag === "TEXTAREA") return true;
   return element?.isContentEditable === true;
+}
+
+function isEditable(node: EventTarget | null): boolean {
+  return isTyping(node) || (node as HTMLElement | null)?.tagName === "SELECT";
 }
 
 /** What a keydown asks of the panel, if anything. Typing in a field never asks. */
@@ -36,6 +41,19 @@ export function isSearchKey(event: KeyLike): boolean {
   if (event.key !== "/" || event.altKey || event.ctrlKey || event.metaKey) return false;
   const target = event.composedPath?.()[0] ?? event.target;
   return !isEditable(target);
+}
+
+/**
+ * What a zoom key asks of the frame: meta or ctrl with plus steps in, with
+ * minus out, and with 0 goes back to fit, as the browser's own zoom keys do.
+ * In a field that takes typing they are the browser's.
+ */
+export function zoomAction(event: KeyLike): ZoomAction | null {
+  if ((!event.metaKey && !event.ctrlKey) || event.altKey) return null;
+  if (isTyping(event.composedPath?.()[0] ?? event.target)) return null;
+  if (event.key === "=" || event.key === "+") return "zoom-in";
+  if (event.key === "-" || event.key === "_") return "zoom-out";
+  return event.key === "0" ? "zoom-fit" : null;
 }
 
 /** What escape takes back: the search, a list filter, the open editor or the panel. */
@@ -64,13 +82,16 @@ export function escapeStep(scene: EscapeScene): EscapeStep {
 
 /**
  * Inside the width knob's frame the keys stay in the frame while it has focus,
- * so send the panel's keys up to the page that has the panel. Returns the way
- * to stop.
+ * so send the panel's keys up to the page that has the panel, and the zoom
+ * keys up to the letterbox, which the browser's own zoom does not get. Returns
+ * the way to stop.
  */
 export function forwardKeys(hotkey?: string): () => void {
   const key = hotkeyOf(hotkey);
   function onKeydown(event: KeyboardEvent): void {
-    const action = keyAction(event, key);
+    const zoom = zoomAction(event);
+    if (zoom) event.preventDefault();
+    const action = keyAction(event, key) ?? zoom;
     if (action) post(window.parent, { source: "devknobs", type: "key", action });
   }
   window.addEventListener("keydown", onKeydown, true);
