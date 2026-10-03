@@ -4,7 +4,7 @@ import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
 import { frameWindow } from "../engine/width";
-import type { ClockValue, DevknobsState } from "../types";
+import type { ClockValue, DevknobsState, DevknobsStatePatch } from "../types";
 import {
   browse,
   isActive,
@@ -17,12 +17,11 @@ import {
   ROWS,
   type Row,
   type RowId,
-  resetPatch,
   rowOf,
-  summary,
   wallInput,
 } from "./catalog";
 import { hotkeyOf, isSearchKey, keyAction } from "./keys";
+import { isListed, pinPatch, removePatch, rowText } from "./list";
 import { filterOptions, type Result, resultText, search } from "./search";
 import { CSS } from "./styles";
 
@@ -146,8 +145,8 @@ function reveal(node: HTMLElement, box: HTMLElement): void {
  * host carries an open shadow root, so the page cannot style the panel and the
  * panel cannot style the page.
  *
- * The panel lists only the knobs that are off their default, one row each, and
- * a row opens into an editor. Everything else is a search away: the field at
+ * The panel lists the knobs that are off their default or were set from it,
+ * one row each, and a row opens into an editor. Everything else is a search away: the field at
  * the top finds knobs and values, and with nothing typed lists every knob.
  */
 export function createPanel(options: PanelOptions = {}): Panel {
@@ -227,8 +226,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (input.value !== value) input.value = value;
   }
 
+  /** Set knobs from the panel. Their row stays listed from here on. */
+  function commit(row: RowId, patch: DevknobsStatePatch): void {
+    engine.setState(pinPatch(engine.getState(), row, patch));
+  }
+
   function set(knob: Knob, value: string): void {
-    engine.setState(knob.write(value, engine.getState()));
+    commit(rowOf(knob.id).id, knob.write(value, engine.getState()));
   }
 
   /** Typing commits once it pauses, each field on a timer of its own. */
@@ -375,7 +379,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   function commitWidth(): void {
     const width = Number(widthField.value);
-    if (Number.isFinite(width) && width > 0) engine.setState({ width });
+    if (Number.isFinite(width) && width > 0) commit("viewport", { width });
   }
 
   widthField.addEventListener("input", () => queue(commitWidth));
@@ -390,7 +394,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /** Set the clock to an instant, running unless it stands frozen already. */
   function travel(at: number, since = realNow()): void {
     const frozen = engine.getState().clock.mode === "frozen";
-    engine.setState({ clock: { mode: frozen ? "frozen" : "offset", at, since } });
+    commit("clock", { clock: { mode: frozen ? "frozen" : "offset", at, since } });
   }
 
   function clockExtra(): [HTMLElement, Update] {
@@ -431,11 +435,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     travelBox.append(route, pace);
     box.append(custom, travelBox);
     const commitCustom = () =>
-      engine.setState({
+      commit("location", {
         geo: { preset: "custom", lat: toNumber(lat.value), lng: toNumber(lng.value) },
       });
-    const commitRoute = () => engine.setState({ geo: { preset: "route", route: route.value } });
-    const commitSpeed = () => engine.setState({ geo: { speed: toNumber(speed.value) } });
+    const commitRoute = () => commit("location", { geo: { preset: "route", route: route.value } });
+    const commitSpeed = () => commit("location", { geo: { speed: toNumber(speed.value) } });
     for (const input of [lat, lng]) input.addEventListener("input", () => queue(commitCustom));
     route.addEventListener("input", () => queue(commitRoute));
     speed.addEventListener("input", () => queue(commitSpeed));
@@ -502,7 +506,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     main.addEventListener("click", () => openEditor(openRow === row.id ? null : row.id));
     clear.addEventListener("click", () => {
       if (openRow === row.id) openRow = null;
-      engine.setState(resetPatch(row));
+      engine.setState(removePatch(engine.getState(), row));
     });
     return { row, box, main, value, clear, editor, updates: buildEditor(row, editor) };
   });
@@ -647,25 +651,26 @@ export function createPanel(options: PanelOptions = {}): Panel {
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     const live = liveOf(state);
-    let anyActive = false;
+    let anyListed = false;
     let anyShown = false;
     for (const view of views) {
-      const active = isActive(view.row, state);
+      const listed = isListed(view.row, state);
       const expanded = openRow === view.row.id;
-      anyActive ||= active;
-      anyShown ||= active || expanded;
-      view.box.hidden = !active && !expanded;
+      anyListed ||= listed;
+      anyShown ||= listed || expanded;
+      view.box.hidden = !listed && !expanded;
       view.box.classList.toggle("open", expanded);
       view.main.setAttribute("aria-expanded", expanded ? "true" : "false");
-      view.value.textContent = summary(view.row, state, live);
-      view.clear.hidden = !active;
+      view.value.textContent = rowText(view.row, state, live);
+      view.value.classList.toggle("idle", !isActive(view.row, state));
+      view.clear.hidden = !listed;
       view.editor.hidden = !expanded;
       if (expanded) for (const update of view.updates) update(state);
     }
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
     viewOf("debug")?.value.classList.toggle("hot", hot);
     empty.hidden = anyShown;
-    resetButton.disabled = !anyActive;
+    resetButton.disabled = !anyListed;
     badge.textContent = overflowBadge(state.overflow, live.overflow);
     badge.hidden = badge.textContent === "";
     badge.classList.toggle("hot", hot);
@@ -679,7 +684,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (!state.panel.open) return;
     const live = liveOf(state);
     for (const view of views) {
-      if (!view.box.hidden) view.value.textContent = summary(view.row, state, live);
+      if (!view.box.hidden) view.value.textContent = rowText(view.row, state, live);
     }
     if (openRow === "clock") for (const update of viewOf("clock")?.updates ?? []) update(state);
   }

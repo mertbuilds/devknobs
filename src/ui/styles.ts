@@ -198,6 +198,8 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   white-space: nowrap;
   text-align: right;
 }
+/* A row kept in the list with its knobs back at their defaults. */
+.row-value.idle { color: var(--faint); }
 .row-value.hot { color: var(--hot); }
 .clear {
   flex: none;

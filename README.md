@@ -91,6 +91,8 @@ the panel lists only the knobs that are off their default, one row each, with
 related knobs together: width, device pixel ratio, frame and vision are one
 viewport row, the clock with its mode, speed and server header is another.
 click a row to open its editor, and `×` puts that row back to its default.
+a row set from the panel stays in the list, back at its default too, until its
+`×` takes it off or reset all clears the list.
 
 the field at the top finds knobs and values. type `dark`, `390`, `+2d`, `tr`,
 `tokyo`, `rtl`, `pause` or `offline` and enter sets the first result. a value

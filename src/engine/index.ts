@@ -19,7 +19,7 @@ import * as pseudo from "./pseudo";
 import { replay as replayAnimations } from "./replay";
 import * as spacing from "./spacing";
 import * as speed from "./speed";
-import { clear, DEFAULT_STATE, load, merge, save } from "./store";
+import { clear, DEFAULT_STATE, load, merge, resetState, save } from "./store";
 import * as text from "./text";
 import * as time from "./time";
 import * as width from "./width";
@@ -88,7 +88,7 @@ export function setState(patch: DevknobsStatePatch): DevknobsState {
 
 /** Put every knob back to system and forget the stored state. */
 export function reset(): void {
-  applyState({ ...DEFAULT_STATE, panel: state.panel });
+  applyState(resetState(state));
   if (persist) clear();
 }
 
