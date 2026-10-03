@@ -60,6 +60,13 @@ describe("parse", () => {
     });
   });
 
+  test("starts the panel closed, and keeps one stored open", () => {
+    expect(parse(null).panel.open).toBe(false);
+    expect(parse(JSON.stringify({ panel: { y: 40 } })).panel.open).toBe(false);
+    expect(parse(JSON.stringify({ panel: { open: "yes" } })).panel.open).toBe(false);
+    expect(parse(JSON.stringify({ panel: { open: true } })).panel.open).toBe(true);
+  });
+
   test("drops a vision deficiency it does not know", () => {
     expect(parse(JSON.stringify({ vision: "colorblind" })).vision).toBe("none");
   });

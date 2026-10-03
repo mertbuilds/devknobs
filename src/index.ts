@@ -38,7 +38,7 @@ export type { EngineOptions } from "./engine";
 export interface MountOptions extends engine.EngineOptions {
   /** Key that toggles the panel. Defaults to `d`. */
   hotkey?: string;
-  /** Start the panel open or closed. Defaults to the stored state. */
+  /** Start the panel open or closed. Defaults to the stored state, closed at first. */
   open?: boolean;
 }
 

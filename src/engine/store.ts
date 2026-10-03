@@ -47,7 +47,8 @@ export const DEFAULT_STATE: DevknobsState = {
   vision: "none",
   overflow: false,
   outlines: false,
-  panel: { open: true, y: 16, top: 16, pinned: [] },
+  // Closed, the handle alone, until the user opens it.
+  panel: { open: false, y: 16, top: 16, pinned: [] },
 };
 
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
@@ -224,13 +225,5 @@ export function save(state: DevknobsState): void {
     storage()?.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
     // Private mode, disabled storage: knobs still work, they just do not stick.
-  }
-}
-
-export function clear(): void {
-  try {
-    storage()?.removeItem(STORAGE_KEY);
-  } catch {
-    // Same.
   }
 }

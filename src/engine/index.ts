@@ -19,7 +19,7 @@ import * as pseudo from "./pseudo";
 import { replay as replayAnimations } from "./replay";
 import * as spacing from "./spacing";
 import * as speed from "./speed";
-import { clear, DEFAULT_STATE, load, merge, resetState, save } from "./store";
+import { DEFAULT_STATE, load, merge, resetState, save } from "./store";
 import * as text from "./text";
 import * as time from "./time";
 import * as width from "./width";
@@ -86,10 +86,12 @@ export function setState(patch: DevknobsStatePatch): DevknobsState {
   return state;
 }
 
-/** Put every knob back to system and forget the stored state. */
+/**
+ * Put every knob back to system and unpin every row. The panel keeps its
+ * place and stays open or closed, across a reload too.
+ */
 export function reset(): void {
   applyState(resetState(state));
-  if (persist) clear();
 }
 
 /** Inside the frame, take the knobs and replays the page above sends down. */

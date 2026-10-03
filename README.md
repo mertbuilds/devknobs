@@ -75,12 +75,15 @@ setState({ locale: { lang: "ar" } });
 | option | default | what it does |
 | --- | --- | --- |
 | `hotkey` | `d` | key that toggles the panel |
-| `open` | the stored state | start the panel open or closed |
+| `open` | the stored state, closed at first | start the panel open or closed |
 | `persist` | `true` | keep the knobs in `sessionStorage` |
 | `state` | none | knobs to apply on top of the stored state |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
+
+the panel starts closed, as a handle on the edge of the window. click it or
+press the hotkey to open it, and it stays open across reloads.
 
 drag the handle to move it up and down the edge of the window. hold shift while
 dragging to move the panel and the handle together.
