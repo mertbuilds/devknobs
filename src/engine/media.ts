@@ -6,13 +6,19 @@ export type MediaFeature =
   | "prefers-color-scheme"
   | "prefers-reduced-motion"
   | "prefers-contrast"
-  | "prefers-reduced-transparency";
+  | "prefers-reduced-transparency"
+  | "pointer"
+  | "any-pointer"
+  | "hover"
+  | "any-hover";
 
 export interface MediaValue {
   scheme: SchemeValue;
   motion: MotionValue;
   contrast: ContrastValue;
   transparency: TransparencyValue;
+  /** A device's touch screen, and no mouse. */
+  touch: boolean;
 }
 
 export const SYSTEM_MEDIA: MediaValue = {
@@ -20,6 +26,7 @@ export const SYSTEM_MEDIA: MediaValue = {
   motion: "system",
   contrast: "system",
   transparency: "system",
+  touch: false,
 };
 
 /**
@@ -31,14 +38,38 @@ const TRUE_TOKEN = "(min-width: 0px)";
 const TRUE_QUERY = "all";
 const FALSE_QUERY = "not all";
 
-const FEATURE_OF: Record<keyof MediaValue, MediaFeature> = {
+const FEATURE_OF: Record<Exclude<keyof MediaValue, "touch">, MediaFeature> = {
   scheme: "prefers-color-scheme",
   motion: "prefers-reduced-motion",
   contrast: "prefers-contrast",
   transparency: "prefers-reduced-transparency",
 };
 
-const KNOBS = Object.keys(FEATURE_OF) as (keyof MediaValue)[];
+const KNOBS = Object.keys(FEATURE_OF) as (keyof typeof FEATURE_OF)[];
+
+/** What a touch screen with no mouse reports: a coarse pointer that cannot hover. */
+const TOUCH: readonly (readonly [MediaFeature, string])[] = [
+  ["pointer", "coarse"],
+  ["any-pointer", "coarse"],
+  ["hover", "none"],
+  ["any-hover", "none"],
+];
+
+const FEATURES: readonly MediaFeature[] = [
+  ...KNOBS.map((knob) => FEATURE_OF[knob]),
+  ...TOUCH.map(([feature]) => feature),
+];
+
+/** Each feature with the value it reads as, `system` where it is left alone. */
+function emulated(value: MediaValue): [MediaFeature, string][] {
+  return [
+    ...KNOBS.map((knob): [MediaFeature, string] => [FEATURE_OF[knob], value[knob]]),
+    ...TOUCH.map(([feature, touch]): [MediaFeature, string] => [
+      feature,
+      value.touch ? touch : "system",
+    ]),
+  ];
+}
 
 function featurePattern(feature: MediaFeature): RegExp {
   return new RegExp(`\\(\\s*${feature}\\s*(?::\\s*([a-z-]+)\\s*)?\\)`, "gi");
@@ -46,9 +77,11 @@ function featurePattern(feature: MediaFeature): RegExp {
 
 /** Does the emulated value satisfy the value asked for in the query? */
 export function featureMatches(queryValue: string | undefined, emulated: string): boolean {
-  // Boolean context, e.g. `(prefers-reduced-motion)`: true unless the emulated
-  // value is the platform default.
-  if (queryValue === undefined || queryValue === "") return emulated !== "no-preference";
+  // Boolean context, e.g. `(prefers-reduced-motion)` or `(hover)`: true unless
+  // the emulated value is the platform default or none.
+  if (queryValue === undefined || queryValue === "") {
+    return emulated !== "no-preference" && emulated !== "none";
+  }
   return queryValue.toLowerCase() === emulated;
 }
 
@@ -110,13 +143,13 @@ export function rewriteMediaText(text: string, feature: MediaFeature, value: str
 /** Rewrite for every emulated feature at once. */
 export function rewriteAll(text: string, value: MediaValue): string {
   let next = text;
-  for (const knob of KNOBS) next = rewriteMediaText(next, FEATURE_OF[knob], value[knob]);
+  for (const [feature, reads] of emulated(value)) next = rewriteMediaText(next, feature, reads);
   return next;
 }
 
 export function mentionsFeature(text: string): boolean {
   const lower = text.toLowerCase();
-  return KNOBS.some((knob) => lower.includes(FEATURE_OF[knob]));
+  return FEATURES.some((feature) => lower.includes(feature));
 }
 
 type MediaBearingRule = CSSRule & { media: MediaList };
@@ -258,7 +291,7 @@ function ensureObserver(): void {
 }
 
 function emulating(): boolean {
-  return KNOBS.some((knob) => current[knob] !== "system");
+  return emulated(current).some(([, value]) => value !== "system");
 }
 
 /** What a query matches with the emulated values, read through the native getter. */

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   apply,
   destroy,
+  mentionsFeature,
   rewriteAll,
   rewriteMediaText,
   splitQueryList,
@@ -129,6 +130,55 @@ describe("rewriteAll", () => {
   });
 });
 
+describe("touch", () => {
+  const TOUCH = { ...SYSTEM_MEDIA, touch: true };
+
+  test("a coarse pointer that cannot hover", () => {
+    expect(rewriteAll("(pointer: coarse)", TOUCH)).toBe(TRUE_TOKEN);
+    expect(rewriteAll("(pointer: fine)", TOUCH)).toBe("not all");
+    expect(rewriteAll("(hover: none)", TOUCH)).toBe(TRUE_TOKEN);
+    expect(rewriteAll("(hover: hover)", TOUCH)).toBe("not all");
+  });
+
+  test("any pointer and any hover read the same", () => {
+    expect(rewriteAll("(any-pointer: coarse) and (any-hover: none)", TOUCH)).toBe(
+      `${TRUE_TOKEN} and ${TRUE_TOKEN}`,
+    );
+    expect(rewriteAll("(any-hover: hover), (any-pointer: fine)", TOUCH)).toBe("not all, not all");
+  });
+
+  test("hover alone is false, a pointer alone is true", () => {
+    expect(rewriteAll("(hover)", TOUCH)).toBe("not all");
+    expect(rewriteAll("(any-hover)", TOUCH)).toBe("not all");
+    expect(rewriteAll("(pointer)", TOUCH)).toBe(TRUE_TOKEN);
+  });
+
+  test("flips a negated hover query and keeps the rest", () => {
+    expect(rewriteAll("not all and (hover: hover)", TOUCH)).toBe("all");
+    expect(rewriteAll("screen and (hover: none) and (min-width: 600px)", TOUCH)).toBe(
+      `screen and ${TRUE_TOKEN} and (min-width: 600px)`,
+    );
+  });
+
+  test("composes with the prefers knobs", () => {
+    expect(rewriteAll(`(hover: none) and (${SCHEME}: dark)`, { ...TOUCH, scheme: "dark" })).toBe(
+      `${TRUE_TOKEN} and ${TRUE_TOKEN}`,
+    );
+  });
+
+  test("leaves pointer and hover alone without a touch screen", () => {
+    expect(rewriteAll("(hover: hover) and (pointer: fine)", SYSTEM_MEDIA)).toBe(
+      "(hover: hover) and (pointer: fine)",
+    );
+  });
+
+  test("names the features", () => {
+    expect(mentionsFeature("(hover: none)")).toBe(true);
+    expect(mentionsFeature("(any-pointer: coarse)")).toBe(true);
+    expect(mentionsFeature("(min-width: 600px)")).toBe(false);
+  });
+});
+
 /** What the browser itself matches: a light system, where `(min-width: 0px)` always holds. */
 function holds(query: string): boolean {
   return query === "all" || query === "(min-width: 0px)" || query === `(${SCHEME}: light)`;
@@ -208,6 +258,19 @@ describe("the prefers knobs across an unmount", () => {
     apply({ ...SYSTEM_MEDIA, scheme: "dark" });
     expect(list.matches).toBe(true);
     expect(heard).toEqual([true]);
+  });
+
+  test("a list reads the touch screen and hears it come and go", () => {
+    apply(SYSTEM_MEDIA);
+    const list = window.matchMedia("(pointer: coarse)");
+    const heard = hear(list as unknown as FakeMediaQueryList);
+    expect(list.matches).toBe(false);
+    apply({ ...SYSTEM_MEDIA, touch: true });
+    expect(list.matches).toBe(true);
+    expect(window.matchMedia("(hover: hover)").matches).toBe(false);
+    apply(SYSTEM_MEDIA);
+    expect(list.matches).toBe(false);
+    expect(heard).toEqual([true, false]);
   });
 
   test("tell a list the early script handed over, after an unmount and a mount", () => {

@@ -1,4 +1,5 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
+import { hasTouch } from "./devices";
 import {
   framed,
   isDevknobsFrame,
@@ -22,6 +23,7 @@ import * as speed from "./speed";
 import { clear, DEFAULT_STATE, load, merge, save } from "./store";
 import * as text from "./text";
 import * as time from "./time";
+import * as touch from "./touch";
 import * as width from "./width";
 
 export interface EngineOptions {
@@ -57,12 +59,18 @@ export function applyState(next: DevknobsState): void {
   state = inFrame ? framed(next) : next;
   // In a frame that gets the scheme natively, the rewrite and the patch step aside.
   const scheme = inFrame && nativeScheme(state.scheme) ? "system" : state.scheme;
+  // The frame is the device's screen, so its touch screen goes there.
+  const touchScreen = inFrame && hasTouch(state.device);
   media.apply({
     scheme,
     motion: state.motion,
     contrast: state.contrast,
     transparency: state.transparency,
+    touch: touchScreen,
   });
+  // Integration point with the ua knob (feat/ua-knob): once the state has its
+  // `ua` field, that knob reports `maxTouchPoints` for the device's browser.
+  touch.apply({ on: touchScreen, points: !("ua" in state) });
   speed.apply(state.speed);
   locale.apply(state.locale);
   pseudo.apply(state.pseudo);
@@ -132,6 +140,7 @@ export function stop(): void {
   inFrame = false;
   width.onExit(null);
   media.destroy();
+  touch.reset();
   speed.reset();
   locale.reset();
   pseudo.reset();
