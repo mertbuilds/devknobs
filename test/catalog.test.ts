@@ -174,6 +174,8 @@ describe("summary", () => {
     expect(mock.read(state({ device: "iphone-16-pro", mock: false }))).toBe("off");
     expect(mock.read(state({ device: "desktop" }))).toBe("off");
     expect(mock.read(state({ width: 390, height: 844 }))).toBe("off");
+    expect(mock.offers?.(state({ device: "iphone-16-pro" }))).toEqual(["off", "on"]);
+    expect(mock.offers?.(state({ device: "desktop" }))).toEqual([]);
     expect(isActive(row("viewport"), state({ mock: false }))).toBe(false);
     expect(says("viewport", { device: "pixel-9", mock: false })).toBe("Pixel 9 · portrait");
     expect(resetPatch(row("viewport"))).toMatchObject({ mock: true });
@@ -185,6 +187,8 @@ describe("summary", () => {
     expect(pointer.read(state({ device: "pixel-9", touchPointer: false }))).toBe("off");
     expect(pointer.read(state({ device: "desktop" }))).toBe("off");
     expect(pointer.read(state({ width: 390, height: 844 }))).toBe("off");
+    expect(pointer.offers?.(state({ device: "pixel-9" }))).toEqual(["off", "on"]);
+    expect(pointer.offers?.(state({ device: "desktop" }))).toEqual([]);
     expect(isActive(row("viewport"), state({ touchPointer: false }))).toBe(false);
     expect(says("viewport", { device: "ipad-mini", touchPointer: false })).toBe(
       "iPad mini · portrait",

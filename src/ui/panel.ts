@@ -1,6 +1,5 @@
 import * as engine from "../engine";
 import { now, realNow } from "../engine/clock";
-import { hasTouch } from "../engine/devices";
 import { frameForced, type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
@@ -18,7 +17,6 @@ import {
   ACTIONS,
   type Action,
   browse,
-  hasMock,
   isActive,
   type Knob,
   type KnobId,
@@ -494,7 +492,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
         const offered = offers(state);
         const order = offered.flatMap((value) => items.filter((item) => item.value === value));
         for (const item of items) item.node.hidden = !order.includes(item);
-        const standing = Array.from(track.children).filter((node) => !(node as HTMLElement).hidden);
+        const standing = Array.from(track.children).filter(
+          (node) => node instanceof HTMLElement && !node.hidden,
+        );
         if (order.some((item, at) => standing[at] !== item.node)) {
           track.append(...order.map((item) => item.node));
         }
@@ -796,19 +796,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
           line.hidden = frameForced(state);
         });
       }
-      // The mock switch only shows for a device that has one.
-      if (knob.id === "mock") {
-        updates.push((state) => {
-          line.hidden = !hasMock(state);
-        });
-      }
-      // So does the touch pointer for a device that takes touch.
-      if (knob.id === "touchPointer") {
-        updates.push((state) => {
-          line.hidden = !hasTouch(state.device);
-        });
-      }
-      // And a knob whose choices depend on the device, while it offers none.
+      // A knob whose choices depend on the device hides while it offers none.
       const offers = knob.offers;
       if (offers) {
         updates.push((state) => {
@@ -1028,8 +1016,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
     leaveSearch();
     // Another knob holds the frame up, so the frame knob has nothing to set.
     if (knob.id === "frame" && frameForced(engine.getState())) return;
-    if (knob.id === "mock" && !hasMock(engine.getState())) return;
-    if (knob.id === "touchPointer" && !hasTouch(engine.getState().device)) return;
     if (knob.offers && !knob.offers(engine.getState()).includes(option.value)) return;
     set(knob, option.value);
     if (option.opens) openEditor(id);

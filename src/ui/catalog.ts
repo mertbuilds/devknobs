@@ -759,6 +759,7 @@ const MOCK: Knob = {
   reset: { mock: DEFAULT_STATE.mock },
   // The device says enough.
   brief: () => "",
+  offers: (state) => (hasMock(state) ? ["off", "on"] : []),
 };
 
 const TOUCH_POINTER: Knob = {
@@ -773,6 +774,7 @@ const TOUCH_POINTER: Knob = {
   write: (value) => ({ touchPointer: value === "on" }),
   reset: { touchPointer: DEFAULT_STATE.touchPointer },
   brief: () => "",
+  offers: (state) => (hasTouch(state.device) ? ["off", "on"] : []),
 };
 
 /** The layout of the phone's browser in use, or off for a device without one. */
