@@ -5,6 +5,7 @@ import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
 import { userAgentOf } from "../engine/ua";
 import { frameWindow, zoomKey } from "../engine/width";
+import type { GrabControl } from "../grab/control";
 import type {
   ClockValue,
   DevknobsState,
@@ -13,6 +14,8 @@ import type {
   PanelValue,
 } from "../types";
 import {
+  ACTIONS,
+  type Action,
   browse,
   isActive,
   type Knob,
@@ -29,7 +32,7 @@ import {
 } from "./catalog";
 import { escapeStep, hotkeyOf, isSearchKey, keyAction, zoomAction } from "./keys";
 import { isListed, pinPatch, removePatch, rowText } from "./list";
-import { filterOptions, type Result, resultText, search } from "./search";
+import { filterOptions, type Result, resultText, search, searchActions } from "./search";
 import { CSS } from "./styles";
 
 export { wallInput } from "./catalog";
@@ -37,6 +40,8 @@ export { wallInput } from "./catalog";
 export interface PanelOptions {
   /** Key that toggles the panel. Defaults to `d`. */
   hotkey?: string;
+  /** Grab, where it is on, to show and to turn on from the search. */
+  grab?: GrabControl | null;
 }
 
 export interface Panel {
@@ -271,6 +276,7 @@ function center(node: HTMLElement, box: HTMLElement): void {
  */
 export function createPanel(options: PanelOptions = {}): Panel {
   const hotkey = hotkeyOf(options.hotkey);
+  const grab = options.grab ?? null;
 
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "panel");
@@ -330,6 +336,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     el("br", ""),
     "/ to search · shift-drag moves the handle",
   );
+  if (grab) meta.append(el("br", ""), `${grab.label} hold to grab`);
   foot.append(actions, meta);
 
   panel.append(head, body, foot);
@@ -688,6 +695,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return { row, box, main, value, clear, editor, updates: buildEditor(row, editor) };
   });
 
+  /** Shown while grab is on, with the way out of it. */
+  const grabRow = el("div", "row");
+  const grabLine = el("div", "line");
+  const grabMain = el("div", "main");
+  grabMain.append(el("span", "row-label", "grab"), el("span", "row-value", "pick an element"));
+  const grabClear = button("clear", "×");
+  grabClear.setAttribute("aria-label", "stop grabbing");
+  grabClear.addEventListener("click", () => grab?.set(false));
+  grabLine.append(grabMain, grabClear);
+  grabRow.append(grabLine);
+  grabRow.hidden = true;
+  rows.prepend(grabRow);
+
   function viewOf(id: RowId): RowView | undefined {
     return views.find((view) => view.row.id === id);
   }
@@ -741,19 +761,43 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return { node, pick };
   }
 
+  function actionEntry(id: number, action: Action): Entry {
+    return entry(
+      id,
+      () => runAction(action),
+      el("span", "entry-knob", action.label),
+      el("span", "entry-value", action.long),
+    );
+  }
+
   function resultEntries(query: string, state: DevknobsState): Entry[] {
-    return search(query).map((result, index) => {
+    const actions = grab ? searchActions(query) : [];
+    const found = search(query).map((result, index) => {
       const text = resultText(result);
       const value = el("span", "entry-value", text.value);
       const current = result.option !== null && result.knob.read(state) === result.option.value;
       value.classList.toggle("current", current);
-      return entry(index, () => pick(result), el("span", "entry-knob", text.knob), value);
+      return entry(
+        actions.length + index,
+        () => pick(result),
+        el("span", "entry-knob", text.knob),
+        value,
+      );
     });
+    return [...actions.map((action, index) => actionEntry(index, action)), ...found];
   }
 
   function browseEntries(state: DevknobsState): { nodes: HTMLElement[]; list: Entry[] } {
     const nodes: HTMLElement[] = [];
     const list: Entry[] = [];
+    if (grab) {
+      nodes.push(el("div", "group-label", "actions"));
+      for (const action of ACTIONS) {
+        const item = actionEntry(list.length, action);
+        list.push(item);
+        nodes.push(item.node);
+      }
+    }
     for (const group of browse()) {
       nodes.push(el("div", "group-label", group.category));
       for (const knob of group.knobs) {
@@ -810,6 +854,15 @@ export function createPanel(options: PanelOptions = {}): Panel {
     view.main.focus();
   }
 
+  /** Do what an action says. Grab takes the focus out of the panel, to the page. */
+  function runAction(action: Action): void {
+    if (action.id !== "grab" || !grab) return;
+    leaveSearch();
+    const focused = root.activeElement;
+    if (focused instanceof HTMLElement) focused.blur();
+    grab.set(true);
+  }
+
   /** Set a result's value, or open the editor of a knob found by name. */
   function pick(result: Result): void {
     const { knob, option } = result;
@@ -854,6 +907,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       view.editor.hidden = !expanded;
       if (expanded) for (const update of view.updates) update(state);
     }
+    grabRow.hidden = !grab?.isOn();
+    anyShown ||= !grabRow.hidden;
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
     viewOf("debug")?.value.classList.toggle("hot", hot);
     empty.hidden = anyShown;
@@ -1148,6 +1203,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const ticker = window.setInterval(tick, 1000);
   const unsubscribe = engine.subscribe(render);
+  const stopGrab = grab?.subscribe(render);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("pointerdown", onPointerDown, true);
@@ -1172,6 +1228,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   return {
     destroy(): void {
       unsubscribe();
+      stopGrab?.();
       stopCount();
       clearInterval(ticker);
       for (const timer of pending.values()) clearTimeout(timer);

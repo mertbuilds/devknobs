@@ -1016,6 +1016,25 @@ export function resetPatch(row: Row): DevknobsStatePatch {
   return combine(row.knobs.map((id) => knobOf(id).reset));
 }
 
+/** Something the panel does rather than a knob it sets. */
+export interface Action {
+  id: "grab";
+  label: string;
+  /** What a search result says after the name. */
+  long: string;
+  /** More words search finds the action by. */
+  aliases: readonly string[];
+}
+
+export const ACTIONS: readonly Action[] = [
+  {
+    id: "grab",
+    label: "grab",
+    long: "pick an element to copy",
+    aliases: ["inspect", "pick", "element", "component", "select", "agent"],
+  },
+];
+
 /** The browse list: every knob the browser can use, by category. */
 export function browse(): { category: Category; knobs: Knob[] }[] {
   const knobs = availableKnobs();

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { KNOBS, knobOf } from "../src/ui/catalog";
-import { filterOptions, resultText, search, words } from "../src/ui/search";
+import { filterOptions, resultText, search, searchActions, words } from "../src/ui/search";
 
 const DAY = 86_400_000;
 
@@ -187,5 +187,18 @@ describe("filterOptions", () => {
       "ipad-safari",
       "mac-safari",
     ]);
+  });
+});
+
+describe("searchActions", () => {
+  test("finds grab by its name and its aliases", () => {
+    for (const query of ["grab", "gra", "inspect", "pick", "pick element"]) {
+      expect(searchActions(query).map((action) => action.id)).toEqual(["grab"]);
+    }
+  });
+
+  test("finds nothing for no query or a knob", () => {
+    expect(searchActions("")).toEqual([]);
+    expect(searchActions("dark")).toEqual([]);
   });
 });
