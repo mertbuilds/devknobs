@@ -2,7 +2,18 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { DEVICES, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
 import { mockOf } from "../src/engine/mock";
-import { apply, fit, label, onZoom, origin, reset, STRIP, zoomKey } from "../src/engine/width";
+import { DEFAULT_STATE, merge } from "../src/engine/store";
+import {
+  apply,
+  fit,
+  label,
+  onZoom,
+  origin,
+  reset,
+  STRIP,
+  sync,
+  zoomKey,
+} from "../src/engine/width";
 import type { ZoomValue } from "../src/types";
 
 /** A letterbox that leaves 1200 by 800 under its readout strip. */
@@ -428,6 +439,8 @@ let head: FakeElement;
 let location: { href: string; origin: string; assign: (url: string) => void };
 /** Where the window was sent, and every `scrollTo`. */
 let assigned: string[];
+/** How many times the frame's page was reloaded. */
+let reloads: number;
 let scrolls: ScrollToOptions[];
 
 function define(name: string, value: unknown): void {
@@ -452,7 +465,11 @@ function widthStyle(): FakeElement | undefined {
 function load(href: string): void {
   const frame = frameElement();
   Object.assign(frame, {
-    contentWindow: { location: { href }, navigation: new EventTarget() },
+    contentWindow: Object.assign(new EventTarget(), {
+      location: { href, reload: () => reloads++ },
+      navigation: new EventTarget(),
+      postMessage: () => {},
+    }),
     contentDocument: { title: "billing", head: new FakeElement("HEAD") },
   });
   frame.dispatchEvent(new Event("load"));
@@ -463,6 +480,7 @@ beforeEach(() => {
   head = new FakeElement("HEAD");
   assigned = [];
   scrolls = [];
+  reloads = 0;
   location = { href: PAGE, origin: "http://localhost:3000", assign: (url) => assigned.push(url) };
   define("window", {
     location,
@@ -640,5 +658,40 @@ describe("the frame over the page", () => {
     apply(KNOBS);
     expect(assigned).toEqual([]);
     expect(location.href).toBe(EARLIER);
+  });
+});
+
+/** A phone with no ratio and no browser drawn, which the fakes cannot measure or draw. */
+const PHONE_KNOBS = { device: "iphone-16-pro", dpr: "system", browser: "off" } as const;
+
+describe("a new identity", () => {
+  beforeEach(() => {
+    Object.assign(window, { setTimeout });
+  });
+
+  test("reloads the frame once the knobs settle, once, and not for a zoom", async () => {
+    const phone = merge(DEFAULT_STATE, PHONE_KNOBS);
+    apply(phone);
+    sync(phone);
+    load(FRAMED);
+    const pixel = merge(phone, { device: "pixel-9", dpr: "system" });
+    apply(pixel);
+    sync(pixel);
+    sync(merge(pixel, { dpr: 2 }));
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+    load(FRAMED);
+    sync(merge(pixel, { dpr: 2, zoom: 0.5, orientation: "landscape" }));
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("leaves a frame on its first load to finish", async () => {
+    const phone = merge(DEFAULT_STATE, PHONE_KNOBS);
+    apply(phone);
+    sync(phone);
+    sync(merge(phone, { device: "pixel-9" }));
+    await Bun.sleep(5);
+    expect(reloads).toBe(0);
   });
 });

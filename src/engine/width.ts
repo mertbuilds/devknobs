@@ -12,6 +12,7 @@ import {
   UNFRAMED,
   type ZoomAction,
 } from "./frame";
+import { type Identity, identityOf, patchedAs, patchWindow, stale } from "./identity";
 import { drawMat } from "./mat";
 import { type Mock, mockOf, type Rect, type Sides } from "./mock";
 import { ensureStyle, removeStyle } from "./style";
@@ -37,6 +38,9 @@ export const STRIP = 24;
 
 /** The room kept around a frame of a set size, fitted or scrolled to its edge, in px. */
 const MARGIN = 24;
+
+/** How long a frame's next page gets to take over once the last one hid, in ms. */
+const COMMIT_WAIT = 1000;
 
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
@@ -321,6 +325,10 @@ let showModal: HTMLDialogElement["showModal"] | null = null;
 /** Follows the frame's title, which a router sets after the url changes. */
 let titleObserver: MutationObserver | null = null;
 let latest: DevknobsState | null = null;
+/** What the frame's page loaded as, or null while a new one is on the way. */
+let identity: Identity | null = null;
+/** The reload a new identity asked for, once the knobs settle. */
+let reloading = 0;
 /** What a page node had before it was hidden here, so it gets exactly that back. */
 interface Hidden {
   /** Made inert here. One the page made inert stays the page's. */
@@ -407,6 +415,67 @@ function share(): void {
 export function sync(state: DevknobsState): void {
   latest = state;
   share();
+  follow();
+}
+
+/**
+ * The frame's window has a new page, which has run nothing yet: patch what it
+ * reads at load, and watch for the one after.
+ */
+function arrive(view: Window): void {
+  if (!latest) return;
+  identity = patchWindow(view, latest);
+  view.addEventListener("pagehide", onHide);
+}
+
+/**
+ * The frame's page hid because the next one is taking its place, which runs
+ * its first script a task or more later. Look every task until it is there.
+ * The window is the same, its page is not.
+ */
+function onHide(event: Event): void {
+  const view = frameWindow();
+  const gone = frameDocument();
+  // The whole tab going into the back/forward cache, with the frame as it is.
+  if (!view || !gone || (event as PageTransitionEvent).persisted) return;
+  identity = null;
+  const until = performance.now() + COMMIT_WAIT;
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => {
+    let doc: Document | null = null;
+    try {
+      doc = frameWindow() === view ? view.document : null;
+    } catch {
+      // Another origin: nothing there to patch.
+    }
+    if (doc && doc !== gone) arrive(view);
+    else if (doc && performance.now() < until) {
+      channel.port2.postMessage(null);
+      return;
+    }
+    channel.port1.close();
+  };
+  channel.port2.postMessage(null);
+}
+
+/**
+ * Reload the frame once the knobs settle when its page loaded as another
+ * device, so scripts that read the browser at load read the new one. One pick
+ * that moves several knobs reloads once. A page still on its first load is
+ * left to finish.
+ */
+function follow(): void {
+  if (reloading || !loaded || !latest || !stale(identity, identityOf(latest))) return;
+  reloading = window.setTimeout(() => {
+    reloading = 0;
+    if (!loaded || !latest || !stale(identity, identityOf(latest))) return;
+    identity = null;
+    try {
+      frameWindow()?.location.reload();
+    } catch {
+      // Another origin, which the knobs never reached.
+    }
+  }, 0);
 }
 
 /** Where the frame is now. A frame that left the origin keeps the last place seen. */
@@ -518,10 +587,14 @@ function onLoad(): void {
   if (view && doc) {
     watch(view, doc);
     mirror();
+    // A page the watch missed: the next one is patched still.
+    view.addEventListener("pagehide", onHide);
+    if (latest) identity ??= patchedAs(view) ?? identityOf(latest);
   }
   browser?.refresh();
   checkZoom();
   share();
+  follow();
 }
 
 /** A page that mounts late asks for the knobs once it listens. */
@@ -1028,6 +1101,12 @@ function open(): void {
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", resize);
   body.append(host);
+  // The first page takes over the blank window the frame starts with, patches
+  // and all, and it starts no sooner than this task ends, after the knobs.
+  queueMicrotask(() => {
+    const view = frameWindow();
+    if (view && !loaded) arrive(view);
+  });
   // Before the frame's page starts, which is no sooner than this task ends.
   resize();
   // The panel comes up after the frame, and is measured for the fit once it is there.
@@ -1047,6 +1126,9 @@ function close(follow: boolean): void {
   window.removeEventListener("resize", resize);
   frame?.removeEventListener("load", onLoad);
   titleObserver?.disconnect();
+  clearTimeout(reloading);
+  reloading = 0;
+  identity = null;
   // The window shows its own page again, so its own address and title too.
   if (!moved) replaceUrl(pageUrl);
   if (pageTitle !== null) document.title = pageTitle;

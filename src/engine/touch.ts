@@ -46,6 +46,29 @@ export function apply(value: TouchValue): void {
   }
 }
 
+/**
+ * Give another window on this origin a touch screen, from the page above its
+ * frame before the window's own scripts run. A copy of devknobs there then
+ * finds `ontouchstart` in place and leaves it be. The window keeps it until
+ * its next load.
+ */
+export function equip(view: Window, points: boolean): void {
+  if (!("ontouchstart" in view)) {
+    Object.defineProperty(view, "ontouchstart", {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: null,
+    });
+  }
+  if (!points) return;
+  Object.defineProperty(view.navigator, "maxTouchPoints", {
+    configurable: true,
+    enumerable: true,
+    get: () => TOUCH_POINTS,
+  });
+}
+
 export function reset(): void {
   apply({ on: false, points: false });
 }

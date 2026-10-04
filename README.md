@@ -273,7 +273,7 @@ reports to it from its first render.
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
-| user agent | iphone safari, android chrome, ipad safari, mac safari, mac chrome, windows chrome, windows edge, linux firefox, googlebot, a custom string, system | patches `userAgent`, `appVersion`, `platform`, `vendor` and `maxTouchPoints` on `Navigator.prototype`, and `navigator.userAgentData`: its brands, `mobile`, `platform`, `toJSON` and `getHighEntropyValues` (platform version, model, architecture, bitness, full version list), all from the same browser. safari and firefox have no `userAgentData`, so their presets take it away. the ipad is the one iPadOS shows sites by default, a mac with touch points. a custom string sets `userAgent` and `appVersion` alone, as chrome devtools does: platform, vendor and touch points stay the browser's, and a `userAgentData` the browser has reports no brands. the field under the list shows the string in use, and editing it makes it the custom one. back to system, every property is the browser's own again |
+| user agent | iphone safari, android chrome, ipad safari, mac safari, mac chrome, windows chrome, windows edge, linux firefox, googlebot, a custom string, system | patches `userAgent`, `appVersion`, `platform`, `vendor` and `maxTouchPoints` on `Navigator.prototype`, and `navigator.userAgentData`: its brands, `mobile`, `platform`, `toJSON` and `getHighEntropyValues` (platform version, model, architecture, bitness, full version list), all from the same browser. safari and firefox have no `userAgentData`, so their presets take it away. the ipad is the one iPadOS shows sites by default, a mac with touch points. a custom string sets `userAgent` and `appVersion` alone, as chrome devtools does: platform, vendor and touch points stay the browser's, and a `userAgentData` the browser has reports no brands. the field under the list shows the string in use, and editing it makes it the custom one. back to system, every property is the browser's own again. in a device's frame a new user agent reloads the frame, see devices |
 | vision | protanopia, deuteranopia, tritanopia, achromatopsia, blur, none | an svg color matrix (machado et al. 2009, as chromium devtools uses) or a 2px blur, as a `filter` on the frame, so fixed elements inside keep their place and the panel stays readable. brings the frame up |
 | overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count in its debug row and footer. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
 | outlines | on, off | injects one style rule that outlines every element |
@@ -397,6 +397,23 @@ a device sets the user agent knob to its own browser too: iPhone or iPad
 Safari, Android Chrome, Mac Safari on the MacBook, Windows Chrome on the laptop
 and desktop. taking the device away puts the user agent back to system, unless
 it was changed since.
+
+a page reads some of a device once, as it loads: a script sniffs the user
+agent or the touch screen, a canvas sets up for the pixel ratio. so the frame
+reloads, keeping where it is, when a pick changes any of the user agent, the
+touch screen or the ratio: iPhone to Pixel, a device to the laptop, the user
+agent or ratio knob on its own, a reset. one pick reloads once, and a frame
+still on its first load finishes it first. iPhone 16 to iPhone 16 Pro, a turn,
+the zoom, the mock, the browser bars, the touch pointer, the scheme and every
+other knob follow live with no reload. the page above patches each new page in
+the frame before its first script runs, as soon as the frame's window has it:
+the user agent fields, `ontouchstart`, the touch points and the pointer and
+hover answers of `matchMedia`, so even an inline script at the top of `<head>`
+reads the device, with no early script. on its first load, on a reload and on
+a link followed inside the frame alike. the copy of devknobs in the frame takes
+those patches over when it mounts. tested in chrome. without a frame, a new
+user agent does not reload the page: reload it yourself, or load the early
+script.
 
 a device with a touch screen gets one inside its frame: `(pointer: coarse)`,
 `(any-pointer: coarse)`, `(hover: none)` and `(any-hover: none)` match, in
@@ -524,10 +541,12 @@ the user agent knob changes what page code reads, not what goes over the
 wire. the server still sees the real `User-Agent` request header, as browsers
 do not let page code change it on the page's own loads, so server-side
 sniffing (a mobile redirect, a bot check, rendering per device) does not
-follow the knob. the `Sec-CH-UA` client hint headers stay real too. workers
-and service workers keep the real `navigator`, and code that read the user
-agent before the knob moved keeps what it read: reload, or load the early
-script first.
+follow the knob. the `Sec-CH-UA` client hint headers stay real too, in a
+device's frame as well, its reloads included. workers and service workers keep
+the real `navigator`. without a frame, code that read the user agent before
+the knob moved keeps what it read: reload, or load the early script first. in
+a frame the page reloads on its own. stylesheets in the frame's page see the
+touch screen's pointer and hover once devknobs mounts there, as before.
 
 the speed knob reaches what the Web Animations API can see. an animation
 that javascript drives frame by frame (a `requestAnimationFrame` loop, a
