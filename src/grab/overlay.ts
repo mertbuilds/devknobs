@@ -7,11 +7,7 @@ import { createThemeReader, type GrabTone, invertTheme } from "./theme";
 const Z_INDEX = 2147483647;
 
 /** Space between a box and its label or toast, in px. */
-const GAP = 8;
-
-/** How wide the label's arrow is at its base, and how far it sticks out, in px. */
-export const ARROW_WIDTH = 10;
-const ARROW_HEIGHT = 5;
+const GAP = 6;
 
 /** Space the label keeps from the window's edge, in px. */
 const MARGIN = 8;
@@ -36,6 +32,8 @@ const SYNC_EVERY = 100;
 export const TOAST_TIME = 1500;
 /** How long the toast takes to come in, in ms. */
 const TOAST_FADE = 100;
+/** The most the label is wide, in px. Longer text is cut short. */
+const MAX_WIDTH = 280;
 
 function colorRules(gamut: "srgb" | "p3"): string {
   return GRAB_COLOR_NAMES.map(
@@ -58,7 +56,7 @@ const CSS = `
   direction: ltr;
   --grab: ${GRAB_COLORS.blue.srgb};
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 400;
   line-height: 16px;
   -webkit-font-smoothing: antialiased;
@@ -105,55 +103,30 @@ ${colorRules("p3")}
   top: 0;
   left: 0;
   display: flex;
-  max-width: calc(100% - ${2 * MARGIN}px);
+  align-items: center;
+  gap: 6px;
+  max-width: min(${MAX_WIDTH}px, calc(100% - ${2 * MARGIN}px));
+  box-sizing: border-box;
+  padding: 6px 8px;
+  white-space: nowrap;
   opacity: 0;
   --bar: #161616;
-  --ink: #ffffff;
-  --dim: #a7a7a7;
-  --ring: 0 0 0 1px rgb(255 255 255 / 12%), 0 2px 8px rgb(0 0 0 / 24%);
+  color: #ffffff;
+  background: var(--bar);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 12%), 0 2px 8px rgb(0 0 0 / 24%);
   transition: opacity ${FADE}ms ease-out;
 }
 .pill.on { opacity: 1; }
 .pill.toast.on { transition: opacity ${TOAST_FADE}ms ease-out; }
-.pill[data-bar="light"] {
-  --bar: #ffffff;
-  --ink: #171717;
-  --dim: #737373;
-  --ring: 0 0 0 1px rgb(0 0 0 / 10%), 0 2px 8px rgb(0 0 0 / 32%);
-}
-.bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.pill span {
   min-width: 0;
-  box-sizing: border-box;
-  padding: 3px 9px;
   overflow: hidden;
-  white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--ink);
-  background: var(--bar);
-  border-radius: 999px;
-  box-shadow: var(--ring);
-}
-.arrow {
-  position: absolute;
-  top: -${ARROW_HEIGHT}px;
-  left: 0;
-  width: ${ARROW_WIDTH}px;
-  height: ${ARROW_HEIGHT + 1}px;
-  margin-left: -${ARROW_WIDTH / 2}px;
-  background: var(--bar);
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
-}
-.pill[data-arrow="bottom"] .arrow {
-  top: auto;
-  bottom: -${ARROW_HEIGHT}px;
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
 .check {
   flex: none;
-  margin: 0 -2px 0 -4px;
+  margin-right: -2px;
   opacity: 0.85;
 }
 .check circle { fill: currentColor; }
@@ -164,7 +137,13 @@ ${colorRules("p3")}
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.tag { color: var(--dim); }
+.pill .tag { flex: none; color: #a7a7a7; }
+.pill[data-bar="light"] {
+  --bar: #ffffff;
+  color: #171717;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 10%), 0 2px 8px rgb(0 0 0 / 32%);
+}
+.pill[data-bar="light"] .tag { color: #737373; }
 .layer [hidden] { display: none; }
 .layer[data-still] * { transition: none; }
 `;
@@ -194,55 +173,24 @@ export function tweenStep(
   return done ? { values: [...to], done } : { values, done };
 }
 
-interface Bounds {
-  top: number;
-  bottom: number;
-  left: number;
-  right: number;
-}
-
-/** What the label points at sideways: the pointer while it is over the box, or the box's middle. */
-function anchorOf(box: Bounds, pointerX: number | null): number {
-  return pointerX === null ? (box.left + box.right) / 2 : clamp(pointerX, box.left, box.right);
-}
-
 /**
  * Where the label goes by a box: under it, over it where there is no room,
  * kept in the window. Sideways it is centered on the pointer, as far as the
  * pointer is over the box, or on the box when the keys moved it.
  */
 export function labelPlace(
-  box: Bounds,
+  box: { top: number; bottom: number; left: number; right: number },
   pill: { width: number; height: number },
   view: { width: number; height: number },
   pointerX: number | null,
 ): { x: number; y: number } {
-  const x = clamp(
-    anchorOf(box, pointerX) - pill.width / 2,
-    MARGIN,
-    view.width - pill.width - MARGIN,
-  );
+  const anchor =
+    pointerX === null ? (box.left + box.right) / 2 : clamp(pointerX, box.left, box.right);
+  const x = clamp(anchor - pill.width / 2, MARGIN, view.width - pill.width - MARGIN);
   let y = box.bottom + GAP;
   if (y + pill.height > view.height - MARGIN) y = box.top - pill.height - GAP;
   y = clamp(y, MARGIN, view.height - pill.height - MARGIN);
   return { x, y };
-}
-
-/**
- * Where the label's arrow goes: on the edge that faces the box, or on none
- * where the label is over the box. Sideways it is where the label points,
- * from the label's left, kept off its round ends.
- */
-export function arrowPlace(
-  box: Bounds,
-  pill: { x: number; y: number; width: number; height: number },
-  pointerX: number | null,
-): { x: number; side: "top" | "bottom" | null } {
-  const inset = (pill.height + ARROW_WIDTH) / 2;
-  const x = clamp(anchorOf(box, pointerX) - pill.x, inset, pill.width - inset);
-  if (pill.y >= box.bottom) return { x, side: "top" };
-  if (pill.y + pill.height <= box.top) return { x, side: "bottom" };
-  return { x, side: null };
 }
 
 /** The first px length of a computed `border-radius`, or 0 where it has none. */
@@ -329,12 +277,7 @@ export function createOverlay(): Overlay {
   const tag = document.createElement("span");
   tag.className = "tag";
   const name = document.createElement("span");
-  const bar = document.createElement("div");
-  bar.className = "bar";
-  bar.append(check, tag, name);
-  const arrow = document.createElement("div");
-  arrow.className = "arrow";
-  label.append(bar, arrow);
+  label.append(check, tag, name);
   const picks: HTMLElement[] = [];
   layer.append(glow, box, label);
   root.append(style, layer);
@@ -489,7 +432,6 @@ export function createOverlay(): Overlay {
       last = 0;
       labelAt = null;
       if (!toasting) return;
-      arrow.hidden = true;
       writeLabel();
       const x = Math.round((view.width - size.width) / 2);
       label.style.transform = `translate(${x}px, ${MARGIN * 2}px)`;
@@ -500,21 +442,21 @@ export function createOverlay(): Overlay {
     at = step.values;
     place(box, at);
     writeLabel();
-    const bounds = {
-      top: target[1],
-      bottom: target[1] + target[3],
-      left: target[0],
-      right: target[0] + target[2],
-    };
-    const spot = labelPlace(bounds, size, view, pointerX);
+    const spot = labelPlace(
+      {
+        top: target[1],
+        bottom: target[1] + target[3],
+        left: target[0],
+        right: target[0] + target[2],
+      },
+      size,
+      view,
+      pointerX,
+    );
     const goal = [Math.round(spot.x), Math.round(spot.y)];
     const move = tweenStep(labelAt ?? goal, goal, elapsed, reduce.matches);
     labelAt = move.values;
     label.style.transform = `translate(${labelAt[0]}px, ${labelAt[1]}px)`;
-    const tip = arrowPlace(bounds, { x: labelAt[0] ?? spot.x, y: spot.y, ...size }, pointerX);
-    arrow.hidden = tip.side === null;
-    if (tip.side) label.dataset.arrow = tip.side;
-    arrow.style.left = `${tip.x}px`;
     const done = step.done && move.done;
     last = done ? 0 : now;
     if (!done) schedule();
