@@ -79,10 +79,11 @@ describe("pinned rows", () => {
 
   test("reset all clears every knob and every pin, and keeps the panel's place", () => {
     const busy = use(use(DEFAULT_STATE, "scheme", { scheme: "dark" }), "text", { text: 17 });
-    const moved = merge(busy, { panel: { open: true, y: 120, top: 80 } });
+    const place = { y: 120, top: 80, edge: "bottom", tab: "none" } as const;
+    const moved = merge(busy, { panel: { open: true, ...place } });
     const reset = resetState(moved);
     expect(listed(reset)).toEqual([]);
     expect(reset.scheme).toBe("system");
-    expect(reset.panel).toEqual({ open: true, y: 120, top: 80, pinned: [] });
+    expect(reset.panel).toEqual({ open: true, ...place, pinned: [] });
   });
 });

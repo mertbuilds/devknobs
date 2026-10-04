@@ -124,12 +124,19 @@ export interface UaValue {
   custom: string;
 }
 
+/** An edge a box sits flush with and follows when sizes change, or `none`. */
+export type EdgeValue = "top" | "bottom" | "none";
+
 export interface PanelValue {
   open: boolean;
   /** Handle offset from the top of the viewport, in px. */
   y: number;
-  /** Panel offset from the top of the viewport, in px. The handle pushes it. */
+  /** Panel offset from the top of the viewport, in px. */
   top: number;
+  /** The edge of the window the panel sits flush with. */
+  edge: EdgeValue;
+  /** The corner of the panel the handle sits flush with. */
+  tab: EdgeValue;
   /**
    * Ids of the rows set from the panel. Each stays in the list, back at its
    * default too, until its `×` or reset all takes it off.

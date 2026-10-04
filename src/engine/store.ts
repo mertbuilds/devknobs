@@ -5,6 +5,7 @@ import type {
   DevknobsState,
   DevknobsStatePatch,
   DirValue,
+  EdgeValue,
   GeoErrorValue,
   MotionValue,
   OnlineValue,
@@ -56,7 +57,7 @@ export const DEFAULT_STATE: DevknobsState = {
   overflow: false,
   outlines: false,
   // Closed, the handle alone, until the user opens it.
-  panel: { open: false, y: 16, top: 16, pinned: [] },
+  panel: { open: false, y: 16, top: 16, edge: "none", tab: "none", pinned: [] },
 };
 
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
@@ -70,6 +71,7 @@ const ONLINES: OnlineValue[] = ["offline", "system"];
 const CONNECTIONS: ConnectionValue[] = ["slow-2g", "2g", "3g", "4g", "system"];
 const SAVE_DATAS: SaveDataValue[] = ["on", "off", "system"];
 const ORIENTATIONS: OrientationValue[] = ["portrait", "landscape"];
+const EDGES: EdgeValue[] = ["top", "bottom", "none"];
 const VISIONS: VisionValue[] = [
   "none",
   "protanopia",
@@ -195,6 +197,10 @@ export function parse(json: string | null | undefined): DevknobsState {
       y: panelY,
       // A session stored before the panel had a place of its own only has `y`.
       top: num(panel.top, panelY),
+      // One stored before the panel stuck to edges sticks to none, until the
+      // panel next lays itself out and finds the edges it sits flush with.
+      edge: oneOf(panel.edge, EDGES, DEFAULT_STATE.panel.edge),
+      tab: oneOf(panel.tab, EDGES, DEFAULT_STATE.panel.tab),
       // One stored before rows stayed listed has none pinned.
       pinned: strings(panel.pinned),
     },

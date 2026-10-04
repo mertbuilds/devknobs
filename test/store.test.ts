@@ -38,7 +38,14 @@ describe("parse", () => {
         ua: { preset: "iphone-safari", custom: 3 },
         overflow: true,
         outlines: "yes",
-        panel: { open: false, y: 40, top: 24, pinned: ["scheme", 3, "clock", "scheme"] },
+        panel: {
+          open: false,
+          y: 40,
+          top: 24,
+          edge: "bottom",
+          tab: "middle",
+          pinned: ["scheme", 3, "clock", "scheme"],
+        },
         stray: 1,
       }),
     );
@@ -67,7 +74,14 @@ describe("parse", () => {
       ua: { preset: "iphone-safari", custom: "" },
       overflow: true,
       outlines: false,
-      panel: { open: false, y: 40, top: 24, pinned: ["scheme", "clock"] },
+      panel: {
+        open: false,
+        y: 40,
+        top: 24,
+        edge: "bottom",
+        tab: "none",
+        pinned: ["scheme", "clock"],
+      },
     });
   });
 
@@ -104,8 +118,19 @@ describe("parse", () => {
       open: DEFAULT_STATE.panel.open,
       y: 200,
       top: 200,
+      edge: "none",
+      tab: "none",
       pinned: [],
     });
+  });
+
+  test("sticks the panel to no edge when the session predates edges", () => {
+    const { panel } = parse(JSON.stringify({ panel: { y: 40, top: 24 } }));
+    expect(panel.edge).toBe("none");
+    expect(panel.tab).toBe("none");
+    const stored = parse(JSON.stringify({ panel: { edge: "top", tab: "bottom" } })).panel;
+    expect(stored.edge).toBe("top");
+    expect(stored.tab).toBe("bottom");
   });
 
   test("pins no row when the session predates pinned rows or stored junk", () => {

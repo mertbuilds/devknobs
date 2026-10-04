@@ -17,6 +17,7 @@ export type {
   DevknobsStatePatch,
   DirValue,
   DprValue,
+  EdgeValue,
   GeoErrorValue,
   GeoValue,
   HeightValue,
