@@ -256,6 +256,12 @@ describe("label", () => {
     const desk = { dpr: 1, height: 1080, device: "desktop" };
     expect(label(fit(DESKTOP, BOX), desk)).toBe("desktop · 1920 × 1080 · 1x");
   });
+
+  test("names the page a phone's browser leaves, with the device", () => {
+    const phone = { dpr: 3, height: 874, device: "iphone-16-pro" };
+    const page = { width: 402, height: 714 };
+    expect(label(fit(PHONE, BOX), phone, page)).toBe("iPhone 16 Pro · 402 × 714 · 3x");
+  });
 });
 
 /** A style declaration, as far as the frame reads and writes one. */

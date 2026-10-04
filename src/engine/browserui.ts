@@ -362,7 +362,7 @@ function safariStatus(id: string, spec: SafariSpec, W: number): StatusBar {
   if (!spec.faceId || !island) {
     return {
       height: spec.top,
-      time: { x: W / 2, y: 10, size: 12 },
+      time: { x: W / 2, y: 10, size: 15 },
       icons: { x: 6, y: 10, align: "start" },
       battery: { x: W - 7, y: 10 },
     };

@@ -1,4 +1,6 @@
 import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
+import { BARS_CSS, type BrowserLayer, createBrowser } from "./browserdraw";
+import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf } from "./devices";
 import {
   FRAME_ATTRIBUTE,
@@ -20,7 +22,10 @@ const NAME = "width";
 
 /** What the frame takes from the knobs. */
 export type ViewportValue = FrameKnobs &
-  Pick<DevknobsState, "scheme" | "device" | "orientation" | "mock" | "zoom"> & {
+  Pick<
+    DevknobsState,
+    "scheme" | "device" | "orientation" | "mock" | "browser" | "browserMin" | "zoom"
+  > & {
     panel: Pick<PanelValue, "open">;
   };
 
@@ -185,6 +190,9 @@ const CSS = `
   left: 0;
   transform-origin: 0 0;
 }
+.glass { position: relative; }
+/* Where a phone's browser leaves the page in its screen. */
+.page.placed { position: absolute; }
 /* Clips the frame to the screen's corners in a mock, in the body's color so
    no blue shows at the seam. */
 .glass.mocked {
@@ -244,7 +252,7 @@ iframe {
 @media (color-gamut: p3) {
   .viewport, .blocked { background: ${MAT_P3}; }
 }
-`;
+${BARS_CSS}`;
 
 let host: HTMLElement | null = null;
 /** The mat around the frame, readout strip included, which the frame is fitted to. */
@@ -259,6 +267,10 @@ let drawing: HTMLElement | null = null;
 let screen: HTMLElement | null = null;
 /** Holds the frame, and clips it to the screen's corners under a mock. */
 let glass: HTMLElement | null = null;
+/** Holds the frame where a phone's browser leaves the page. */
+let pageBox: HTMLElement | null = null;
+/** A phone's browser bars around the frame. */
+let browser: BrowserLayer | null = null;
 /** The device's body drawn around the frame, while it has one. */
 let mockDrawing: SVGSVGElement | null = null;
 /** The device and the way it is held that the mock was last drawn for. */
@@ -288,6 +300,8 @@ let current: ViewportValue = {
   device: "none",
   orientation: "portrait",
   mock: true,
+  browser: "auto",
+  browserMin: false,
   zoom: "fit",
   panel: { open: false },
 };
@@ -455,6 +469,7 @@ function mirror(): void {
   if (!doc) return;
   replaceUrl(locate());
   written = window.location.href;
+  browser?.refresh();
   if (doc.title === document.title) return;
   pageTitle ??= document.title;
   document.title = doc.title;
@@ -504,6 +519,7 @@ function onLoad(): void {
     watch(view, doc);
     mirror();
   }
+  browser?.refresh();
   checkZoom();
   share();
 }
@@ -644,12 +660,17 @@ export function origin(place: Fit, room: { width: number; height: number }): Poi
 /**
  * What the letterbox says about the frame, such as `1440 · 2x`, or
  * `iPhone 16 Pro · 402 × 874 · 3x` for a device. A height of its own is named.
- * The zoom control beside it says the scale.
+ * A phone's browser leaves the page less of the screen, and that is the size
+ * it says. The zoom control beside it says the scale.
  */
-export function label(place: Fit, knobs: Pick<DevknobsState, "dpr" | "height" | "device">): string {
+export function label(
+  place: Fit,
+  knobs: Pick<DevknobsState, "dpr" | "height" | "device">,
+  page: { width: number; height: number } = place,
+): string {
   const name = deviceOf(knobs.device)?.label;
-  let text = name ? `${name} · ${place.width}` : String(place.width);
-  if (typeof knobs.height === "number") text += ` × ${place.height}`;
+  let text = name ? `${name} · ${page.width}` : String(page.width);
+  if (typeof knobs.height === "number") text += ` × ${page.height}`;
   if (typeof knobs.dpr === "number") text += ` · ${knobs.dpr}x`;
   return text;
 }
@@ -788,6 +809,22 @@ function showMock(mock: Mock | null, place: Fit): void {
 }
 
 /**
+ * Put the frame where the phone's browser leaves the page in the screen, and
+ * draw the browser around it, or fill the screen with the frame again.
+ */
+function showBrowser(bars: ReturnType<typeof barsOf>, page: Rect | null, place: Fit): void {
+  if (!glass || !pageBox) return;
+  const zoom = place.zoom;
+  pageBox.className = page ? "page placed" : "page";
+  pageBox.style.left = page ? `${page.x * zoom}px` : "";
+  pageBox.style.top = page ? `${page.y * zoom}px` : "";
+  glass.style.width = page ? `${place.width * zoom}px` : "";
+  glass.style.height = page ? `${place.height * zoom}px` : "";
+  browser?.show(bars, place, zoom);
+  browser?.refresh();
+}
+
+/**
  * Draw the mat for the letterbox's size, its lines one device pixel thin, and
  * its top ruler unnumbered under the readout.
  */
@@ -818,14 +855,21 @@ function resize(): void {
     mock: mock?.inset,
   });
   drawn = place;
-  caption.textContent = label(place, { ...current, dpr: zoomWorks ? current.dpr : "system" });
+  const device = deviceOf(current.device);
+  const layout = device ? layoutOf(device.id, current.browser) : null;
+  const bars = device ? barsOf(device, current.orientation, layout, current.browserMin) : null;
+  const page =
+    bars && device ? viewportOf(device, current.orientation, layout, current.browserMin) : null;
+  const knobs = { ...current, dpr: zoomWorks ? current.dpr : "system" };
+  caption.textContent = label(place, knobs, page ?? place);
   showZoom(place);
   showMat(size);
   // A fitted frame never scrolls, so no rounding can bring a scrollbar.
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
-  frame.style.width = `${place.width}px`;
-  frame.style.height = `${place.height}px`;
+  frame.style.width = `${page?.width ?? place.width}px`;
+  frame.style.height = `${page?.height ?? place.height}px`;
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
+  showBrowser(bars, page, place);
   drawing.style.width = `${place.box.width}px`;
   drawing.style.height = `${place.box.height}px`;
   // The wrapper starts at the mock's corner, and the frame sits in it by as much.
@@ -950,7 +994,11 @@ function open(): void {
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
   notice = createNotice();
-  glass.append(frame);
+  pageBox = document.createElement("div");
+  pageBox.className = "page";
+  pageBox.append(frame);
+  glass.append(pageBox);
+  browser = createBrowser(glass, frame);
   screen.append(glass);
   drawing.append(screen);
   stage.append(drawing);
@@ -1001,6 +1049,9 @@ function close(follow: boolean): void {
   drawing = null;
   screen = null;
   glass = null;
+  pageBox = null;
+  browser?.remove();
+  browser = null;
   mockDrawing = null;
   mockKey = "";
   frame = null;
