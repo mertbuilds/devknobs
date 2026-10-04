@@ -33,8 +33,11 @@ export type ViewportValue = FrameKnobs &
 /** One under the panel host, so the panel stays on top of the frame. */
 const Z_INDEX = 2147483645;
 
+/** The room over the readout's row, so it stands clear of the window's top edge, in px. */
+const STRIP_TOP = 8;
+
 /** The readout strip over the frame, in px. The frame is fitted to the room under it. */
-export const STRIP = 24;
+export const STRIP = 24 + STRIP_TOP;
 
 /** The room kept around a frame of a set size, fitted or scrolled to its edge, in px. */
 const MARGIN = 24;
@@ -145,7 +148,7 @@ const CSS = `
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 0 8px;
+  padding: ${STRIP_TOP}px 8px 0;
   font: 11px/16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: nowrap;
   color: rgba(255, 255, 255, 0.8);
