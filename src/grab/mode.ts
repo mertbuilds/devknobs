@@ -64,7 +64,7 @@ function isTyping(event: Event): boolean {
  * there, so a click can copy it whole in the click itself, as Safari wants.
  */
 export function startMode(options: ModeOptions): Mode {
-  const overlay = createOverlay(options.scheme);
+  const overlay = createOverlay();
   const navigator = createNavigator();
   const ready = new WeakMap<Element, GrabEntry>();
   const warming = new WeakSet<Element>();

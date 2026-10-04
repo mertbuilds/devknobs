@@ -30,11 +30,11 @@ const HIDE_WAIT = 100;
 /** How often the bounds are read again, to catch the page's layout moving, in ms. */
 const SYNC_EVERY = 100;
 
+// adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
 /**
- * The colors are the panel's, light or dark by the real system scheme: the
- * knobs rewrite the page's stylesheets, never this one. Inside the frame,
- * where the scheme can be handed down natively, the page above says which.
- * The label alone goes by the page: light on a dark one, dark on a light one.
+ * One color for the boxes and the glow, the same on any page, and wider
+ * where the screen shows P3. The label goes by the page: light on a dark
+ * one, dark on a light one.
  */
 const CSS = `
 .layer {
@@ -44,26 +44,21 @@ const CSS = `
   overflow: hidden;
   pointer-events: none;
   direction: ltr;
-  --accent: #2f6fed;
+  --grab: rgb(210, 57, 192);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 11px;
   font-weight: 400;
   line-height: 16px;
   -webkit-font-smoothing: antialiased;
 }
-@media (prefers-color-scheme: dark) {
-  .layer:not([data-scheme="light"]) {
-    --accent: #6d9bff;
-  }
-}
-.layer[data-scheme="dark"] {
-  --accent: #6d9bff;
+@media (color-gamut: p3) {
+  .layer { --grab: color(display-p3 0.84 0.19 0.78); }
 }
 .glow {
   position: absolute;
   inset: 0;
   opacity: 0;
-  box-shadow: inset 0 0 50px color-mix(in srgb, var(--accent) 15%, transparent);
+  box-shadow: inset 0 0 50px color-mix(in srgb, var(--grab) 15%, transparent);
   transition: opacity ${FADE}ms ease-out;
 }
 .glow.on { opacity: 1; }
@@ -73,22 +68,22 @@ const CSS = `
   left: 0;
   box-sizing: border-box;
   opacity: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--grab) 50%, transparent);
   border-radius: ${MIN_RADIUS}px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  background: color-mix(in srgb, var(--grab) 8%, transparent);
   transition: opacity ${FADE}ms ease-out, border-color ${FADE}ms ease-out, box-shadow ${FADE}ms ease-out;
 }
 .box.on { opacity: 1; }
 .box.copied {
-  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
+  border-color: color-mix(in srgb, var(--grab) 90%, transparent);
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent),
-    0 0 24px color-mix(in srgb, var(--accent) 45%, transparent);
+    0 0 0 3px color-mix(in srgb, var(--grab) 25%, transparent),
+    0 0 24px color-mix(in srgb, var(--grab) 45%, transparent);
 }
 .box.pick {
   opacity: 1;
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-color: color-mix(in srgb, var(--grab) 30%, transparent);
+  background: color-mix(in srgb, var(--grab) 5%, transparent);
   transition: none;
 }
 .pill {
@@ -211,7 +206,7 @@ function place(node: HTMLElement, [x, y, width, height, radius]: readonly number
 }
 
 /** The layer grab draws on, in a shadow root of its own on this document. */
-export function createOverlay(scheme?: "light" | "dark"): Overlay {
+export function createOverlay(): Overlay {
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "grab");
   host.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:${Z_INDEX}`;
@@ -220,7 +215,6 @@ export function createOverlay(scheme?: "light" | "dark"): Overlay {
   style.textContent = CSS;
   const layer = document.createElement("div");
   layer.className = "layer";
-  if (scheme) layer.dataset.scheme = scheme;
   const glow = document.createElement("div");
   glow.className = "glow";
   const box = document.createElement("div");
