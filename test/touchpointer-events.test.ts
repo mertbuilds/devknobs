@@ -497,6 +497,21 @@ describe("touch pointer in a page", () => {
     await task();
   });
 
+  test("the click after a press on a range slider keeps the mouse's pointer type", async () => {
+    apply(true);
+    const range = element("input");
+    if (range instanceof FakeHTMLInputElement) range.type = "range";
+    press(range);
+    fire(range, "pointerup");
+    fire(range, "mouseup");
+    // Chrome's click is a pointer event, sent in the same task as the pointerup.
+    const click = new FakePointerEvent("click", { bubbles: true, cancelable: true });
+    click.isTrusted = true;
+    dispatch(range, click);
+    expect(click.pointerType).toBe("mouse");
+    await task();
+  });
+
   test("a drag that selects in editable text keeps its pointer and mouse moves", async () => {
     apply(true);
     const editable = element();

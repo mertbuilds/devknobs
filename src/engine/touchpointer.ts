@@ -256,8 +256,9 @@ interface Gesture {
 
 let active = false;
 let paused = false;
-/** A press left to the browser is down. */
+/** A press left to the browser is down, or just up with its click still to come. */
 let native = false;
+let nativeTimer = 0;
 let host: HTMLElement | null = null;
 let dot: HTMLElement | null = null;
 let gesture: Gesture | null = null;
@@ -571,6 +572,7 @@ function patchPointer(event: PointerEvent): void {
 function onPointerDown(event: PointerEvent): void {
   stopFling();
   finish();
+  clearTimeout(nativeTimer);
   const target = event.composedPath()[0];
   native =
     event.button !== 0 ||
@@ -669,7 +671,12 @@ function onEvent(event: Event): void {
     // The button went up where the page could not see it.
     else if (type === "pointermove" && event.buttons === 0) native = false;
     if (native) {
-      if (type === "pointerup" || type === "pointercancel") native = false;
+      // The click comes in the same task, and keeps the mouse's pointer type too.
+      if (type === "pointerup" || type === "pointercancel") {
+        nativeTimer = window.setTimeout(() => {
+          native = false;
+        }, 0);
+      }
       return;
     }
     patchPointer(event);
@@ -709,6 +716,7 @@ function onEvent(event: Event): void {
 }
 
 function onBlur(): void {
+  clearTimeout(nativeTimer);
   native = false;
   finish();
   hideDot();
