@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  evaluateWidthCondition,
-  parseLength,
+  apply,
+  destroy,
+  mentionsFeature,
   rewriteAll,
   rewriteMediaText,
-  rewriteWidthText,
   splitQueryList,
   SYSTEM_MEDIA,
 } from "../src/engine/media";
@@ -12,6 +12,7 @@ import {
 const SCHEME = "prefers-color-scheme";
 const MOTION = "prefers-reduced-motion";
 const CONTRAST = "prefers-contrast";
+const TRANSPARENCY = "prefers-reduced-transparency";
 const TRUE_TOKEN = "(min-width: 0px)";
 
 describe("splitQueryList", () => {
@@ -93,160 +94,18 @@ describe("rewriteMediaText", () => {
     expect(rewriteMediaText(`(${CONTRAST}: no-preference)`, CONTRAST, "more")).toBe("not all");
   });
 
+  test("handles reduced transparency", () => {
+    expect(rewriteMediaText(`(${TRANSPARENCY}: reduce)`, TRANSPARENCY, "reduce")).toBe(TRUE_TOKEN);
+    expect(rewriteMediaText(`(${TRANSPARENCY}: no-preference)`, TRANSPARENCY, "reduce")).toBe(
+      "not all",
+    );
+    expect(rewriteMediaText(`(${TRANSPARENCY})`, TRANSPARENCY, "reduce")).toBe(TRUE_TOKEN);
+  });
+
   test("rewrites every occurrence in one query", () => {
     expect(rewriteMediaText(`(${SCHEME}: dark) and (${SCHEME}: light)`, SCHEME, "dark")).toBe(
       "not all",
     );
-  });
-});
-
-describe("parseLength", () => {
-  test("reads px, rem and em", () => {
-    expect(parseLength("1024px")).toBe(1024);
-    expect(parseLength(" 64rem ")).toBe(1024);
-    expect(parseLength("40em")).toBe(640);
-    expect(parseLength("37.5px")).toBe(37.5);
-    expect(parseLength(".5rem")).toBe(8);
-  });
-
-  test("reads a bare zero and nothing else without a unit", () => {
-    expect(parseLength("0")).toBe(0);
-    expect(parseLength("600")).toBeNull();
-  });
-
-  test("refuses lengths it cannot resolve on its own", () => {
-    expect(parseLength("50vw")).toBeNull();
-    expect(parseLength("calc(10px + 2rem)")).toBeNull();
-    expect(parseLength("10q")).toBeNull();
-    expect(parseLength("")).toBeNull();
-  });
-});
-
-describe("evaluateWidthCondition", () => {
-  test("leaves conditions that are not about width alone", () => {
-    expect(evaluateWidthCondition("min-height: 800px", 390)).toBeNull();
-    expect(evaluateWidthCondition(`${SCHEME}: dark`, 390)).toBeNull();
-    expect(evaluateWidthCondition("min-width: 50vw", 390)).toBeNull();
-  });
-
-  test("reads the plain forms", () => {
-    expect(evaluateWidthCondition("min-width: 320px", 390)).toBe(true);
-    expect(evaluateWidthCondition("max-width: 320px", 390)).toBe(false);
-    expect(evaluateWidthCondition("width: 390px", 390)).toBe(true);
-    expect(evaluateWidthCondition("min-device-width: 1024px", 390)).toBe(false);
-    expect(evaluateWidthCondition("max-device-width: 500px", 390)).toBe(true);
-  });
-
-  test("reads the range forms", () => {
-    expect(evaluateWidthCondition("width >= 1024px", 1024)).toBe(true);
-    expect(evaluateWidthCondition("width > 1024px", 1024)).toBe(false);
-    expect(evaluateWidthCondition("device-width <= 500px", 390)).toBe(true);
-    expect(evaluateWidthCondition("400px <= width <= 800px", 600)).toBe(true);
-  });
-});
-
-describe("rewriteWidthText", () => {
-  test("leaves the text alone for full", () => {
-    expect(rewriteWidthText("(min-width: 1024px)", "full")).toBe("(min-width: 1024px)");
-    expect(rewriteWidthText("(min-width: 1024px)", 0)).toBe("(min-width: 1024px)");
-  });
-
-  test("leaves the text alone when no width feature is mentioned", () => {
-    expect(rewriteWidthText(`screen and (${SCHEME}: dark)`, 390)).toBe(
-      `screen and (${SCHEME}: dark)`,
-    );
-  });
-
-  test("rewrites min-width", () => {
-    expect(rewriteWidthText("(min-width: 320px)", 390)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(min-width: 1024px)", 390)).toBe("not all");
-  });
-
-  test("rewrites max-width", () => {
-    expect(rewriteWidthText("(max-width: 500px)", 390)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(max-width: 320px)", 390)).toBe("not all");
-  });
-
-  test("rewrites an exact width", () => {
-    expect(rewriteWidthText("(width: 390px)", 390)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(width: 400px)", 390)).toBe("not all");
-  });
-
-  test("converts rem and em against 16px, not the text knob", () => {
-    expect(rewriteWidthText("(width >= 64rem)", 1024)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(width >= 64rem)", 1023)).toBe("not all");
-    expect(rewriteWidthText("(max-width: 40em)", 640)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(max-width: 40em)", 641)).toBe("not all");
-  });
-
-  test("takes a unitless zero", () => {
-    expect(rewriteWidthText("(min-width: 0)", 390)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(min-width: 0px)", 390)).toBe(TRUE_TOKEN);
-  });
-
-  test("leaves lengths it cannot resolve untouched", () => {
-    expect(rewriteWidthText("(min-width: 50vw)", 390)).toBe("(min-width: 50vw)");
-    expect(rewriteWidthText("(min-width: calc(10px + 2rem))", 390)).toBe(
-      "(min-width: calc(10px + 2rem))",
-    );
-    expect(rewriteWidthText("(min-width: 600)", 390)).toBe("(min-width: 600)");
-  });
-
-  test("tells >= from > at the boundary", () => {
-    expect(rewriteWidthText("(width >= 1024px)", 1024)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(width > 1024px)", 1024)).toBe("not all");
-    expect(rewriteWidthText("(width <= 390px)", 390)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(width < 390px)", 390)).toBe("not all");
-  });
-
-  test("reads a reversed range", () => {
-    expect(rewriteWidthText("(1024px >= width)", 390)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(1024px <= width)", 390)).toBe("not all");
-  });
-
-  test("reads a double ended range", () => {
-    expect(rewriteWidthText("(400px <= width <= 800px)", 600)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(400px <= width <= 800px)", 390)).toBe("not all");
-    expect(rewriteWidthText("(400px < width < 800px)", 400)).toBe("not all");
-    expect(rewriteWidthText("(400px < width < 800px)", 401)).toBe(TRUE_TOKEN);
-  });
-
-  test("handles the device variants", () => {
-    expect(rewriteWidthText("(min-device-width: 1024px)", 390)).toBe("not all");
-    expect(rewriteWidthText("(max-device-width: 500px)", 390)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(device-width >= 64rem)", 390)).toBe("not all");
-  });
-
-  test("handles missing whitespace and odd casing", () => {
-    expect(rewriteWidthText("(width>=64rem)", 1024)).toBe(TRUE_TOKEN);
-    expect(rewriteWidthText("(MIN-WIDTH: 320PX)", 390)).toBe(TRUE_TOKEN);
-  });
-
-  test("keeps the rest of the query intact", () => {
-    expect(rewriteWidthText("screen and (min-width: 320px)", 390)).toBe(`screen and ${TRUE_TOKEN}`);
-    expect(rewriteWidthText("(min-width: 320px) and (min-height: 800px)", 390)).toBe(
-      `${TRUE_TOKEN} and (min-height: 800px)`,
-    );
-    expect(rewriteWidthText("screen and (min-width: 1024px)", 390)).toBe("not all");
-  });
-
-  test("rewrites each query of a list on its own", () => {
-    expect(rewriteWidthText("(min-width: 1024px), (max-width: 500px)", 390)).toBe(
-      `not all, ${TRUE_TOKEN}`,
-    );
-    expect(rewriteWidthText("(min-width: 1024px), print", 390)).toBe("not all, print");
-  });
-
-  test("flips negated queries", () => {
-    expect(rewriteWidthText("not all and (min-width: 1024px)", 390)).toBe("all");
-    expect(rewriteWidthText("not all and (max-width: 500px)", 390)).toBe("not all");
-  });
-
-  test("sinks the whole query when one of two width conditions fails", () => {
-    expect(rewriteWidthText("(min-width: 320px) and (max-width: 500px)", 390)).toBe(
-      `${TRUE_TOKEN} and ${TRUE_TOKEN}`,
-    );
-    expect(rewriteWidthText("(min-width: 320px) and (max-width: 380px)", 390)).toBe("not all");
   });
 });
 
@@ -259,30 +118,180 @@ describe("rewriteAll", () => {
 
   test("applies every emulated feature", () => {
     const text = `(${SCHEME}: dark) and (${MOTION}: reduce)`;
-    expect(
-      rewriteAll(text, { scheme: "dark", motion: "reduce", contrast: "system", width: "full" }),
-    ).toBe(`${TRUE_TOKEN} and ${TRUE_TOKEN}`);
-    expect(
-      rewriteAll(text, { scheme: "dark", motion: "system", contrast: "system", width: "full" }),
-    ).toBe(`${TRUE_TOKEN} and (${MOTION}: reduce)`);
-    expect(
-      rewriteAll(text, { scheme: "light", motion: "reduce", contrast: "system", width: "full" }),
-    ).toBe("not all");
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "dark", motion: "reduce" })).toBe(
+      `${TRUE_TOKEN} and ${TRUE_TOKEN}`,
+    );
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "dark" })).toBe(
+      `${TRUE_TOKEN} and (${MOTION}: reduce)`,
+    );
+    expect(rewriteAll(text, { ...SYSTEM_MEDIA, scheme: "light", motion: "reduce" })).toBe(
+      "not all",
+    );
+  });
+});
+
+describe("touch", () => {
+  const TOUCH = { ...SYSTEM_MEDIA, touch: true };
+
+  test("a coarse pointer that cannot hover", () => {
+    expect(rewriteAll("(pointer: coarse)", TOUCH)).toBe(TRUE_TOKEN);
+    expect(rewriteAll("(pointer: fine)", TOUCH)).toBe("not all");
+    expect(rewriteAll("(hover: none)", TOUCH)).toBe(TRUE_TOKEN);
+    expect(rewriteAll("(hover: hover)", TOUCH)).toBe("not all");
   });
 
-  test("mixes width with the prefers-* features in one query", () => {
-    const text = `(${SCHEME}: dark) and (min-width: 1024px)`;
-    expect(
-      rewriteAll(text, { scheme: "dark", motion: "system", contrast: "system", width: 390 }),
-    ).toBe("not all");
-    expect(
-      rewriteAll(text, { scheme: "dark", motion: "system", contrast: "system", width: 1440 }),
-    ).toBe(`${TRUE_TOKEN} and ${TRUE_TOKEN}`);
-    expect(
-      rewriteAll(text, { scheme: "light", motion: "system", contrast: "system", width: 1440 }),
-    ).toBe("not all");
-    expect(
-      rewriteAll(text, { scheme: "system", motion: "system", contrast: "system", width: 1440 }),
-    ).toBe(`(${SCHEME}: dark) and ${TRUE_TOKEN}`);
+  test("any pointer and any hover read the same", () => {
+    expect(rewriteAll("(any-pointer: coarse) and (any-hover: none)", TOUCH)).toBe(
+      `${TRUE_TOKEN} and ${TRUE_TOKEN}`,
+    );
+    expect(rewriteAll("(any-hover: hover), (any-pointer: fine)", TOUCH)).toBe("not all, not all");
+  });
+
+  test("hover alone is false, a pointer alone is true", () => {
+    expect(rewriteAll("(hover)", TOUCH)).toBe("not all");
+    expect(rewriteAll("(any-hover)", TOUCH)).toBe("not all");
+    expect(rewriteAll("(pointer)", TOUCH)).toBe(TRUE_TOKEN);
+  });
+
+  test("flips a negated hover query and keeps the rest", () => {
+    expect(rewriteAll("not all and (hover: hover)", TOUCH)).toBe("all");
+    expect(rewriteAll("screen and (hover: none) and (min-width: 600px)", TOUCH)).toBe(
+      `screen and ${TRUE_TOKEN} and (min-width: 600px)`,
+    );
+  });
+
+  test("composes with the prefers knobs", () => {
+    expect(rewriteAll(`(hover: none) and (${SCHEME}: dark)`, { ...TOUCH, scheme: "dark" })).toBe(
+      `${TRUE_TOKEN} and ${TRUE_TOKEN}`,
+    );
+  });
+
+  test("leaves pointer and hover alone without a touch screen", () => {
+    expect(rewriteAll("(hover: hover) and (pointer: fine)", SYSTEM_MEDIA)).toBe(
+      "(hover: hover) and (pointer: fine)",
+    );
+  });
+
+  test("names the features", () => {
+    expect(mentionsFeature("(hover: none)")).toBe(true);
+    expect(mentionsFeature("(any-pointer: coarse)")).toBe(true);
+    expect(mentionsFeature("(min-width: 600px)")).toBe(false);
+  });
+});
+
+/** What the browser itself matches: a light system, where `(min-width: 0px)` always holds. */
+function holds(query: string): boolean {
+  return query === "all" || query === "(min-width: 0px)" || query === `(${SCHEME}: light)`;
+}
+
+/** A list with the browser's own `matches` getter on its prototype, for the knobs to patch. */
+class FakeMediaQueryList extends EventTarget {
+  constructor(readonly media: string) {
+    super();
+  }
+
+  get matches(): boolean {
+    return holds(this.media);
+  }
+}
+
+class FakeMediaQueryListEvent extends Event {
+  readonly media: string;
+  readonly matches: boolean;
+
+  constructor(type: string, init: { media: string; matches: boolean }) {
+    super(type);
+    this.media = init.media;
+    this.matches = init.matches;
+  }
+}
+
+/** Where the early script leaves its patches for the full one. */
+const EARLY = Symbol.for("devknobs.early");
+const DARK = `(${SCHEME}: dark)`;
+
+/** Every `matches` a list's change events carried, in order. */
+function hear(list: FakeMediaQueryList): boolean[] {
+  const heard: boolean[] = [];
+  list.addEventListener("change", (event) => {
+    heard.push((event as FakeMediaQueryListEvent).matches);
+  });
+  return heard;
+}
+
+function define(name: string, value: unknown): void {
+  Object.defineProperty(globalThis, name, { configurable: true, value });
+}
+
+describe("the prefers knobs across an unmount", () => {
+  beforeEach(() => {
+    define("window", { matchMedia: (query: string) => new FakeMediaQueryList(query) });
+    const style = new Map<string, string>();
+    define("document", {
+      documentElement: {
+        style: {
+          getPropertyValue: (name: string) => style.get(name) ?? "",
+          setProperty: (name: string, value: string) => style.set(name, value),
+          removeProperty: (name: string) => style.delete(name),
+        },
+      },
+      styleSheets: [],
+      adoptedStyleSheets: [],
+    });
+    define("MediaQueryList", FakeMediaQueryList);
+    define("MediaQueryListEvent", FakeMediaQueryListEvent);
+  });
+
+  afterEach(() => {
+    destroy();
+    for (const name of ["window", "document", "MediaQueryList", "MediaQueryListEvent"]) {
+      Reflect.deleteProperty(globalThis, name);
+    }
+  });
+
+  test("tell a list made before the unmount about a scheme set after the next mount", () => {
+    apply(SYSTEM_MEDIA);
+    const list = window.matchMedia(DARK);
+    const heard = hear(list as unknown as FakeMediaQueryList);
+    destroy();
+    apply(SYSTEM_MEDIA);
+    apply({ ...SYSTEM_MEDIA, scheme: "dark" });
+    expect(list.matches).toBe(true);
+    expect(heard).toEqual([true]);
+  });
+
+  test("a list reads the touch screen and hears it come and go", () => {
+    apply(SYSTEM_MEDIA);
+    const list = window.matchMedia("(pointer: coarse)");
+    const heard = hear(list as unknown as FakeMediaQueryList);
+    expect(list.matches).toBe(false);
+    apply({ ...SYSTEM_MEDIA, touch: true });
+    expect(list.matches).toBe(true);
+    expect(window.matchMedia("(hover: hover)").matches).toBe(false);
+    apply(SYSTEM_MEDIA);
+    expect(list.matches).toBe(false);
+    expect(heard).toEqual([true, false]);
+  });
+
+  test("tell a list the early script handed over, after an unmount and a mount", () => {
+    const list = new FakeMediaQueryList(DARK);
+    let forward: ((event: Event) => void) | null = null;
+    // The early script's guard, first in line, passes every event on once released.
+    list.addEventListener("change", (event) => forward?.(event));
+    const heard = hear(list);
+    Object.assign(window, {
+      [EARLY]: {
+        release(next: (event: Event) => void) {
+          forward = next;
+          return [{ list, query: DARK, heard: false }];
+        },
+      },
+    });
+    apply(SYSTEM_MEDIA);
+    destroy();
+    apply(SYSTEM_MEDIA);
+    apply({ ...SYSTEM_MEDIA, scheme: "dark" });
+    expect(list.matches).toBe(true);
+    expect(heard).toEqual([true]);
   });
 });

@@ -1,22 +1,32 @@
-import type { ContrastValue, MotionValue, SchemeValue, WidthValue } from "../types";
+import type { ContrastValue, MotionValue, SchemeValue, TransparencyValue } from "../types";
+import { addLayer, baseMatchMedia, removeLayer } from "./matchmedia";
+import { authoredMedia } from "./text";
 
 export type MediaFeature =
   | "prefers-color-scheme"
   | "prefers-reduced-motion"
-  | "prefers-contrast";
+  | "prefers-contrast"
+  | "prefers-reduced-transparency"
+  | "pointer"
+  | "any-pointer"
+  | "hover"
+  | "any-hover";
 
 export interface MediaValue {
   scheme: SchemeValue;
   motion: MotionValue;
   contrast: ContrastValue;
-  width: WidthValue;
+  transparency: TransparencyValue;
+  /** A device's touch screen, and no mouse. */
+  touch: boolean;
 }
 
 export const SYSTEM_MEDIA: MediaValue = {
   scheme: "system",
   motion: "system",
   contrast: "system",
-  width: "full",
+  transparency: "system",
+  touch: false,
 };
 
 /**
@@ -28,27 +38,38 @@ const TRUE_TOKEN = "(min-width: 0px)";
 const TRUE_QUERY = "all";
 const FALSE_QUERY = "not all";
 
-type PreferenceKnob = "scheme" | "motion" | "contrast";
-
-const FEATURE_OF: Record<PreferenceKnob, MediaFeature> = {
+const FEATURE_OF: Record<Exclude<keyof MediaValue, "touch">, MediaFeature> = {
   scheme: "prefers-color-scheme",
   motion: "prefers-reduced-motion",
   contrast: "prefers-contrast",
+  transparency: "prefers-reduced-transparency",
 };
 
-const KNOBS = Object.keys(FEATURE_OF) as PreferenceKnob[];
+const KNOBS = Object.keys(FEATURE_OF) as (keyof typeof FEATURE_OF)[];
 
-/** Media queries resolve `rem` and `em` against the initial font size, never the text knob. */
-const MEDIA_FONT_SIZE = 16;
+/** What a touch screen with no mouse reports: a coarse pointer that cannot hover. */
+const TOUCH: readonly (readonly [MediaFeature, string])[] = [
+  ["pointer", "coarse"],
+  ["any-pointer", "coarse"],
+  ["hover", "none"],
+  ["any-hover", "none"],
+];
 
-const UNITS: Record<string, number> = {
-  px: 1,
-  rem: MEDIA_FONT_SIZE,
-  em: MEDIA_FONT_SIZE,
-};
+const FEATURES: readonly MediaFeature[] = [
+  ...KNOBS.map((knob) => FEATURE_OF[knob]),
+  ...TOUCH.map(([feature]) => feature),
+];
 
-/** The viewport width features. `device-width` reads the same way here. */
-const WIDTH_NAMES = new Set(["width", "device-width"]);
+/** Each feature with the value it reads as, `system` where it is left alone. */
+function emulated(value: MediaValue): [MediaFeature, string][] {
+  return [
+    ...KNOBS.map((knob): [MediaFeature, string] => [FEATURE_OF[knob], value[knob]]),
+    ...TOUCH.map(([feature, touch]): [MediaFeature, string] => [
+      feature,
+      value.touch ? touch : "system",
+    ]),
+  ];
+}
 
 function featurePattern(feature: MediaFeature): RegExp {
   return new RegExp(`\\(\\s*${feature}\\s*(?::\\s*([a-z-]+)\\s*)?\\)`, "gi");
@@ -56,9 +77,11 @@ function featurePattern(feature: MediaFeature): RegExp {
 
 /** Does the emulated value satisfy the value asked for in the query? */
 export function featureMatches(queryValue: string | undefined, emulated: string): boolean {
-  // Boolean context, e.g. `(prefers-reduced-motion)`: true unless the emulated
-  // value is the platform default.
-  if (queryValue === undefined || queryValue === "") return emulated !== "no-preference";
+  // Boolean context, e.g. `(prefers-reduced-motion)` or `(hover)`: true unless
+  // the emulated value is the platform default or none.
+  if (queryValue === undefined || queryValue === "") {
+    return emulated !== "no-preference" && emulated !== "none";
+  }
   return queryValue.toLowerCase() === emulated;
 }
 
@@ -117,172 +140,66 @@ export function rewriteMediaText(text: string, feature: MediaFeature, value: str
   return queries.map((query) => rewriteQuery(query, feature, value)).join(", ");
 }
 
-/**
- * A media length in px. Returns null for anything this engine cannot resolve on
- * its own, such as `calc()`, `vw` or an unknown unit, so the real query stands.
- */
-export function parseLength(text: string): number | null {
-  const match = /^([+-]?(?:\d*\.)?\d+)(px|rem|em)?$/.exec(text.trim().toLowerCase());
-  if (!match) return null;
-  const value = Number(match[1]);
-  if (!Number.isFinite(value)) return null;
-  const unit = match[2];
-  // A bare number is only a length when it is zero.
-  if (unit === undefined) return value === 0 ? 0 : null;
-  return value * UNITS[unit]!;
-}
-
-function compare(left: number, operator: string, right: number): boolean | null {
-  switch (operator) {
-    case "<":
-      return left < right;
-    case "<=":
-      return left <= right;
-    case ">":
-      return left > right;
-    case ">=":
-      return left >= right;
-    case "=":
-      return left === right;
-    default:
-      return null;
-  }
-}
-
-/**
- * Read one parenthesised condition as a test against an emulated width in px.
- * Returns null when the condition is not about viewport width, or carries a
- * length this engine cannot resolve.
- */
-export function evaluateWidthCondition(condition: string, width: number): boolean | null {
-  const text = condition.trim().toLowerCase().replace(/\s+/g, " ");
-  const plain = /^(?:(min|max)-)?(?:device-)?width\s*:\s*(.+)$/.exec(text);
-  if (plain) {
-    const length = parseLength(plain[2]!);
-    if (length === null) return null;
-    if (plain[1] === "min") return width >= length;
-    if (plain[1] === "max") return width <= length;
-    return width === length;
-  }
-  const parts = text.split(/(<=|>=|=|<|>)/).map((part) => part.trim());
-  if (parts.length === 3) {
-    const [left, operator, right] = parts as [string, string, string];
-    if (WIDTH_NAMES.has(left)) {
-      const length = parseLength(right);
-      return length === null ? null : compare(width, operator, length);
-    }
-    if (WIDTH_NAMES.has(right)) {
-      const length = parseLength(left);
-      return length === null ? null : compare(length, operator, width);
-    }
-    return null;
-  }
-  if (parts.length === 5) {
-    const [low, first, name, second, high] = parts as [string, string, string, string, string];
-    if (!WIDTH_NAMES.has(name)) return null;
-    const lowLength = parseLength(low);
-    const highLength = parseLength(high);
-    if (lowLength === null || highLength === null) return null;
-    const lower = compare(lowLength, first, width);
-    const upper = compare(width, second, highLength);
-    if (lower === null || upper === null) return null;
-    return lower && upper;
-  }
-  return null;
-}
-
-/** Index of the `)` that closes the `(` at `open`, or -1 when there is none. */
-function closingParen(text: string, open: number): number {
-  let depth = 0;
-  for (let i = open; i < text.length; i++) {
-    const char = text[i];
-    if (char === "(") depth++;
-    else if (char === ")") {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-function rewriteWidthQuery(query: string, width: number): string {
-  let found = false;
-  let matched = true;
-  let rewritten = "";
-  let index = 0;
-  while (index < query.length) {
-    const open = query.indexOf("(", index);
-    const close = open < 0 ? -1 : closingParen(query, open);
-    if (close < 0) {
-      rewritten += query.slice(index);
-      break;
-    }
-    rewritten += query.slice(index, open);
-    const verdict = evaluateWidthCondition(query.slice(open + 1, close), width);
-    if (verdict === null) rewritten += query.slice(open, close + 1);
-    else {
-      found = true;
-      if (!verdict) matched = false;
-      rewritten += TRUE_TOKEN;
-    }
-    index = close + 1;
-  }
-  return collapse(query, found, matched, rewritten);
-}
-
-/**
- * Rewrite a media query list so that every viewport width feature reads as
- * `width`. Returns the text untouched for `full`.
- */
-export function rewriteWidthText(text: string, width: WidthValue): string {
-  if (typeof width !== "number" || !(width > 0)) return text;
-  if (!text.toLowerCase().includes("width")) return text;
-  const queries = splitQueryList(text);
-  if (queries.length === 0) return text;
-  return queries.map((query) => rewriteWidthQuery(query, width)).join(", ");
-}
-
 /** Rewrite for every emulated feature at once. */
 export function rewriteAll(text: string, value: MediaValue): string {
   let next = text;
-  for (const knob of KNOBS) next = rewriteMediaText(next, FEATURE_OF[knob], value[knob]);
-  return rewriteWidthText(next, value.width);
+  for (const [feature, reads] of emulated(value)) next = rewriteMediaText(next, feature, reads);
+  return next;
 }
 
 export function mentionsFeature(text: string): boolean {
   const lower = text.toLowerCase();
-  // Width is checked whatever the knob says, so that a query handed out while
-  // the width is `full` is still watched once the width is emulated.
-  if (lower.includes("width")) return true;
-  return KNOBS.some((knob) => lower.includes(FEATURE_OF[knob]));
+  return FEATURES.some((feature) => lower.includes(feature));
 }
 
 type MediaBearingRule = CSSRule & { media: MediaList };
 
-interface Watched {
-  ref: WeakRef<MediaQueryList>;
+/** A list the early script tracked, handed to the full one with what the page heard. */
+interface Handover {
+  list: MediaQueryList;
   query: string;
-  matches: boolean;
-  listeners: Set<MediaListener>;
+  heard: boolean;
 }
 
-type MediaListener =
-  | ((event: MediaQueryListEvent) => void)
-  | { handleEvent(event: MediaQueryListEvent): void };
+/** What the early script leaves on `window` for the full one to take over. */
+interface EarlyMedia {
+  /**
+   * Put the page back without a word and hand over the lists made meanwhile.
+   * Their guards stay first in line and pass every event on to `guard`.
+   */
+  release(guard: (event: Event) => void): Handover[];
+}
+
+/**
+ * Where the early script leaves its patches. The full script sets it to null
+ * once it patches, so an early script that runs after it stays out.
+ */
+const EARLY = Symbol.for("devknobs.early");
+
+type EarlyScope = Record<symbol, EarlyMedia | null | undefined>;
 
 const originals = new WeakMap<CSSRule, string>();
-const watched: Watched[] = [];
+/** The lists `matchMedia` handed out that name an emulated feature. The page may drop them. */
+const tracked = new Set<WeakRef<MediaQueryList>>();
+/** What the page last heard each tracked list say, through a read or a change event. */
+const heard = new WeakMap<MediaQueryList, boolean>();
+/**
+ * The query each tracked list was made from. Its own `media` reads `not all`
+ * when the browser does not know a feature, and the feature is lost with it.
+ */
+const queries = new WeakMap<MediaQueryList, string>();
 
 let current: MediaValue = SYSTEM_MEDIA;
-let nativeMatchMedia: ((query: string) => MediaQueryList) | null = null;
-let nativeAddEventListener: typeof EventTarget.prototype.addEventListener | null = null;
+/** `matches` as `MediaQueryList.prototype` had it, to put back. */
+let nativeMatches: PropertyDescriptor | null = null;
+let readMatches: ((this: MediaQueryList) => boolean) | null = null;
 let patched = false;
+let refreshQueued = false;
+/** Set once the full script took this early copy over: its guards answer to that one. */
+let forward: ((event: Event) => void) | null = null;
 let observer: MutationObserver | null = null;
 let frame = 0;
 let colorScheme: string | null = null;
-let viewportPatched = false;
-let ownInnerWidth: PropertyDescriptor | undefined;
-let ownClientWidth: PropertyDescriptor | undefined;
 
 function walkRules(
   rules: CSSRuleList,
@@ -331,8 +248,9 @@ function applyCss(): void {
         const text = rule.media.mediaText;
         let original = originals.get(rule);
         if (original === undefined) {
-          if (!mentionsFeature(text)) return;
-          original = text;
+          // Text size follows a stylesheet updated in place, so it may have been first.
+          original = authoredMedia(rule) ?? text;
+          if (!mentionsFeature(original)) return;
           originals.set(rule, original);
         }
         const next = rewriteAll(original, current);
@@ -372,139 +290,117 @@ function ensureObserver(): void {
   observer.observe(document.documentElement, { childList: true, subtree: true });
 }
 
+function emulating(): boolean {
+  return emulated(current).some(([, value]) => value !== "system");
+}
+
+/** What a query matches with the emulated values, read through the native getter. */
 function evaluate(query: string): boolean {
-  if (!nativeMatchMedia) return false;
   try {
-    return nativeMatchMedia.call(window, rewriteAll(query, current)).matches;
+    const list = baseMatchMedia(rewriteAll(query, current));
+    return readMatches ? readMatches.call(list) : list.matches;
   } catch {
     return false;
   }
 }
 
-function dispatch(entry: Watched, mql: MediaQueryList): void {
-  const event = { matches: entry.matches, media: entry.query } as MediaQueryListEvent;
-  for (const listener of Array.from(entry.listeners)) {
-    try {
-      if (typeof listener === "function") listener.call(mql, event);
-      else listener.handleEvent(event);
-    } catch {
-      // A listener that throws must not stop the others.
-    }
-  }
-  const handler = mql.onchange;
-  if (typeof handler === "function") {
-    try {
-      handler.call(mql, event);
-    } catch {
-      // Same.
-    }
-  }
-}
-
+/**
+ * Tell every tracked list whose verdict moved, with a real `change` event. It
+ * goes through the list's own `dispatchEvent`, so `onchange`, `addListener`
+ * and every `addEventListener` option (`once`, `signal`) work as they always do.
+ */
 function refresh(): void {
-  for (let i = watched.length - 1; i >= 0; i--) {
-    const entry = watched[i];
-    if (!entry) continue;
-    const mql = entry.ref.deref();
-    if (!mql) {
-      watched.splice(i, 1);
+  for (const ref of Array.from(tracked)) {
+    const list = ref.deref();
+    if (!list) {
+      tracked.delete(ref);
       continue;
     }
-    const matches = evaluate(entry.query);
-    if (matches === entry.matches) continue;
-    entry.matches = matches;
-    dispatch(entry, mql);
+    const matches = list.matches;
+    if (matches === heard.get(list)) continue;
+    heard.set(list, matches);
+    list.dispatchEvent(new MediaQueryListEvent("change", { media: list.media, matches }));
   }
-}
-
-function watch(mql: MediaQueryList, query: string): MediaQueryList {
-  const entry: Watched = {
-    ref: new WeakRef(mql),
-    query,
-    matches: evaluate(query),
-    listeners: new Set(),
-  };
-  watched.push(entry);
-
-  Object.defineProperty(mql, "matches", {
-    configurable: true,
-    get: () => evaluate(query),
-  });
-  const add = (type: string, listener: MediaListener | null) => {
-    if (type === "change" && listener) entry.listeners.add(listener);
-  };
-  const remove = (type: string, listener: MediaListener | null) => {
-    if (type === "change" && listener) entry.listeners.delete(listener);
-  };
-  const define = (name: string, value: unknown) => {
-    Object.defineProperty(mql, name, { configurable: true, writable: true, value });
-  };
-  define("addEventListener", add);
-  define("removeEventListener", remove);
-  define("addListener", (listener: MediaListener | null) => add("change", listener));
-  define("removeListener", (listener: MediaListener | null) => remove("change", listener));
-
-  // A real change (a resize, say) can still flip a query that also carries an
-  // emulated feature, so keep listening natively.
-  nativeAddEventListener?.call(mql, "change", () => refresh());
-  return mql;
-}
-
-function ensureMatchMedia(): void {
-  if (patched) return;
-  nativeMatchMedia ??= window.matchMedia.bind(window);
-  nativeAddEventListener = EventTarget.prototype.addEventListener;
-  patched = true;
-  window.matchMedia = (query: string): MediaQueryList => {
-    const mql = nativeMatchMedia!.call(window, query);
-    return mentionsFeature(query) ? watch(mql, query) : mql;
-  };
-}
-
-/** The emulated width in px, or null when the real viewport is in charge. */
-function emulatedWidth(): number | null {
-  const width = current.width;
-  return typeof width === "number" && width > 0 ? width : null;
-}
-
-function descriptorOf(target: object, name: string): PropertyDescriptor | undefined {
-  let node: object | null = target;
-  while (node) {
-    const descriptor = Object.getOwnPropertyDescriptor(node, name);
-    if (descriptor) return descriptor;
-    node = Object.getPrototypeOf(node) as object | null;
-  }
-  return undefined;
 }
 
 /**
- * `innerWidth` and `documentElement.clientWidth` are what layout code measures,
- * so they have to agree with the emulated width. The accessor goes on
- * `documentElement` itself: `Element.prototype` would answer for every element.
+ * The browser's own change event carries its own verdict, which an emulated
+ * feature can contradict. While one is emulated, stop that event before the
+ * page hears it and send the emulated verdict instead, if a real change (a
+ * resize, say) moved it.
  */
-function patchViewport(): void {
-  if (viewportPatched) return;
-  const root = document.documentElement;
-  ownInnerWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
-  ownClientWidth = Object.getOwnPropertyDescriptor(root, "clientWidth");
-  const nativeInner = descriptorOf(window, "innerWidth")?.get?.bind(window);
-  const nativeClient = descriptorOf(root, "clientWidth")?.get?.bind(root);
-  const read = (native: (() => number) | undefined) => () => emulatedWidth() ?? native?.() ?? 0;
-  Object.defineProperty(window, "innerWidth", { configurable: true, get: read(nativeInner) });
-  Object.defineProperty(root, "clientWidth", { configurable: true, get: read(nativeClient) });
-  viewportPatched = true;
+function guard(event: Event): void {
+  if (forward) {
+    forward(event);
+    return;
+  }
+  if (!event.isTrusted) return;
+  const list = event.currentTarget as MediaQueryList;
+  if (!emulating()) {
+    heard.set(list, (event as MediaQueryListEvent).matches);
+    return;
+  }
+  event.stopImmediatePropagation();
+  if (refreshQueued) return;
+  refreshQueued = true;
+  queueMicrotask(() => {
+    refreshQueued = false;
+    refresh();
+  });
 }
 
-function restoreViewport(): void {
-  if (!viewportPatched) return;
-  viewportPatched = false;
-  const root = document.documentElement;
-  if (ownInnerWidth) Object.defineProperty(window, "innerWidth", ownInnerWidth);
-  else Reflect.deleteProperty(window, "innerWidth");
-  if (ownClientWidth) Object.defineProperty(root, "clientWidth", ownClientWidth);
-  else Reflect.deleteProperty(root, "clientWidth");
-  ownInnerWidth = undefined;
-  ownClientWidth = undefined;
+/**
+ * The guard goes on before the list reaches the page. Listeners on a list run
+ * in the order they were added, capture or not, so only the first one can
+ * stop an event before the page's own.
+ */
+function track(list: MediaQueryList, query: string): void {
+  queries.set(list, query);
+  heard.set(list, list.matches);
+  tracked.add(new WeakRef(list));
+  list.addEventListener("change", guard);
+}
+
+/** This knob's layer of the shared `matchMedia` patch: a list that names a feature is tracked. */
+function trackLists(query: string, next: (query: string) => MediaQueryList): MediaQueryList {
+  const list = next(query);
+  if (mentionsFeature(query)) track(list, query);
+  return list;
+}
+
+/**
+ * Patch `matches` on the prototype, so a list made before devknobs mounted
+ * reads the emulated value too. Only lists made after can be told about a
+ * change: there is no way to find the earlier ones.
+ */
+function ensureMatchMedia(): void {
+  if (patched) return;
+  const scope = window as unknown as EarlyScope;
+  const early = scope[EARLY];
+  scope[EARLY] = null;
+  const handed = early?.release(guard) ?? [];
+  patched = true;
+  for (const { list, query, heard: value } of handed) {
+    queries.set(list, query);
+    heard.set(list, value);
+    tracked.add(new WeakRef(list));
+  }
+  // Only once the early script let go, so the patch goes over the browser's own.
+  addLayer("media", trackLists);
+  const descriptor = Object.getOwnPropertyDescriptor(MediaQueryList.prototype, "matches");
+  const read = descriptor?.get;
+  if (!descriptor || !read) return;
+  nativeMatches = descriptor;
+  readMatches = read;
+  Object.defineProperty(MediaQueryList.prototype, "matches", {
+    configurable: true,
+    enumerable: descriptor.enumerable,
+    get(this: MediaQueryList): boolean {
+      if (!emulating()) return read.call(this);
+      const query = queries.get(this) ?? this.media;
+      return mentionsFeature(query) ? evaluate(query) : read.call(this);
+    },
+  });
 }
 
 function applyColorScheme(): void {
@@ -515,39 +411,93 @@ function applyColorScheme(): void {
   else root.style.removeProperty("color-scheme");
 }
 
+/**
+ * Make another window on this origin's `matchMedia` answer as a touch screen
+ * with no mouse, from the page above its frame before the window's own
+ * scripts run. A copy of devknobs there layers its own patch over this one.
+ * The window keeps it until its next load.
+ */
+export function coarse(view: Window): void {
+  const below = view.matchMedia;
+  const touch: MediaValue = { ...SYSTEM_MEDIA, touch: true };
+  view.matchMedia = function matchMedia(query: string): MediaQueryList {
+    return below.call(view, rewriteAll(String(query), touch));
+  };
+}
+
 export function apply(value: MediaValue): void {
-  const before = current.width;
   current = value;
   ensureMatchMedia();
   ensureObserver();
   applyColorScheme();
-  if (emulatedWidth() === null) restoreViewport();
-  else patchViewport();
   applyCss();
   refresh();
-  // Layout code that measured the window itself only hears about a new width
-  // through a resize, so send one once everything else is in place.
-  if (value.width !== before) window.dispatchEvent(new Event("resize"));
 }
 
 export function reset(): void {
   apply(SYSTEM_MEDIA);
 }
 
-/** Put `matchMedia` back and stop watching for new stylesheets. */
-export function destroy(): void {
-  reset();
+function teardown(): void {
   observer?.disconnect();
   observer = null;
   if (frame) {
     cancelAnimationFrame(frame);
     frame = 0;
   }
-  if (patched && nativeMatchMedia) {
-    // The native reference stays so that already-handed-out lists keep working.
-    window.matchMedia = nativeMatchMedia;
+  if (patched) {
+    removeLayer("media");
+    if (nativeMatches) Object.defineProperty(MediaQueryList.prototype, "matches", nativeMatches);
+    nativeMatches = null;
+    readMatches = null;
     patched = false;
   }
-  watched.length = 0;
   colorScheme = null;
+}
+
+/**
+ * Put `matchMedia` and `matches` back and stop watching for new stylesheets.
+ * The lists stay tracked and keep their guards, which only note what the page
+ * hears while nothing is emulated, so the next mount tells each where it stands.
+ */
+export function destroy(): void {
+  reset();
+  teardown();
+  Reflect.deleteProperty(window, EARLY);
+}
+
+/**
+ * Undo everything for the full script, which applies its own knobs in the same
+ * task, so the page never paints in between. No change event goes out: the
+ * full script compares against what the page heard here.
+ */
+function release(next: (event: Event) => void): Handover[] {
+  const handed: Handover[] = [];
+  for (const ref of tracked) {
+    const list = ref.deref();
+    if (!list) continue;
+    handed.push({
+      list,
+      query: queries.get(list) ?? list.media,
+      heard: heard.get(list) ?? list.matches,
+    });
+  }
+  forward = next;
+  tracked.clear();
+  current = SYSTEM_MEDIA;
+  applyColorScheme();
+  applyCss();
+  teardown();
+  return handed;
+}
+
+/**
+ * The early script's whole job: patch right away, before any page script reads
+ * a media query, and leave the patches for the full script to take over.
+ */
+export function early(value: MediaValue): void {
+  const scope = window as unknown as EarlyScope;
+  if (EARLY in scope) return;
+  apply(value);
+  scope[EARLY] = { release };
 }

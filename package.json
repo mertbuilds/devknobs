@@ -9,7 +9,8 @@
   "types": "./dist/index.d.ts",
   "main": "./dist/index.js",
   "files": [
-    "dist"
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "exports": {
     ".": {
@@ -20,10 +21,12 @@
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"
     },
-    "./global": "./dist/index.global.js"
+    "./global": "./dist/index.global.js",
+    "./early": "./dist/early.global.js",
+    "./bezels/*": "./dist/bezels/*"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --format esm && bun build src/react.tsx --outdir dist --format esm --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist/index.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json",
+    "build": "bun scripts/bezelurls.ts && bun -e 'require(\"fs\").rmSync(\"dist.tmp\",{recursive:true,force:true})' && bun build src/index.ts --outdir dist.tmp --format esm --splitting && bun build src/react.tsx --outdir dist.tmp --format esm --splitting --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist.tmp/index.global.js --format iife --minify --define 'import.meta.url=\"\"' && bun build src/early.ts --outfile dist.tmp/early.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json --outDir dist.tmp && if [ -d assets/bezels ]; then cp -R assets/bezels dist.tmp/bezels; fi && bun -e 'const fs=require(\"fs\");fs.rmSync(\"dist\",{recursive:true,force:true});fs.renameSync(\"dist.tmp\",\"dist\")'",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
@@ -38,6 +41,7 @@
   "devDependencies": {
     "@types/bun": "^1.3.1",
     "@types/react": "^19.2.14",
+    "bippy": "^0.7.3",
     "react": "^19.2.4",
     "typescript": "^5.9.3"
   }
