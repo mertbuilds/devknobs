@@ -490,13 +490,18 @@ usual. one that moves further scrolls the nearest element that can scroll that
 way, both ways where it can, within the `touch-action` of every element on the
 way up, and flings on with the speed it was let go at until the next press. the
 page gets a `pointercancel` then, its mouse events stop, and no click follows
-a drag. a touch listener that calls `preventDefault` keeps the page from
-scrolling, and on `touchstart` or `touchend` stops the mouse events and the
-click as a touch screen does. text does not get selected and nothing starts a
-native drag along the way. range sliders, editable text and scrollbars keep
-the mouse. while grab is on the mouse is a mouse again, until grab ends. the
-touch pointer switch in the device editor turns it off, and the panel never
-gets it.
+a drag. after a tap the page gets `mousemove`, `mousedown` and `mouseup` once
+the finger is up, after `touchend`, as a phone sends them, but the browser
+still focuses and places the caret at the press, so a `preventDefault` on
+`mousedown` does not keep the focus where it was. a touch listener that calls
+`preventDefault` keeps the page from scrolling, and on `touchstart` or
+`touchend` stops the mouse events and the click as a touch screen does. text
+does not get selected and nothing starts a native drag along the way. a press
+on a range slider, editable text or a scrollbar, or with any button but the
+main one, is left to the browser: the page's own pointer and mouse moves pass
+through untouched, and the pointer type stays the mouse's. while grab is on the
+mouse is a mouse again, until grab ends. the touch pointer switch in the device
+editor turns it off, and the panel never gets it.
 
 ## the clock and your server
 
@@ -615,8 +620,7 @@ set in a cross-origin sheet is taken as relative. a `matchMedia` list made from
 an em or rem query keeps the size it was made at when the knob changes later.
 
 the touch pointer is made in the page, not by the browser. css `:hover` still
-follows the real mouse, as no script can turn it off, and a press still sends
-the page its `mousedown` before it is known to be a drag. touch events and the
+follows the real mouse, as no script can turn it off. touch events and the
 `pointercancel` it sends are not trusted (`isTrusted` is false), it is one
 finger only, with no pinch and no long press menu, and a fling is a simple
 one, with no overscroll bounce. a page's own capture listeners on the window
