@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
+  frameForced,
   framed,
   isDevknobsFrame,
   nativeScheme,
@@ -69,6 +70,22 @@ describe("needsFrame", () => {
     expect(needsFrame(UNFRAMED)).toBe(false);
     expect(needsFrame({ ...UNFRAMED, width: 0 })).toBe(false);
     expect(needsFrame({ ...UNFRAMED, dpr: 0 })).toBe(false);
+  });
+});
+
+describe("frameForced", () => {
+  test("is true where a size, a ratio or a vision deficiency holds the frame up", () => {
+    expect(frameForced({ ...UNFRAMED, width: 390 })).toBe(true);
+    expect(frameForced({ ...UNFRAMED, height: 700 })).toBe(true);
+    expect(frameForced({ ...UNFRAMED, dpr: 2 })).toBe(true);
+    expect(frameForced({ ...UNFRAMED, vision: "blur" })).toBe(true);
+    expect(frameForced({ ...UNFRAMED, width: 390, frame: true })).toBe(true);
+  });
+
+  test("is false where only the frame knob could bring it up", () => {
+    expect(frameForced(UNFRAMED)).toBe(false);
+    expect(frameForced({ ...UNFRAMED, frame: true })).toBe(false);
+    expect(frameForced({ ...UNFRAMED, width: 0, dpr: 0 })).toBe(false);
   });
 });
 

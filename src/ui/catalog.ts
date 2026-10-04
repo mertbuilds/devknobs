@@ -1,5 +1,6 @@
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
 import { DEVICES, deviceOf } from "../engine/devices";
+import { frameForced } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
 import { DEFAULT_STATE } from "../engine/store";
@@ -814,7 +815,7 @@ const FRAME: Knob = {
   read: (state) => flag(state.frame),
   write: (value) => ({ frame: value === "on" }),
   reset: { frame: DEFAULT_STATE.frame },
-  brief: () => "frame",
+  brief: (state) => (frameForced(state) ? "" : "frame"),
 };
 
 const VISION: Knob = {

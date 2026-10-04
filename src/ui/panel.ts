@@ -1,6 +1,6 @@
 import * as engine from "../engine";
 import { now, realNow } from "../engine/clock";
-import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
+import { frameForced, type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
 import { userAgentOf } from "../engine/ua";
@@ -716,6 +716,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
         line.append(extra[0]);
         updates.push(extra[1]);
       }
+      // The frame switch changes nothing to see while another knob holds the frame up.
+      if (knob.id === "frame") {
+        updates.push((state) => {
+          line.hidden = frameForced(state);
+        });
+      }
       editor.append(line);
     }
     return updates;
@@ -919,6 +925,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
     const id = rowOf(knob.id).id;
     leaveSearch();
+    // Another knob holds the frame up, so the frame knob has nothing to set.
+    if (knob.id === "frame" && frameForced(engine.getState())) return;
     set(knob, option.value);
     if (option.opens) openEditor(id);
     showRow(id);

@@ -145,6 +145,7 @@ describe("summary", () => {
       "390 · dpr 2 · deuteranopia",
     );
     expect(says("viewport", { frame: true })).toBe("frame");
+    expect(says("viewport", { frame: true, width: 390 })).toBe("390");
     expect(says("locale", { locale: { lang: "tr" } })).toBe("tr");
     expect(says("locale", { locale: { lang: "ar", dir: "rtl" } })).toBe("ar · rtl");
     expect(says("locale", { locale: { dir: "rtl" } })).toBe("rtl");

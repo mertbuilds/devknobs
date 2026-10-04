@@ -90,6 +90,14 @@ export function needsFrame(knobs: FrameKnobs): boolean {
   );
 }
 
+/**
+ * Is the frame up whatever the frame knob says? A size, a ratio or a vision
+ * deficiency brings it up alone, and the knob then changes nothing to see.
+ */
+export function frameForced(knobs: FrameKnobs): boolean {
+  return needsFrame({ ...knobs, frame: false });
+}
+
 /** The knobs a framed page runs with. It is the viewport already, so it never frames itself. */
 export function framed(state: DevknobsState): DevknobsState {
   return needsFrame(state) ? { ...state, ...UNFRAMED } : state;
