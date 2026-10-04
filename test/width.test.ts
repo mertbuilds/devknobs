@@ -169,6 +169,20 @@ describe("fit", () => {
     expect(zoomed).toMatchObject({ left: 38, top: 36 });
   });
 
+  test("fits the iPhone SE's tall forehead and chin, its frame still at its css size", () => {
+    const mock = mockOf("iphone-se", "portrait");
+    const inset = mock?.inset;
+    const place = fit({ width: 375, height: 667, zoom: "fit" }, BOX, { mock: inset });
+    expect(place).toMatchObject({ width: 375, height: 667 });
+    expect(place.scale).toBeCloseTo(752 / (mock?.height ?? 0));
+    expect(place.top).toBeCloseTo(24 + 110.2 * place.scale);
+    const margin = (place.box.width - (mock?.width ?? 0) * place.scale) / 2;
+    expect(place.left).toBeCloseTo(margin + (inset?.left ?? 0) * place.scale);
+    const zoomed = fit({ width: 375, height: 667, zoom: 1 }, BOX, { mock: inset });
+    expect(zoomed.box.height).toBeCloseTo(887.5 + 48);
+    expect(zoomed.left).toBeCloseTo(24 + 28.1 + 2.6);
+  });
+
   test("shows every mock whole with a margin, either way up, beside the panel too", () => {
     const windows = [
       { width: 1200, height: 805 },

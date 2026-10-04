@@ -347,10 +347,14 @@ height set by hand that is no longer the device's drops the device and keeps
 the size, and a device pixel ratio set by hand keeps the device.
 
 a phone or tablet comes up in a mock of its body, drawn in svg around the
-frame: the bezel, the dynamic island, the punch hole or the home button, and
-the side buttons. it turns with the frame, is fitted and zoomed with it, and
-never takes a pointer. the viewport stays the device's size. the mock switch in
-the device editor turns it off. laptops and desktops have none.
+frame: the front glass in its band, the dynamic island, the punch hole, the
+camera or the home button, and the side buttons. each device has its own
+bezels, corners and parts, taken from apple's dimensional drawings and
+android's display config, so an iPhone SE has its square screen, round corners,
+tall forehead and chin and home button. it turns with the frame, is fitted
+and zoomed with it, and never takes a pointer. the viewport stays the device's
+size. the mock switch in the device editor turns it off. laptops and desktops
+have none.
 
 a device sets the user agent knob to its own browser too: iPhone or iPad
 Safari, Android Chrome, Mac Safari on the MacBook, Windows Chrome on the laptop

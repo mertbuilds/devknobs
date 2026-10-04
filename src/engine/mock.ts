@@ -1,5 +1,6 @@
 import type { OrientationValue } from "../types";
-import { deviceOf, type MockFamily, turn } from "./devices";
+import { deviceOf, turn } from "./devices";
+import { BODIES, type Button, type Front } from "./mockdata";
 
 /** A length on each side of a box, in css px of the screen. */
 export interface Sides {
@@ -17,11 +18,11 @@ export interface Rect {
 }
 
 /**
- * A shape on the body: a button on its edge, drawn under it, a sensor on the
- * bezel or over the screen, or the ring of a home button.
+ * A shape on the body: a button on its edge, drawn under it, the island or a
+ * punch hole, a receiver slot, a camera lens, or a home button and its key.
  */
 export interface Part extends Rect {
-  kind: "button" | "sensor" | "ring";
+  kind: "button" | "sensor" | "slot" | "lens" | "home" | "key";
   radius: number;
 }
 
@@ -36,78 +37,32 @@ export interface Mock {
   body: Rect;
   bezel: Sides;
   screenRadius: number;
-  /** The screen's radius and the thinnest bezel, so the corners are concentric. */
   bodyRadius: number;
   parts: Part[];
 }
 
-interface Family {
-  bezel: Sides;
-  radius: number;
-  /** How far the side buttons stand out of the body. */
-  out: number;
-  /** The parts of a portrait mock, given its screen and the mock's width. */
-  parts(screen: Rect, width: number): Part[];
+/** A rect with fully round ends. */
+function round(kind: Part["kind"], rect: Rect): Part {
+  return { kind, ...rect, radius: Math.min(rect.width, rect.height) / 2 };
 }
 
-function even(size: number): Sides {
-  return { top: size, right: size, bottom: size, left: size };
+/** A button as a bar half under the body, so `out` of it shows past the edge. */
+function bar(button: Button, out: number, body: Rect): Part {
+  const { side, at, length } = button;
+  if (side === "top") {
+    const y = body.y - out;
+    return { kind: "button", x: body.x + at, y, width: length, height: 2 * out, radius: out };
+  }
+  const x = side === "left" ? body.x - out : body.x + body.width - out;
+  return { kind: "button", x, y: body.y + at, width: 2 * out, height: length, radius: out };
 }
 
-/** A shape `width` wide, centered across a mock `across` wide. */
-function centered(
-  kind: Part["kind"],
-  across: number,
-  y: number,
-  width: number,
-  height: number,
-): Part {
-  return { kind, x: (across - width) / 2, y, width, height, radius: Math.min(width, height) / 2 };
+/** A home button's key, centered in its ring. */
+function keyOf(front: Front): Rect | null {
+  if (front.key === undefined) return null;
+  const gap = (front.width - front.key) / 2;
+  return { x: front.x + gap, y: front.y + gap, width: front.key, height: front.key };
 }
-
-function button(x: number, y: number, height: number): Part {
-  return { kind: "button", x, y, width: 3, height, radius: 1.5 };
-}
-
-const FAMILIES: Record<MockFamily, Family> = {
-  // Thin even bezel, the dynamic island, and the buttons on both sides.
-  island: {
-    bezel: even(12),
-    radius: 55,
-    out: 2,
-    parts: (screen, width) => [
-      centered("sensor", width, screen.y + 11, 125, 36),
-      button(0, 150, 40),
-      button(0, 210, 60),
-      button(0, 285, 60),
-      button(width - 3, 230, 95),
-    ],
-  },
-  // Thick top and bottom, a speaker slot over the screen and a home button under it.
-  home: {
-    bezel: { top: 100, right: 18, bottom: 100, left: 18 },
-    radius: 4,
-    out: 0,
-    parts: (screen, width) => [
-      centered("sensor", width, (screen.y - 6) / 2, 56, 6),
-      centered("ring", width, screen.y + screen.height + (100 - 54) / 2, 54, 54),
-    ],
-  },
-  // Thin bezel and a punch-hole camera.
-  hole: {
-    bezel: even(10),
-    radius: 44,
-    out: 0,
-    parts: (screen, width) => [centered("sensor", width, screen.y + 14, 12, 12)],
-  },
-  // Even medium bezel with a camera dot on it.
-  tablet: {
-    bezel: even(24),
-    radius: 18,
-    out: 0,
-    parts: (screen, width) => [centered("sensor", width, (screen.y - 6) / 2, 6, 6)],
-  },
-};
 
 /** A rect of a portrait mock `width` wide, turned a quarter so its top is on the left. */
 function turnRect<T extends Rect>(rect: T, width: number): T {
@@ -125,25 +80,40 @@ function turnSides(sides: Sides): Sides {
  */
 export function mockOf(id: string, orientation: OrientationValue): Mock | null {
   const device = deviceOf(id);
-  const family = device?.mock && FAMILIES[device.mock];
-  if (!device || !family) return null;
-  const { bezel, radius, out } = family;
+  const shape = BODIES[id];
+  if (!device || !shape) return null;
+  const { bezel, screenRadius, bodyRadius } = shape;
+  const out = (button: Button) => button.out ?? shape.out;
+  const most = (side: Button["side"]) =>
+    Math.max(0, ...shape.buttons.filter((button) => button.side === side).map(out));
+  const room = { top: most("top"), right: most("right"), left: most("left") };
   const size = turn(device, "portrait");
-  const inset = { ...bezel, left: bezel.left + out, right: bezel.right + out };
+  const inset = {
+    top: bezel.top + room.top,
+    right: bezel.right + room.right,
+    bottom: bezel.bottom,
+    left: bezel.left + room.left,
+  };
   const width = size.width + inset.left + inset.right;
   const height = size.height + inset.top + inset.bottom;
-  const screen = { x: inset.left, y: inset.top, ...size };
-  const body = { x: out, y: 0, width: width - 2 * out, height };
-  const upright: Mock = {
-    width,
-    height,
-    inset,
-    body,
-    bezel,
-    screenRadius: radius,
-    bodyRadius: radius + Math.min(bezel.top, bezel.right, bezel.bottom, bezel.left),
-    parts: family.parts(screen, width),
+  const body = {
+    x: room.left,
+    y: room.top,
+    width: size.width + bezel.left + bezel.right,
+    height: size.height + bezel.top + bezel.bottom,
   };
+  const at = ({ x, y, width, height }: Rect): Rect => {
+    return { x: inset.left + x, y: inset.top + y, width, height };
+  };
+  const parts = [
+    ...shape.buttons.map((button) => bar(button, out(button), body)),
+    ...shape.front.flatMap((front) => {
+      const key = keyOf(front);
+      const shown = round(front.kind, at(front));
+      return key ? [shown, round("key", at(key))] : [shown];
+    }),
+  ];
+  const upright: Mock = { width, height, inset, body, bezel, screenRadius, bodyRadius, parts };
   if (orientation === "portrait") return upright;
   return {
     ...upright,

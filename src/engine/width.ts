@@ -36,9 +36,14 @@ const MARGIN = 24;
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
 
-/** The body of a mock, near black, and its edge a little lighter. */
+/** The front glass of a mock, near black, and the band around it a little lighter. */
 const BODY = "#111112";
-const EDGE = "#3a3a3c";
+const EDGE = "#48484a";
+/** A home button's ring, a lens's rim and a receiver slot's grille, just off the glass. */
+const RIM = "#2a2a2c";
+
+/** How much of the band shows around the front glass, in css px of the screen. */
+const BAND = 2.5;
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -195,11 +200,14 @@ const CSS = `
   overflow: visible;
   pointer-events: none;
 }
+.mock .band { fill: ${EDGE}; fill-rule: evenodd; }
 .mock .body { fill: ${BODY}; fill-rule: evenodd; }
-.mock .edge { fill: none; stroke: ${EDGE}; stroke-width: 1; }
 .mock .button { fill: ${EDGE}; }
 .mock .sensor { fill: #000; }
-.mock .ring { fill: none; stroke: ${EDGE}; stroke-width: 1.5; }
+.mock .slot { fill: ${RIM}; }
+.mock .lens { fill: #000; stroke: ${RIM}; stroke-width: 1; }
+.mock .home { fill: ${RIM}; }
+.mock .key { fill: ${BODY}; }
 iframe {
   display: block;
   border: 0;
@@ -726,8 +734,9 @@ function svgNode<K extends keyof SVGElementTagNameMap>(
 }
 
 /**
- * The device's body, in css px of the frame: the buttons under it, the body
- * with the screen cut out of it and its edge, and the sensors on top.
+ * The device's body, in css px of the frame: the buttons under it, the band,
+ * the front glass inside it with the screen cut out, and the island, holes,
+ * lens, slot and home button on top.
  */
 function drawMock(mock: Mock, screenSize: { width: number; height: number }): SVGSVGElement {
   const svg = svgNode("svg", {
@@ -746,14 +755,12 @@ function drawMock(mock: Mock, screenSize: { width: number; height: number }): SV
     });
   const opening = { x: mock.inset.left, y: mock.inset.top, ...screenSize };
   const { x, y, width, height } = mock.body;
-  const edge = { x: x + 0.5, y: y + 0.5, width: width - 1, height: height - 1 };
+  const front = { x: x + BAND, y: y + BAND, width: width - 2 * BAND, height: height - 2 * BAND };
+  const inside = roundRect(front, mock.bodyRadius - BAND);
   svg.append(
     ...mock.parts.filter((shape) => shape.kind === "button").map(part),
-    svgNode("path", {
-      class: "body",
-      d: roundRect(mock.body, mock.bodyRadius) + roundRect(opening, mock.screenRadius),
-    }),
-    svgNode("path", { class: "edge", d: roundRect(edge, mock.bodyRadius - 0.5) }),
+    svgNode("path", { class: "band", d: roundRect(mock.body, mock.bodyRadius) + inside }),
+    svgNode("path", { class: "body", d: inside + roundRect(opening, mock.screenRadius) }),
     ...mock.parts.filter((shape) => shape.kind !== "button").map(part),
   );
   return svg;
