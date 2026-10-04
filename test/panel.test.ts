@@ -56,7 +56,7 @@ describe("keyChips", () => {
       { command: "search", key: "/", word: "search" },
       { command: "grab", key: "⌘C", word: "grab" },
       { command: "replay", key: "r", word: "replay animations" },
-      { command: "reset", key: "⇧R", word: "reset" },
+      { command: "reset", key: "⇧⌫", word: "reset" },
     ]);
   });
 
@@ -66,7 +66,7 @@ describe("keyChips", () => {
       "/",
       "Ctrl C",
       "r",
-      "Shift R",
+      "Shift Backspace",
     ]);
   });
 

@@ -123,8 +123,8 @@ all, then closes an open editor, and then the panel. a click anywhere outside
 the search and its results, or on the `×` at its end, leaves it too.
 
 while the panel is out and the focus is in no field, `/` focuses the search,
-`r` replays the page's animations and shift `r` resets every knob, from the
-frame too.
+`r` replays the page's animations and shift backspace (or shift delete) resets
+every knob, from the frame too.
 while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
 and with `0` fit it again, from the frame too, unless the focus is in a field.
 every other key goes to the page as it would without the panel. the hotkey
@@ -132,8 +132,8 @@ toggles the panel everywhere except in a field, the search included, so in the
 search `d` is just a letter.
 
 the footer lists the keys, most used first: the hotkey for the panel, `/` for
-search, the grab key, `r` for replay animations and `⇧R` (`Shift R` off a Mac)
-for reset. each one is a button too, so a click does what its key does. with
+search, the grab key, `r` for replay animations and `⇧⌫` (`Shift Backspace`
+off a Mac) for reset. each one is a button too, so a click does what its key does. with
 the overflow knob on, the count of overflowing boxes sits above them.
 
 the panel keeps the real color scheme and motion preference of the browser,

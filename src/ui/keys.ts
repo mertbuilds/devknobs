@@ -23,12 +23,16 @@ function isEditable(node: EventTarget | null): boolean {
   return isTyping(node) || (node as HTMLElement | null)?.tagName === "SELECT";
 }
 
-/** The key that replays the page's animations, and with shift resets every knob. */
+/** The key that replays the page's animations. */
 export const REPLAY_KEY = "r";
+
+/** The keys that with shift reset every knob, delete the same as backspace. */
+const RESET_KEYS = new Set(["Backspace", "Delete"]);
 
 /**
  * What a keydown asks of the panel, if anything. Typing in a field never asks.
- * `r` replays the animations and shift `r` resets, which the hotkey wins over.
+ * `r` replays the animations, which the hotkey wins over, and shift backspace
+ * resets.
  */
 export function keyAction(event: KeyLike, hotkey: string): KeyAction | null {
   if (event.key === "Escape") return "close";
@@ -36,7 +40,7 @@ export function keyAction(event: KeyLike, hotkey: string): KeyAction | null {
   const target = event.composedPath?.()[0] ?? event.target;
   if (isEditable(target)) return null;
   const key = event.key.toLowerCase();
-  if (event.shiftKey) return key === REPLAY_KEY ? "reset" : null;
+  if (event.shiftKey) return RESET_KEYS.has(event.key) ? "reset" : null;
   if (key === hotkey) return "toggle";
   return key === REPLAY_KEY ? "replay" : null;
 }

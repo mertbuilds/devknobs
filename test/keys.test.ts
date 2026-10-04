@@ -58,30 +58,52 @@ describe("keyAction", () => {
     expect(keyAction(key({ shiftKey: true }), "d")).toBeNull();
   });
 
-  test("replays on r and resets on shift r, whatever the case", () => {
+  test("replays on r, whatever the case, and resets on shift backspace or delete", () => {
     expect(keyAction(key({ key: "r" }), "d")).toBe("replay");
     expect(keyAction(key({ key: "R" }), "d")).toBe("replay");
-    expect(keyAction(key({ key: "R", shiftKey: true }), "d")).toBe("reset");
-    expect(keyAction(key({ key: "r", shiftKey: true }), "d")).toBe("reset");
+    expect(keyAction(key({ key: "Backspace", shiftKey: true }), "d")).toBe("reset");
+    expect(keyAction(key({ key: "Delete", shiftKey: true }), "d")).toBe("reset");
   });
 
-  test("leaves replay and reset alone with another modifier, so reload stays the browser's", () => {
+  test("shift r and backspace alone do nothing", () => {
+    expect(keyAction(key({ key: "R", shiftKey: true }), "d")).toBeNull();
+    expect(keyAction(key({ key: "r", shiftKey: true }), "d")).toBeNull();
+    expect(keyAction(key({ key: "Backspace" }), "d")).toBeNull();
+    expect(keyAction(key({ key: "Delete" }), "d")).toBeNull();
+  });
+
+  test("leaves r alone with a modifier, so reload and hard reload stay the browser's", () => {
+    expect(keyAction(key({ key: "r", metaKey: true }), "d")).toBeNull();
+    expect(keyAction(key({ key: "r", ctrlKey: true }), "d")).toBeNull();
+    expect(keyAction(key({ key: "r", altKey: true }), "d")).toBeNull();
+    expect(keyAction(key({ key: "R", metaKey: true, shiftKey: true }), "d")).toBeNull();
+    expect(keyAction(key({ key: "R", ctrlKey: true, shiftKey: true }), "d")).toBeNull();
+  });
+
+  test("leaves reset alone with another modifier", () => {
     for (const modifier of ["altKey", "ctrlKey", "metaKey"] as const) {
-      expect(keyAction(key({ key: "r", [modifier]: true }), "d")).toBeNull();
-      expect(keyAction(key({ key: "R", shiftKey: true, [modifier]: true }), "d")).toBeNull();
+      for (const name of ["Backspace", "Delete"]) {
+        expect(keyAction(key({ key: name, shiftKey: true, [modifier]: true }), "d")).toBeNull();
+      }
     }
   });
 
-  test("leaves replay and reset alone while typing", () => {
+  test("leaves replay and reset alone while typing, so shift backspace deletes", () => {
     expect(keyAction(key({ key: "r", target: element("INPUT") }), "d")).toBeNull();
-    const shifted = key({ key: "R", shiftKey: true, target: element("TEXTAREA") });
-    expect(keyAction(shifted, "d")).toBeNull();
+    for (const tag of ["INPUT", "TEXTAREA", "SELECT"]) {
+      const shifted = key({ key: "Backspace", shiftKey: true, target: element(tag) });
+      expect(keyAction(shifted, "d")).toBeNull();
+    }
     expect(keyAction(key({ key: "r", target: element("DIV", true) }), "d")).toBeNull();
+    const editable = key({ key: "Backspace", shiftKey: true, target: element("DIV", true) });
+    expect(keyAction(editable, "d")).toBeNull();
+    const inShadow = key({ key: "Backspace", shiftKey: true, composedPath: () => [element("INPUT")] });
+    expect(keyAction(inShadow, "d")).toBeNull();
   });
 
   test("the hotkey wins over replay where they are the same key", () => {
     expect(keyAction(key({ key: "r" }), "r")).toBe("toggle");
-    expect(keyAction(key({ key: "R", shiftKey: true }), "r")).toBe("reset");
+    expect(keyAction(key({ key: "Backspace", shiftKey: true }), "r")).toBe("reset");
   });
 
   test("leaves the hotkey alone while typing", () => {
@@ -264,8 +286,10 @@ describe("forwardKeys", () => {
     listener?.(key({ key: "d" }));
     listener?.(key({ key: "k", target: element("INPUT") }));
     listener?.(key({ key: "r" }));
-    listener?.(key({ key: "R", shiftKey: true }));
+    listener?.(key({ key: "Backspace", shiftKey: true }));
     listener?.(key({ key: "r", target: element("INPUT") }));
+    listener?.(key({ key: "Backspace", shiftKey: true, target: element("TEXTAREA") }));
+    listener?.(key({ key: "r", metaKey: true }));
     expect(posted).toEqual([
       [{ source: "devknobs", type: "key", action: "toggle" }, "/"],
       [{ source: "devknobs", type: "key", action: "close" }, "/"],

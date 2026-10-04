@@ -142,10 +142,9 @@ export function keyChips(hotkey: string, grabLabel: string | null, mac: boolean)
     { command: "search", key: "/", word: "search" },
   ];
   if (grabLabel !== null) chips.push({ command: "grab", key: chipKey(grabLabel), word: "grab" });
-  const shift = mac ? "⇧" : "Shift ";
   chips.push(
     { command: "replay", key: REPLAY_KEY, word: "replay animations" },
-    { command: "reset", key: `${shift}${REPLAY_KEY.toUpperCase()}`, word: "reset" },
+    { command: "reset", key: mac ? "⇧⌫" : "Shift Backspace", word: "reset" },
   );
   return chips;
 }
@@ -1351,6 +1350,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       return;
     }
     const action = keyAction(event, hotkey);
+    if (action === "reset" && !dragging && engine.getState().panel.open) event.preventDefault();
     if (action === "close") escape();
     else if (action) onAction(action);
     if (action || dragging || !engine.getState().panel.open || !isSearchKey(event)) return;
