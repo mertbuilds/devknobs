@@ -218,6 +218,50 @@ export interface Bars {
   chin: Rect | null;
   /** Chrome's hairline between the toolbar and the page. */
   hairline: Rect | null;
+  /** Safari's scroll edge under its bottom bars. */
+  fade: Fade | null;
+}
+
+/**
+ * A fade from clear into the page's background, `y` to the screen's bottom,
+ * with how opaque it is `at` px down it.
+ */
+export interface Fade {
+  y: number;
+  height: number;
+  stops: { at: number; alpha: number }[];
+}
+
+/**
+ * Safari's bottom scroll edge, by distance from the bottom of the viewport.
+ * On the phone the page runs on under the bars and the fade lies over it:
+ * measured on the 16 Pro over a blue and a green line, in light and dark, it
+ * is 0.09 opaque at the viewport's end and 0.55 38 px under it, about 0.9 at
+ * the bottom. The frame cannot draw the page past its end, so the same eased
+ * curve is moved up to end near opaque at the frame's edge, and the page
+ * dissolves into its color there instead of stopping at a line.
+ */
+const FADE: readonly [number, number][] = [
+  [-64, 0],
+  [-52, 0.05],
+  [-40, 0.12],
+  [-28, 0.24],
+  [-18, 0.4],
+  [-9, 0.6],
+  [0, 0.85],
+]
+
+/** How opaque the fade is at the screen's bottom. */
+const FADE_EDGE = 0.92;
+
+/** The fade under the bottom bars, from just over the viewport's end at `end`. */
+function fadeFrom(end: number, H: number): Fade | null {
+  if (end >= H) return null;
+  const y = end + (FADE[0]?.[0] ?? 0);
+  const stops = FADE.filter(([at]) => end + at < H).map(([at, alpha]) => {
+    return { at: end + at - y, alpha };
+  });
+  return { y, height: H - y, stops: [...stops, { at: H - y, alpha: FADE_EDGE }] };
 }
 
 /** The middle of the island or the punch hole, which the status bar lines up with. */
@@ -282,6 +326,7 @@ function safariBars(
     handle,
     chin: null,
     hairline: null,
+    fade: null,
   };
   if (orientation === "landscape") {
     // Measured on the 16 Pro: one row 10 under the top, starting 10 in from the side inset.
@@ -304,6 +349,8 @@ function safariBars(
     return bars;
   }
   bars.status = safariStatus(device.id, spec, W);
+  const page = viewportOf(device, orientation, layout, minimized);
+  bars.fade = fadeFrom(page.y + page.height, H);
   const T = spec.top;
   if (minimized) {
     bars.shapes = [layout === "top" ? domainPill(W, T) : domainPill(W, H - 46)];
@@ -417,6 +464,7 @@ function chromeBars(
     handle,
     chin: null,
     hairline: null,
+    fade: null,
   };
   if (minimized) return bars;
   const atTop = layout === "top" || !portrait;

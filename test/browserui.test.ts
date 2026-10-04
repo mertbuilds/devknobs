@@ -239,6 +239,23 @@ describe("bars", () => {
     expect(barsOf(pixel, "landscape", "bottom", false)?.shapes[0]).toMatchObject({ y: 24 });
   });
 
+  test("Safari fades the page into its color from over the viewport's end to the bottom", () => {
+    const fade = barsOf(pro, "portrait", "compact", false)?.fade;
+    // From 64 over the viewport's end at 776 to the bottom.
+    expect(fade).toMatchObject({ y: 712, height: 162 });
+    expect(fade?.stops[0]).toEqual({ at: 0, alpha: 0 });
+    expect(fade?.stops).toContainEqual({ at: 64, alpha: 0.85 });
+    expect(fade?.stops.at(-1)).toEqual({ at: 162, alpha: 0.92 });
+    const alphas = fade?.stops.map((stop) => stop.alpha) ?? [];
+    expect(alphas).toEqual([...alphas].sort((a, b) => a - b));
+    expect(barsOf(pro, "portrait", "bottom", false)?.fade?.y).toBe(716 - 64);
+    expect(barsOf(pro, "portrait", "top", false)?.fade?.y).toBe(782 - 64);
+    expect(barsOf(pro, "portrait", "bottom", true)?.fade?.y).toBe(816 - 64);
+    expect(barsOf(pro, "portrait", "top", true)?.fade).toBeNull();
+    expect(barsOf(pro, "landscape", "compact", false)?.fade).toBeNull();
+    expect(barsOf(device("pixel-9"), "portrait", "bottom", false)?.fade).toBeNull();
+  });
+
   test("nothing for the browser off or a device without one", () => {
     expect(barsOf(pro, "portrait", "off", false)).toBeNull();
     expect(barsOf(device("ipad-mini"), "portrait", null, false)).toBeNull();

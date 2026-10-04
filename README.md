@@ -539,9 +539,12 @@ elements or the document. `screen.width`,
 `screen.height` and `screen.orientation` keep the real screen's.
 
 the browser drawn around a phone's frame stands still. its bars do not
-minimize on a scroll (the bars knob does it), the page is not drawn under the
-glass, which takes the page's background color instead, and
-`env(safe-area-inset-*)` stays 0. there is no keyboard, and the tabs, the
+minimize on a scroll (the bars knob does it), and the page is not drawn under
+the glass: the screen there takes the page's background color, and Safari's
+scroll edge fades the last 64 px of the page into that color, eased from
+clear to 0.85 opaque at the frame's end and 0.92 at the bottom, where on the
+phone the page runs on under the bars. the top edge has no fade, as Safari
+shows none there. `env(safe-area-inset-*)` stays 0. there is no keyboard, and the tabs, the
 menus and the share sheet do not open. a page that changes its background
 without a load, a navigation or a scheme change keeps the old color around
 the bars until the next one. Safari is drawn as iOS 26.5 has it, with the

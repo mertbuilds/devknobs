@@ -1,6 +1,6 @@
 import type { Actions, Look, Shapes } from "./browserkit";
 import { el, glyphAt, place, svgNode } from "./browserkit";
-import type { Bars, Glyph, Shape, StatusBar } from "./browserui";
+import type { Bars, Fade, Glyph, Shape, StatusBar } from "./browserui";
 
 /**
  * iOS 26 Safari: Liquid Glass capsules over the page's own color, the status
@@ -225,10 +225,26 @@ function shapeNodes(shape: Shape, look: Look, actions: Actions): Element[] {
   return nodes;
 }
 
+/**
+ * The scroll edge: the page's own color, from clear just over the end of the
+ * frame to nearly opaque at the bottom, so the page reads as running under
+ * the glass. It never takes a pointer, so the page under it still does.
+ */
+function fadeNode(fade: Fade, look: Look): HTMLElement {
+  const node = el("div", "fade");
+  node.style.cssText = `left: 0; right: 0; top: ${fade.y}px; height: ${fade.height}px`;
+  // The page's color, `rgb(r, g, b)`, at each stop's opacity.
+  const color = (alpha: number) => look.background.replace(/^rgb\((.*)\)$/, `rgba($1, ${alpha})`);
+  const stops = fade.stops.map(({ at, alpha }) => `${color(alpha)} ${at}px`);
+  node.style.background = `linear-gradient(to bottom, ${stops.join(", ")})`;
+  return node;
+}
+
 export function paintSafari(bars: Bars, look: Look, actions: Actions): Element[] {
   const root = el("div", look.dark ? "safari dark" : "safari light");
   root.style.inset = "0";
   const nodes: Element[] = [];
+  if (bars.fade) nodes.push(fadeNode(bars.fade, look));
   if (bars.status) nodes.push(...statusBar(bars.status));
   for (const shape of bars.shapes) nodes.push(...shapeNodes(shape, look, actions));
   if (bars.handle) {
