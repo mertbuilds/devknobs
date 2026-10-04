@@ -1,4 +1,5 @@
 import { baseMatchMedia } from "../engine/matchmedia";
+import { createThemeReader, invertTheme } from "./theme";
 
 /** Over everything, the panel too. It never takes a pointer. */
 const Z_INDEX = 2147483647;
@@ -33,6 +34,7 @@ const SYNC_EVERY = 100;
  * The colors are the panel's, light or dark by the real system scheme: the
  * knobs rewrite the page's stylesheets, never this one. Inside the frame,
  * where the scheme can be handed down natively, the page above says which.
+ * The label alone goes by the page: light on a dark one, dark on a light one.
  */
 const CSS = `
 .layer {
@@ -42,10 +44,6 @@ const CSS = `
   overflow: hidden;
   pointer-events: none;
   direction: ltr;
-  --bg: #fbfbf9;
-  --fg: #1b1b19;
-  --faint: #73736d;
-  --line: #e6e6e0;
   --accent: #2f6fed;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 11px;
@@ -55,18 +53,10 @@ const CSS = `
 }
 @media (prefers-color-scheme: dark) {
   .layer:not([data-scheme="light"]) {
-    --bg: #151513;
-    --fg: #e9e9e3;
-    --faint: #8c8c85;
-    --line: #2b2b28;
     --accent: #6d9bff;
   }
 }
 .layer[data-scheme="dark"] {
-  --bg: #151513;
-  --fg: #e9e9e3;
-  --faint: #8c8c85;
-  --line: #2b2b28;
   --accent: #6d9bff;
 }
 .glow {
@@ -109,19 +99,25 @@ const CSS = `
   gap: 6px;
   max-width: calc(100% - ${2 * MARGIN}px);
   box-sizing: border-box;
-  padding: 2px 6px;
+  padding: 3px 7px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   opacity: 0;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--line);
+  color: #ffffff;
+  background: #161616;
   border-radius: 6px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 12%), 0 2px 8px rgb(0 0 0 / 24%);
   transition: opacity ${FADE}ms ease-out;
 }
 .pill.on { opacity: 1; }
-.tag { color: var(--faint); }
+.tag { color: #a7a7a7; }
+.pill[data-bar="light"] {
+  color: #171717;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 10%), 0 2px 8px rgb(0 0 0 / 32%);
+}
+.pill[data-bar="light"] .tag { color: #737373; }
 .layer [hidden] { display: none; }
 .layer[data-still] * { transition: none; }
 `;
@@ -243,6 +239,7 @@ export function createOverlay(scheme?: "light" | "dark"): Overlay {
   /** The real setting, under the motion knob: the layer is devknobs' own. */
   const reduce = baseMatchMedia("(prefers-reduced-motion: reduce)");
   const radii = new WeakMap<Element, number>();
+  const themeOf = createThemeReader();
   /** The element the box is on, or on its way to. */
   let element: Element | null = null;
   /** The element the target was last read from. */
@@ -322,6 +319,7 @@ export function createOverlay(scheme?: "light" | "dark"): Overlay {
   function measure(): void {
     if (element && !element.isConnected) element = null;
     drawPicks();
+    if (element || toasting) label.dataset.bar = invertTheme(themeOf(element));
     if (!element) {
       measured = null;
       target = null;
