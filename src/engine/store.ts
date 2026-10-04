@@ -51,6 +51,7 @@ export const DEFAULT_STATE: DevknobsState = {
   device: "none",
   orientation: "portrait",
   mock: true,
+  touchPointer: true,
   frame: false,
   dpr: "system",
   zoom: "fit",
@@ -196,6 +197,8 @@ export function parse(json: string | null | undefined): DevknobsState {
     orientation: oneOf(state.orientation, ORIENTATIONS, DEFAULT_STATE.orientation),
     // A session stored before the mock draws one.
     mock: bool(state.mock, DEFAULT_STATE.mock),
+    // A session stored before the touch pointer has the mouse act as a finger.
+    touchPointer: bool(state.touchPointer, DEFAULT_STATE.touchPointer),
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     // A session stored before the zoom knob fits the frame, as it did then.

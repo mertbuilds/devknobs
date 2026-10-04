@@ -32,6 +32,7 @@ describe("parse", () => {
         device: "pixel-42",
         orientation: "sideways",
         mock: "no",
+        touchPointer: "no",
         frame: true,
         dpr: 2,
         zoom: "huge",
@@ -70,6 +71,7 @@ describe("parse", () => {
       device: "none",
       orientation: "portrait",
       mock: true,
+      touchPointer: true,
       frame: true,
       dpr: 2,
       zoom: "fit",
@@ -115,6 +117,11 @@ describe("parse", () => {
   test("draws a mock when the session predates it, and keeps one turned off", () => {
     expect(parse(JSON.stringify({ device: "pixel-9" })).mock).toBe(true);
     expect(parse(JSON.stringify({ mock: false })).mock).toBe(false);
+  });
+
+  test("has the mouse act as a finger when the session predates it, and keeps it turned off", () => {
+    expect(parse(JSON.stringify({ device: "pixel-9" })).touchPointer).toBe(true);
+    expect(parse(JSON.stringify({ touchPointer: false })).touchPointer).toBe(false);
   });
 
   test("fits the frame when the session predates the zoom, and keeps a zoom in reason", () => {

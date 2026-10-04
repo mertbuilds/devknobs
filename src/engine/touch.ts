@@ -1,8 +1,8 @@
 /**
  * A device's touch screen, as scripts look for one: `'ontouchstart' in
  * window`, and `navigator.maxTouchPoints` unless the ua knob reports it. The
- * pointer and hover media queries go through the media knobs. A mouse stays a
- * mouse: no touch events are made from it.
+ * pointer and hover media queries go through the media knobs, and the touch
+ * pointer makes the mouse act as a finger.
  */
 
 /** What iOS reports, and Android mostly too. */

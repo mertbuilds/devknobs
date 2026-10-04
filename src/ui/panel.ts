@@ -1,5 +1,6 @@
 import * as engine from "../engine";
 import { now, realNow } from "../engine/clock";
+import { hasTouch } from "../engine/devices";
 import { frameForced, type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
@@ -766,6 +767,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
           line.hidden = !hasMock(state);
         });
       }
+      // So does the touch pointer for a device that takes touch.
+      if (knob.id === "touchPointer") {
+        updates.push((state) => {
+          line.hidden = !hasTouch(state.device);
+        });
+      }
       editor.append(line);
     }
     return updates;
@@ -978,6 +985,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     // Another knob holds the frame up, so the frame knob has nothing to set.
     if (knob.id === "frame" && frameForced(engine.getState())) return;
     if (knob.id === "mock" && !hasMock(engine.getState())) return;
+    if (knob.id === "touchPointer" && !hasTouch(engine.getState().device)) return;
     set(knob, option.value);
     if (option.opens) openEditor(id);
     showRow(id, knob);

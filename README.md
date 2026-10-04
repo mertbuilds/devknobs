@@ -259,6 +259,7 @@ reports to it from its first render.
 | device | a preset, none | sets the width, height and device pixel ratio of a phone, tablet, laptop or desktop together, and a touch screen where it has one. see devices below |
 | orientation | portrait, landscape | turns a frame that has a width and a height, a device's or a custom one. it follows the size, so a size set across reads as landscape |
 | mock | on, off | draws a phone's or tablet's body around its frame. on by default, and only offered while a phone or tablet is picked. see devices below |
+| touch pointer | on, off | the mouse acts as a finger inside a touch device's frame, like the devtools device toolbar: a round cursor, touch events, `pointerType: "touch"`, no hover, drag to scroll. on by default, and only offered while a device with a touch screen is picked. see devices below |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
@@ -362,6 +363,25 @@ stylesheets and `matchMedia` alike, through the same rewrite as the prefers
 knobs, `'ontouchstart' in window` is true, and `navigator.maxTouchPoints` reads
 5, or what the user agent preset says while one is set. the page above the
 frame keeps its own pointer.
+
+the mouse acts as a finger there too, as in the devtools device toolbar. the
+cursor over the frame is a round dot, a little smaller and darker while
+pressed. a press sends `touchstart`, `touchmove` and `touchend` (`touchcancel`
+when the browser cancels it) to the element it went down on, for the whole
+gesture, and page listeners read `pointerType: "touch"` on pointer events. a
+finger does not hover, so no move, over, out, enter or leave event reaches the
+page without a press. a press that stays within 10px is a tap and clicks as
+usual. one that moves further scrolls the nearest element that can scroll that
+way, both ways where it can, within the `touch-action` of every element on the
+way up, and flings on with the speed it was let go at until the next press. the
+page gets a `pointercancel` then, its mouse events stop, and no click follows
+a drag. a touch listener that calls `preventDefault` keeps the page from
+scrolling, and on `touchstart` or `touchend` stops the mouse events and the
+click as a touch screen does. text does not get selected and nothing starts a
+native drag along the way. range sliders, editable text and scrollbars keep
+the mouse. while grab is on the mouse is a mouse again, until grab ends. the
+touch pointer switch in the device editor turns it off, and the panel never
+gets it.
 
 ## the clock and your server
 
@@ -477,11 +497,18 @@ the text size knob reads the root `font-size` from same-origin stylesheets; one
 set in a cross-origin sheet is taken as relative. a `matchMedia` list made from
 an em or rem query keeps the size it was made at when the knob changes later.
 
-a device's touch screen is what the page reads, not how it is used. the mouse
-stays a mouse: it clicks, hovers and fires mouse and pointer events with
-`pointerType: "mouse"`, and no touch events are made from it, so `:hover`
-styles still show under it and touch gesture code never runs. `ontouchstart`
-is on the window only, not on elements or the document. `screen.width`,
+the touch pointer is made in the page, not by the browser. css `:hover` still
+follows the real mouse, as no script can turn it off, and a press still sends
+the page its `mousedown` before it is known to be a drag. touch events and the
+`pointercancel` it sends are not trusted (`isTrusted` is false), it is one
+finger only, with no pinch and no long press menu, and a fling is a simple
+one, with no overscroll bounce. a page's own capture listeners on the window
+still get hover moves, and ones it put there before devknobs loaded read
+`pointerType: "mouse"`. desktop Safari and Firefox have no
+`Touch` constructor, so they get the cursor, the pointer type and the scrolling
+but no touch events. turn the switch off for the mouse as it is: clicks,
+hover and `pointerType: "mouse"`. `ontouchstart` is on the window only, not on
+elements or the document. `screen.width`,
 `screen.height` and `screen.orientation` keep the real screen's.
 
 the frame loads the page a second time, so in-memory state (a half-filled form,
@@ -495,7 +522,7 @@ them:
 - device pixel ratio outside chromium (device toolbar)
 - `forced-colors` and high contrast mode (rendering panel)
 - print media (rendering panel, or print preview)
-- touch events from the mouse (device toolbar)
+- trusted touch events, pinch and `:hover` that follows touch (device toolbar)
 - network throttling and a real offline (network panel)
 - the time zone of workers and of the page before devknobs loads (sensors panel, or a `TZ` environment variable when the browser starts)
 

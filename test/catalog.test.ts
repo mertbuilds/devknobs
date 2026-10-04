@@ -179,6 +179,20 @@ describe("summary", () => {
     expect(resetPatch(row("viewport"))).toMatchObject({ mock: true });
   });
 
+  test("the touch pointer is on while the device takes touch, and the device says enough", () => {
+    const pointer = knobOf("touchPointer");
+    expect(pointer.read(state({ device: "pixel-9" }))).toBe("on");
+    expect(pointer.read(state({ device: "pixel-9", touchPointer: false }))).toBe("off");
+    expect(pointer.read(state({ device: "desktop" }))).toBe("off");
+    expect(pointer.read(state({ width: 390, height: 844 }))).toBe("off");
+    expect(isActive(row("viewport"), state({ touchPointer: false }))).toBe(false);
+    expect(says("viewport", { device: "ipad-mini", touchPointer: false })).toBe(
+      "iPad mini · portrait",
+    );
+    expect(pointer.write("off", DEFAULT_STATE)).toEqual({ touchPointer: false });
+    expect(resetPatch(row("viewport"))).toMatchObject({ touchPointer: true });
+  });
+
   test("a zoom off fit says its percent", () => {
     expect(says("viewport", { device: "iphone-16-pro", zoom: 1.25 })).toBe(
       "iPhone 16 Pro · portrait · 125%",

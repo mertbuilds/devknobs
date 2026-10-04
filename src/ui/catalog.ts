@@ -1,5 +1,5 @@
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
-import { DEVICES, deviceOf } from "../engine/devices";
+import { DEVICES, deviceOf, hasTouch } from "../engine/devices";
 import { frameForced } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
@@ -109,6 +109,7 @@ export type KnobId =
   | "saveData"
   | "device"
   | "mock"
+  | "touchPointer"
   | "width"
   | "dpr"
   | "zoom"
@@ -752,6 +753,20 @@ const MOCK: Knob = {
   brief: () => "",
 };
 
+const TOUCH_POINTER: Knob = {
+  id: "touchPointer",
+  label: "touch pointer",
+  category: "device",
+  control: "switch",
+  options: OFF_ON,
+  aliases: ["finger", "tap", "swipe", "drag", "cursor", "touch events"],
+  // On while the device takes touch, so a phone or tablet is what puts it off its default.
+  read: (state) => flag(state.touchPointer && hasTouch(state.device)),
+  write: (value) => ({ touchPointer: value === "on" }),
+  reset: { touchPointer: DEFAULT_STATE.touchPointer },
+  brief: () => "",
+};
+
 const WIDTH: Knob = {
   id: "width",
   label: "width",
@@ -976,6 +991,7 @@ export const KNOBS: readonly Knob[] = [
   SAVE_DATA,
   DEVICE,
   MOCK,
+  TOUCH_POINTER,
   WIDTH,
   DPR,
   ZOOM,
@@ -1003,7 +1019,7 @@ export const ROWS: readonly Row[] = [
   {
     id: "viewport",
     label: "viewport",
-    knobs: ["device", "mock", "width", "dpr", "zoom", "frame", "vision"],
+    knobs: ["device", "mock", "touchPointer", "width", "dpr", "zoom", "frame", "vision"],
   },
   { id: "ua", label: "user agent", knobs: ["ua"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },

@@ -1,4 +1,5 @@
 import { ensureStyle, removeStyle } from "../engine/style";
+import { pause } from "../engine/touchpointer";
 import { copyGrab } from "./clipboard";
 import { componentOf, grabEntry, joinEntries, quickEntry } from "./context";
 import { grabTargetAt, isDevknobs } from "./hit";
@@ -78,6 +79,8 @@ export function startMode(options: ModeOptions): Mode {
   let stopped = false;
 
   ensureStyle("grab-cursor").textContent = "*:not([data-devknobs]){cursor:crosshair!important}";
+  // The touch pointer gives the mouse back while grab picks.
+  pause(true);
 
   function warm(element: Element): void {
     if (ready.has(element) || warming.has(element)) return;
@@ -220,6 +223,7 @@ export function startMode(options: ModeOptions): Mode {
     window.removeEventListener("pointermove", onPointerMove, true);
     window.removeEventListener("keyup", onKeyup, true);
     removeStyle("grab-cursor");
+    pause(false);
     overlay.destroy();
   }
 
