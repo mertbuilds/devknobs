@@ -382,7 +382,11 @@ stretch. the page is then the screen under the status bar, 402 × 812 on an
 iPhone 16 Pro in every layout, taller than the viewport Safari reports, so
 `position: fixed; bottom: 0` elements and `100dvh` layouts sit lower than on
 the phone: 58 px lower in compact minimized, 98 expanded, 158 in bottom
-expanded. turn it off for Safari's real numbers, measured in iOS 26.5:
+expanded. the end of the page gets that much room after it, as a bottom
+margin on the root that follows the bars, so the last content scrolls clear
+of them with the page's background under it, as on the phone: 92 px with the
+bar at the top, none under its pill or turned across. a page that scrolls an
+inner box, or overflows a root of a set height, gets none. turn it off for Safari's real numbers, measured in iOS 26.5:
 402 × 714 in compact, 402 × 654 with the bar at the bottom and 402 × 660 at
 the top, 754, 754 and 768 minimized. the strip under the page then takes the
 page's background, and the end of the page fades into it. Chrome always gives

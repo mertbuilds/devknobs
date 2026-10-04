@@ -159,6 +159,26 @@ export function viewportOf(
   return rect(0, chrome.top + (layout === "top" ? toolbar : 0), W, height);
 }
 
+/**
+ * The room the end of a page drawn edge to edge needs so its last content
+ * scrolls clear of the bars: how far the frame runs past the bottom of the
+ * viewport Safari gives the page, bars as they are. On the phone the page
+ * ends there, and under the bars is its plain background. None where the
+ * frame is that viewport, and none for the bars at the top.
+ */
+export function endRoom(
+  device: Screen,
+  orientation: OrientationValue,
+  layout: BrowserLayout | null,
+  minimized: boolean,
+  edge: boolean,
+): number {
+  if (!edge) return 0;
+  const drawn = viewportOf(device, orientation, layout, minimized, true);
+  const real = viewportOf(device, orientation, layout, minimized);
+  return drawn.y + drawn.height - (real.y + real.height);
+}
+
 /** A glyph the bars draw. */
 export type Glyph =
   | "back"
@@ -583,7 +603,7 @@ export type BarsEvent =
   | { type: "scroll"; y: number; time: number }
   | { type: "tap" }
   | { type: "navigate" }
-  /** The frame was resized for the bars, at `time`. */
+  /** The frame was resized for the bars, or its page given another end room, at `time`. */
   | { type: "resize"; time: number };
 
 /** Downward travel that minimizes, and upward travel that brings the bars back, in css px. */

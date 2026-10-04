@@ -8,6 +8,7 @@ import {
   type BarsMotion,
   barsOf,
   barsStep,
+  endRoom,
   type BrowserLayout,
   layoutOf,
   layoutOptions,
@@ -145,6 +146,46 @@ describe("edge to edge", () => {
     expect(`${pixel.width}x${pixel.height}`).toBe("412x777");
     const off = viewportOf(device("iphone-16-pro"), "portrait", "off", false, true);
     expect(`${off.width}x${off.height}`).toBe("402x874");
+  });
+
+  test("the page's end gets the room the frame runs past Safari's viewport, bars as they are", () => {
+    for (const [id, , heights] of SAFARI_TABLE) {
+      const drawn = viewportOf(device(id), "portrait", "compact", false, true).height;
+      for (const layout of ["compact", "bottom"] as const) {
+        const [expanded, minimized] = heights[layout];
+        expect(endRoom(device(id), "portrait", layout, false, true)).toBe(drawn - expanded);
+        expect(endRoom(device(id), "portrait", layout, true, true)).toBe(drawn - minimized);
+      }
+    }
+    const pro = device("iphone-16-pro");
+    expect(endRoom(pro, "portrait", "compact", true, true)).toBe(58);
+    expect(endRoom(pro, "portrait", "compact", false, true)).toBe(98);
+    expect(endRoom(pro, "portrait", "bottom", true, true)).toBe(58);
+    expect(endRoom(pro, "portrait", "bottom", false, true)).toBe(158);
+    expect(endRoom(device("iphone-se"), "portrait", "bottom", false, true)).toBe(152);
+  });
+
+  test("Top's room is its bottom capsule's alone, and none under its pill or turned across", () => {
+    for (const [id] of SAFARI_TABLE) {
+      expect(endRoom(device(id), "portrait", "top", false, true)).toBe(92);
+      expect(endRoom(device(id), "portrait", "top", true, true)).toBe(0);
+      for (const layout of ["compact", "bottom", "top"] as const) {
+        expect(endRoom(device(id), "landscape", layout, false, true)).toBe(0);
+        expect(endRoom(device(id), "landscape", layout, true, true)).toBe(0);
+      }
+    }
+  });
+
+  test("no room with edge to edge off, the browser off, on Chrome or without a browser", () => {
+    const pro = device("iphone-16-pro");
+    for (const minimized of [false, true]) {
+      expect(endRoom(pro, "portrait", "compact", minimized, false)).toBe(0);
+      expect(endRoom(pro, "portrait", "off", minimized, true)).toBe(0);
+      expect(endRoom(pro, "portrait", null, minimized, true)).toBe(0);
+      expect(endRoom(device("pixel-9"), "portrait", "top", minimized, true)).toBe(0);
+      expect(endRoom(device("pixel-9"), "portrait", "bottom", minimized, true)).toBe(0);
+      expect(endRoom(device("ipad-mini"), "portrait", null, minimized, true)).toBe(0);
+    }
   });
 
   test("the scroll edge is light, 0.55 at the bottom at most, and short when minimized", () => {
@@ -339,6 +380,20 @@ describe("barsStep", () => {
     const tapped = run([scroll(500), { type: "tap" }]);
     expect(run([scroll(510)], tapped).minimized).toBe(false);
     expect(run([scroll(500 + BARS_DOWN)], tapped).minimized).toBe(true);
+  });
+
+  test("the scroll clamped by a smaller end room never brings the bars back", () => {
+    // Expanded at the end of the page, 40 px of room past where minimized bars end it.
+    const end = 2000;
+    const tapped = run([scroll(end, 1000), { type: "tap" }]);
+    const down = run([scroll(end + 40, 2000)], tapped);
+    expect(down.minimized).toBe(true);
+    // Unlocked, the clamp back reads as a scroll up of 40.
+    expect(run([scroll(end, 2010)], down).minimized).toBe(false);
+    const roomed = run([{ type: "resize", time: 2000 }, scroll(end, 2010)], down);
+    expect(roomed.minimized).toBe(true);
+    expect(roomed.anchor).toBe(end);
+    expect(run([scroll(end - 10, 2000 + BARS_LOCK)], roomed).minimized).toBe(true);
   });
 
   test("the page settling into a resized frame never flips the bars", () => {
