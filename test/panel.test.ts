@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { apply, reset } from "../src/engine/time";
 import {
+  chipKey,
   dragTarget,
   dragTo,
   HOST_STYLE,
+  keyChips,
   overflowBadge,
   PANEL_GAP,
   type Place,
@@ -28,6 +30,40 @@ describe("overflowBadge", () => {
 
   test("says nothing before the frame reports a count", () => {
     expect(overflowBadge(true, null)).toBe("");
+  });
+});
+
+describe("chipKey", () => {
+  test("a mac label stays as it is", () => {
+    expect(chipKey("⌘C")).toBe("⌘C");
+    expect(chipKey("⌥⇧G")).toBe("⌥⇧G");
+  });
+
+  test("names off a mac are spaced and capped", () => {
+    expect(chipKey("ctrl+C")).toBe("Ctrl C");
+    expect(chipKey("alt+shift+G")).toBe("Alt Shift G");
+  });
+
+  test("a plus that is the key stays", () => {
+    expect(chipKey("ctrl++")).toBe("Ctrl +");
+  });
+});
+
+describe("keyChips", () => {
+  test("the hotkey, the search key and the grab key, a word each", () => {
+    expect(keyChips("d", "⌘C")).toEqual([
+      { key: "d", word: "panel" },
+      { key: "/", word: "search" },
+      { key: "⌘C", word: "grab" },
+    ]);
+  });
+
+  test("the hotkey that was set, and the grab key off a mac", () => {
+    expect(keyChips("k", "ctrl+C").map((chip) => chip.key)).toEqual(["k", "/", "Ctrl C"]);
+  });
+
+  test("no grab chip with no grab", () => {
+    expect(keyChips("d", null).map((chip) => chip.word)).toEqual(["panel", "search"]);
   });
 });
 

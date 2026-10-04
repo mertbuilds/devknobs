@@ -437,7 +437,27 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 .act:disabled:hover { color: var(--faint); }
 .badge { color: var(--faint); }
 .badge.hot { color: var(--hot); }
-.meta { font-size: 10px; line-height: 1.4; color: var(--faint); }
-.foot-link { color: inherit; text-decoration: none; }
+/* One line of key chips with the link at its right end. Where a long key
+   leaves no room, the line wraps and the link keeps to the right. */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+.chip { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.key {
+  box-sizing: border-box;
+  min-width: 14px;
+  padding: 0 3px;
+  font: inherit;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.foot-link { margin-left: auto; color: inherit; text-decoration: none; }
 .foot-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 `;

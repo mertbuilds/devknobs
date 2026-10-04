@@ -100,6 +100,37 @@ export function overflowBadge(on: boolean, count: number | null): string {
   return on && count !== null ? ` · ${count} overflowing` : "";
 }
 
+/** A key in the footer and the one word for what it does. */
+export interface KeyChip {
+  key: string;
+  word: string;
+}
+
+/**
+ * The grab key as its chip shows it. A Mac label such as `⌘C` stays as it is,
+ * and `ctrl+C` reads `Ctrl C`.
+ */
+export function chipKey(label: string): string {
+  return label
+    .replace(/\+(?=.)/g, " ")
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/**
+ * The keys the footer names: the hotkey, the search key, and the grab key
+ * where there is a grab.
+ */
+export function keyChips(hotkey: string, grabLabel: string | null): KeyChip[] {
+  const chips = [
+    { key: hotkey, word: "panel" },
+    { key: "/", word: "search" },
+  ];
+  if (grabLabel !== null) chips.push({ key: chipKey(grabLabel), word: "grab" });
+  return chips;
+}
+
 /**
  * What a drag on the handle moves: a plain one the panel and the handle as
  * one, a shift one the handle alone along the panel's edge. A closed panel
@@ -288,6 +319,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const wrap = el("div", "wrap");
   const handle = button("handle", "knobs");
   handle.setAttribute("aria-label", `devknobs, press ${hotkey}`);
+  handle.title = "drag to move · shift-drag moves the handle";
   const panel = el("div", "panel");
 
   // A label, so a click on the name lands in the field too.
@@ -330,13 +362,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
   home.rel = "noopener noreferrer";
   home.textContent = "knobs.dev";
   const meta = el("div", "meta");
-  meta.append(
-    home,
-    ` · dev only · press ${hotkey}`,
-    el("br", ""),
-    "/ to search · shift-drag moves the handle",
-  );
-  if (grab) meta.append(el("br", ""), `${grab.label} hold to grab`);
+  for (const chip of keyChips(hotkey, grab ? grab.label : null)) {
+    const node = el("span", "chip");
+    node.append(el("kbd", "key", chip.key), chip.word);
+    meta.append(node);
+  }
+  meta.append(home);
   foot.append(actions, meta);
 
   panel.append(head, body, foot);
