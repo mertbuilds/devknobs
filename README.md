@@ -156,7 +156,9 @@ while it is on:
 
 - the element under the pointer gets a box and a label with its tag and its
   component, and the cursor is a crosshair. devknobs' own panel and frame are
-  passed over, open shadow roots are reached into.
+  passed over, open shadow roots are reached into, and so are the children a
+  hit test passes over: those that take no pointer events, or sit under a clear
+  layer or a pseudo element stretched over a card.
 - a click copies the element, and grab ends. the page's own click, mouse and
   pointer handlers never hear of it, and its hover handlers neither.
 - shift and a click gather elements, lighter boxes, and a second one takes one
