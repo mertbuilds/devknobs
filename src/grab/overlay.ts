@@ -5,7 +5,11 @@ import { createThemeReader, GRAB_COLORS, invertTheme } from "./theme";
 const Z_INDEX = 2147483647;
 
 /** Space between a box and its label or toast, in px. */
-const GAP = 4;
+const GAP = 8;
+
+/** How wide the label's arrow is at its base, and how far it sticks out, in px. */
+export const ARROW_WIDTH = 10;
+const ARROW_HEIGHT = 5;
 
 /** Space the label keeps from the window's edge, in px. */
 const MARGIN = 8;
@@ -79,6 +83,10 @@ const CSS = `
     background-color ${FADE}ms ease-out;
 }
 .box.on { opacity: 1; }
+.box.copied {
+  border-color: color-mix(in srgb, var(--grab) 60%, transparent);
+  background: color-mix(in srgb, var(--grab) 20%, transparent);
+}
 .box.pick {
   opacity: 1;
   border-color: color-mix(in srgb, var(--grab) 30%, transparent);
@@ -90,35 +98,66 @@ const CSS = `
   top: 0;
   left: 0;
   display: flex;
-  align-items: center;
-  gap: 6px;
   max-width: calc(100% - ${2 * MARGIN}px);
-  box-sizing: border-box;
-  padding: 3px 7px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
   opacity: 0;
-  color: #ffffff;
-  background: #161616;
-  border-radius: 6px;
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 12%), 0 2px 8px rgb(0 0 0 / 24%);
+  --bar: #161616;
+  --ink: #ffffff;
+  --dim: #a7a7a7;
+  --ring: 0 0 0 1px rgb(255 255 255 / 12%), 0 2px 8px rgb(0 0 0 / 24%);
   transition: opacity ${FADE}ms ease-out;
 }
 .pill.on { opacity: 1; }
 .pill.toast.on { transition: opacity ${TOAST_FADE}ms ease-out; }
+.pill[data-bar="light"] {
+  --bar: #ffffff;
+  --ink: #171717;
+  --dim: #737373;
+  --ring: 0 0 0 1px rgb(0 0 0 / 10%), 0 2px 8px rgb(0 0 0 / 32%);
+}
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 3px 9px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  background: var(--bar);
+  border-radius: 999px;
+  box-shadow: var(--ring);
+}
+.arrow {
+  position: absolute;
+  top: -${ARROW_HEIGHT}px;
+  left: 0;
+  width: ${ARROW_WIDTH}px;
+  height: ${ARROW_HEIGHT + 1}px;
+  margin-left: -${ARROW_WIDTH / 2}px;
+  background: var(--bar);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.pill[data-arrow="bottom"] .arrow {
+  top: auto;
+  bottom: -${ARROW_HEIGHT}px;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
 .check {
   flex: none;
-  margin-right: -2px;
+  margin: 0 -2px 0 -4px;
   opacity: 0.85;
 }
-.tag { color: #a7a7a7; }
-.pill[data-bar="light"] {
-  color: #171717;
-  background: #ffffff;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 10%), 0 2px 8px rgb(0 0 0 / 32%);
+.check circle { fill: currentColor; }
+.check path {
+  fill: none;
+  stroke: var(--bar);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.pill[data-bar="light"] .tag { color: #737373; }
+.tag { color: var(--dim); }
 .layer [hidden] { display: none; }
 .layer[data-still] * { transition: none; }
 `;
@@ -148,24 +187,55 @@ export function tweenStep(
   return done ? { values: [...to], done } : { values, done };
 }
 
+interface Bounds {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+/** What the label points at sideways: the pointer while it is over the box, or the box's middle. */
+function anchorOf(box: Bounds, pointerX: number | null): number {
+  return pointerX === null ? (box.left + box.right) / 2 : clamp(pointerX, box.left, box.right);
+}
+
 /**
  * Where the label goes by a box: under it, over it where there is no room,
  * kept in the window. Sideways it is centered on the pointer, as far as the
  * pointer is over the box, or on the box when the keys moved it.
  */
 export function labelPlace(
-  box: { top: number; bottom: number; left: number; right: number },
+  box: Bounds,
   pill: { width: number; height: number },
   view: { width: number; height: number },
   pointerX: number | null,
 ): { x: number; y: number } {
-  const anchor =
-    pointerX === null ? (box.left + box.right) / 2 : clamp(pointerX, box.left, box.right);
-  const x = clamp(anchor - pill.width / 2, MARGIN, view.width - pill.width - MARGIN);
+  const x = clamp(
+    anchorOf(box, pointerX) - pill.width / 2,
+    MARGIN,
+    view.width - pill.width - MARGIN,
+  );
   let y = box.bottom + GAP;
   if (y + pill.height > view.height - MARGIN) y = box.top - pill.height - GAP;
   y = clamp(y, MARGIN, view.height - pill.height - MARGIN);
   return { x, y };
+}
+
+/**
+ * Where the label's arrow goes: on the edge that faces the box, or on none
+ * where the label is over the box. Sideways it is where the label points,
+ * from the label's left, kept off its round ends.
+ */
+export function arrowPlace(
+  box: Bounds,
+  pill: { x: number; y: number; width: number; height: number },
+  pointerX: number | null,
+): { x: number; side: "top" | "bottom" | null } {
+  const inset = (pill.height + ARROW_WIDTH) / 2;
+  const x = clamp(anchorOf(box, pointerX) - pill.x, inset, pill.width - inset);
+  if (pill.y >= box.bottom) return { x, side: "top" };
+  if (pill.y + pill.height <= box.top) return { x, side: "bottom" };
+  return { x, side: null };
 }
 
 /** The first px length of a computed `border-radius`, or 0 where it has none. */
@@ -194,8 +264,8 @@ export interface Overlay {
   point(x: number | null): void;
   /**
    * Say something by an element for a moment, where its label was, after a
-   * check mark where it went well. The box stays on the element as it was,
-   * and goes with the toast.
+   * check mark where it went well. The box stays on the element, fuller
+   * with the check, and goes with the toast.
    */
   toast(text: string, near: Element | null, check: boolean): void;
   /** Fade out and go, once a toast is over where there is one. */
@@ -207,22 +277,21 @@ type Shape = [number, number, number, number, number];
 
 const SVG = "http://www.w3.org/2000/svg";
 
-/** A check mark in the color of the text by it. */
+/** A check mark in a disc the color of the text by it. */
 function checkIcon(): SVGSVGElement {
   const icon = document.createElementNS(SVG, "svg");
   icon.setAttribute("class", "check");
-  icon.setAttribute("width", "12");
-  icon.setAttribute("height", "12");
-  icon.setAttribute("viewBox", "0 0 12 12");
-  icon.setAttribute("fill", "none");
+  icon.setAttribute("width", "14");
+  icon.setAttribute("height", "14");
+  icon.setAttribute("viewBox", "0 0 14 14");
   icon.setAttribute("aria-hidden", "true");
-  const path = document.createElementNS(SVG, "path");
-  path.setAttribute("d", "M2.5 6.5 5 9l4.5-5.5");
-  path.setAttribute("stroke", "currentColor");
-  path.setAttribute("stroke-width", "1.5");
-  path.setAttribute("stroke-linecap", "round");
-  path.setAttribute("stroke-linejoin", "round");
-  icon.append(path);
+  const disc = document.createElementNS(SVG, "circle");
+  disc.setAttribute("cx", "7");
+  disc.setAttribute("cy", "7");
+  disc.setAttribute("r", "6");
+  const mark = document.createElementNS(SVG, "path");
+  mark.setAttribute("d", "M4.4 7.2 6.2 9l3.4-3.8");
+  icon.append(disc, mark);
   return icon;
 }
 
@@ -253,7 +322,12 @@ export function createOverlay(): Overlay {
   const tag = document.createElement("span");
   tag.className = "tag";
   const name = document.createElement("span");
-  label.append(check, tag, name);
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  bar.append(check, tag, name);
+  const arrow = document.createElement("div");
+  arrow.className = "arrow";
+  label.append(bar, arrow);
   const picks: HTMLElement[] = [];
   layer.append(glow, box, label);
   root.append(style, layer);
@@ -400,6 +474,7 @@ export function createOverlay(): Overlay {
       last = 0;
       labelAt = null;
       if (!toasting) return;
+      arrow.hidden = true;
       writeLabel();
       const x = Math.round((view.width - size.width) / 2);
       label.style.transform = `translate(${x}px, ${MARGIN * 2}px)`;
@@ -410,21 +485,21 @@ export function createOverlay(): Overlay {
     at = step.values;
     place(box, at);
     writeLabel();
-    const spot = labelPlace(
-      {
-        top: target[1],
-        bottom: target[1] + target[3],
-        left: target[0],
-        right: target[0] + target[2],
-      },
-      size,
-      view,
-      pointerX,
-    );
+    const bounds = {
+      top: target[1],
+      bottom: target[1] + target[3],
+      left: target[0],
+      right: target[0] + target[2],
+    };
+    const spot = labelPlace(bounds, size, view, pointerX);
     const goal = [Math.round(spot.x), Math.round(spot.y)];
     const move = tweenStep(labelAt ?? goal, goal, elapsed, reduce.matches);
     labelAt = move.values;
     label.style.transform = `translate(${labelAt[0]}px, ${labelAt[1]}px)`;
+    const tip = arrowPlace(bounds, { x: labelAt[0] ?? spot.x, y: spot.y, ...size }, pointerX);
+    arrow.hidden = tip.side === null;
+    if (tip.side) label.dataset.arrow = tip.side;
+    arrow.style.left = `${tip.x}px`;
     const done = step.done && move.done;
     last = done ? 0 : now;
     if (!done) schedule();
@@ -491,6 +566,7 @@ export function createOverlay(): Overlay {
       clearTimeout(fadeTimer);
       hideTimer = 0;
       toasting = true;
+      box.classList.toggle("copied", mark);
       element = near?.isConnected ? near : null;
       text = { tag: "", name: message };
       checked = mark;
@@ -499,6 +575,8 @@ export function createOverlay(): Overlay {
       toastTimer = window.setTimeout(() => {
         toasting = false;
         hide();
+        // On the way out the box fades as it is, and goes with the layer.
+        if (!closing) box.classList.remove("copied");
         if (closing) fadeTimer = window.setTimeout(remove, fade());
       }, TOAST_TIME);
     },

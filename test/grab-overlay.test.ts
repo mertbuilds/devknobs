@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ARROW_WIDTH,
+  arrowPlace,
   boxRadius,
   labelPlace,
   LERP,
@@ -59,11 +61,11 @@ describe("labelPlace", () => {
   const box = { top: 100, bottom: 150, left: 50, right: 250 };
 
   test("sits under the box, centered on the pointer", () => {
-    expect(labelPlace(box, pill, view, 120)).toEqual({ x: 80, y: 154 });
+    expect(labelPlace(box, pill, view, 120)).toEqual({ x: 80, y: 158 });
   });
 
   test("is centered on the box when the keys moved it", () => {
-    expect(labelPlace(box, pill, view, null)).toEqual({ x: 110, y: 154 });
+    expect(labelPlace(box, pill, view, null)).toEqual({ x: 110, y: 158 });
   });
 
   test("follows the pointer no further than the box's sides", () => {
@@ -72,13 +74,45 @@ describe("labelPlace", () => {
   });
 
   test("goes over a box at the bottom, and inside one as tall as the window", () => {
-    expect(labelPlace({ ...box, top: 200, bottom: 290 }, pill, view, 120).y).toBe(176);
+    expect(labelPlace({ ...box, top: 200, bottom: 290 }, pill, view, 120).y).toBe(172);
     expect(labelPlace({ ...box, top: 0, bottom: 300 }, pill, view, 120).y).toBe(8);
   });
 
   test("stays in the window sideways", () => {
     expect(labelPlace({ ...box, left: 300, right: 400 }, pill, view, 395).x).toBe(312);
     expect(labelPlace({ ...box, left: -40, right: 60 }, pill, view, 2).x).toBe(8);
+  });
+});
+
+describe("arrowPlace", () => {
+  const box = { top: 100, bottom: 150, left: 50, right: 250 };
+  const under = { x: 80, y: 158, ...pill };
+  const inset = (pill.height + ARROW_WIDTH) / 2;
+
+  test("is on the top edge of a label under the box, at the pointer", () => {
+    expect(arrowPlace(box, under, 120)).toEqual({ x: 40, side: "top" });
+  });
+
+  test("is on the bottom edge of a label over the box", () => {
+    expect(arrowPlace(box, { ...under, y: 72 }, 120)).toEqual({ x: 40, side: "bottom" });
+  });
+
+  test("is at the box's middle when the keys moved it", () => {
+    expect(arrowPlace(box, { ...under, x: 110 }, null)).toEqual({ x: 40, side: "top" });
+  });
+
+  test("follows the pointer no further than the box's sides", () => {
+    expect(arrowPlace(box, { ...under, x: 210 }, 390).x).toBe(40);
+    expect(arrowPlace(box, { ...under, x: 20 }, 0).x).toBe(30);
+  });
+
+  test("keeps off the label's round ends", () => {
+    expect(arrowPlace(box, { ...under, x: 50 }, 52).x).toBe(inset);
+    expect(arrowPlace(box, { ...under, x: 170 }, 249).x).toBe(pill.width - inset);
+  });
+
+  test("is not there on a label over the box itself", () => {
+    expect(arrowPlace({ ...box, top: 0, bottom: 300 }, { ...under, y: 8 }, 120).side).toBeNull();
   });
 });
 
