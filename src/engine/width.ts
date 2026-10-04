@@ -71,9 +71,19 @@ const SANDBOX = [
   "allow-top-navigation-by-user-activation",
 ].join(" ");
 
+/** The blue of the cutting mat the frame lies on, and in P3 where the screen has it. */
+const MAT = "rgb(12, 66, 160)";
+const MAT_P3 = "color(display-p3 0.07 0.26 0.66)";
+
+/** Its grid: a thin line every 8 px, and a stronger one every 40. */
+const MINOR = "rgba(255, 255, 255, 0.08)";
+const MAJOR = "rgba(255, 255, 255, 0.16)";
+
 /**
  * The letterbox around the frame. It lives in a shadow root like the panel,
- * so page css cannot reach it. One mid gray reads as chrome in light and dark.
+ * so page css cannot reach it. A blue cutting mat reads as chrome in light and
+ * dark, under a white page and a near black mock alike. Its grid stays put
+ * from the top left as the frame is fitted or zoomed.
  */
 const CSS = `
 .viewport {
@@ -85,7 +95,14 @@ const CSS = `
   flex-direction: column;
   overflow: hidden;
   direction: ltr;
-  background: #6e6e69;
+  background-color: ${MAT};
+  background-image:
+    linear-gradient(to right, ${MAJOR} 1px, transparent 1px),
+    linear-gradient(to bottom, ${MAJOR} 1px, transparent 1px),
+    linear-gradient(to right, ${MINOR} 1px, transparent 1px),
+    linear-gradient(to bottom, ${MINOR} 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+  background-position: 0 0;
 }
 .size {
   flex: none;
@@ -99,7 +116,7 @@ const CSS = `
   padding: 0 8px;
   font: 11px/16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: nowrap;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.8);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -115,7 +132,7 @@ const CSS = `
   color: inherit;
   color-scheme: dark;
   background: url("${CHEVRON}") no-repeat right 5px center;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 4px;
   cursor: pointer;
 }
@@ -145,7 +162,7 @@ const CSS = `
   transform-origin: 0 0;
 }
 /* Clips the frame to the screen's corners in a mock, in the body's color so
-   no gray shows at the seam. */
+   no blue shows at the seam. */
 .glass.mocked {
   position: absolute;
   overflow: hidden;
@@ -181,7 +198,7 @@ iframe {
   gap: 8px;
   font: 12px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: rgba(255, 255, 255, 0.85);
-  background: #6e6e69;
+  background: ${MAT};
 }
 .blocked[hidden] { display: none; }
 .blocked button {
@@ -197,10 +214,13 @@ iframe {
   cursor: pointer;
 }
 .blocked button:hover { color: #fff; border-color: #fff; }
+@media (color-gamut: p3) {
+  .viewport, .blocked { background-color: ${MAT_P3}; }
+}
 `;
 
 let host: HTMLElement | null = null;
-/** The gray around the frame, readout strip included, which the frame is fitted to. */
+/** The mat around the frame, readout strip included, which the frame is fitted to. */
 let letterbox: HTMLElement | null = null;
 /** Under the readout strip, and scrolls a frame drawn bigger than it. */
 let stage: HTMLElement | null = null;
