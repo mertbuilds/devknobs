@@ -57,7 +57,8 @@ const DevKnobs =
 ```
 
 api: `mount(options?)`, `unmount()`, `getState()`, `setState(patch)`,
-`reset()`, `replay()`, `grab(elements, options?)`, `PRESETS`.
+`reset()`, `replay()`, `grab(elements, options?)`, `PRESETS`. `replay()` is what
+the panel calls replay animations.
 
 ```js
 setState({ scheme: "dark" });
@@ -110,7 +111,7 @@ vision are one viewport row, the clock with its mode, speed and server header
 is another.
 click a row to open its editor, and `×` puts that row back to its default.
 a row set from the panel stays in the list, back at its default too, until its
-`×` takes it off or reset all clears the list.
+`×` takes it off or reset clears the list.
 
 the field at the top finds knobs and values. type `dark`, `390`, `+2d`, `tr`,
 `tokyo`, `rtl`, `pause` or `offline` and enter sets the first result and shows
@@ -121,12 +122,20 @@ category. arrows move through the results. escape leaves the search, query and
 all, then closes an open editor, and then the panel. a click anywhere outside
 the search and its results, or on the `×` at its end, leaves it too.
 
-while the panel is out and the focus is in no field, `/` focuses the search.
+while the panel is out and the focus is in no field, `/` focuses the search,
+`r` replays the page's animations and shift `r` resets every knob, from the
+frame too.
 while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
 and with `0` fit it again, from the frame too, unless the focus is in a field.
 every other key goes to the page as it would without the panel. the hotkey
 toggles the panel everywhere except in a field, the search included, so in the
 search `d` is just a letter.
+
+the footer lists the keys, most used first: the hotkey for the panel, `/` for
+search, the grab key, `r` for replay animations and `⇧R` (`Shift R` off a Mac)
+for reset, set apart at the end. each one is a button too, so a click does
+what its key does. with the overflow knob on, the count of overflowing boxes
+sits above them.
 
 the panel keeps the real color scheme and motion preference of the browser,
 whatever the knobs emulate for the page.
@@ -270,7 +279,7 @@ reports to it from its first render.
 | overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count in its debug row and footer. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
 | outlines | on, off | injects one style rule that outlines every element |
 | grab color | auto, blue, green, pink, orange, purple, cyan | the color of grab's boxes and glow, wider on a p3 screen. auto is blue, and green on an element with blue behind it, so the box shows. a picked color stays whatever the page. the frame's grab follows |
-| replay | action | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
+| replay animations | action, `r` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.

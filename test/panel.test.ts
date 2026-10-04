@@ -19,8 +19,8 @@ import { CSS } from "../src/ui/styles";
 
 describe("overflowBadge", () => {
   test("counts while the overflow knob is on", () => {
-    expect(overflowBadge(true, 0)).toBe(" · 0 overflowing");
-    expect(overflowBadge(true, 2)).toBe(" · 2 overflowing");
+    expect(overflowBadge(true, 0)).toBe("0 overflowing");
+    expect(overflowBadge(true, 2)).toBe("2 overflowing");
   });
 
   test("says nothing while the knob is off", () => {
@@ -50,20 +50,33 @@ describe("chipKey", () => {
 });
 
 describe("keyChips", () => {
-  test("the hotkey, the search key and the grab key, a word each", () => {
-    expect(keyChips("d", "⌘C")).toEqual([
-      { key: "d", word: "panel" },
-      { key: "/", word: "search" },
-      { key: "⌘C", word: "grab" },
+  test("the hotkey, search, grab, replay and reset, most used first", () => {
+    expect(keyChips("d", "⌘C", true)).toEqual([
+      { command: "panel", key: "d", word: "panel" },
+      { command: "search", key: "/", word: "search" },
+      { command: "grab", key: "⌘C", word: "grab" },
+      { command: "replay", key: "r", word: "replay animations" },
+      { command: "reset", key: "⇧R", word: "reset" },
     ]);
   });
 
-  test("the hotkey that was set, and the grab key off a mac", () => {
-    expect(keyChips("k", "ctrl+C").map((chip) => chip.key)).toEqual(["k", "/", "Ctrl C"]);
+  test("the hotkey that was set, and the keys off a mac", () => {
+    expect(keyChips("k", "ctrl+C", false).map((chip) => chip.key)).toEqual([
+      "k",
+      "/",
+      "Ctrl C",
+      "r",
+      "Shift R",
+    ]);
   });
 
   test("no grab chip with no grab", () => {
-    expect(keyChips("d", null).map((chip) => chip.word)).toEqual(["panel", "search"]);
+    expect(keyChips("d", null, true).map((chip) => chip.command)).toEqual([
+      "panel",
+      "search",
+      "replay",
+      "reset",
+    ]);
   });
 });
 

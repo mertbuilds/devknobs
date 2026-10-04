@@ -429,25 +429,33 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   padding: 6px 6px 2px;
   border-top: 1px solid var(--line);
 }
-.act { color: var(--faint); transition: color 120ms ease-out; }
-.act + .act { margin-left: 12px; }
-.act:hover { color: var(--fg); }
-.act:disabled { cursor: default; opacity: 0.5; }
-.act:disabled:hover { color: var(--faint); }
 .badge { color: var(--faint); }
 .badge.hot { color: var(--hot); }
-/* One line of key hints. Where a long key leaves no room, the line wraps. */
+/* The key hints, each a button for what its key does. Where they leave no
+   room, the line wraps, and reset keeps to the end, set apart. */
 .meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 8px;
+  gap: 6px 12px;
   font-size: 10px;
   line-height: 1.4;
   color: var(--faint);
 }
 /* A key and its word. Only the key is a box. */
-.hint { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  border-radius: 4px;
+  transition: color 120ms ease-out;
+}
+.hint:hover { color: var(--fg); }
+.hint:focus-visible { outline-offset: 2px; }
+.hint:disabled { cursor: default; opacity: 0.5; }
+.hint:disabled:hover { color: inherit; }
+.hint[data-command="reset"] { margin-left: auto; }
 .hint-key {
   box-sizing: border-box;
   min-width: 14px;

@@ -1166,7 +1166,7 @@ export function resetPatch(row: Row): DevknobsStatePatch {
 
 /** Something the panel does rather than a knob it sets. */
 export interface Action {
-  id: "grab";
+  id: "grab" | "replay";
   label: string;
   /** What a search result says after the name. */
   long: string;
@@ -1180,6 +1180,12 @@ export const ACTIONS: readonly Action[] = [
     label: "grab",
     long: "pick an element to copy",
     aliases: ["inspect", "pick", "element", "component", "select", "agent"],
+  },
+  {
+    id: "replay",
+    label: "replay animations",
+    long: "restart every animation from the start",
+    aliases: ["restart", "animation", "rerun"],
   },
 ];
 

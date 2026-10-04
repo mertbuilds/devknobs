@@ -1,7 +1,7 @@
 // adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
 import * as engine from "../engine";
 import { isDevknobsFrame, needsFrame, post, readMessage } from "../engine/frame";
-import { realPlatform } from "../engine/ua";
+import { isMac } from "../engine/ua";
 import { frameWindow } from "../engine/width";
 import {
   grabKeyLabel,
@@ -33,10 +33,6 @@ export interface GrabControl {
 }
 
 const MODIFIER_KEYS = new Set(["Meta", "Control", "Shift", "Alt", "AltGraph", "CapsLock"]);
-
-function isMac(): boolean {
-  return /mac|iphone|ipad|ipod/i.test(realPlatform());
-}
 
 function deepActive(): Element | null {
   let active = document.activeElement;

@@ -58,6 +58,32 @@ describe("keyAction", () => {
     expect(keyAction(key({ shiftKey: true }), "d")).toBeNull();
   });
 
+  test("replays on r and resets on shift r, whatever the case", () => {
+    expect(keyAction(key({ key: "r" }), "d")).toBe("replay");
+    expect(keyAction(key({ key: "R" }), "d")).toBe("replay");
+    expect(keyAction(key({ key: "R", shiftKey: true }), "d")).toBe("reset");
+    expect(keyAction(key({ key: "r", shiftKey: true }), "d")).toBe("reset");
+  });
+
+  test("leaves replay and reset alone with another modifier, so reload stays the browser's", () => {
+    for (const modifier of ["altKey", "ctrlKey", "metaKey"] as const) {
+      expect(keyAction(key({ key: "r", [modifier]: true }), "d")).toBeNull();
+      expect(keyAction(key({ key: "R", shiftKey: true, [modifier]: true }), "d")).toBeNull();
+    }
+  });
+
+  test("leaves replay and reset alone while typing", () => {
+    expect(keyAction(key({ key: "r", target: element("INPUT") }), "d")).toBeNull();
+    const shifted = key({ key: "R", shiftKey: true, target: element("TEXTAREA") });
+    expect(keyAction(shifted, "d")).toBeNull();
+    expect(keyAction(key({ key: "r", target: element("DIV", true) }), "d")).toBeNull();
+  });
+
+  test("the hotkey wins over replay where they are the same key", () => {
+    expect(keyAction(key({ key: "r" }), "r")).toBe("toggle");
+    expect(keyAction(key({ key: "R", shiftKey: true }), "r")).toBe("reset");
+  });
+
   test("leaves the hotkey alone while typing", () => {
     expect(keyAction(key({ target: element("INPUT") }), "d")).toBeNull();
     expect(keyAction(key({ target: element("TEXTAREA") }), "d")).toBeNull();
@@ -237,9 +263,14 @@ describe("forwardKeys", () => {
     listener?.(key({ key: "Escape" }));
     listener?.(key({ key: "d" }));
     listener?.(key({ key: "k", target: element("INPUT") }));
+    listener?.(key({ key: "r" }));
+    listener?.(key({ key: "R", shiftKey: true }));
+    listener?.(key({ key: "r", target: element("INPUT") }));
     expect(posted).toEqual([
       [{ source: "devknobs", type: "key", action: "toggle" }, "/"],
       [{ source: "devknobs", type: "key", action: "close" }, "/"],
+      [{ source: "devknobs", type: "key", action: "replay" }, "/"],
+      [{ source: "devknobs", type: "key", action: "reset" }, "/"],
     ]);
   });
 

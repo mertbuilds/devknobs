@@ -339,6 +339,11 @@ export function realPlatform(): string {
   }
 }
 
+/** Whether the browser runs on an Apple platform, where shortcuts read `⌘` and `⇧`. */
+export function isMac(): boolean {
+  return /mac|iphone|ipad|ipod/i.test(realPlatform());
+}
+
 /** Hand every field back to the browser. */
 export function reset(): void {
   const target = prototypeOf();

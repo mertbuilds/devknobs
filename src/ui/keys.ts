@@ -23,13 +23,22 @@ function isEditable(node: EventTarget | null): boolean {
   return isTyping(node) || (node as HTMLElement | null)?.tagName === "SELECT";
 }
 
-/** What a keydown asks of the panel, if anything. Typing in a field never asks. */
+/** The key that replays the page's animations, and with shift resets every knob. */
+export const REPLAY_KEY = "r";
+
+/**
+ * What a keydown asks of the panel, if anything. Typing in a field never asks.
+ * `r` replays the animations and shift `r` resets, which the hotkey wins over.
+ */
 export function keyAction(event: KeyLike, hotkey: string): KeyAction | null {
   if (event.key === "Escape") return "close";
-  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
+  if (event.altKey || event.ctrlKey || event.metaKey) return null;
   const target = event.composedPath?.()[0] ?? event.target;
   if (isEditable(target)) return null;
-  return event.key.toLowerCase() === hotkey ? "toggle" : null;
+  const key = event.key.toLowerCase();
+  if (event.shiftKey) return key === REPLAY_KEY ? "reset" : null;
+  if (key === hotkey) return "toggle";
+  return key === REPLAY_KEY ? "replay" : null;
 }
 
 /**

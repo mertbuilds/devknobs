@@ -4,7 +4,7 @@ import { hasTouch } from "../engine/devices";
 import { frameForced, type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
-import { userAgentOf } from "../engine/ua";
+import { isMac, userAgentOf } from "../engine/ua";
 import { frameWindow, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
 import type {
@@ -39,6 +39,7 @@ import {
   isSearchKey,
   keyAction,
   paletteMove,
+  REPLAY_KEY,
   radioMove,
   zoomAction,
 } from "./keys";
@@ -102,15 +103,19 @@ const CUSTOM_DEBOUNCE = 200;
 export const HOST_STYLE = "position:fixed;right:0;top:0;z-index:2147483646;pointer-events:none";
 
 /**
- * What the footer says about the overflow knob, such as ` · 2 overflowing`.
+ * What the footer says about the overflow knob, such as `2 overflowing`.
  * Nothing while the knob is off, or before the count is known.
  */
 export function overflowBadge(on: boolean, count: number | null): string {
-  return on && count !== null ? ` · ${count} overflowing` : "";
+  return on && count !== null ? `${count} overflowing` : "";
 }
 
-/** A key in the footer and the one word for what it does. */
+/** What a footer hint does when it is clicked or its key is pressed. */
+export type Command = "panel" | "search" | "grab" | "replay" | "reset";
+
+/** A key in the footer and the words for what it does. */
 export interface KeyChip {
+  command: Command;
   key: string;
   word: string;
 }
@@ -128,15 +133,20 @@ export function chipKey(label: string): string {
 }
 
 /**
- * The keys the footer names: the hotkey, the search key, and the grab key
- * where there is a grab.
+ * The keys the footer names, most used first: the hotkey, the search key, the
+ * grab key where there is a grab, the replay key, and reset last.
  */
-export function keyChips(hotkey: string, grabLabel: string | null): KeyChip[] {
-  const chips = [
-    { key: hotkey, word: "panel" },
-    { key: "/", word: "search" },
+export function keyChips(hotkey: string, grabLabel: string | null, mac: boolean): KeyChip[] {
+  const chips: KeyChip[] = [
+    { command: "panel", key: hotkey, word: "panel" },
+    { command: "search", key: "/", word: "search" },
   ];
-  if (grabLabel !== null) chips.push({ key: chipKey(grabLabel), word: "grab" });
+  if (grabLabel !== null) chips.push({ command: "grab", key: chipKey(grabLabel), word: "grab" });
+  const shift = mac ? "⇧" : "Shift ";
+  chips.push(
+    { command: "replay", key: REPLAY_KEY, word: "replay animations" },
+    { command: "reset", key: `${shift}${REPLAY_KEY.toUpperCase()}`, word: "reset" },
+  );
   return chips;
 }
 
@@ -324,6 +334,8 @@ function center(node: HTMLElement, box: HTMLElement): void {
 export function createPanel(options: PanelOptions = {}): Panel {
   const hotkey = hotkeyOf(options.hotkey);
   const grab = options.grab ?? null;
+  /** The actions search finds: grab only where there is one. */
+  const actionsHere = grab ? ACTIONS : ACTIONS.filter((action) => action.id !== "grab");
 
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "panel");
@@ -366,18 +378,18 @@ export function createPanel(options: PanelOptions = {}): Panel {
   body.append(empty, rows, results);
 
   const foot = el("div", "foot");
-  const actions = el("div", "actions");
-  const replayButton = button("act", "replay");
-  const resetButton = button("act", "reset all");
   const badge = el("span", "badge");
-  actions.append(replayButton, resetButton, badge);
+  // The legend of the keys, and the controls they press.
   const meta = el("div", "meta");
-  for (const chip of keyChips(hotkey, grab ? grab.label : null)) {
-    const node = el("span", "hint");
+  const hints = new Map<Command, HTMLButtonElement>();
+  for (const chip of keyChips(hotkey, grab ? grab.label : null, isMac())) {
+    const node = button("hint", "");
+    node.dataset.command = chip.command;
     node.append(el("kbd", "hint-key", chip.key), chip.word);
     meta.append(node);
+    hints.set(chip.command, node);
   }
-  foot.append(actions, meta);
+  foot.append(badge, meta);
 
   panel.append(head, body, foot);
   wrap.append(handle, panel);
@@ -899,14 +911,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
   function actionEntry(id: number, action: Action): Entry {
     return entry(
       id,
-      () => runAction(action),
+      () => runAction(action.id),
       el("span", "entry-knob", action.label),
       el("span", "entry-value", action.long),
     );
   }
 
   function resultEntries(query: string, state: DevknobsState): Entry[] {
-    const actions = grab ? searchActions(query) : [];
+    const actions = searchActions(query, actionsHere);
     const found = search(query).map((result, index) => {
       const text = resultText(result);
       const value = el("span", "entry-value", text.value);
@@ -925,13 +937,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
   function browseEntries(state: DevknobsState): { nodes: HTMLElement[]; list: Entry[] } {
     const nodes: HTMLElement[] = [];
     const list: Entry[] = [];
-    if (grab) {
-      nodes.push(el("div", "group-label", "actions"));
-      for (const action of ACTIONS) {
-        const item = actionEntry(list.length, action);
-        list.push(item);
-        nodes.push(item.node);
-      }
+    nodes.push(el("div", "group-label", "actions"));
+    for (const action of actionsHere) {
+      const item = actionEntry(list.length, action);
+      list.push(item);
+      nodes.push(item.node);
     }
     for (const group of browse()) {
       nodes.push(el("div", "group-label", group.category));
@@ -996,8 +1006,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   /** Do what an action says. Grab takes the focus out of the panel, to the page. */
-  function runAction(action: Action): void {
-    if (action.id !== "grab" || !grab) return;
+  function runAction(id: Action["id"]): void {
+    if (id === "replay") {
+      engine.replay();
+      return;
+    }
+    if (!grab) return;
     leaveSearch();
     const focused = root.activeElement;
     if (focused instanceof HTMLElement) focused.blur();
@@ -1058,7 +1072,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
     viewOf("debug")?.value.classList.toggle("hot", hot);
     empty.hidden = anyShown;
-    resetButton.disabled = !anyListed;
+    const resetHint = hints.get("reset");
+    if (resetHint) resetHint.disabled = !anyListed;
     badge.textContent = overflowBadge(state.overflow, live.overflow);
     badge.hidden = badge.textContent === "";
     badge.classList.toggle("hot", hot);
@@ -1188,12 +1203,22 @@ export function createPanel(options: PanelOptions = {}): Panel {
     });
   }
 
-  replayButton.addEventListener("click", () => engine.replay());
-  resetButton.addEventListener("click", () => {
+  /** Every knob back to its default, the list emptied and the search left. */
+  function resetAll(): void {
     openRow = null;
     searchInput.value = "";
     engine.reset();
-  });
+  }
+
+  function runCommand(command: Command): void {
+    if (command === "panel") toggle(false);
+    else if (command === "search") searchInput.focus();
+    else if (command === "grab") runAction("grab");
+    else if (command === "replay") engine.replay();
+    else resetAll();
+  }
+
+  for (const [command, node] of hints) node.addEventListener("click", () => runCommand(command));
 
   let dragging = false;
   let dragged = false;
@@ -1281,7 +1306,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     // A drag owns the handle until the pointer is up, hotkey and escape too.
     if (dragging) return;
     if (action === "toggle") toggle();
-    else if (engine.getState().panel.open) toggle(false);
+    else if (!engine.getState().panel.open) return;
+    else if (action === "replay") runCommand("replay");
+    else if (action === "reset") runCommand("reset");
+    else toggle(false);
   }
 
   /**

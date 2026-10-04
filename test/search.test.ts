@@ -204,6 +204,12 @@ describe("searchActions", () => {
     }
   });
 
+  test("finds replay animations by what it does", () => {
+    for (const query of ["replay", "animations", "restart", "replay animations"]) {
+      expect(searchActions(query).map((action) => action.id)).toEqual(["replay"]);
+    }
+  });
+
   test("finds nothing for no query or a knob", () => {
     expect(searchActions("")).toEqual([]);
     expect(searchActions("dark")).toEqual([]);
