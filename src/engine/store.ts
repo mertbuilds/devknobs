@@ -206,7 +206,7 @@ export function parse(json: string | null | undefined): DevknobsState {
     mock: bool(state.mock, DEFAULT_STATE.mock),
     // A session stored before the touch pointer has the mouse act as a finger.
     touchPointer: bool(state.touchPointer, DEFAULT_STATE.touchPointer),
-    // A session stored before the browser bars shows the device's browser, expanded.
+    // A session stored before the browser bars shows the device's browser.
     browser: oneOf(state.browser, BROWSERS, DEFAULT_STATE.browser),
     // One stored when the bars were a minimized flag keeps them minimized.
     bars: state.browserMin === true ? "minimized" : oneOf(state.bars, BARS, DEFAULT_STATE.bars),

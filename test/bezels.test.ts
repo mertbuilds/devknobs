@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { bezelFiles, bezelUrlsModule } from "../scripts/bezelurls";
 import { BEZELS, type Bezel, bezelMock, bezelUrl, densityOf, loadBezel } from "../src/engine/bezels";
 import { DEVICES, deviceOf, turn } from "../src/engine/devices";
 import { mockOf, placeIn } from "../src/engine/mock";
@@ -329,5 +330,32 @@ describe("loadBezel", () => {
     expect(bezelUrl("iphone-17-pro.webp")).toBeNull();
     fakeImage(() => true);
     expect(loadBezel("iphone-17-pro.webp", () => told++)).toBe("failed");
+  });
+});
+
+describe("bezelUrlsModule", () => {
+  test("names each image in a static URL beside the module, so a bundler takes it along", () => {
+    const source = bezelUrlsModule(["iphone-16.webp", "iphone-duo-inner-open-landscape.webp"]);
+    expect(source).toContain(
+      '"iphone-16.webp": () => new URL("./bezels/iphone-16.webp", import.meta.url).href,',
+    );
+    expect(source).toContain(
+      'new URL("./bezels/iphone-duo-inner-open-landscape.webp", import.meta.url).href,',
+    );
+  });
+
+  test("names no image without the folder, so no bundle asks for one", () => {
+    expect(bezelFiles(new URL("../assets/nothing-here", import.meta.url).pathname)).toEqual([]);
+    const source = bezelUrlsModule([]);
+    expect(source).toContain("= {};");
+    expect(source).not.toContain("./bezels/");
+  });
+
+  test("the committed module is the one the folder writes, every image in it", () => {
+    const committed = readFileSync(new URL("../src/engine/bezelurls.ts", import.meta.url), "utf8");
+    expect(committed).toBe(bezelUrlsModule(bezelFiles(FOLDER)));
+    for (const { file } of SHOTS.map(([, , bezel]) => bezel)) {
+      expect(committed).toContain(`"./bezels/${file}"`);
+    }
   });
 });

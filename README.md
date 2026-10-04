@@ -390,7 +390,8 @@ button and the buttons are the image's own. it loads from `dist/bezels` the
 first time the device is shown with the mock on, the drawn mock standing in
 its place until then, and the drawn mock stays where an image does not load.
 the images are not under this project's license, see THIRD_PARTY_NOTICES.md:
-delete `assets/bezels` and every phone draws its own mock again.
+delete `assets/bezels` and run `bun run build`, which then names no image, and
+every phone draws its own mock again.
 
 a phone shows the page in its browser, drawn in the screen around the frame:
 Safari's status bar and Liquid Glass bars on an iPhone, and Android's status
@@ -663,5 +664,6 @@ them:
 
 ## license
 
-MIT. bippy and the code adapted from react-grab are MIT too, see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT, except the bezel images in `dist/bezels`. bippy and the code adapted
+from react-grab are MIT too, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+for them and for the images' own terms.

@@ -1,4 +1,5 @@
 import type { OrientationValue } from "../types";
+import { BEZEL_URLS } from "./bezelurls";
 import { deviceOf, turn } from "./devices";
 import { type Mock, type Radius, type Sides, turnRadius, turnSides } from "./mock";
 
@@ -8,10 +9,10 @@ import { type Mock, type Radius, type Sides, turnRadius, turnSides } from "./moc
  * its App Store marketing artwork, and Google's Android Studio emulator frames
  * from AOSP. None of them is under this project's license: see
  * THIRD_PARTY_NOTICES.md. They all live in assets/bezels, which the build
- * copies to dist/bezels, and nothing but this module names them. Each loads
- * when its device is first shown with the mock on. Delete assets/bezels and
- * every device draws its own mock again, as it does where an image does not
- * load.
+ * copies to dist/bezels, and nothing but bezelurls.ts, which the build writes
+ * from the folder, names them. Each loads when its device is first shown with
+ * the mock on. Delete assets/bezels and build, and every device draws its own
+ * mock again, as it does where an image does not load.
  */
 
 /** One image, measured in its own px, at its own density: see `densityOf`. */
@@ -252,37 +253,6 @@ export const BEZELS: Record<string, { portrait: Bezel; landscape?: Bezel }> = {
   },
 };
 
-/**
- * Where each image is, beside the built module. Each address is written out,
- * so a bundler that moves the module finds the image and takes it along.
- */
-const URLS: Record<string, () => string> = {
-  "iphone-16.webp": () => new URL("./bezels/iphone-16.webp", import.meta.url).href,
-  "iphone-16-plus.webp": () => new URL("./bezels/iphone-16-plus.webp", import.meta.url).href,
-  "iphone-16-pro.webp": () => new URL("./bezels/iphone-16-pro.webp", import.meta.url).href,
-  "iphone-16-pro-max.webp": () => new URL("./bezels/iphone-16-pro-max.webp", import.meta.url).href,
-  "iphone-17.webp": () => new URL("./bezels/iphone-17.webp", import.meta.url).href,
-  "iphone-17-pro.webp": () => new URL("./bezels/iphone-17-pro.webp", import.meta.url).href,
-  "iphone-17-pro-max.webp": () => new URL("./bezels/iphone-17-pro-max.webp", import.meta.url).href,
-  "iphone-18-pro.webp": () => new URL("./bezels/iphone-18-pro.webp", import.meta.url).href,
-  "iphone-18-pro-max.webp": () => new URL("./bezels/iphone-18-pro-max.webp", import.meta.url).href,
-  "iphone-air.webp": () => new URL("./bezels/iphone-air.webp", import.meta.url).href,
-  "iphone-duo-outer-closed.webp": () =>
-    new URL("./bezels/iphone-duo-outer-closed.webp", import.meta.url).href,
-  "iphone-duo-inner-open-portrait.webp": () =>
-    new URL("./bezels/iphone-duo-inner-open-portrait.webp", import.meta.url).href,
-  "iphone-duo-inner-open-landscape.webp": () =>
-    new URL("./bezels/iphone-duo-inner-open-landscape.webp", import.meta.url).href,
-  "iphone-se.webp": () => new URL("./bezels/iphone-se.webp", import.meta.url).href,
-  "pixel-9.webp": () => new URL("./bezels/pixel-9.webp", import.meta.url).href,
-  "pixel-9-pro.webp": () => new URL("./bezels/pixel-9-pro.webp", import.meta.url).href,
-  "pixel-9-pro-xl.webp": () => new URL("./bezels/pixel-9-pro-xl.webp", import.meta.url).href,
-  "pixel-10.webp": () => new URL("./bezels/pixel-10.webp", import.meta.url).href,
-  "pixel-10-pro.webp": () => new URL("./bezels/pixel-10-pro.webp", import.meta.url).href,
-  "pixel-10-pro-xl.webp": () => new URL("./bezels/pixel-10-pro-xl.webp", import.meta.url).href,
-  "pixel-10a.webp": () => new URL("./bezels/pixel-10a.webp", import.meta.url).href,
-};
-
 /** The script the global build runs as, which is no module and has no address of its own. */
 let script: string | null = null;
 
@@ -308,8 +278,8 @@ function urlsOf(file: string): string[] {
     }
   };
   if (script !== null) add(() => new URL(`bezels/${file}`, script ?? "").href);
-  else if (URLS[file]) {
-    add(() => URLS[file]?.());
+  else if (BEZEL_URLS[file]) {
+    add(() => BEZEL_URLS[file]?.());
     add(() => new URL(`/node_modules/devknobs/dist/bezels/${file}`, location.href).href);
   }
   return urls;

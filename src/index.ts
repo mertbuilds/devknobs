@@ -13,6 +13,8 @@ import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
 export type {
+  BarsValue,
+  BrowserValue,
   ClockMode,
   ClockValue,
   ConnectionValue,

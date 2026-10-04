@@ -317,4 +317,4 @@ the full text of the license:
 
 ## removing the images
 
-to remove them, delete the `assets/bezels` folder and build. nothing else names a file in it but `src/engine/bezels.ts`, and without it every iPhone and Pixel draws its own svg mock, as it does wherever an image does not load.
+to remove them, delete the `assets/bezels` folder and run `bun run build`. the build writes `src/engine/bezelurls.ts`, the only module that names a file in the folder, from what is in it, so the built package then names no image, and every iPhone and Pixel draws its own svg mock, as it does wherever an image does not load.
