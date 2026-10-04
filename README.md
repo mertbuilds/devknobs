@@ -57,7 +57,7 @@ const DevKnobs =
 ```
 
 api: `mount(options?)`, `unmount()`, `getState()`, `setState(patch)`,
-`reset()`, `replay()`, `PRESETS`.
+`reset()`, `replay()`, `grab(elements, options?)`, `PRESETS`.
 
 ```js
 setState({ scheme: "dark" });
@@ -81,6 +81,8 @@ setState({ ua: { preset: "iphone-safari" } });
 | `open` | the stored state, closed at first | start the panel open or closed |
 | `persist` | `true` | keep the knobs in `sessionStorage` |
 | `state` | none | knobs to apply on top of the stored state |
+| `grab` | `true` | hold a key to grab elements, see grab below |
+| `grabKey` | `meta+c` on a Mac, `ctrl+c` elsewhere | the key to hold, such as `alt+shift+g` |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
@@ -128,6 +130,70 @@ search `d` is just a letter.
 the panel keeps the real color scheme and motion preference of the browser,
 whatever the knobs emulate for the page.
 
+## grab
+
+hold `⌘C` on a Mac, or `ctrl+C` elsewhere, to grab an element for a coding
+agent. hover it, click it, and its html, the components that rendered it and
+where they live are on the clipboard, one line per element:
+
+```
+[<button type="button" data-testid="save">Save</button> in SaveButton (at src/App.jsx:5:5) in App (at src/App.jsx:28:7)]
+```
+
+paste that into the agent and it can find the code. the clipboard also carries
+the same context as json, under `application/x-devknobs-grab` and react-grab's
+own `application/x-react-grab`.
+
+a quick `⌘C` is still a copy: grab only turns on once the key is held for
+100ms, 500ms while a field has the focus and 700ms while text is selected. a
+key that copied something waits for the key to repeat, or to be let go after
+200ms. grab then stays on until a copy or escape. the search finds it too:
+`grab`, `inspect` or `pick`, and while it is on the panel shows a grab row with
+an `×` to stop.
+
+while it is on:
+
+- the element under the pointer gets a box and a label with its tag and its
+  component, and the cursor is a crosshair. devknobs' own panel and frame are
+  passed over, open shadow roots are reached into.
+- a click copies the element, and grab ends. the page's own click, mouse and
+  pointer handlers never hear of it, and its hover handlers neither.
+- shift and a click gather elements, lighter boxes, and a second one takes one
+  back out. letting go of shift, or a click without it, copies them all, one
+  line each.
+- up goes to the parent, down back the way it came or to the first child, left
+  and right (and tab, shift-tab) along the siblings. enter or `c` copies.
+- a small "copied" shows by the element for a moment.
+
+the context of the element under the pointer is worked out while the pointer
+rests there, so a click copies it whole, inside the click, as Safari wants.
+where it is not ready yet, the click copies it without lines and columns, by
+component names, and the rest is worked out for the next copy.
+
+grab runs in the page that owns React. with the width knob's frame up, the
+page above hands grab to the frame, the box and the copy happen there, and the
+panel shows grab as on. escape in the frame ends it.
+
+pass `grabKey: "alt+shift+g"` for another key, or `grab: false` to leave it out.
+`grab(elements)` copies elements from code. the overlay and the context load
+the first time grab is used.
+
+for the full owner stack, with a file, a line and a column for each component,
+React has to report to a devtools hook from its first render. the React
+devtools extension has one. without it, load the early script first (see
+below), which puts one in place. with neither, grab names the components it
+finds on the element and falls back to a selector.
+
+grab is adapted from [react-grab](https://github.com/aidenybai/react-grab) and
+reads React's internals through [bippy](https://github.com/aidenybai/bippy),
+both by Aiden Bai and MIT, see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+### migrating from react-grab
+
+devknobs covers it: the same hold to grab, the same line format, the same
+clipboard type. remove the `react-grab` script or package, and mount devknobs.
+
 ## early script
 
 optional. a page that reads a media query or the time while it boots, before
@@ -151,7 +217,9 @@ and lists made in between still get their change events. a `Date` the page
 kept in between follows the clock still. it covers the media knobs, the clock
 and the user agent only, and since it reads the stored state, it follows the
 knobs from the next load on. inside a frame that gets the scheme natively, it
-leaves the scheme to the browser, as the full script does.
+leaves the scheme to the browser, as the full script does. it also puts a
+React devtools hook in place for grab, when the page has none, so React
+reports to it from its first render.
 
 ## knobs
 
