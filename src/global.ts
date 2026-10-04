@@ -1,3 +1,4 @@
+import { bezelsBeside } from "./engine/bezels";
 import { getState, grab, mount, replay, reset, setState, unmount } from "./index";
 
 const api = { mount, unmount, getState, setState, reset, replay, grab };
@@ -9,5 +10,8 @@ declare global {
 }
 
 window.devknobs = api;
+
+// Read as the script runs, the only time the document knows which one it is.
+bezelsBeside((document.currentScript as HTMLScriptElement | null)?.src ?? "");
 
 mount();

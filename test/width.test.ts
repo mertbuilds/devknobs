@@ -666,6 +666,77 @@ describe("the frame over the page", () => {
 /** A phone with no ratio and no browser drawn, which the fakes cannot measure or draw. */
 const PHONE_KNOBS = { device: "iphone-16-pro", dpr: "system", browser: "off" } as const;
 
+describe("a phone's body", () => {
+  /** An image that settles a task after it is asked for, the way `ok` says. */
+  function fakeImage(ok: boolean): void {
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => (ok ? this.onload : this.onerror)?.());
+      }
+    }
+    define("Image", FakeImage);
+  }
+
+  function mockDrawing(): FakeElement {
+    const drawing = everything().find((element) => element.getAttribute("class") === "mock");
+    if (!drawing) throw new Error("no mock");
+    return drawing;
+  }
+
+  function glass(): FakeElement {
+    const found = everything().find((element) =>
+      String(Reflect.get(element, "className")).startsWith("glass"),
+    );
+    if (!found) throw new Error("no glass");
+    return found;
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "Image");
+  });
+
+  test("is Apple's bezel image once it has loaded, with the frame where it was before", async () => {
+    fakeImage(true);
+    apply(merge(DEFAULT_STATE, { device: "iphone-18-pro-max", dpr: "system", browser: "off" }));
+    // The drawn mock stands in while it loads, the screen already where the image has it.
+    expect(mockDrawing().children.map((element) => element.tagName)).toContain("path");
+    const left = Reflect.get(glass().style, "left");
+    expect(left).toBe(`${(75 - 21) / 3}px`);
+    expect(Reflect.get(glass().style, "boxShadow")).toBe("");
+    await Bun.sleep(0);
+    const [image, ...rest] = mockDrawing().children;
+    expect(rest).toEqual([]);
+    expect(image?.tagName).toBe("image");
+    expect(image?.getAttribute("href")).toEndWith("/bezels/iphone-18-pro-max.webp");
+    expect(image?.getAttribute("width")).toBe("490");
+    expect(Reflect.get(glass().style, "left")).toBe(left);
+    expect(Reflect.get(glass().style, "borderRadius")).toBe("62px 62px 62px 62px");
+    expect(Reflect.get(glass().style, "boxShadow")).toBe("0 0 0 2px #000");
+  });
+
+  test("is the drawn mock when the image does not load, as with the folder deleted", async () => {
+    fakeImage(false);
+    apply(merge(DEFAULT_STATE, { device: "iphone-16-plus", dpr: "system", browser: "off" }));
+    expect(Reflect.get(glass().style, "left")).toBe(`${(90 - 23) / 3}px`);
+    await Bun.sleep(0);
+    const tags = mockDrawing().children.map((element) => element.tagName);
+    expect(tags).toEqual([...Array(5).fill("rect"), "path", "path", "rect"]);
+    expect(Reflect.get(glass().style, "left")).toBe(`${19.7 + 2.7}px`);
+    expect(Reflect.get(glass().style, "borderRadius")).toBe("55px 55px 55px 55px");
+    expect(Reflect.get(glass().style, "boxShadow")).toBe("");
+  });
+
+  test("is the drawn mock for a device without an image, and none with the mock off", () => {
+    fakeImage(true);
+    apply(merge(DEFAULT_STATE, { device: "iphone-se", browser: "off" }));
+    expect(mockDrawing().children.map((element) => element.tagName)).toContain("path");
+    apply(merge(DEFAULT_STATE, { device: "iphone-18-pro", browser: "off", mock: false }));
+    expect(everything().some((element) => element.getAttribute("class") === "mock")).toBe(false);
+  });
+});
+
 describe("a new identity", () => {
   beforeEach(() => {
     Object.assign(window, { setTimeout });

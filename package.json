@@ -22,10 +22,11 @@
       "import": "./dist/react.js"
     },
     "./global": "./dist/index.global.js",
-    "./early": "./dist/early.global.js"
+    "./early": "./dist/early.global.js",
+    "./bezels/*": "./dist/bezels/*"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --format esm --splitting && bun build src/react.tsx --outdir dist --format esm --splitting --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist/index.global.js --format iife --minify && bun build src/early.ts --outfile dist/early.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json",
+    "build": "bun build src/index.ts --outdir dist --format esm --splitting && bun build src/react.tsx --outdir dist --format esm --splitting --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist/index.global.js --format iife --minify --define 'import.meta.url=\"\"' && bun build src/early.ts --outfile dist/early.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json && rm -rf dist/bezels && if [ -d assets/bezels ]; then cp -R assets/bezels dist/bezels; fi",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

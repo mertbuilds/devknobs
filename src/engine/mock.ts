@@ -32,6 +32,16 @@ export interface Part extends Rect {
   radius: number;
 }
 
+/**
+ * A picture of the whole body, in the mock: where it goes, how big it is
+ * drawn, and for an upright one turned with the device, how wide the upright
+ * mock is.
+ */
+export interface MockImage extends Rect {
+  file: string;
+  turn: number | null;
+}
+
 /** A device's body around its screen, in css px of the screen. */
 export interface Mock {
   /** The whole mock, buttons included. */
@@ -45,6 +55,8 @@ export interface Mock {
   screenRadius: Radius;
   bodyRadius: Radius;
   parts: Part[];
+  /** The body as a picture, which then has every part in it, in place of the drawn one. */
+  image?: MockImage;
 }
 
 /** A rect with fully round ends. */
@@ -85,6 +97,18 @@ export function turnRadius(radius: Radius): Radius {
   if (typeof radius === "number") return radius;
   const [topLeft, topRight, bottomRight, bottomLeft] = radius;
   return [topRight, bottomRight, bottomLeft, topLeft];
+}
+
+/**
+ * A mock drawn in the room another one takes, its screen where that one has
+ * it, so the frame stays put when one takes the other's place.
+ */
+export function placeIn(mock: Mock, room: Mock): Mock {
+  const dx = room.inset.left - mock.inset.left;
+  const dy = room.inset.top - mock.inset.top;
+  const move = <T extends Rect>(rect: T): T => ({ ...rect, x: rect.x + dx, y: rect.y + dy });
+  const { width, height, inset } = room;
+  return { ...mock, width, height, inset, body: move(mock.body), parts: mock.parts.map(move) };
 }
 
 /**

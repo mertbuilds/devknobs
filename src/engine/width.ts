@@ -1,4 +1,5 @@
 import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
+import { bezelMock, bezelUrl, loadBezel } from "./bezels";
 import { BARS_CSS, type BrowserLayer, createBrowser } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf } from "./devices";
@@ -14,7 +15,7 @@ import {
 } from "./frame";
 import { type Identity, identityOf, patchedAs, patchWindow, stale } from "./identity";
 import { drawMat } from "./mat";
-import { type Mock, mockOf, type Radius, type Rect, type Sides } from "./mock";
+import { type Mock, mockOf, placeIn, type Radius, type Rect, type Sides } from "./mock";
 import { ensureStyle, removeStyle } from "./style";
 import { visionFilter } from "./vision";
 import { anchorScroll, percent, type Point, stepZoom, wheelZoom, ZOOM_PRESETS } from "./zoom";
@@ -56,6 +57,14 @@ const RIM = "#2a2a2c";
 
 /** How much of the band shows around the front glass, in css px of the screen. */
 const BAND = 2.5;
+
+/**
+ * How far black runs past the screen's edge under a picture of the body, in
+ * css px of the screen. The picture's opening and the screen share an edge,
+ * and where it falls between device pixels both are drawn part way, so the
+ * mat would show through as a light line. The rim of the body there is black.
+ */
+const UNDER = 2;
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -842,12 +851,24 @@ function svgNode<K extends keyof SVGElementTagNameMap>(
  * the front glass inside it with the screen cut out, and the island, holes,
  * lens, slot and home button on top.
  */
-function drawMock(mock: Mock, screenSize: { width: number; height: number }): SVGSVGElement {
+function drawMock(
+  mock: Mock,
+  screenSize: { width: number; height: number },
+  href: string | null,
+): SVGSVGElement {
   const svg = svgNode("svg", {
     class: "mock",
     viewBox: `0 0 ${mock.width} ${mock.height}`,
     "aria-hidden": "true",
   });
+  // A picture is the whole body, island and buttons too.
+  if (mock.image && href) {
+    const { x, y, width, height, turn } = mock.image;
+    const image = svgNode("image", { href, x, y, width, height });
+    if (turn !== null) image.setAttribute("transform", `matrix(0 -1 1 0 0 ${turn})`);
+    svg.append(image);
+    return svg;
+  }
   const part = (shape: Mock["parts"][number]) =>
     svgNode("rect", {
       class: shape.kind,
@@ -873,11 +894,12 @@ function drawMock(mock: Mock, screenSize: { width: number; height: number }): SV
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
 function showMock(mock: Mock | null, place: Fit): void {
   if (!screen || !glass) return;
-  const key = mock ? `${current.device}|${current.orientation}` : "";
+  const href = mock?.image ? bezelUrl(mock.image.file) : null;
+  const key = mock ? `${current.device}|${current.orientation}|${mock.image?.file}|${href}` : "";
   if (key !== mockKey) {
     mockKey = key;
     mockDrawing?.remove();
-    mockDrawing = mock ? drawMock(mock, place) : null;
+    mockDrawing = mock ? drawMock(mock, place, href) : null;
     if (mockDrawing) screen.append(mockDrawing);
     glass.className = mock ? "glass mocked" : "glass";
   }
@@ -886,6 +908,7 @@ function showMock(mock: Mock | null, place: Fit): void {
   glass.style.top = mock ? `${mock.inset.top * zoom}px` : "";
   const round = mock ? corners(mock.screenRadius).map((radius) => `${radius * zoom}px`) : [];
   glass.style.borderRadius = round.join(" ");
+  glass.style.boxShadow = href ? `0 0 0 ${UNDER * zoom}px #000` : "";
   if (mock && mockDrawing) {
     mockDrawing.style.width = `${mock.width * zoom}px`;
     mockDrawing.style.height = `${mock.height * zoom}px`;
@@ -938,12 +961,28 @@ function showMat(size: { width: number; height: number }): void {
   mat = next;
 }
 
+/**
+ * The body around the frame: Apple's bezel image where the device has one,
+ * and the drawn mock where it has none or the image does not load. While the
+ * image loads the drawn mock stands in its room, so the frame never moves as
+ * it comes in.
+ */
+function bodyOf(value: ViewportValue): Mock | null {
+  if (!value.mock) return null;
+  const drawn = mockOf(value.device, value.orientation);
+  const bezel = bezelMock(value.device, value.orientation);
+  if (!bezel?.image) return drawn;
+  const state = loadBezel(bezel.image.file, resize);
+  if (state === "ready") return bezel;
+  return state === "loading" && drawn ? placeIn(drawn, bezel) : drawn;
+}
+
 function resize(): void {
   if (!frame || !letterbox || !stage || !drawing || !screen || !readout || !caption) return;
   readout.hidden = !hasStrip(current);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
   const aside = current.panel.open ? panelWidth() : 0;
-  const mock = current.mock ? mockOf(current.device, current.orientation) : null;
+  const mock = bodyOf(current);
   const place = fit(current, size, {
     frameZoom: zoomFor(current.dpr),
     aside,
