@@ -1,5 +1,5 @@
 import type { Look, Painted, Shapes } from "./browserkit";
-import { el, glyphAt, MORPH, place, svgNode } from "./browserkit";
+import { CHARGE, el, glyphAt, MORPH, place, svgNode } from "./browserkit";
 import type { Bars, Glyph, StatusBar } from "./browserui";
 import { turn } from "./devices";
 import type { Rect } from "./mock";
@@ -114,11 +114,14 @@ function statusIcons(status: StatusBar): Element[] {
     return svg;
   };
   // Estimates from AOSP SystemUI: a 20.6 x 12 battery, 15 high icons, 6 apart.
+  // Charged to its level, the rest dimmer.
+  const edge = ((19.2 * CHARGE) / 100).toFixed(2);
   const battery = icon(
     x - 21,
     21,
     12,
-    svgNode("rect", { x: 0, y: 0, width: 19.2, height: 12, rx: 3.5 }),
+    svgNode("rect", { x: 0, y: 0, width: 19.2, height: 12, rx: 3.5, "fill-opacity": 0.3 }),
+    path(`M3.5 0H${edge}V12H3.5A3.5 3.5 0 0 1 0 8.5V3.5A3.5 3.5 0 0 1 3.5 0Z`),
     svgNode("rect", { x: 19.7, y: 3.5, width: 1.3, height: 5, rx: 0.6 }),
   );
   const signal = icon(x - 21 - 6 - 13, 13, 13, path("M13 0V13H0Z"));

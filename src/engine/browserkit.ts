@@ -29,6 +29,9 @@ export interface Actions {
 /** The system font, never a bundled one. */
 export const FONT = '-apple-system, system-ui, "SF Pro Text", Roboto, sans-serif';
 
+/** The battery's charge in percent, on Safari's and Chrome's status bars. */
+export const CHARGE = 69;
+
 export function el(tag: string, className: string, text?: string): HTMLElement {
   const node = document.createElement(tag);
   node.className = className;

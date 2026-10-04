@@ -1,5 +1,5 @@
 import type { Actions, Look, Painted, Shapes } from "./browserkit";
-import { el, glyphAt, MORPH, place, svgNode, textWidth } from "./browserkit";
+import { CHARGE, el, glyphAt, MORPH, place, svgNode, textWidth } from "./browserkit";
 import {
   type Bars,
   type Fade,
@@ -210,8 +210,8 @@ function signal(x: number, y: number): SVGSVGElement {
 }
 
 /**
- * Battery, 27.3 x 13: a full cell with its charge written in it, knocked out
- * of the fill, as iOS 26 shows it with the percentage on, and its nub.
+ * Battery, 27.3 x 13: the cell filled to its charge over a dimmer rest, the
+ * charge written across both, as iOS 26 shows it with the percentage on, and its nub.
  */
 function battery(x: number, y: number): SVGSVGElement {
   const svg = svgNode("svg", { class: "status", viewBox: "0 0 27.3 13" });
@@ -223,9 +223,11 @@ function battery(x: number, y: number): SVGSVGElement {
     "text-anchor": "middle",
     "dominant-baseline": "middle",
   });
-  level.textContent = "100";
+  level.textContent = String(CHARGE);
+  const edge = ((25.2 * CHARGE) / 100).toFixed(2);
   svg.append(
-    svgNode("rect", { x: 0, y: 0, width: 25.2, height: 13, rx: 4.2 }),
+    svgNode("rect", { x: 0, y: 0, width: 25.2, height: 13, rx: 4.2, "fill-opacity": 0.4 }),
+    svgNode("path", { d: `M4.2 0H${edge}V13H4.2A4.2 4.2 0 0 1 0 8.8V4.2A4.2 4.2 0 0 1 4.2 0Z` }),
     level,
     svgNode("path", {
       d: "M26.1 4.6a1.2 1.2 0 0 1 1.2 1.2v1.4a1.2 1.2 0 0 1-1.2 1.2Z",
