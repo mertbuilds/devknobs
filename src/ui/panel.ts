@@ -82,8 +82,6 @@ export const SNAP = 24;
 
 const CUSTOM_DEBOUNCE = 200;
 
-const SITE_URL = "https://knobs.dev/?utm_source=devknobs&utm_medium=panel&utm_campaign=footer";
-
 /**
  * The host's own style. It is as wide and as tall as an open panel whatever
  * the panel is doing, so it never takes a pointer: the stylesheet hands that
@@ -355,19 +353,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const resetButton = button("act", "reset all");
   const badge = el("span", "badge");
   actions.append(replayButton, resetButton, badge);
-  const home = document.createElement("a");
-  home.className = "foot-link";
-  home.href = SITE_URL;
-  home.target = "_blank";
-  home.rel = "noopener noreferrer";
-  home.textContent = "knobs.dev";
   const meta = el("div", "meta");
   for (const chip of keyChips(hotkey, grab ? grab.label : null)) {
     const node = el("span", "hint");
     node.append(el("kbd", "hint-key", chip.key), chip.word);
     meta.append(node);
   }
-  meta.append(home);
   foot.append(actions, meta);
 
   panel.append(head, body, foot);

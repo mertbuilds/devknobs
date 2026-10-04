@@ -84,7 +84,7 @@ button {
   cursor: pointer;
 }
 :focus { outline: none; }
-button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
+button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 
 .handle {
   flex: none;
@@ -424,7 +424,7 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   flex: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
+  gap: 8px;
   margin-top: 4px;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--line);
@@ -436,8 +436,7 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 .act:disabled:hover { color: var(--faint); }
 .badge { color: var(--faint); }
 .badge.hot { color: var(--hot); }
-/* One line of key hints with the link at its right end. Where a long key
-   leaves no room, the line wraps and the link keeps to the right. */
+/* One line of key hints. Where a long key leaves no room, the line wraps. */
 .meta {
   display: flex;
   flex-wrap: wrap;
@@ -460,6 +459,4 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   border: 1px solid var(--line);
   border-radius: 4px;
 }
-.foot-link { margin-left: auto; color: inherit; text-decoration: none; }
-.foot-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 `;
