@@ -163,7 +163,9 @@ while it is on:
   back out. letting go of shift, or a click without it, copies them all, one
   line each.
 - up goes to the parent, down back the way it came or to the first child, left
-  and right (and tab, shift-tab) along the siblings. enter or `c` copies.
+  and right (and tab, shift-tab) to the previous and the next element, siblings
+  first, then the sibling of the nearest parent that has one. enter or `c`
+  copies.
 - a check and "Copied" show by the element for a moment, the box still on it.
 
 the context of the element under the pointer is worked out while the pointer

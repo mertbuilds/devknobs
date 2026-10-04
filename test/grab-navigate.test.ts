@@ -76,6 +76,68 @@ describe("createNavigator", () => {
     expect(nav.next("left", as(panel))).toBe(as(main));
   });
 
+  test("an only child goes right to the sibling of its parent", () => {
+    const only = node("span");
+    const uncle = node("aside");
+    node("body", [node("main", [node("div", [only]), uncle])]);
+    const nav = createNavigator();
+    expect(nav.next("right", as(only))).toBe(as(uncle));
+  });
+
+  test("an only child goes left to the sibling of its parent", () => {
+    const only = node("span");
+    const uncle = node("aside");
+    node("body", [node("main", [uncle, node("div", [only])])]);
+    const nav = createNavigator();
+    expect(nav.next("left", as(only))).toBe(as(uncle));
+  });
+
+  test("climbs two levels to a sibling, and forgets the way down", () => {
+    const deep = node("span");
+    const only = node("b", [deep]);
+    const first = node("p");
+    const far = node("section", [first]);
+    node("body", [node("main", [node("section", [node("div", [only])]), far])]);
+    const nav = createNavigator();
+    nav.next("up", as(deep));
+    expect(nav.next("right", as(only))).toBe(as(far));
+    expect(nav.next("down", as(far))).toBe(as(first));
+  });
+
+  test("the last element of the page leads nowhere, and never to the body", () => {
+    const last = node("span");
+    const main = node("main", [node("div", [last])]);
+    const body = node("body", [main]);
+    node("html", [node("head"), body]);
+    const nav = createNavigator();
+    expect(nav.next("right", as(last))).toBeNull();
+    expect(nav.next("left", as(last))).toBeNull();
+    expect(nav.next("left", as(body))).toBeNull();
+  });
+
+  test("passes over devknobs' nodes on the way to a parent's sibling", () => {
+    const only = node("span");
+    const overlay = node("div", [], { "data-devknobs": "overlay" });
+    const uncle = node("aside");
+    node("body", [node("main", [node("div", [only]), overlay, uncle])]);
+    const nav = createNavigator();
+    expect(nav.next("right", as(only))).toBe(as(uncle));
+    const alone = node("span");
+    const panel = node("div", [], { "data-devknobs": "panel" });
+    node("body", [node("main", [node("div", [alone]), panel])]);
+    expect(nav.next("right", as(alone))).toBeNull();
+  });
+
+  test("leaves a shadow root for the sibling of its host", () => {
+    const inner = node("button");
+    const host = node("my-card");
+    const after = node("footer");
+    shadow(host, [inner], inner);
+    node("body", [node("main", [host, after])]);
+    const nav = createNavigator();
+    expect(nav.next("right", as(inner))).toBe(as(after));
+  });
+
   test("climbs out of a shadow root to its host, and down into it", () => {
     const inner = node("button");
     const host = node("my-card");

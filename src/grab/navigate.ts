@@ -44,7 +44,9 @@ function firstChild(element: Element, accept: (element: Element) => boolean): El
 /**
  * Up goes to the parent, up to the body and never past it. Down goes back the
  * way up came, else to the first child. Left and right go along the siblings,
- * and forget the way back down, which would lead into the branch just left.
+ * and where those run out, to the sibling of the nearest parent that has one:
+ * the element before or after in page order, under the body. Both forget the
+ * way back down, which would lead into the branch just left.
  * What `accept` turns down is passed over: devknobs' own nodes and the root.
  */
 export function createNavigator(accept: (element: Element) => boolean = isGrabbable): Navigator {
@@ -73,10 +75,14 @@ export function createNavigator(accept: (element: Element) => boolean = isGrabba
   function along(current: Element, forward: boolean): Element | null {
     const sibling = (element: Element) =>
       forward ? element.nextElementSibling : element.previousElementSibling;
-    for (let next = sibling(current); next; next = sibling(next)) {
-      if (!accept(next)) continue;
-      history = [];
-      return next;
+    for (let from: Element | null = current; from; from = composedParent(from)) {
+      const tag = from.tagName.toLowerCase();
+      if (tag === "body" || tag === "html") return null;
+      for (let next = sibling(from); next; next = sibling(next)) {
+        if (!accept(next)) continue;
+        history = [];
+        return next;
+      }
     }
     return null;
   }
