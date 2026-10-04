@@ -1,5 +1,30 @@
 const SVG = "http://www.w3.org/2000/svg";
 
+/** The light blue the mat's lines and numbers are drawn in. */
+const LINE = "rgb(170, 205, 255)";
+
+/** The mat in the letterbox's shadow root, under the strip and the stage, and never in the way of a pointer. */
+export const MAT_CSS = `
+.mat {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  fill: ${LINE};
+}
+.mat .cell { opacity: 0.07; }
+.mat .major { opacity: 0.14; }
+.mat .span { opacity: 0.26; }
+.mat .angle { fill: none; stroke: ${LINE}; }
+.mat .mark, .mat .tick { opacity: 0.55; }
+.mat text {
+  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.5;
+}`;
+
 /** The grid of the mat, in css px: a fine line, a stronger one, and the strongest with a mark where two cross. */
 export const CELL = 10;
 export const MAJOR = 50;

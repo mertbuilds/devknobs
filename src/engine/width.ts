@@ -3,6 +3,7 @@ import { bezelMock, bezelUrl, loadBezel } from "./bezels";
 import { BARS_CSS, type BrowserLayer, createBrowser } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf } from "./devices";
+import { type Fit, fit, hasStrip, label, origin, STRIP, STRIP_TOP } from "./fit";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -13,12 +14,16 @@ import {
   UNFRAMED,
   type ZoomAction,
 } from "./frame";
-import { type Identity, identityOf, patchedAs, patchWindow, stale } from "./identity";
-import { drawMat } from "./mat";
-import { type Mock, mockOf, placeIn, type Radius, type Rect, type Sides } from "./mock";
+import { drawMat, MAT_CSS } from "./mat";
+import { type Mock, mockOf, placeIn, type Rect } from "./mock";
+import { corners, drawMock, MOCK_CSS } from "./mockdraw";
+import * as reload from "./reload";
 import { ensureStyle, removeStyle } from "./style";
+import { cover, uncover } from "./underneath";
 import { visionFilter } from "./vision";
 import { anchorScroll, percent, type Point, stepZoom, wheelZoom, ZOOM_PRESETS } from "./zoom";
+
+export { type Fit, fit, label, origin, STRIP } from "./fit";
 
 const NAME = "width";
 
@@ -34,35 +39,8 @@ export type ViewportValue = FrameKnobs &
 /** One under the panel host, so the panel stays on top of the frame. */
 const Z_INDEX = 2147483645;
 
-/** The room over the readout's row, so it stands clear of the window's top edge, in px. */
-const STRIP_TOP = 8;
-
-/** The readout strip over the frame, in px. The frame is fitted to the room under it. */
-export const STRIP = 24 + STRIP_TOP;
-
-/** The room kept around a frame of a set size, fitted or scrolled to its edge, in px. */
-const MARGIN = 24;
-
-/** How long a frame's next page gets to take over once the last one hid, in ms. */
-const COMMIT_WAIT = 1000;
-
-/**
- * How long a page the frame's page left for holds off a reload, in ms. One
- * that never comes, such as a download or a 204, lets it go after that.
- */
-const LEAVE_WAIT = 30000;
-
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
-
-/** The front glass of a mock, near black, and the band around it a little lighter. */
-const BODY = "#111112";
-const EDGE = "#48484a";
-/** A home button's ring, a lens's rim and a receiver slot's grille, just off the glass. */
-const RIM = "#2a2a2c";
-
-/** How much of the band shows around the front glass, in css px of the screen. */
-const BAND = 2.5;
 
 /**
  * How far black runs past the screen's edge under a picture of the body, in
@@ -71,11 +49,6 @@ const BAND = 2.5;
  * mat would show through as a light line. The rim of the body there is black.
  */
 const UNDER = 2;
-
-const SVG = "http://www.w3.org/2000/svg";
-
-/** No mock: the frame takes no room beyond its own. */
-const BARE: Sides = { top: 0, right: 0, bottom: 0, left: 0 };
 
 /** The pixels a wheel line stands for, where a wheel counts in lines. */
 const WHEEL_LINE = 20;
@@ -112,9 +85,6 @@ const MAT = "radial-gradient(140% 100% at 50% 0%, rgb(20, 70, 152), rgb(12, 48, 
 const MAT_P3 =
   "radial-gradient(140% 100% at 50% 0%, color(display-p3 0.1 0.27 0.61), color(display-p3 0.06 0.19 0.46) 60%, color(display-p3 0.035 0.12 0.32))";
 
-/** The light blue its lines and numbers are drawn in. */
-const LINE = "rgb(170, 205, 255)";
-
 /**
  * The letterbox around the frame. It lives in a shadow root like the panel,
  * so page css cannot reach it. A blue cutting mat reads as chrome in light and
@@ -132,26 +102,6 @@ const CSS = `
   overflow: hidden;
   direction: ltr;
   background: ${MAT};
-}
-/* Under the strip and the stage, and never in the way of a pointer. */
-.mat {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  fill: ${LINE};
-}
-.mat .cell { opacity: 0.07; }
-.mat .major { opacity: 0.14; }
-.mat .span { opacity: 0.26; }
-.mat .angle { fill: none; stroke: ${LINE}; opacity: 0.3; }
-.mat .mark, .mat .tick { opacity: 0.55; }
-.mat text {
-  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.5;
 }
 .size {
   position: relative;
@@ -215,29 +165,6 @@ const CSS = `
 .glass { position: relative; }
 /* Where a phone's browser leaves the page in its screen. */
 .page.placed { position: absolute; }
-/* Clips the frame to the screen's corners in a mock, in the body's color so
-   no blue shows at the seam. */
-.glass.mocked {
-  position: absolute;
-  overflow: hidden;
-  background: ${BODY};
-}
-/* Over the frame, and never in the way of a pointer. */
-.mock {
-  position: absolute;
-  top: 0;
-  left: 0;
-  overflow: visible;
-  pointer-events: none;
-}
-.mock .band { fill: ${EDGE}; fill-rule: evenodd; }
-.mock .body { fill: ${BODY}; fill-rule: evenodd; }
-.mock .button { fill: ${EDGE}; }
-.mock .sensor { fill: #000; }
-.mock .slot { fill: ${RIM}; }
-.mock .lens { fill: #000; stroke: ${RIM}; stroke-width: 1; }
-.mock .home { fill: ${RIM}; }
-.mock .key { fill: ${BODY}; }
 iframe {
   display: block;
   border: 0;
@@ -274,6 +201,8 @@ iframe {
 @media (color-gamut: p3) {
   .viewport, .blocked { background: ${MAT_P3}; }
 }
+${MAT_CSS}
+${MOCK_CSS}
 ${BARS_CSS}`;
 
 let host: HTMLElement | null = null;
@@ -339,92 +268,9 @@ let pageTitle: string | null = null;
 let written = "";
 /** Where the page underneath was scrolled to, which hiding it loses. */
 let scroll = { x: 0, y: 0 };
-/** `showModal` as the page had it, while the page underneath gets plain dialogs. */
-let showModal: HTMLDialogElement["showModal"] | null = null;
 /** Follows the frame's title, which a router sets after the url changes. */
 let titleObserver: MutationObserver | null = null;
 let latest: DevknobsState | null = null;
-/** What the frame's page loaded as, or null while a new one is on the way. */
-let identity: Identity | null = null;
-/** The reload a new identity asked for, once the knobs settle. */
-let reloading = 0;
-/** When the frame's page set off for another document, which a reload would cancel, or 0. */
-let leaving = 0;
-/** The frame's page loaded unpatched, and was reloaded once to patch it. */
-let repatched = false;
-/** What a page node had before it was hidden here, so it gets exactly that back. */
-interface Hidden {
-  /** Made inert here. One the page made inert stays the page's. */
-  inert: boolean;
-  /** The inline `content-visibility` before, its priority, and whether there was a style at all. */
-  value: string;
-  priority: string;
-  styled: boolean;
-}
-
-const hidden = new Map<HTMLElement | SVGElement, Hidden>();
-/** Hides what the page adds to the body later, such as portals and toasts. */
-let bodyObserver: MutationObserver | null = null;
-
-/**
- * Take a page node out of input and out of rendering while the frame covers
- * it. It keeps running, but skips layout and paint.
- */
-function hide(node: Node): void {
-  if (!(node instanceof HTMLElement || node instanceof SVGElement)) return;
-  if (node.hasAttribute("data-devknobs") || hidden.has(node)) return;
-  const style = node.style;
-  hidden.set(node, {
-    inert: !node.hasAttribute("inert"),
-    value: style.getPropertyValue("content-visibility"),
-    priority: style.getPropertyPriority("content-visibility"),
-    styled: node.hasAttribute("style"),
-  });
-  node.setAttribute("inert", "");
-  style.setProperty("content-visibility", "hidden", "important");
-}
-
-function unhide(): void {
-  for (const [node, was] of hidden) {
-    if (was.inert) node.removeAttribute("inert");
-    if (was.value) node.style.setProperty("content-visibility", was.value, was.priority);
-    else node.style.removeProperty("content-visibility");
-    if (!was.styled && node.getAttribute("style") === "") node.removeAttribute("style");
-  }
-  hidden.clear();
-}
-
-/**
- * A modal dialog makes everything else inert, the frame and the panel too, and
- * paints over them. The page underneath gets plain dialogs instead, the ones it
- * has open already too.
- */
-function holdModals(): void {
-  if (showModal || typeof HTMLDialogElement === "undefined") return;
-  const native = HTMLDialogElement.prototype.showModal;
-  showModal = native;
-  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
-    if (this.closest("[data-devknobs]")) native.call(this);
-    else this.show();
-  };
-  let modals: HTMLDialogElement[] = [];
-  try {
-    modals = Array.from(document.querySelectorAll<HTMLDialogElement>("dialog:modal"));
-  } catch {
-    // A browser without `:modal`.
-  }
-  for (const dialog of modals) {
-    if (dialog.closest("[data-devknobs]")) continue;
-    dialog.close();
-    dialog.show();
-  }
-}
-
-function releaseModals(): void {
-  if (showModal) HTMLDialogElement.prototype.showModal = showModal;
-  showModal = null;
-}
-
 /** The window inside the frame, while there is one. */
 export function frameWindow(): Window | null {
   return frame?.contentWindow ?? null;
@@ -438,152 +284,7 @@ function share(): void {
 export function sync(state: DevknobsState): void {
   latest = state;
   share();
-  follow();
-}
-
-/**
- * The frame's window has a new page, which has run nothing yet: patch what it
- * reads at load, and watch for the one after.
- */
-function arrive(view: Window): void {
-  if (!latest) return;
-  identity = patchWindow(view, latest);
-  repatched = false;
-  listen(view);
-}
-
-function isTarget(value: unknown): value is EventTarget {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "addEventListener") === "function"
-  );
-}
-
-/** The frame's navigation api, where the browser has one. */
-function navigationOf(view: Window): EventTarget | null {
-  const navigation: unknown = Reflect.get(view, "navigation");
-  return isTarget(navigation) ? navigation : null;
-}
-
-/**
- * Hear the frame's page leave: for another document, which a reload would
- * cancel, and as it hides for the next one. Each page has its own window, so
- * each gets these again.
- */
-function listen(view: Window): void {
-  view.addEventListener("pagehide", onHide);
-  const navigation = navigationOf(view);
-  if (navigation) {
-    navigation.addEventListener("navigate", onNavigate);
-    navigation.addEventListener("navigatesuccess", onStay);
-    navigation.addEventListener("navigateerror", onStay);
-  } else view.addEventListener("beforeunload", onLeave);
-}
-
-function unlisten(view: Window): void {
-  try {
-    view.removeEventListener("pagehide", onHide);
-    view.removeEventListener("beforeunload", onLeave);
-    const navigation = navigationOf(view);
-    navigation?.removeEventListener("navigate", onNavigate);
-    navigation?.removeEventListener("navigatesuccess", onStay);
-    navigation?.removeEventListener("navigateerror", onStay);
-  } catch {
-    // Another origin, which was never listened to.
-  }
-}
-
-/**
- * The frame's page sets off for another document. A page in its own document
- * or a download stays.
- */
-function onNavigate(event: Event): void {
-  const destination: unknown = Reflect.get(event, "destination");
-  const same =
-    typeof destination === "object" &&
-    destination !== null &&
-    Reflect.get(destination, "sameDocument") === true;
-  // A `download` link's request is its file name, empty where it has none.
-  if (same || typeof Reflect.get(event, "downloadRequest") === "string") return;
-  onLeave();
-}
-
-/** Without the navigation api, `beforeunload` says the page is on its way out. */
-function onLeave(): void {
-  leaving = performance.now();
-}
-
-/**
- * The frame's page is no longer on its way out: it took the navigation over
- * in its own document, cancelled it, or the next page is in. A reload held
- * off for it goes now, if it is still due.
- */
-function onStay(): void {
-  leaving = 0;
-  clearTimeout(reloading);
-  reloading = 0;
-  follow();
-}
-
-/**
- * The frame's page hid because the next one is taking its place, which runs
- * its first script a task or more later. Look every task until it is there.
- * The window is the same, its page is not.
- */
-function onHide(event: Event): void {
-  const view = frameWindow();
-  const gone = frameDocument();
-  // The whole tab going into the back/forward cache, with the frame as it is.
-  if (!view || !gone || (event as PageTransitionEvent).persisted) return;
-  identity = null;
-  onStay();
-  const until = performance.now() + COMMIT_WAIT;
-  const channel = new MessageChannel();
-  channel.port1.onmessage = () => {
-    let doc: Document | null = null;
-    try {
-      doc = frameWindow() === view ? view.document : null;
-    } catch {
-      // Another origin: nothing there to patch.
-    }
-    if (doc && doc !== gone) arrive(view);
-    else if (doc && performance.now() < until) {
-      channel.port2.postMessage(null);
-      return;
-    }
-    channel.port1.close();
-  };
-  channel.port2.postMessage(null);
-}
-
-/**
- * Reload the frame once the knobs settle when its page loaded as another
- * device, so scripts that read the browser at load read the new one. One pick
- * that moves several knobs reloads once. A page still on its first load is
- * left to finish, and so is a page on its way to the next one, which comes
- * patched as the knobs are by then.
- */
-function follow(): void {
-  if (reloading || !loaded || !latest || !stale(identity, identityOf(latest))) return;
-  reloading = window.setTimeout(reload, 0);
-}
-
-function reload(): void {
-  reloading = 0;
-  if (!loaded || !latest || !stale(identity, identityOf(latest))) return;
-  const wait = leaving ? leaving + LEAVE_WAIT - performance.now() : 0;
-  if (wait > 0) {
-    reloading = window.setTimeout(reload, wait);
-    return;
-  }
-  leaving = 0;
-  identity = null;
-  try {
-    frameWindow()?.location.reload();
-  } catch {
-    // Another origin, which the knobs never reached.
-  }
+  reload.knobs(state);
 }
 
 /** Where the frame is now. A frame that left the origin keeps the last place seen. */
@@ -696,30 +397,12 @@ function onLoad(): void {
     watch(view, doc);
     mirror();
     // A page the watch missed: the next one is patched still.
-    listen(view);
-    if (latest && !identity) identity = unpatched(view, latest);
+    reload.land(view);
   }
   browser?.refresh();
   checkZoom();
   share();
-  onStay();
-}
-
-/**
- * What a page loaded without the watch reads. One that came in after another
- * origin, where nothing could listen for it, ran unpatched, so it reads the
- * browser's own agent and no touch screen, and a reload patches it. One still
- * unpatched after that reload is left as it is.
- */
-function unpatched(view: Window, state: DevknobsState): Identity {
-  const had = patchedAs(view);
-  if (had || repatched) {
-    repatched = false;
-    return had ?? identityOf(state);
-  }
-  const real = { agent: "", touch: false, dpr: state.dpr };
-  repatched = stale(real, identityOf(state));
-  return real;
+  reload.settle();
 }
 
 /** A page that mounts late asks for the knobs once it listens. */
@@ -754,123 +437,6 @@ function handsSchemeDown(root: Node): boolean {
   }
   probe.remove();
   return schemeHandover;
-}
-
-/** Where the frame goes in the letterbox. */
-export interface Fit {
-  /** The frame's css size, which is the viewport the page inside sees. */
-  width: number;
-  height: number;
-  /** `zoom` on the frame. The page inside gets that many more device pixels per css pixel. */
-  zoom: number;
-  /** What the frame is drawn at: the zoom picked, or the fit. */
-  scale: number;
-  /** What the frame is drawn at to fit, 1 or less. */
-  fit: number;
-  /** `transform: scale()` on the frame's wrapper: the scale, and the zoom undone. */
-  transform: number;
-  /** The room the drawing takes, margins included. Bigger than the letterbox, it scrolls. */
-  box: { width: number; height: number };
-  /** Where the frame sits in that box. */
-  left: number;
-  top: number;
-}
-
-/** Does the letterbox read the frame out? A frame the window's size, fitted, is the window. */
-function hasStrip(knobs: Pick<DevknobsState, "width" | "height" | "zoom">): boolean {
-  const sized = typeof knobs.width === "number" || typeof knobs.height === "number";
-  return sized || knobs.zoom !== "fit";
-}
-
-/** The margin on an axis of `size` px, less where the letterbox is too small to spare it. */
-function margin(size: number): number {
-  return Math.min(MARGIN, size / 4);
-}
-
-/**
- * Place a frame in a letterbox of `size`, under its readout strip. A width or
- * height of the frame's own keeps a margin around it, and the window's own
- * size has none, as it is the window. To fit, a frame wider or taller than the
- * room is drawn smaller, and one without a height of its own is made taller by
- * as much, so it still fills the height. An open panel covers `aside` px of
- * the right edge, and a frame of a set width that would reach under it is
- * fitted to the room left of it, while that is most of the room. A zoom draws
- * the frame at that scale instead, and none of it changes the css size. The
- * device pixel ratio's `zoom` on the frame keeps its css size too, and the
- * wrapper takes it back out of the drawing. A device's mock takes `mock` px
- * of the frame's on each side, drawn at the same scale, and the whole of it
- * is fitted and centered.
- */
-export function fit(
-  knobs: Pick<DevknobsState, "width" | "height" | "zoom">,
-  size: { width: number; height: number },
-  options: { frameZoom?: number; aside?: number; mock?: Sides } = {},
-): Fit {
-  const { frameZoom = 1, aside = 0, mock = BARE } = options;
-  const room = {
-    width: size.width,
-    height: Math.max(0, size.height - (hasStrip(knobs) ? STRIP : 0)),
-  };
-  const sized = typeof knobs.width === "number";
-  const width = typeof knobs.width === "number" ? knobs.width : room.width;
-  const x = sized ? margin(room.width) : 0;
-  const y = typeof knobs.height === "number" ? margin(room.height) : 0;
-  const sides = { width: mock.left + mock.right, height: mock.top + mock.bottom };
-  const across = width > 0 && room.width > 0 ? (room.width - 2 * x) / (width + sides.width) : 1;
-  const tall = typeof knobs.height === "number" && knobs.height > 0 && room.height > 0;
-  const upright = (room.height - 2 * y) / (Number(knobs.height) + sides.height);
-  const whole = Math.min(1, across, tall ? upright : 1);
-  const height = typeof knobs.height === "number" ? knobs.height : room.height / whole;
-  const outer = { width: width + sides.width, height: height + sides.height };
-  const covered =
-    sized &&
-    aside > 0 &&
-    aside <= room.width / 2 &&
-    (room.width + outer.width * whole) / 2 + x > room.width - aside;
-  const fitted = covered ? Math.min(whole, (room.width - aside - 2 * x) / outer.width) : whole;
-  const scale = knobs.zoom === "fit" ? fitted : knobs.zoom;
-  // The room under the panel stays in the box, so centering it centers the frame left of the panel.
-  const beside = knobs.zoom === "fit" && covered ? aside : 0;
-  return {
-    width,
-    height,
-    zoom: frameZoom,
-    scale,
-    fit: fitted,
-    transform: scale / frameZoom,
-    box: { width: outer.width * scale + 2 * x + beside, height: outer.height * scale + 2 * y },
-    left: x + mock.left * scale,
-    top: y + mock.top * scale,
-  };
-}
-
-/**
- * Where the frame's top left sits in the scrolled content of a stage of
- * `room`: its box centered while it is smaller, else at the start.
- */
-export function origin(place: Fit, room: { width: number; height: number }): Point {
-  return {
-    x: Math.max(0, (room.width - place.box.width) / 2) + place.left,
-    y: Math.max(0, (room.height - place.box.height) / 2) + place.top,
-  };
-}
-
-/**
- * What the letterbox says about the frame, such as `1440 · 2x`, or
- * `iPhone 16 Pro · 402 × 874 · 3x` for a device. A height of its own is named.
- * A phone's browser leaves the page less of the screen, and that is the size
- * it says. The zoom control beside it says the scale.
- */
-export function label(
-  place: Fit,
-  knobs: Pick<DevknobsState, "dpr" | "height" | "device">,
-  page: { width: number; height: number } = place,
-): string {
-  const name = deviceOf(knobs.device)?.label;
-  let text = name ? `${name} · ${page.width}` : String(page.width);
-  if (typeof knobs.height === "number") text += ` × ${page.height}`;
-  if (typeof knobs.dpr === "number") text += ` · ${knobs.dpr}x`;
-  return text;
 }
 
 /**
@@ -928,79 +494,6 @@ function showZoom(place: Fit): void {
 /** How much of the right edge an open panel covers. Its host is as wide as the panel out. */
 function panelWidth(): number {
   return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
-}
-
-/** The radius of each corner, from the top left round by the right, `by` added to each. */
-function corners(radius: Radius, by = 0): [number, number, number, number] {
-  const [a, b, c, d] = typeof radius === "number" ? [radius, radius, radius, radius] : radius;
-  return [a + by, b + by, c + by, d + by];
-}
-
-/** A rounded rect as path data. */
-function roundRect(rect: Rect, radius: Radius): string {
-  const { x, y, width, height } = rect;
-  const [a, b, c, d] = corners(radius).map((r) => Math.max(0, Math.min(r, width / 2, height / 2)));
-  const arc = (r = 0) => `A${r} ${r} 0 0 1`;
-  return [
-    `M${x + a} ${y}H${x + width - b}${arc(b)} ${x + width} ${y + b}`,
-    `V${y + height - c}${arc(c)} ${x + width - c} ${y + height}`,
-    `H${x + d}${arc(d)} ${x} ${y + height - d}`,
-    `V${y + a}${arc(a)} ${x + a} ${y}Z`,
-  ].join("");
-}
-
-function svgNode<K extends keyof SVGElementTagNameMap>(
-  tag: K,
-  attributes: Record<string, string | number>,
-): SVGElementTagNameMap[K] {
-  const node = document.createElementNS(SVG, tag);
-  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
-  return node;
-}
-
-/**
- * The device's body, in css px of the frame: the buttons under it, the band,
- * the front glass inside it with the screen cut out, and the island, holes,
- * lens, slot and home button on top.
- */
-function drawMock(
-  mock: Mock,
-  screenSize: { width: number; height: number },
-  href: string | null,
-): SVGSVGElement {
-  const svg = svgNode("svg", {
-    class: "mock",
-    viewBox: `0 0 ${mock.width} ${mock.height}`,
-    "aria-hidden": "true",
-  });
-  // A picture is the whole body, island and buttons too.
-  if (mock.image && href) {
-    const { x, y, width, height, turn } = mock.image;
-    const image = svgNode("image", { href, x, y, width, height });
-    if (turn !== null) image.setAttribute("transform", `matrix(0 -1 1 0 0 ${turn})`);
-    svg.append(image);
-    return svg;
-  }
-  const part = (shape: Mock["parts"][number]) =>
-    svgNode("rect", {
-      class: shape.kind,
-      x: shape.x,
-      y: shape.y,
-      width: shape.width,
-      height: shape.height,
-      rx: shape.radius,
-    });
-  const opening = { x: mock.inset.left, y: mock.inset.top, ...screenSize };
-  const { x, y, width, height } = mock.body;
-  const front = { x: x + BAND, y: y + BAND, width: width - 2 * BAND, height: height - 2 * BAND };
-  const inside = roundRect(front, corners(mock.bodyRadius, -BAND));
-  svg.append(
-    ...mock.parts.filter((shape) => shape.kind === "button").map(part),
-    svgNode("path", { class: "band", d: roundRect(mock.body, mock.bodyRadius) + inside }),
-    svgNode("path", { class: "body", d: inside + roundRect(opening, mock.screenRadius) }),
-    ...mock.parts.filter((shape) => shape.kind !== "button").map(part),
-  );
-  return svg;
 }
 
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
@@ -1239,6 +732,7 @@ function open(): void {
   loaded = false;
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
+  reload.track({ view: frameWindow, page: frameDocument, loaded: () => loaded });
   notice = createNotice();
   pageBox = document.createElement("div");
   pageBox.className = "page";
@@ -1252,12 +746,7 @@ function open(): void {
   letterbox.append(readout, stage, notice);
   letterbox.addEventListener("wheel", onWheel, { passive: false });
   root.append(style, letterbox);
-  for (const child of Array.from(body.children)) hide(child);
-  holdModals();
-  bodyObserver ??= new MutationObserver((records) => {
-    for (const record of records) record.addedNodes.forEach(hide);
-  });
-  bodyObserver.observe(body, { childList: true });
+  cover(body);
   // Popovers paint in the top layer, over the frame, wherever they sit.
   ensureStyle(NAME).textContent =
     "html{overflow:hidden!important}:popover-open:not([data-devknobs]){display:none!important}";
@@ -1268,7 +757,7 @@ function open(): void {
   // and all, and it starts no sooner than this task ends, after the knobs.
   queueMicrotask(() => {
     const view = frameWindow();
-    if (view && !loaded) arrive(view);
+    if (view && !loaded) reload.arrive(view);
   });
   // Before the frame's page starts, which is no sooner than this task ends.
   resize();
@@ -1289,13 +778,7 @@ function close(follow: boolean): void {
   window.removeEventListener("resize", resize);
   frame?.removeEventListener("load", onLoad);
   titleObserver?.disconnect();
-  const view = frameWindow();
-  if (view) unlisten(view);
-  clearTimeout(reloading);
-  reloading = 0;
-  leaving = 0;
-  repatched = false;
-  identity = null;
+  reload.untrack();
   // The window shows its own page again, so its own address and title too.
   if (!moved) replaceUrl(pageUrl);
   if (pageTitle !== null) document.title = pageTitle;
@@ -1323,9 +806,7 @@ function close(follow: boolean): void {
   drawn = null;
   clearTimeout(settling);
   held = null;
-  bodyObserver?.disconnect();
-  releaseModals();
-  unhide();
+  uncover();
   removeStyle(NAME);
   // Hidden, the page had no height to keep its scroll position in.
   if (target && target !== window.location.href) window.location.assign(target);
