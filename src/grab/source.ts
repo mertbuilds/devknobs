@@ -5,10 +5,12 @@ import {
   getRawOwnerStack,
   getRawSource,
   getSource,
+  getSourceMap,
   type StackFrame,
 } from "bippy/source";
 import { displayName, isComposite } from "./fiber";
-import { classifySourcePath, normalizeFilePath } from "./paths";
+import { locateJsx, opensAt } from "./locate";
+import { classifySourcePath, normalizeFilePath, rememberRoot, rootOf } from "./paths";
 import { sourceName } from "./stack";
 import type { ResolvedSource } from "./types";
 
@@ -101,25 +103,156 @@ export function mapped<T extends Place>(place: T, raw: Place | null | undefined,
   };
 }
 
+function ownerFiber(fiber: Fiber): Fiber | null {
+  const owner: unknown = fiber._debugOwner;
+  if (typeof owner !== "object" || owner === null || !("tag" in owner)) return null;
+  return owner as Fiber;
+}
+
+/** The element a frame of the raw owner stack made, where its fiber is known. */
+export interface Site {
+  tag: string;
+  host: boolean;
+}
+
+/**
+ * The raw owner stack is every fiber's own stack, the element's first and its
+ * owners' after. A fiber's first frame is where its jsx is written. The sites
+ * by their place in the stack.
+ */
+function sites(fiber: Fiber, total: number): Map<number, Site> {
+  const found = new Map<number, Site>();
+  for (let current: Fiber | null = fiber; current; current = ownerFiber(current)) {
+    const type: unknown = current.type;
+    const tag = typeof type === "string" ? type : displayName(type);
+    const start = total - getRawOwnerStack(current).length;
+    if (tag && start < total) found.set(start, { tag, host: typeof type === "string" });
+  }
+  return found;
+}
+
+/** A module's text, for the jsx calls in it. A failed read leaves, so the next grab tries again. */
+const codeCache = new Map<string, Promise<string | null>>();
+
+function moduleCode(url: string): Promise<string | null> {
+  let pending = codeCache.get(url);
+  if (!pending) {
+    pending = sourceFetch(url).then(
+      (response) => (response.ok ? response.text() : null),
+      () => null,
+    );
+    codeCache.set(url, pending);
+    const own = pending;
+    void own.then((code) => {
+      if (code === null && codeCache.get(url) === own) codeCache.delete(url);
+    });
+  }
+  return pending;
+}
+
+/** A source map's one source, with its text, to check a place against. */
+export interface MappedSource {
+  name: string;
+  content: string;
+}
+
+/** The map put the frame where its element's tag opens. */
+export function isSited(frame: StackFrame, site: Site, source: MappedSource): boolean {
+  const { lineNumber: line, columnNumber: column } = frame;
+  if (!frame.isSymbolicated || typeof line !== "number" || typeof column !== "number") return false;
+  return opensAt(source.content, { line, column }, site.host ? site.tag : null);
+}
+
+/**
+ * A frame the map left without a place, or on one where no tag opens, set on
+ * the place its element is written, by a search of the source. With nothing
+ * found, the frame stays as the map left it.
+ */
+export function relocated(
+  frame: StackFrame,
+  raw: StackFrame,
+  site: Site,
+  source: MappedSource,
+  code: string | null,
+): StackFrame {
+  const call =
+    typeof raw.lineNumber === "number" && typeof raw.columnNumber === "number"
+      ? { line: raw.lineNumber, column: raw.columnNumber - 1 }
+      : null;
+  const place = locateJsx(source.content, site.tag, site.host, code, call);
+  if (!place) return frame;
+  return {
+    ...frame,
+    fileName: source.name,
+    lineNumber: place.line,
+    columnNumber: place.column,
+    isSymbolicated: true,
+  };
+}
+
+/** Only a map of one source with its text, as a dev server's is, can be checked. */
+async function siteFrame(frame: StackFrame, raw: StackFrame, site: Site): Promise<StackFrame> {
+  const url = raw.fileName;
+  if (!url) return frame;
+  const map = await getSourceMap(url, true, sourceFetch);
+  if (!map) return frame;
+  rememberRoot(rootOf(map.file, url));
+  const [name] = map.sources;
+  const content = map.sourcesContent?.[0];
+  if (!name || !content || map.sources.length !== 1) return frame;
+  const source = { name, content };
+  if (isSited(frame, site, source)) return frame;
+  const alone = relocated(frame, raw, site, source, null);
+  return alone === frame ? relocated(frame, raw, site, source, await moduleCode(url)) : alone;
+}
+
 /**
  * The owner stack with its mapped frames set right. bippy maps the frame of
  * the fiber's own definition first, then the raw owner stack, one for one.
  */
-function ownerStack(fiber: Fiber, stack: StackFrame[], next: boolean): StackFrame[] {
+async function ownerStack(fiber: Fiber, stack: StackFrame[], next: boolean): Promise<StackFrame[]> {
   const raw = getRawOwnerStack(fiber);
-  const aligned = stack.length === raw.length + 1;
-  const first = aligned ? getDefinitionFrameFromOwnedChild(fiber) : null;
-  return stack.map((frame, index) => {
-    if (!frame.isSymbolicated) return frame;
-    return mapped(frame, aligned ? (index === 0 ? first : raw[index - 1]) : null, next);
-  });
+  if (stack.length !== raw.length + 1) {
+    return stack.map((frame) => (frame.isSymbolicated ? mapped(frame, null, next) : frame));
+  }
+  const first = getDefinitionFrameFromOwnedChild(fiber);
+  const found = sites(fiber, raw.length);
+  return Promise.all(
+    stack.map(async (frame, index) => {
+      const rawFrame = index === 0 ? first : raw[index - 1];
+      const site = found.get(index - 1);
+      const placed = site && rawFrame ? await siteFrame(frame, rawFrame, site) : frame;
+      return placed.isSymbolicated ? mapped(placed, rawFrame, next) : placed;
+    }),
+  );
 }
 
 function ownerName(fiber: Fiber, next: boolean): string | null {
-  const owner: unknown = fiber._debugOwner;
-  if (typeof owner !== "object" || owner === null || !("tag" in owner)) return null;
-  const ownerFiber = owner as Fiber;
-  return isComposite(ownerFiber) ? sourceName(displayName(ownerFiber.type), next) : null;
+  const owner = ownerFiber(fiber);
+  return owner && isComposite(owner) ? sourceName(displayName(owner.type), next) : null;
+}
+
+/**
+ * Where the element itself is written: the first app frame of its own stack,
+ * which is its owner at the line and column of the element's jsx.
+ */
+function ownSource(fiber: Fiber, stack: StackFrame[], next: boolean): ResolvedSource | null {
+  const raw = getRawOwnerStack(fiber);
+  if (stack.length !== raw.length + 1) return null;
+  const owner = ownerFiber(fiber);
+  const own = raw.length - (owner ? getRawOwnerStack(owner).length : 0);
+  const frame = stack
+    .slice(1, 1 + own)
+    .find((item) => classifySourcePath(item.fileName).origin === "app");
+  if (!frame?.fileName) return null;
+  return {
+    filePath: normalizeFilePath(frame.fileName),
+    lineNumber: frame.lineNumber ?? null,
+    columnNumber: frame.columnNumber ?? null,
+    componentName: sourceName(frame.functionName, next) ?? ownerName(fiber, next),
+    origin: "app",
+    symbolicated: frame.isSymbolicated === true,
+  };
 }
 
 async function fiberSource(fiber: Fiber, next: boolean): Promise<ResolvedSource | null> {
@@ -141,11 +274,9 @@ async function fiberSource(fiber: Fiber, next: boolean): Promise<ResolvedSource 
 
 async function resolveFiber(fiber: Fiber, next: boolean): Promise<Resolution | null> {
   try {
-    const [source, stack] = await Promise.all([
-      fiberSource(fiber, next),
-      getOwnerStack(fiber, true, sourceFetch),
-    ]);
-    return { fiberSource: source, stack: ownerStack(fiber, stack, next) };
+    const stack = await ownerStack(fiber, await getOwnerStack(fiber, true, sourceFetch), next);
+    const source = ownSource(fiber, stack, next) ?? (await fiberSource(fiber, next));
+    return { fiberSource: source, stack };
   } catch {
     return null;
   }

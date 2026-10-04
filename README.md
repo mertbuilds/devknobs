@@ -184,6 +184,14 @@ devtools extension has one. without it, load the early script first (see
 below), which puts one in place. with neither, grab names the components it
 finds on the element and falls back to a selector.
 
+the copied line keeps to the app's own code: the component the element is
+written in, at the line and column of its jsx, then the components that
+rendered it, three at most, with paths from the project's root. a library's
+frames, React's and nameless ones stay out, and class names a tool generated
+(StyleX, CSS modules, emotion, styled-components) are dropped. where a dev
+server's source map has no place for an element, as a route split from its
+file can, the place is looked up in the source the map carries.
+
 grab is adapted from [react-grab](https://github.com/aidenybai/react-grab) and
 reads React's internals through [bippy](https://github.com/aidenybai/bippy),
 both by Aiden Bai and MIT, see
