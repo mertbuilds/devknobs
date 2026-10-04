@@ -90,7 +90,14 @@ press the hotkey to open it, and it stays open across reloads.
 
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
-panel. with the panel closed, a drag moves the handle.
+panel. with the panel closed, a drag moves the handle, and the panel opens
+beside it where it left it.
+
+within 24px of an edge, the panel snaps flush with the top or the bottom of the
+window, and the handle with the top or the bottom corner of the panel, or of the
+window while the panel is closed. each stays with the edge it snapped to: a
+panel at the bottom grows upward as rows and editors open, and keeps to the
+bottom when the window resizes.
 
 ## the panel
 
