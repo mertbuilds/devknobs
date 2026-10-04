@@ -267,7 +267,6 @@ describe("bezelMock", () => {
   });
 
   test("has none for a device without an image", () => {
-    expect(bezelMock("galaxy-s25", "portrait")).toBeNull();
     expect(bezelMock("ipad-mini", "portrait")).toBeNull();
     expect(bezelMock("none", "portrait")).toBeNull();
   });

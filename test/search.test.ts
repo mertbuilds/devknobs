@@ -72,7 +72,6 @@ describe("search", () => {
     expect(top("pixel")).toEqual(["device pixel-10"]);
     expect(top("pixel 9 pro xl")).toEqual(["device pixel-9-pro-xl"]);
     expect(top("pixel 10a")).toEqual(["device pixel-10a"]);
-    expect(top("galaxy", 2)).toEqual(["device galaxy-s25", "device galaxy-s25-ultra"]);
     expect(top("ipad")).toEqual(["device ipad-mini"]);
     expect(top("macbook")).toEqual(["device macbook-air-13"]);
     expect(top("phone")).toEqual(["device iphone-18-pro"]);

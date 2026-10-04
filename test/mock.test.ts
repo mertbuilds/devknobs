@@ -95,7 +95,7 @@ describe("mockOf", () => {
   test("gives each device its own parts", () => {
     expect(kinds("iphone-16")).toEqual([...Array(5).fill("button"), "sensor"]);
     expect(kinds("iphone-se")).toEqual([...Array(4).fill("button"), "slot", "lens", "home", "key"]);
-    expect(kinds("galaxy-s25")).toEqual(["button", "button", "sensor"]);
+    expect(kinds("pixel-9")).toEqual(["button", "button", "sensor"]);
     expect(kinds("ipad-mini")).toEqual(["button", "button", "button", "lens"]);
   });
 

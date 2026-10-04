@@ -142,9 +142,6 @@ describe("viewportOf", () => {
     expect(size(device("pixel-9-pro-xl"), "top", false)).toBe("448x851");
     expect(size(device("pixel-9-pro-xl"), "top", true)).toBe("448x931");
     expect(size(device("pixel-9"), "bottom", false)).toBe("412x777");
-    // The Galaxy status bar of 40 is an estimate.
-    expect(size(device("galaxy-s25"), "top", false)).toBe("360x660");
-    expect(size(device("galaxy-s25-ultra"), "top", true)).toBe("384x792");
   });
 
   test("gives the Pixel 10 family a status bar derived from its punch hole", () => {
@@ -268,7 +265,6 @@ describe("layouts", () => {
     expect(layoutOptions("iphone-16")).toEqual(["compact", "bottom", "top", "off"]);
     expect(layoutOptions("iphone-se")).toEqual(["compact", "bottom", "top", "off"]);
     expect(layoutOptions("pixel-9")).toEqual(["top", "bottom", "off"]);
-    expect(layoutOptions("galaxy-s25-ultra")).toEqual(["top", "bottom", "off"]);
     expect(layoutOptions("ipad-mini")).toEqual([]);
     expect(layoutOptions("desktop")).toEqual([]);
     expect(layoutOptions("none")).toEqual([]);

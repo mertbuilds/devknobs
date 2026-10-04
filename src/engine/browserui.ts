@@ -79,9 +79,6 @@ const CHROME: Record<string, ChromeSpec> = {
   "pixel-9": { top: 66, tall: 923 },
   "pixel-9-pro": { top: 68 },
   "pixel-9-pro-xl": { top: 66, tall: 997 },
-  // An estimate: Samsung publishes no status bar height.
-  "galaxy-s25": { top: 40 },
-  "galaxy-s25-ultra": { top: 40 },
 };
 
 /** Safari's bars, measured from the bottom of the screen or the top inset. */

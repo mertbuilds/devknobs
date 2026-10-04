@@ -206,7 +206,7 @@ describe("summary", () => {
       "top",
       "off",
     ]);
-    expect(browser.offers?.(state({ device: "galaxy-s25" }))).toEqual(["top", "bottom", "off"]);
+    expect(browser.offers?.(state({ device: "pixel-9" }))).toEqual(["top", "bottom", "off"]);
     expect(browser.offers?.(state({ device: "desktop" }))).toEqual([]);
     expect(says("viewport", { device: "iphone-16-pro" })).toBe("iPhone 16 Pro · portrait");
     expect(says("viewport", { device: "iphone-16-pro", browser: "bottom" })).toBe(

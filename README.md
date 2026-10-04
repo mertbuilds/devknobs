@@ -327,7 +327,7 @@ plain ones and its popovers stay hidden, as both would paint over the frame.
 
 the device knob sets a size, a ratio and a touch screen in one pick. the list
 in the panel groups them by kind, and search finds them by name, kind or
-platform (`iphone`, `pixel`, `galaxy`, `ipad`, `macbook`, `phone`, `tablet`,
+platform (`iphone`, `pixel`, `ipad`, `macbook`, `phone`, `tablet`,
 `android`). `landscape` turns the frame, and a size typed out such as
 `390x844` sets a custom one. the presets are also `PRESETS.device`.
 
@@ -353,8 +353,6 @@ platform (`iphone`, `pixel`, `galaxy`, `ipad`, `macbook`, `phone`, `tablet`,
 | Pixel 9 | 412 × 924 | 2.625 | yes |
 | Pixel 9 Pro | 427 × 952 | 3 | yes |
 | Pixel 9 Pro XL | 448 × 998 | 3 | yes |
-| Galaxy S25 | 360 × 780 | 3 | yes |
-| Galaxy S25 Ultra | 384 × 832 | 2.8125 | yes |
 | iPad mini | 744 × 1133 | 2 | yes |
 | iPad Air 11 | 820 × 1180 | 2 | yes |
 | iPad Pro 13 | 1032 × 1376 | 2 | yes |
@@ -392,12 +390,11 @@ button and the buttons are the image's own. it loads from `dist/bezels` the
 first time the device is shown with the mock on, the drawn mock standing in
 its place until then, and the drawn mock stays where an image does not load.
 the images are not under this project's license, see THIRD_PARTY_NOTICES.md:
-delete `assets/bezels` and every phone draws its own mock again. the Galaxies
-keep their drawn mock.
+delete `assets/bezels` and every phone draws its own mock again.
 
 a phone shows the page in its browser, drawn in the screen around the frame:
 Safari's status bar and Liquid Glass bars on an iPhone, and Android's status
-bar, Chrome's toolbar and the chin on a Pixel or a Galaxy. the home indicator
+bar, Chrome's toolbar and the chin on a Pixel. the home indicator
 and the gesture handle are left out, as they go once you switch apps and here
 none are switched. the browser knob picks the layout, Safari's compact, bottom
 or top and Chrome's top or bottom, or off for the whole screen. the readout
@@ -438,7 +435,7 @@ when it shrinks, so no gap shows, and its own scrolling as it settles never
 flips the bars again. with reduced motion in the browser the bars just
 switch. turned across, Safari keeps one row at the top and leaves room for
 the island at both sides. Chrome's numbers come from the Chromium and AOSP
-sources, and the Galaxy status bar height is an estimate. the screen around
+sources. the screen around
 the bars takes the page's own background, read again on each load,
 navigation and scheme change, and Safari's glass and glyphs go dark on a
 dark page as they do on the phone. the address shows the frame's host, back

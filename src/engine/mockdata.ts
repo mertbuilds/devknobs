@@ -255,24 +255,6 @@ export const BODIES: Record<string, Body> = {
     front: [dot("sensor", 224, 32.8, 30.8)],
     buttons: [right(274.1, 75.7), right(393.8, 139.4)],
   },
-  "galaxy-s25": {
-    bezel: sides(11, 12.4, 11, 12.4),
-    screenRadius: 34,
-    // Estimates: the body radius, how far the buttons stand out, and where they are.
-    bodyRadius: 46,
-    out: 2.5,
-    front: [dot("sensor", 180, 24.7, 19.3)],
-    buttons: [right(175, 110), right(320, 60)],
-  },
-  "galaxy-s25-ultra": {
-    bezel: sides(9.6, 10.9, 9.6, 10.9),
-    screenRadius: 14.9,
-    // Estimates: the body radius, how far the buttons stand out, and where they are.
-    bodyRadius: 25,
-    out: 2.5,
-    front: [dot("sensor", 192, 24.9, 18.5)],
-    buttons: [right(185, 110), right(335, 60)],
-  },
   "ipad-mini": {
     bezel: sides(60.6, 60.4, 60.6, 60.4),
     // Estimates: both radii, the camera's distance from the edge and its lens size.

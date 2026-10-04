@@ -123,6 +123,8 @@ describe("parse", () => {
   test("keeps the size of a stored device that is no longer a preset, as a plain frame", () => {
     const stored = { width: 390, height: 844, device: "iphone-14", orientation: "portrait" };
     expect(parse(JSON.stringify(stored))).toMatchObject({ ...stored, device: "none" });
+    const galaxy = { width: 360, height: 780, device: "galaxy-s25", orientation: "portrait" };
+    expect(parse(JSON.stringify(galaxy))).toMatchObject({ ...galaxy, device: "none" });
     for (const id of ["iphone-16", "iphone-16-pro", "iphone-16-pro-max", "iphone-se"]) {
       expect(parse(JSON.stringify({ device: id })).device).toBe(id);
     }

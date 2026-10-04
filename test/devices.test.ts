@@ -44,7 +44,7 @@ describe("DEVICES", () => {
     expect(DEVICES.slice(0, iphones.length)).toEqual(iphones);
   });
 
-  test("lists the Pixels newest first, then the Galaxies, each at its own size and ratio", () => {
+  test("lists the Pixels newest first, each at its own size and ratio", () => {
     const android = DEVICES.filter((device) => device.ua === "android-chrome");
     expect(android.map(({ id, width, height, dpr }) => `${id} ${width}x${height}@${dpr}`)).toEqual([
       "pixel-10 412x924@2.625",
@@ -54,8 +54,6 @@ describe("DEVICES", () => {
       "pixel-9 412x924@2.625",
       "pixel-9-pro 427x952@3",
       "pixel-9-pro-xl 448x998@3",
-      "galaxy-s25 360x780@3",
-      "galaxy-s25-ultra 384x832@2.8125",
     ]);
   });
 
