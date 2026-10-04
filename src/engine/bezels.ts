@@ -1,4 +1,5 @@
 import type { OrientationValue } from "../types";
+import { deviceOf, turn } from "./devices";
 import { type Mock, type Radius, type Sides, turnRadius, turnSides } from "./mock";
 
 /**
@@ -11,14 +12,11 @@ import { type Mock, type Radius, type Sides, turnRadius, turnSides } from "./moc
  * does where an image does not load.
  */
 
-/** Image px per css px, in every image. */
-const DENSITY = 3;
-
 /** One image, measured in its own px. */
 export interface Bezel {
   file: string;
   size: readonly [width: number, height: number];
-  /** The transparent screen opening, which is the screen's size times the density. */
+  /** The transparent screen opening, which is the screen's size times the image's density. */
   opening: readonly [left: number, top: number, width: number, height: number];
   /** The body with its buttons. */
   body: readonly [left: number, top: number, right: number, bottom: number];
@@ -227,23 +225,52 @@ function urlsOf(file: string): string[] {
   return urls;
 }
 
-/** The image as the mock of a device held one way, its opening on the screen, or null. */
+/**
+ * Image px per css px of an image on its device's screen. An image is at its
+ * own scale, which need not be 3, and its opening is the screen at that scale
+ * give or take a px, so the density takes the opening's width and height
+ * together and neither side is more off than the other. Null for a device
+ * that is not in the list.
+ */
+export function densityOf(id: string, bezel: Bezel): number | null {
+  const device = deviceOf(id);
+  return device ? density(device, bezel) : null;
+}
+
+function density(screen: { width: number; height: number }, bezel: Bezel): number {
+  const [, , width, height] = bezel.opening;
+  return (width + height) / (screen.width + screen.height);
+}
+
+/**
+ * The image as the mock of a device held one way, its opening on the screen,
+ * or null. The image is drawn at its density, never stretched, and the screen
+ * sits in the middle of the opening.
+ */
 export function bezelMock(id: string, orientation: OrientationValue): Mock | null {
   const found = BEZELS[id];
-  if (!found) return null;
+  const device = deviceOf(id);
+  if (!found || !device) return null;
   const own = orientation === "landscape" ? found.landscape : undefined;
   const bezel = own ?? found.portrait;
   const turned = orientation === "landscape" && !own;
+  const screen = turn(device, own ? "landscape" : "portrait");
+  const scale = density(screen, bezel);
   const [x, y, w, h] = bezel.opening;
   const [left, top, right, bottom] = bezel.body;
-  const inset: Sides = {
-    top: (y - top) / DENSITY,
-    right: (right - x - w) / DENSITY,
-    bottom: (bottom - y - h) / DENSITY,
-    left: (x - left) / DENSITY,
+  // The screen's top left in the image.
+  const at = {
+    x: x + (w - screen.width * scale) / 2,
+    y: y + (h - screen.height * scale) / 2,
   };
-  const width = (right - left) / DENSITY;
-  const height = (bottom - top) / DENSITY;
+  const inset: Sides = {
+    top: (at.y - top) / scale,
+    right: (right - at.x) / scale - screen.width,
+    bottom: (bottom - at.y) / scale - screen.height,
+    left: (at.x - left) / scale,
+  };
+  const width = (right - left) / scale;
+  const height = (bottom - top) / scale;
   const sides = turned ? turnSides(inset) : inset;
   const size = turned ? { width: height, height: width } : { width, height };
   return {
@@ -256,10 +283,10 @@ export function bezelMock(id: string, orientation: OrientationValue): Mock | nul
     parts: [],
     image: {
       file: bezel.file,
-      x: -left / DENSITY,
-      y: -top / DENSITY,
-      width: bezel.size[0] / DENSITY,
-      height: bezel.size[1] / DENSITY,
+      x: -left / scale,
+      y: -top / scale,
+      width: bezel.size[0] / scale,
+      height: bezel.size[1] / scale,
       turn: turned ? width : null,
     },
   };

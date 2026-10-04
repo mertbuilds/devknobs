@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync } from "node:fs";
-import { BEZELS, type Bezel, bezelMock, bezelUrl, loadBezel } from "../src/engine/bezels";
+import { BEZELS, type Bezel, bezelMock, bezelUrl, densityOf, loadBezel } from "../src/engine/bezels";
 import { DEVICES, deviceOf, turn } from "../src/engine/devices";
 import { mockOf, placeIn } from "../src/engine/mock";
 import { fit, STRIP } from "../src/engine/width";
@@ -12,6 +12,13 @@ const SHOTS = Object.entries(BEZELS).flatMap(([id, { portrait, landscape }]) => 
   const upright: [string, "portrait" | "landscape", Bezel][] = [[id, "portrait", portrait]];
   return landscape ? [...upright, [id, "landscape", landscape] as (typeof upright)[number]] : upright;
 });
+
+/** An image's density on its device. */
+function densityAt(id: string, shot: Bezel): number {
+  const density = densityOf(id, shot);
+  if (density === null) throw new Error(`no device ${id}`);
+  return density;
+}
 
 /** An image that settles a task after it is asked for, the way `ok` says. */
 function fakeImage(ok: (src: string) => boolean): void {
@@ -38,14 +45,15 @@ describe("BEZELS", () => {
     expect(new Set(SHOTS.map(([, , shot]) => shot.file)).size).toBe(13);
   });
 
-  test("each opening is its device's screen at 3 image px per css px, never stretched", () => {
+  test("each opening is its device's screen at the image's density, never stretched", () => {
     for (const [id, way, shot] of SHOTS) {
       const device = deviceOf(id);
       if (!device) throw new Error(`no device ${id}`);
       const screen = turn(device, way);
+      const density = densityAt(id, shot);
       const [left, top, width, height] = shot.opening;
-      expect(Math.abs(width / 3 - screen.width)).toBeLessThan(0.5);
-      expect(Math.abs(height / 3 - screen.height)).toBeLessThan(0.5);
+      expect(Math.abs(width / density - screen.width)).toBeLessThan(0.5);
+      expect(Math.abs(height / density - screen.height)).toBeLessThan(0.5);
       // The body is around the opening, inside the image.
       const [bodyLeft, bodyTop, bodyRight, bodyBottom] = shot.body;
       expect(bodyLeft).toBeGreaterThanOrEqual(0);
@@ -67,10 +75,11 @@ describe("BEZELS", () => {
       if (!drawn || !sensor || !portrait.cutout) continue;
       const [left, top, width, height] = portrait.cutout;
       const [x, y] = portrait.opening;
-      expect(Math.abs(sensor.x - drawn.inset.left - (left - x) / 3)).toBeLessThan(1);
-      expect(Math.abs(sensor.y - drawn.inset.top - (top - y) / 3)).toBeLessThan(1);
-      expect(Math.abs(sensor.width - width / 3)).toBeLessThan(1);
-      expect(Math.abs(sensor.height - height / 3)).toBeLessThan(1);
+      const density = densityAt(id, portrait);
+      expect(Math.abs(sensor.x - drawn.inset.left - (left - x) / density)).toBeLessThan(1);
+      expect(Math.abs(sensor.y - drawn.inset.top - (top - y) / density)).toBeLessThan(1);
+      expect(Math.abs(sensor.width - width / density)).toBeLessThan(1);
+      expect(Math.abs(sensor.height - height / density)).toBeLessThan(1);
     }
   });
 
@@ -93,6 +102,31 @@ describe("BEZELS", () => {
   test.skipIf(!existsSync(FOLDER))("every image is in assets/bezels, and nothing else is", () => {
     const files = SHOTS.map(([, , shot]) => shot.file).sort();
     expect(readdirSync(FOLDER).sort()).toEqual(files);
+  });
+});
+
+describe("densityOf", () => {
+  test("is 3 in each of Apple's iPhone images", () => {
+    for (const [id, , shot] of SHOTS) {
+      if (id.startsWith("iphone-")) expect(densityAt(id, shot)).toBeCloseTo(3, 9);
+    }
+  });
+
+  test("is an image's own scale, from its opening's width and height together", () => {
+    // An opening of 1080 x 2424 image px on a screen of 412 x 924 css px,
+    // which is 2.6214 across and 2.6234 down.
+    const shot: Bezel = {
+      file: "phone.webp",
+      size: [1198, 2531],
+      opening: [55, 58, 1080, 2424],
+      body: [0, 0, 1198, 2531],
+      radius: 55,
+    };
+    const density = densityAt("pixel-9", shot);
+    expect(density).toBeCloseTo(3504 / 1336, 9);
+    expect(Math.abs(1080 / density - 412)).toBeLessThan(0.25);
+    expect(Math.abs(2424 / density - 924)).toBeLessThan(0.25);
+    expect(densityOf("none", shot)).toBeNull();
   });
 });
 
