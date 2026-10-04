@@ -152,22 +152,30 @@ function displayPath(filePath: string, next: boolean): string {
 }
 
 /**
- * `in Comp (at path:line:col)`. react-grab drops the line and column outside
+ * `in Comp (at path:line:col)`, and nothing without a component: a bare path
+ * never stands where a name does. react-grab drops the line and column outside
  * Next.js, where the owner stack points into transformed code. Here they show
  * whenever a source map put them back, on Vite too.
  */
 export function sourceLine(source: ResolvedSource, next = false): string {
+  if (!source.componentName) return "";
   const path = displayPath(source.filePath, next);
   const showsLine = (next || source.symbolicated) && source.lineNumber;
   const column = source.columnNumber ? `:${source.columnNumber}` : "";
   const location = showsLine ? `${path}:${source.lineNumber}${column}` : path;
-  return source.componentName
-    ? `\n  in ${source.componentName} (at ${location})`
-    : `\n  in ${location}`;
+  return `\n  in ${source.componentName} (at ${location})`;
+}
+
+/** The exact place of a source, to tell a frame that repeats it. Null without a line. */
+function placeOf(source: ResolvedSource, next: boolean): string | null {
+  if (!source.lineNumber) return null;
+  return `${displayPath(source.filePath, next)}:${source.lineNumber}:${source.columnNumber ?? ""}`;
 }
 
 interface FrameLine {
   text: string;
+  /** Where an app frame points, line and column included, or null. */
+  place: string | null;
   /** Real app source, which makes a selector unneeded. */
   isApp: boolean;
   /** Trusted app source, which spends the budget. Shared ui lines are free. */
@@ -179,9 +187,9 @@ interface FrameLine {
 function frameLine(
   frame: StackFrame,
   kind: SourceClass,
-  name: string | null,
+  name: string,
   next: boolean,
-): FrameLine | null {
+): FrameLine {
   const pkg = kind.packageName;
   if (kind.origin === "app" && frame.fileName) {
     const source: ResolvedSource = {
@@ -193,17 +201,20 @@ function frameLine(
       symbolicated: frame.isSymbolicated === true,
     };
     const spends = isTrustedAppPath(frame.fileName);
-    return { text: sourceLine(source, next), isApp: true, spends, isLibrary: false };
+    return {
+      text: sourceLine(source, next),
+      place: placeOf(source, next),
+      isApp: true,
+      spends,
+      isLibrary: false,
+    };
   }
-  if (!name) return null;
-  if (pkg) return { text: `\n  in ${name} (${pkg})`, isApp: false, spends: false, isLibrary: true };
-  if (frame.isServer) {
-    return { text: `\n  in ${name} (at Server)`, isApp: false, spends: false, isLibrary: false };
-  }
+  const rest = { place: null, isApp: false, spends: false };
+  if (pkg) return { ...rest, text: `\n  in ${name} (${pkg})`, isLibrary: true };
+  if (frame.isServer) return { ...rest, text: `\n  in ${name} (at Server)`, isLibrary: false };
   return {
+    ...rest,
     text: `\n  in ${name}`,
-    isApp: false,
-    spends: false,
     isLibrary: Boolean(frame.fileName),
   };
 }
@@ -217,7 +228,7 @@ export function resolveMaxLines(maxLines: number | undefined): number {
  * The owner stack as `in Comp (...)` lines, after a leading source line when
  * there is one. Only the app's own frames show: a library's, React's and
  * nameless ones stay out, so wrapper noise never crowds out the app's
- * components. Trusted app lines spend `maxLines`, and shared ui lines are free
+ * components, and so does a frame at the place of the line before it. Trusted app lines spend `maxLines`, and shared ui lines are free
  * up to the hard cap of 20. With no line at all, the nearest named library
  * component stands in as one hint.
  */
@@ -236,38 +247,42 @@ export function formatStack(
   let trusted = false;
   let hasBudgetedFrame = false;
   let spent = 0;
+  let lastPlace: string | null = null;
 
-  if (leading) {
+  if (leading?.componentName) {
     // A leading shared ui or bundle source keeps the budget free for the feature above it.
     trusted = leading.origin === "app" && isTrustedAppPath(leading.filePath);
     if (trusted) spent += 1;
-    if (leading.componentName) names.add(leading.componentName);
+    names.add(leading.componentName);
     lines.push(sourceLine(leading, next));
+    lastPlace = placeOf(leading, next);
   }
 
   for (const frame of stack) {
     if (!maxLines || lines.length >= hardMax) break;
     const name = sourceName(frame.functionName, next);
+    if (!name) continue;
     const line = frameLine(frame, classifySourcePath(frame.fileName), name, next);
-    if (!line) continue;
     if (line.isLibrary) {
-      if (name) hint ??= { text: line.text, name };
+      hint ??= { text: line.text, name };
       continue;
     }
     // The top frame usually names the leading line's component again. Drop that one only.
-    if (!dedupedLeading && name && name === leading?.componentName) {
+    if (!dedupedLeading && name === leading?.componentName) {
       dedupedLeading = true;
       continue;
     }
     if (line.spends && spent >= maxLines) continue;
     if (line.text === lines[lines.length - 1]) continue;
+    if (line.place !== null && line.place === lastPlace) continue;
     if (line.spends) {
       trusted = true;
       spent += 1;
       hasBudgetedFrame = true;
     }
-    if (name) names.add(name);
+    names.add(name);
     lines.push(line.text);
+    lastPlace = line.place;
   }
 
   if (lines.length === 0 && hint) {

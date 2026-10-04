@@ -192,7 +192,7 @@ finds on the element and falls back to a selector.
 the copied line keeps to the app's own code: the component the element is
 written in, at the line and column of its jsx, then the components that
 rendered it, three at most, with paths from the project's root. a library's
-frames, React's and nameless ones stay out, and class names a tool generated
+frames, React's and nameless ones stay out, a place shows once, and class names a tool generated
 (StyleX, CSS modules, emotion, styled-components) are dropped. where a dev
 server's source map has no place for an element, as a route split from its
 file can, the place is looked up in the source the map carries.

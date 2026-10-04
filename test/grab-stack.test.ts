@@ -92,10 +92,8 @@ describe("sourceLine", () => {
     );
   });
 
-  test("shows the path alone without a component, and Next.js paths from the app folder", () => {
-    expect(sourceLine(source({ componentName: null, lineNumber: null }))).toBe(
-      "\n  in src/features/Cart.tsx",
-    );
+  test("shows nothing without a component, and Next.js paths from the app folder", () => {
+    expect(sourceLine(source({ componentName: null, lineNumber: null }))).toBe("");
     const absolute = source({ filePath: "/Users/me/site/src/app/page.tsx", componentName: "Page" });
     expect(sourceLine(absolute, true)).toBe("\n  in Page (at /./src/app/page.tsx:12:5)");
   });
@@ -176,6 +174,66 @@ describe("formatStack", () => {
     ];
     expect(formatStack(stack).text).toBe(
       "\n  in Cart (at src/features/Cart.tsx:10:4)\n  in Shop (at src/features/Shop.tsx:10:4)",
+    );
+  });
+
+  test("drops a nameless app frame, and never shows a bare path as a name", () => {
+    const stack: StackFrame[] = [
+      { ...app("", "/src/components/uses-grid.tsx", 653), functionName: undefined },
+      app("map", "/src/components/uses-grid.tsx", 653),
+      app("HomePage", "/src/routes/index.tsx", 568),
+    ];
+    expect(formatStack(stack).text).toBe("\n  in HomePage (at src/routes/index.tsx:568:4)");
+    const nameless = source({ componentName: null });
+    expect(formatStack(stack, {}, nameless).text).toBe(
+      "\n  in HomePage (at src/routes/index.tsx:568:4)",
+    );
+    expect(formatStack([], {}, nameless).text).toBe("");
+  });
+
+  test("drops a frame at the place of the line before it, whatever its name", () => {
+    const grid = source({
+      filePath: "src/components/uses-grid.tsx",
+      lineNumber: 653,
+      columnNumber: 4,
+      componentName: "UsesGrid",
+    });
+    const stack = [
+      app("Item", "/src/components/uses-grid.tsx", 653),
+      app("Row", "/src/components/uses-grid.tsx", 700),
+      app("Rows", "/src/components/uses-grid.tsx", 700),
+      app("HomePage", "/src/routes/index.tsx", 568),
+    ];
+    expect(formatStack(stack, { maxLines: 5 }, grid).text).toBe(
+      "\n  in UsesGrid (at src/components/uses-grid.tsx:653:4)" +
+        "\n  in Row (at src/components/uses-grid.tsx:700:4)" +
+        "\n  in HomePage (at src/routes/index.tsx:568:4)",
+    );
+  });
+
+  test("the copied line of a list item has its component once, then the page", () => {
+    const grid = source({
+      filePath: "src/components/uses-grid.tsx",
+      lineNumber: 653,
+      columnNumber: 11,
+      componentName: "UsesGrid",
+    });
+    const at = (name: string | undefined, fileName: string, lineNumber: number): StackFrame => ({
+      functionName: name,
+      fileName,
+      lineNumber,
+      columnNumber: 11,
+      isSymbolicated: true,
+    });
+    const stack = [
+      { functionName: "li" },
+      at(undefined, "src/components/uses-grid.tsx", 653),
+      at("HomePage", "src/routes/index.tsx", 568),
+    ];
+    const trace = buildTrace(stack, grid, () => []);
+    expect(formatEntry("<li>Take photos</li>", trace.text, "Take photos", null)).toBe(
+      "[<li>Take photos</li> in UsesGrid (at src/components/uses-grid.tsx:653:11)" +
+        ' in HomePage (at src/routes/index.tsx:568:11) key: "Take photos"]',
     );
   });
 
