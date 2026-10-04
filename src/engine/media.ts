@@ -411,6 +411,20 @@ function applyColorScheme(): void {
   else root.style.removeProperty("color-scheme");
 }
 
+/**
+ * Make another window on this origin's `matchMedia` answer as a touch screen
+ * with no mouse, from the page above its frame before the window's own
+ * scripts run. A copy of devknobs there layers its own patch over this one.
+ * The window keeps it until its next load.
+ */
+export function coarse(view: Window): void {
+  const below = view.matchMedia;
+  const touch: MediaValue = { ...SYSTEM_MEDIA, touch: true };
+  view.matchMedia = function matchMedia(query: string): MediaQueryList {
+    return below.call(view, rewriteAll(String(query), touch));
+  };
+}
+
 export function apply(value: MediaValue): void {
   current = value;
   ensureMatchMedia();

@@ -1,4 +1,6 @@
 import type {
+  BarsValue,
+  BrowserValue,
   ClockMode,
   ConnectionValue,
   ContrastValue,
@@ -7,6 +9,7 @@ import type {
   DirValue,
   EdgeValue,
   GeoErrorValue,
+  GrabColorValue,
   MotionValue,
   OnlineValue,
   OrientationValue,
@@ -49,6 +52,11 @@ export const DEFAULT_STATE: DevknobsState = {
   height: "full",
   device: "none",
   orientation: "portrait",
+  mock: true,
+  touchPointer: true,
+  browser: "auto",
+  bars: "auto",
+  edgeToEdge: true,
   frame: false,
   dpr: "system",
   zoom: "fit",
@@ -56,6 +64,7 @@ export const DEFAULT_STATE: DevknobsState = {
   ua: { preset: "system", custom: "" },
   overflow: false,
   outlines: false,
+  grabColor: "auto",
   // Closed, the handle alone, until the user opens it.
   panel: { open: false, y: 16, top: 16, edge: "none", tab: "none", pinned: [] },
 };
@@ -70,6 +79,8 @@ const CLOCK_MODES: ClockMode[] = ["system", "offset", "frozen"];
 const ONLINES: OnlineValue[] = ["offline", "system"];
 const CONNECTIONS: ConnectionValue[] = ["slow-2g", "2g", "3g", "4g", "system"];
 const SAVE_DATAS: SaveDataValue[] = ["on", "off", "system"];
+const BARS: BarsValue[] = ["auto", "expanded", "minimized"];
+const BROWSERS: BrowserValue[] = ["auto", "compact", "bottom", "top", "off"];
 const ORIENTATIONS: OrientationValue[] = ["portrait", "landscape"];
 const EDGES: EdgeValue[] = ["top", "bottom", "none"];
 const VISIONS: VisionValue[] = [
@@ -79,6 +90,16 @@ const VISIONS: VisionValue[] = [
   "tritanopia",
   "achromatopsia",
   "blur",
+];
+
+const GRAB_COLORS: GrabColorValue[] = [
+  "auto",
+  "blue",
+  "green",
+  "pink",
+  "orange",
+  "purple",
+  "cyan",
 ];
 
 function record(value: unknown): Record<string, unknown> {
@@ -181,6 +202,16 @@ export function parse(json: string | null | undefined): DevknobsState {
     height: numberOr(state.height, "full", DEFAULT_STATE.height),
     device: deviceOf(device) ? device : DEFAULT_STATE.device,
     orientation: oneOf(state.orientation, ORIENTATIONS, DEFAULT_STATE.orientation),
+    // A session stored before the mock draws one.
+    mock: bool(state.mock, DEFAULT_STATE.mock),
+    // A session stored before the touch pointer has the mouse act as a finger.
+    touchPointer: bool(state.touchPointer, DEFAULT_STATE.touchPointer),
+    // A session stored before the browser bars shows the device's browser.
+    browser: oneOf(state.browser, BROWSERS, DEFAULT_STATE.browser),
+    // One stored when the bars were a minimized flag keeps them minimized.
+    bars: state.browserMin === true ? "minimized" : oneOf(state.bars, BARS, DEFAULT_STATE.bars),
+    // A session stored before the switch draws the page under Safari's bars.
+    edgeToEdge: bool(state.edgeToEdge, DEFAULT_STATE.edgeToEdge),
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     // A session stored before the zoom knob fits the frame, as it did then.
@@ -192,6 +223,8 @@ export function parse(json: string | null | undefined): DevknobsState {
     },
     overflow: bool(state.overflow, DEFAULT_STATE.overflow),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
+    // A session stored before grab had a color to pick lets grab pick it.
+    grabColor: oneOf(state.grabColor, GRAB_COLORS, DEFAULT_STATE.grabColor),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),
       y: panelY,

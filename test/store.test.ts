@@ -31,6 +31,11 @@ describe("parse", () => {
         height: "tall",
         device: "pixel-42",
         orientation: "sideways",
+        mock: "no",
+        touchPointer: "no",
+        browser: "floating",
+        bars: "sometimes",
+        edgeToEdge: "yes",
         frame: true,
         dpr: 2,
         zoom: "huge",
@@ -38,6 +43,7 @@ describe("parse", () => {
         ua: { preset: "iphone-safari", custom: 3 },
         overflow: true,
         outlines: "yes",
+        grabColor: "teal",
         panel: {
           open: false,
           y: 40,
@@ -67,6 +73,11 @@ describe("parse", () => {
       height: "full",
       device: "none",
       orientation: "portrait",
+      mock: true,
+      touchPointer: true,
+      browser: "auto",
+      bars: "auto",
+      edgeToEdge: true,
       frame: true,
       dpr: 2,
       zoom: "fit",
@@ -74,6 +85,7 @@ describe("parse", () => {
       ua: { preset: "iphone-safari", custom: "" },
       overflow: true,
       outlines: false,
+      grabColor: "auto",
       panel: {
         open: false,
         y: 40,
@@ -83,6 +95,16 @@ describe("parse", () => {
         pinned: ["scheme", "clock"],
       },
     });
+  });
+
+  test("lets grab pick its color, and keeps one stored", () => {
+    expect(DEFAULT_STATE.grabColor).toBe("auto");
+    expect(parse(JSON.stringify({ scheme: "dark" })).grabColor).toBe("auto");
+    expect(parse(JSON.stringify({ grabColor: "magenta" })).grabColor).toBe("auto");
+    expect(parse(JSON.stringify({ grabColor: 3 })).grabColor).toBe("auto");
+    for (const color of ["auto", "blue", "green", "pink", "orange", "purple", "cyan"] as const) {
+      expect(parse(JSON.stringify({ grabColor: color })).grabColor).toBe(color);
+    }
   });
 
   test("starts the panel closed, and keeps one stored open", () => {
@@ -96,6 +118,45 @@ describe("parse", () => {
     const stored = { width: 874, height: 402, device: "iphone-16-pro", orientation: "landscape" };
     expect(parse(JSON.stringify(stored))).toMatchObject(stored);
     expect(parse(JSON.stringify({ height: 0 })).height).toBe("full");
+  });
+
+  test("keeps the size of a stored device that is no longer a preset, as a plain frame", () => {
+    const stored = { width: 390, height: 844, device: "iphone-14", orientation: "portrait" };
+    expect(parse(JSON.stringify(stored))).toMatchObject({ ...stored, device: "none" });
+    const galaxy = { width: 360, height: 780, device: "galaxy-s25", orientation: "portrait" };
+    expect(parse(JSON.stringify(galaxy))).toMatchObject({ ...galaxy, device: "none" });
+    for (const id of ["iphone-16", "iphone-16-pro", "iphone-16-pro-max", "iphone-se"]) {
+      expect(parse(JSON.stringify({ device: id })).device).toBe(id);
+    }
+  });
+
+  test("draws a mock when the session predates it, and keeps one turned off", () => {
+    expect(parse(JSON.stringify({ device: "pixel-9" })).mock).toBe(true);
+    expect(parse(JSON.stringify({ mock: false })).mock).toBe(false);
+  });
+
+  test("has the mouse act as a finger when the session predates it, and keeps it turned off", () => {
+    expect(parse(JSON.stringify({ device: "pixel-9" })).touchPointer).toBe(true);
+    expect(parse(JSON.stringify({ touchPointer: false })).touchPointer).toBe(false);
+  });
+
+  test("shows the device's browser following the scroll when the session predates it, and keeps a pick", () => {
+    expect(DEFAULT_STATE.browser).toBe("auto");
+    expect(DEFAULT_STATE.bars).toBe("auto");
+    expect(parse(JSON.stringify({ device: "pixel-9" })).browser).toBe("auto");
+    expect(parse(JSON.stringify({ device: "pixel-9" })).bars).toBe("auto");
+    for (const browser of ["auto", "compact", "bottom", "top", "off"] as const) {
+      expect(parse(JSON.stringify({ browser })).browser).toBe(browser);
+    }
+    for (const bars of ["auto", "expanded", "minimized"] as const) {
+      expect(parse(JSON.stringify({ bars })).bars).toBe(bars);
+    }
+    expect(DEFAULT_STATE.edgeToEdge).toBe(true);
+    expect(parse(JSON.stringify({ device: "iphone-16" })).edgeToEdge).toBe(true);
+    expect(parse(JSON.stringify({ edgeToEdge: false })).edgeToEdge).toBe(false);
+    // A session from when the bars were a minimized flag.
+    expect(parse(JSON.stringify({ browserMin: true })).bars).toBe("minimized");
+    expect(parse(JSON.stringify({ browserMin: false })).bars).toBe("auto");
   });
 
   test("fits the frame when the session predates the zoom, and keeps a zoom in reason", () => {

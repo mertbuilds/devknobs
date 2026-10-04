@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { apply, reset } from "../src/engine/time";
 import {
+  chipKey,
   dragTarget,
   dragTo,
   HOST_STYLE,
+  keyChips,
   overflowBadge,
   PANEL_GAP,
   type Place,
@@ -17,8 +19,8 @@ import { CSS } from "../src/ui/styles";
 
 describe("overflowBadge", () => {
   test("counts while the overflow knob is on", () => {
-    expect(overflowBadge(true, 0)).toBe(" · 0 overflowing");
-    expect(overflowBadge(true, 2)).toBe(" · 2 overflowing");
+    expect(overflowBadge(true, 0)).toBe("0 overflowing");
+    expect(overflowBadge(true, 2)).toBe("2 overflowing");
   });
 
   test("says nothing while the knob is off", () => {
@@ -28,6 +30,53 @@ describe("overflowBadge", () => {
 
   test("says nothing before the frame reports a count", () => {
     expect(overflowBadge(true, null)).toBe("");
+  });
+});
+
+describe("chipKey", () => {
+  test("a mac label stays as it is", () => {
+    expect(chipKey("⌘C")).toBe("⌘C");
+    expect(chipKey("⌥⇧G")).toBe("⌥⇧G");
+  });
+
+  test("names off a mac are spaced and capped", () => {
+    expect(chipKey("ctrl+C")).toBe("Ctrl C");
+    expect(chipKey("alt+shift+G")).toBe("Alt Shift G");
+  });
+
+  test("a plus that is the key stays", () => {
+    expect(chipKey("ctrl++")).toBe("Ctrl +");
+  });
+});
+
+describe("keyChips", () => {
+  test("the hotkey, search, grab, replay and reset, most used first", () => {
+    expect(keyChips("d", "⌘C", true)).toEqual([
+      { command: "panel", key: "d", word: "panel" },
+      { command: "search", key: "/", word: "search" },
+      { command: "grab", key: "⌘C", word: "grab" },
+      { command: "replay", key: "r", word: "replay animations" },
+      { command: "reset", key: "⇧⌫", word: "reset" },
+    ]);
+  });
+
+  test("the hotkey that was set, and the keys off a mac", () => {
+    expect(keyChips("k", "ctrl+C", false).map((chip) => chip.key)).toEqual([
+      "k",
+      "/",
+      "Ctrl C",
+      "r",
+      "Shift Backspace",
+    ]);
+  });
+
+  test("no grab chip with no grab", () => {
+    expect(keyChips("d", null, true).map((chip) => chip.command)).toEqual([
+      "panel",
+      "search",
+      "replay",
+      "reset",
+    ]);
   });
 });
 

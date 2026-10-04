@@ -24,6 +24,57 @@ describe("DEVICES", () => {
     }
   });
 
+  test("lists the iPhones newest first, each at its own size and ratio", () => {
+    const iphones = DEVICES.filter((device) => device.id.startsWith("iphone-"));
+    expect(iphones.map(({ id, width, height, dpr }) => `${id} ${width}x${height}@${dpr}`)).toEqual([
+      "iphone-18-pro 402x874@3",
+      "iphone-18-pro-max 440x956@3",
+      "iphone-duo-closed 466x678@3",
+      "iphone-duo-open 669x951@3",
+      "iphone-air 420x912@3",
+      "iphone-17 402x874@3",
+      "iphone-17-pro 402x874@3",
+      "iphone-17-pro-max 440x956@3",
+      "iphone-16 393x852@3",
+      "iphone-16-plus 430x932@3",
+      "iphone-16-pro 402x874@3",
+      "iphone-16-pro-max 440x956@3",
+      "iphone-se 375x667@2",
+    ]);
+    expect(DEVICES.slice(0, iphones.length)).toEqual(iphones);
+  });
+
+  test("lists the Pixels newest first, each at its own size and ratio", () => {
+    const android = DEVICES.filter((device) => device.ua === "android-chrome");
+    expect(android.map(({ id, width, height, dpr }) => `${id} ${width}x${height}@${dpr}`)).toEqual([
+      "pixel-10 412x924@2.625",
+      "pixel-10-pro 427x952@3",
+      "pixel-10-pro-xl 448x998@3",
+      "pixel-10a 412x924@2.625",
+      "pixel-9 412x924@2.625",
+      "pixel-9-pro 427x952@3",
+      "pixel-9-pro-xl 448x998@3",
+    ]);
+  });
+
+  test("gives each Pixel the size of its panel at its ratio, rounded up", () => {
+    const panels: [string, number, number][] = [
+      ["pixel-10", 1080, 2424],
+      ["pixel-10-pro", 1280, 2856],
+      ["pixel-10-pro-xl", 1344, 2992],
+      ["pixel-10a", 1080, 2424],
+      ["pixel-9", 1080, 2424],
+      ["pixel-9-pro", 1280, 2856],
+      ["pixel-9-pro-xl", 1344, 2992],
+    ];
+    for (const [id, across, down] of panels) {
+      const device = deviceOf(id);
+      if (!device) throw new Error(`no device ${id}`);
+      expect(device.width).toBe(Math.ceil(across / device.dpr - 1e-9));
+      expect(device.height).toBe(Math.ceil(down / device.dpr - 1e-9));
+    }
+  });
+
   test("knows a device by id, and its touch screen", () => {
     expect(deviceOf("iphone-16-pro")).toMatchObject({ width: 402, height: 874, dpr: 3 });
     expect(deviceOf("none")).toBeUndefined();
@@ -92,6 +143,21 @@ describe("a device", () => {
     expect(merge(desk, { device: "iphone-16" })).toMatchObject({
       width: 393,
       height: 852,
+      orientation: "portrait",
+    });
+  });
+
+  test("the open iPhone Duo comes up across, and upright after a phone held upright", () => {
+    expect(state({ device: "iphone-duo-open" })).toMatchObject({
+      width: 951,
+      height: 669,
+      orientation: "landscape",
+    });
+    const upright = state({ device: "iphone-duo-closed" });
+    expect(upright).toMatchObject({ width: 466, height: 678, orientation: "portrait" });
+    expect(merge(upright, { device: "iphone-duo-open" })).toMatchObject({
+      width: 669,
+      height: 951,
       orientation: "portrait",
     });
   });

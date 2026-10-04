@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
+  frameForced,
   framed,
   isDevknobsFrame,
   nativeScheme,
@@ -72,6 +73,22 @@ describe("needsFrame", () => {
   });
 });
 
+describe("frameForced", () => {
+  test("is true where a size, a ratio or a vision deficiency holds the frame up", () => {
+    expect(frameForced({ ...UNFRAMED, width: 390 })).toBe(true);
+    expect(frameForced({ ...UNFRAMED, height: 700 })).toBe(true);
+    expect(frameForced({ ...UNFRAMED, dpr: 2 })).toBe(true);
+    expect(frameForced({ ...UNFRAMED, vision: "blur" })).toBe(true);
+    expect(frameForced({ ...UNFRAMED, width: 390, frame: true })).toBe(true);
+  });
+
+  test("is false where only the frame knob could bring it up", () => {
+    expect(frameForced(UNFRAMED)).toBe(false);
+    expect(frameForced({ ...UNFRAMED, frame: true })).toBe(false);
+    expect(frameForced({ ...UNFRAMED, width: 0, dpr: 0 })).toBe(false);
+  });
+});
+
 describe("readMessage", () => {
   const parent = {};
 
@@ -114,6 +131,13 @@ describe("readMessage", () => {
       type: "key",
       action: "close",
     });
+    for (const action of ["replay", "reset", "search"] as const) {
+      expect(from({ source: "devknobs", type: "key", action })).toEqual({
+        source: "devknobs",
+        type: "key",
+        action,
+      });
+    }
     expect(from({ source: "devknobs", type: "ready" })).toEqual({
       source: "devknobs",
       type: "ready",
@@ -134,6 +158,21 @@ describe("readMessage", () => {
     expect(from({ source: "devknobs", type: "overflow", count: 1.5 })).toBeNull();
     expect(from({ source: "devknobs", type: "overflow", count: "3" })).toBeNull();
     expect(from({ source: "devknobs", type: "overflow" })).toBeNull();
+  });
+
+  test("reads grab going on and off, and the scheme to draw it in", () => {
+    expect(from({ source: "devknobs", type: "grab", on: true, scheme: "dark" })).toEqual({
+      source: "devknobs",
+      type: "grab",
+      on: true,
+      scheme: "dark",
+    });
+    expect(from({ source: "devknobs", type: "grab", on: false, scheme: "blue" })).toEqual({
+      source: "devknobs",
+      type: "grab",
+      on: false,
+    });
+    expect(from({ source: "devknobs", type: "grab", on: "yes" })).toBeNull();
   });
 
   test("refuses another origin or another window", () => {

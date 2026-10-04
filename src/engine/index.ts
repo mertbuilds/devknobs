@@ -18,12 +18,14 @@ import * as outlines from "./outlines";
 import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
 import { replay as replayAnimations } from "./replay";
+import * as scrollbars from "./scrollbars";
 import * as spacing from "./spacing";
 import * as speed from "./speed";
 import { DEFAULT_STATE, load, merge, resetState, save } from "./store";
 import * as text from "./text";
 import * as time from "./time";
 import * as touch from "./touch";
+import * as touchPointer from "./touchpointer";
 import * as ua from "./ua";
 import * as width from "./width";
 
@@ -72,6 +74,8 @@ export function applyState(next: DevknobsState): void {
   // A ua preset reports `maxTouchPoints` for its own browser, so the touch
   // screen only does while the ua knob has none.
   touch.apply({ on: touchScreen, points: ua.uaPreset(state.ua.preset) === undefined });
+  touchPointer.apply(touchScreen && state.touchPointer);
+  scrollbars.apply(touchScreen);
   speed.apply(state.speed);
   locale.apply(state.locale);
   pseudo.apply(state.pseudo);
@@ -148,6 +152,8 @@ export function stop(): void {
   width.onZoom(null);
   media.destroy();
   touch.reset();
+  touchPointer.reset();
+  scrollbars.reset();
   speed.reset();
   locale.reset();
   pseudo.reset();

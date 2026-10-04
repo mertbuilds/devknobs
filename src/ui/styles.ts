@@ -84,7 +84,7 @@ button {
   cursor: pointer;
 }
 :focus { outline: none; }
-button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
+button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 
 .handle {
   flex: none;
@@ -166,7 +166,6 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   cursor: text;
 }
 .head:focus-within { box-shadow: inset 0 0 0 1px var(--line); }
-.name { flex: none; font-size: 11px; color: var(--faint); }
 .search { flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; }
 .search::placeholder { color: var(--faint); }
 /* 4 in from the search's edges, so 4 round. */
@@ -280,6 +279,18 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 }
 .seg-item:hover { color: var(--fg); }
 .seg-item.on { color: var(--fg); background: var(--raised); box-shadow: var(--lift); }
+
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 3px 5px; }
+.swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 3px transparent;
+  transition: box-shadow 120ms ease-out;
+}
+.swatch:hover { box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--faint); }
+.swatch.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--fg); }
+.swatch:focus-visible { outline-offset: 4px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip {
@@ -413,19 +424,46 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   flex: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
+  gap: 8px;
   margin-top: 4px;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--line);
 }
-.act { color: var(--faint); transition: color 120ms ease-out; }
-.act + .act { margin-left: 12px; }
-.act:hover { color: var(--fg); }
-.act:disabled { cursor: default; opacity: 0.5; }
-.act:disabled:hover { color: var(--faint); }
 .badge { color: var(--faint); }
 .badge.hot { color: var(--hot); }
-.meta { font-size: 10px; line-height: 1.4; color: var(--faint); }
-.foot-link { color: inherit; text-decoration: none; }
-.foot-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* The key hints, each a button for what its key does. Where they leave no
+   room, the line wraps. */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+/* A key and its word. Only the key is a box. */
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  border-radius: 4px;
+  transition: color 120ms ease-out;
+}
+.hint:hover { color: var(--fg); }
+.hint:focus-visible { outline-offset: 2px; }
+.hint:disabled { cursor: default; opacity: 0.5; }
+.hint:disabled:hover { color: inherit; }
+.hint-key {
+  box-sizing: border-box;
+  min-width: 14px;
+  padding: 0 3px;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
 `;

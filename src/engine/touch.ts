@@ -1,8 +1,8 @@
 /**
  * A device's touch screen, as scripts look for one: `'ontouchstart' in
  * window`, and `navigator.maxTouchPoints` unless the ua knob reports it. The
- * pointer and hover media queries go through the media knobs. A mouse stays a
- * mouse: no touch events are made from it.
+ * pointer and hover media queries go through the media knobs, and the touch
+ * pointer makes the mouse act as a finger.
  */
 
 /** What iOS reports, and Android mostly too. */
@@ -44,6 +44,29 @@ export function apply(value: TouchValue): void {
     Reflect.deleteProperty(navigator, "maxTouchPoints");
     points = false;
   }
+}
+
+/**
+ * Give another window on this origin a touch screen, from the page above its
+ * frame before the window's own scripts run. A copy of devknobs there then
+ * finds `ontouchstart` in place and leaves it be. The window keeps it until
+ * its next load.
+ */
+export function equip(view: Window, points: boolean): void {
+  if (!("ontouchstart" in view)) {
+    Object.defineProperty(view, "ontouchstart", {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: null,
+    });
+  }
+  if (!points) return;
+  Object.defineProperty(view.navigator, "maxTouchPoints", {
+    configurable: true,
+    enumerable: true,
+    get: () => TOUCH_POINTS,
+  });
 }
 
 export function reset(): void {

@@ -63,6 +63,7 @@ const BUSY = state({
   ua: { preset: "iphone-safari" },
   overflow: true,
   outlines: true,
+  grabColor: "pink",
 });
 
 describe("catalog", () => {
@@ -144,6 +145,7 @@ describe("summary", () => {
       "390 · dpr 2 · deuteranopia",
     );
     expect(says("viewport", { frame: true })).toBe("frame");
+    expect(says("viewport", { frame: true, width: 390 })).toBe("390");
     expect(says("locale", { locale: { lang: "tr" } })).toBe("tr");
     expect(says("locale", { locale: { lang: "ar", dir: "rtl" } })).toBe("ar · rtl");
     expect(says("locale", { locale: { dir: "rtl" } })).toBe("rtl");
@@ -164,6 +166,90 @@ describe("summary", () => {
     expect(says("viewport", { device: "desktop", vision: "blur" })).toBe(
       "desktop · landscape · blur",
     );
+  });
+
+  test("the mock is on while a phone or tablet draws one, and the device says enough", () => {
+    const mock = knobOf("mock");
+    expect(mock.read(state({ device: "iphone-16-pro" }))).toBe("on");
+    expect(mock.read(state({ device: "iphone-16-pro", mock: false }))).toBe("off");
+    expect(mock.read(state({ device: "desktop" }))).toBe("off");
+    expect(mock.read(state({ width: 390, height: 844 }))).toBe("off");
+    expect(mock.offers?.(state({ device: "iphone-16-pro" }))).toEqual(["off", "on"]);
+    expect(mock.offers?.(state({ device: "desktop" }))).toEqual([]);
+    expect(isActive(row("viewport"), state({ mock: false }))).toBe(false);
+    expect(says("viewport", { device: "pixel-9", mock: false })).toBe("Pixel 9 · portrait");
+    expect(resetPatch(row("viewport"))).toMatchObject({ mock: true });
+  });
+
+  test("the touch pointer is on while the device takes touch, and the device says enough", () => {
+    const pointer = knobOf("touchPointer");
+    expect(pointer.read(state({ device: "pixel-9" }))).toBe("on");
+    expect(pointer.read(state({ device: "pixel-9", touchPointer: false }))).toBe("off");
+    expect(pointer.read(state({ device: "desktop" }))).toBe("off");
+    expect(pointer.read(state({ width: 390, height: 844 }))).toBe("off");
+    expect(pointer.offers?.(state({ device: "pixel-9" }))).toEqual(["off", "on"]);
+    expect(pointer.offers?.(state({ device: "desktop" }))).toEqual([]);
+    expect(isActive(row("viewport"), state({ touchPointer: false }))).toBe(false);
+    expect(says("viewport", { device: "ipad-mini", touchPointer: false })).toBe(
+      "iPad mini · portrait",
+    );
+    expect(pointer.write("off", DEFAULT_STATE)).toEqual({ touchPointer: false });
+    expect(resetPatch(row("viewport"))).toMatchObject({ touchPointer: true });
+  });
+
+  test("the browser reads its layout on a phone, its default saying nothing", () => {
+    const browser = knobOf("browser");
+    expect(browser.read(DEFAULT_STATE)).toBe("off");
+    expect(browser.read(state({ device: "iphone-16-pro" }))).toBe("compact");
+    expect(browser.read(state({ device: "pixel-9" }))).toBe("top");
+    expect(browser.read(state({ device: "pixel-9", browser: "compact" }))).toBe("top");
+    expect(browser.read(state({ device: "ipad-mini", browser: "top" }))).toBe("off");
+    expect(browser.offers?.(state({ device: "iphone-se" }))).toEqual([
+      "compact",
+      "bottom",
+      "top",
+      "off",
+    ]);
+    expect(browser.offers?.(state({ device: "pixel-9" }))).toEqual(["top", "bottom", "off"]);
+    expect(browser.offers?.(state({ device: "desktop" }))).toEqual([]);
+    expect(says("viewport", { device: "iphone-16-pro" })).toBe("iPhone 16 Pro · portrait");
+    expect(says("viewport", { device: "iphone-16-pro", browser: "bottom" })).toBe(
+      "iPhone 16 Pro · portrait · bottom",
+    );
+    expect(browser.write("top", DEFAULT_STATE)).toEqual({ browser: "top" });
+    expect(resetPatch(row("viewport"))).toMatchObject({ browser: "auto", bars: "auto" });
+  });
+
+  test("edge to edge is on while Safari is drawn, and offered only then", () => {
+    const edge = knobOf("edgeToEdge");
+    expect(edge.read(DEFAULT_STATE)).toBe("off");
+    expect(edge.read(state({ device: "iphone-16-pro" }))).toBe("on");
+    expect(edge.read(state({ device: "iphone-16-pro", edgeToEdge: false }))).toBe("off");
+    expect(edge.read(state({ device: "pixel-9" }))).toBe("off");
+    expect(edge.offers?.(state({ device: "iphone-se" }))).toEqual(["off", "on"]);
+    expect(edge.offers?.(state({ device: "iphone-se", browser: "off" }))).toEqual([]);
+    expect(edge.offers?.(state({ device: "pixel-9" }))).toEqual([]);
+    expect(says("viewport", { device: "iphone-16-pro", edgeToEdge: false })).toBe(
+      "iPhone 16 Pro · portrait",
+    );
+    expect(resetPatch(row("viewport"))).toMatchObject({ edgeToEdge: true });
+  });
+
+  test("the bars follow the scroll by default, and read so while no browser draws them", () => {
+    const bars = knobOf("bars");
+    expect(bars.options.map((option) => option.value)).toEqual(["auto", "expanded", "minimized"]);
+    expect(bars.read(DEFAULT_STATE)).toBe("auto");
+    expect(bars.read(state({ device: "iphone-16" }))).toBe("auto");
+    expect(bars.read(state({ device: "iphone-16", bars: "minimized" }))).toBe("minimized");
+    expect(bars.read(state({ device: "iphone-16", bars: "minimized", browser: "off" }))).toBe("auto");
+    expect(bars.read(state({ device: "desktop", bars: "expanded" }))).toBe("auto");
+    expect(bars.offers?.(state({ device: "pixel-9" }))).toEqual(["auto", "expanded", "minimized"]);
+    expect(bars.offers?.(state({ device: "pixel-9", browser: "off" }))).toEqual([]);
+    expect(says("viewport", { device: "pixel-9", browser: "bottom", bars: "minimized" })).toBe(
+      "Pixel 9 · portrait · bottom · minimized",
+    );
+    expect(says("viewport", { device: "pixel-9", bars: "auto" })).toBe("Pixel 9 · portrait");
+    expect(bars.write("expanded", DEFAULT_STATE)).toEqual({ bars: "expanded" });
   });
 
   test("a zoom off fit says its percent", () => {
@@ -364,6 +450,45 @@ describe("the device knob", () => {
       "laptop",
       "desktop",
     ]);
+  });
+});
+
+describe("grab color", () => {
+  const knob = knobOf("grabColor");
+
+  test("is a row of its own, with a swatch for auto and for each color", () => {
+    expect(rowOf("grabColor")).toEqual({
+      id: "grabColor",
+      label: "grab color",
+      knobs: ["grabColor"],
+    });
+    expect(knob.control).toBe("swatches");
+    expect(knob.options.map((option) => option.value)).toEqual([
+      "auto",
+      "blue",
+      "green",
+      "pink",
+      "orange",
+      "purple",
+      "cyan",
+    ]);
+    for (const option of knob.options) expect(option.swatch).toBeTruthy();
+    expect(knob.options.find((option) => option.value === "pink")?.swatch).toBe(
+      "rgb(210, 57, 192)",
+    );
+  });
+
+  test("reads and writes the state, and goes back to auto", () => {
+    expect(knob.read(DEFAULT_STATE)).toBe("auto");
+    const pink = merge(DEFAULT_STATE, knob.write("pink", DEFAULT_STATE));
+    expect(pink.grabColor).toBe("pink");
+    expect(merge(pink, knob.reset).grabColor).toBe("auto");
+  });
+
+  test("says the name of the color in its row", () => {
+    expect(says("grabColor", { grabColor: "pink" })).toBe("pink");
+    expect(says("grabColor", { grabColor: "blue" })).toBe("blue");
+    expect(says("grabColor", { grabColor: "auto" })).toBe("");
   });
 });
 

@@ -23,13 +23,26 @@ function isEditable(node: EventTarget | null): boolean {
   return isTyping(node) || (node as HTMLElement | null)?.tagName === "SELECT";
 }
 
-/** What a keydown asks of the panel, if anything. Typing in a field never asks. */
+/** The key that replays the page's animations. */
+export const REPLAY_KEY = "r";
+
+/** The keys that with shift reset every knob, delete the same as backspace. */
+const RESET_KEYS = new Set(["Backspace", "Delete"]);
+
+/**
+ * What a keydown asks of the panel, if anything. Typing in a field never asks.
+ * `r` replays the animations, which the hotkey wins over, and shift backspace
+ * resets.
+ */
 export function keyAction(event: KeyLike, hotkey: string): KeyAction | null {
   if (event.key === "Escape") return "close";
-  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
+  if (event.altKey || event.ctrlKey || event.metaKey) return null;
   const target = event.composedPath?.()[0] ?? event.target;
   if (isEditable(target)) return null;
-  return event.key.toLowerCase() === hotkey ? "toggle" : null;
+  const key = event.key.toLowerCase();
+  if (event.shiftKey) return RESET_KEYS.has(event.key) ? "reset" : null;
+  if (key === hotkey) return "toggle";
+  return key === REPLAY_KEY ? "replay" : null;
 }
 
 /**
@@ -81,17 +94,58 @@ export function escapeStep(scene: EscapeScene): EscapeStep {
 }
 
 /**
+ * Where the search's highlight sits among `count` entries: on the first for a
+ * new query, else where it was, held inside the entries. -1 with no entries.
+ */
+export function highlightAt(cursor: number, count: number, newQuery = false): number {
+  return Math.min(Math.max(newQuery ? 0 : cursor, 0), count - 1);
+}
+
+/** Where a key in the search puts the highlight, and whether it picks the entry there. */
+export interface PaletteMove {
+  cursor: number;
+  pick: boolean;
+}
+
+/**
+ * The arrows move the search's highlight one entry, held at the ends, and
+ * Enter picks the entry it is on. Every other key is the field's.
+ */
+export function paletteMove(key: string, cursor: number, count: number): PaletteMove | null {
+  if (key === "ArrowDown" || key === "ArrowUp") {
+    return { cursor: highlightAt(cursor + (key === "ArrowDown" ? 1 : -1), count), pick: false };
+  }
+  if (key === "Enter") return { cursor: highlightAt(cursor, count), pick: count > 0 };
+  return null;
+}
+
+/**
+ * Where a key moves the choice in a radio group of `count`: right or down to
+ * the next, left or up to the one before, round past the ends, Home and End
+ * to the ends. Null for every other key.
+ */
+export function radioMove(key: string, index: number, count: number): number | null {
+  if (count === 0) return null;
+  if (key === "ArrowRight" || key === "ArrowDown") return (index + 1) % count;
+  if (key === "ArrowLeft" || key === "ArrowUp") return (index - 1 + count) % count;
+  if (key === "Home") return 0;
+  return key === "End" ? count - 1 : null;
+}
+
+/**
  * Inside the width knob's frame the keys stay in the frame while it has focus,
  * so send the panel's keys up to the page that has the panel, and the zoom
- * keys up to the letterbox, which the browser's own zoom does not get. Returns
- * the way to stop.
+ * keys up to the letterbox, which the browser's own zoom does not get. `/`
+ * goes up while the panel is open, as it does on the page, and is then typed
+ * nowhere. Returns the way to stop.
  */
-export function forwardKeys(hotkey?: string): () => void {
+export function forwardKeys(hotkey?: string, open: () => boolean = () => true): () => void {
   const key = hotkeyOf(hotkey);
   function onKeydown(event: KeyboardEvent): void {
     const zoom = zoomAction(event);
-    if (zoom) event.preventDefault();
-    const action = keyAction(event, key) ?? zoom;
+    const search = isSearchKey(event) && open();
+    if (zoom || search) event.preventDefault();
+    const action = keyAction(event, key) ?? zoom ?? (search ? "search" : null);
     if (action) post(window.parent, { source: "devknobs", type: "key", action });
   }
   window.addEventListener("keydown", onKeydown, true);

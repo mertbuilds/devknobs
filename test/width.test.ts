@@ -1,7 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { DEVICES, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
-import { apply, fit, label, onZoom, origin, reset, STRIP, zoomKey } from "../src/engine/width";
+import { patchedAs } from "../src/engine/identity";
+import { mockOf } from "../src/engine/mock";
+import { DEFAULT_STATE, merge } from "../src/engine/store";
+import {
+  apply,
+  fit,
+  label,
+  onZoom,
+  origin,
+  reset,
+  STRIP,
+  sync,
+  zoomKey,
+} from "../src/engine/width";
 import type { ZoomValue } from "../src/types";
 
 /** A letterbox that leaves 1200 by 800 under its readout strip. */
@@ -31,9 +44,9 @@ describe("fit", () => {
   test("is the whole window at full size, with no strip and no margin", () => {
     expect(fit(FULL, BOX)).toMatchObject({
       width: 1200,
-      height: 824,
+      height: 800 + STRIP,
       scale: 1,
-      box: { width: 1200, height: 824 },
+      box: { width: 1200, height: 800 + STRIP },
       left: 0,
       top: 0,
     });
@@ -154,6 +167,72 @@ describe("fit", () => {
     expect(fit(DESKTOP, narrow, { aside: PANEL })).toEqual(fit(DESKTOP, narrow));
   });
 
+  test("fits the whole mock, and places the frame inside it at its css size", () => {
+    const mock = { top: 12, right: 14, bottom: 12, left: 14 };
+    const place = fit(PHONE, BOX, { mock });
+    expect(place).toMatchObject({ width: 402, height: 874 });
+    expect(place.scale).toBeCloseTo(752 / 898);
+    expect(place.box.height).toBeCloseTo(800);
+    expect(place.box.width).toBeCloseTo(430 * place.scale + 48);
+    expect(place.left).toBeCloseTo(24 + 14 * place.scale);
+    expect(place.top).toBeCloseTo(24 + 12 * place.scale);
+    const zoomed = fit({ ...PHONE, zoom: 1 }, BOX, { mock });
+    expect(zoomed.box).toEqual({ width: 430 + 48, height: 898 + 48 });
+    expect(zoomed).toMatchObject({ left: 38, top: 36 });
+  });
+
+  test("fits the iPhone SE's tall forehead and chin, its frame still at its css size", () => {
+    const mock = mockOf("iphone-se", "portrait");
+    const inset = mock?.inset;
+    const place = fit({ width: 375, height: 667, zoom: "fit" }, BOX, { mock: inset });
+    expect(place).toMatchObject({ width: 375, height: 667 });
+    expect(place.scale).toBeCloseTo(752 / (mock?.height ?? 0));
+    expect(place.top).toBeCloseTo(24 + 110.2 * place.scale);
+    const margin = (place.box.width - (mock?.width ?? 0) * place.scale) / 2;
+    expect(place.left).toBeCloseTo(margin + (inset?.left ?? 0) * place.scale);
+    const zoomed = fit({ width: 375, height: 667, zoom: 1 }, BOX, { mock: inset });
+    expect(zoomed.box.height).toBeCloseTo(887.5 + 48);
+    expect(zoomed.left).toBeCloseTo(24 + 28.1 + 2.6);
+  });
+
+  test("shows every mock whole with a margin, either way up, beside the panel too", () => {
+    const windows = [
+      { width: 1200, height: 805 },
+      { width: 1440, height: 900 },
+      { width: 800, height: 600 },
+      { width: 390, height: 700 },
+    ];
+    for (const device of DEVICES) {
+      for (const way of ["portrait", "landscape"] as const) {
+        const mock = mockOf(device.id, way);
+        if (!mock) continue;
+        const size = turn(device, way);
+        for (const letterbox of windows) {
+          for (const aside of [0, PANEL]) {
+            const place = fit({ ...size, zoom: "fit" }, letterbox, { aside, mock: mock.inset });
+            const margin = place.left - mock.inset.left * place.scale;
+            expect(place.box.width).toBeLessThanOrEqual(letterbox.width + 1e-9);
+            expect(place.box.height).toBeLessThanOrEqual(letterbox.height - STRIP + 1e-9);
+            expect(margin).toBeGreaterThan(0);
+            expect(mock.width * place.scale + 2 * margin).toBeLessThanOrEqual(
+              place.box.width + 1e-9,
+            );
+            const top = place.top - mock.inset.top * place.scale;
+            expect(mock.height * place.scale + 2 * top).toBeCloseTo(place.box.height);
+          }
+        }
+      }
+    }
+  });
+
+  test("keeps a mocked frame clear of the open panel", () => {
+    const mock = mockOf("ipad-pro-13", "landscape")?.inset;
+    const size = turn({ width: 1032, height: 1376 }, "landscape");
+    const place = fit({ ...size, zoom: "fit" }, BOX, { aside: PANEL, mock });
+    const right = place.left + (size.width + (mock?.right ?? 0)) * place.scale;
+    expect(right + 24).toBeLessThanOrEqual(1200 - PANEL + 1e-9);
+  });
+
   test("leaves the scale alone when there is no room to measure", () => {
     expect(fit(FULL, { width: 0, height: 0 }).scale).toBe(1);
     expect(fit({ ...FULL, width: 390, height: 844 }, { width: 0, height: 0 }).scale).toBe(1);
@@ -188,6 +267,12 @@ describe("label", () => {
     expect(label(fit(PHONE, BOX), phone)).toBe("iPhone 16 Pro · 402 × 874 · 3x");
     const desk = { dpr: 1, height: 1080, device: "desktop" };
     expect(label(fit(DESKTOP, BOX), desk)).toBe("desktop · 1920 × 1080 · 1x");
+  });
+
+  test("names the page a phone's browser leaves, with the device", () => {
+    const phone = { dpr: 3, height: 874, device: "iphone-16-pro" };
+    const page = { width: 402, height: 714 };
+    expect(label(fit(PHONE, BOX), phone, page)).toBe("iPhone 16 Pro · 402 × 714 · 3x");
   });
 });
 
@@ -264,6 +349,19 @@ class FakeElement extends EventTarget {
     this.append(...nodes);
   }
 
+  prepend(node: FakeElement): void {
+    node.parent = this;
+    this.children.unshift(node);
+  }
+
+  replaceWith(node: FakeElement): void {
+    const siblings = this.parent?.children;
+    if (!siblings) return;
+    node.parent = this.parent;
+    siblings.splice(siblings.indexOf(this), 1, node);
+    this.parent = null;
+  }
+
   appendChild(node: FakeElement): FakeElement {
     this.append(node);
     return node;
@@ -327,6 +425,11 @@ const KNOBS = {
   ...UNFRAMED,
   scheme: "system",
   device: "none",
+  orientation: "portrait",
+  mock: true,
+  browser: "auto",
+  bars: "auto",
+  edgeToEdge: true,
   zoom: "fit",
   panel: { open: false },
 } as const;
@@ -338,6 +441,8 @@ let head: FakeElement;
 let location: { href: string; origin: string; assign: (url: string) => void };
 /** Where the window was sent, and every `scrollTo`. */
 let assigned: string[];
+/** How many times the frame's page was reloaded. */
+let reloads: number;
 let scrolls: ScrollToOptions[];
 
 function define(name: string, value: unknown): void {
@@ -358,14 +463,108 @@ function widthStyle(): FakeElement | undefined {
   return head.children.find((element) => element.getAttribute("data-devknobs") === "width");
 }
 
-/** The frame's page loads at `href`, on this origin. */
-function load(href: string): void {
+/** A document in the frame, as far as the frame and the patches read one. */
+function fakeDocument(href: string) {
+  return {
+    URL: href,
+    title: "billing",
+    head: new FakeElement("HEAD"),
+    documentElement: new FakeElement("HTML"),
+    querySelector: () => null,
+    createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
+  };
+}
+
+/**
+ * The frame's window as the page above holds it: one object for good, where
+ * each new page brings its own listeners, navigation and patches, as a real
+ * page's window does. The first page takes the blank one over, patches and
+ * all. A page on another origin cannot be read or listened to.
+ */
+class FakeView extends EventTarget {
+  location = { href: "about:blank", reload: () => reloads++ };
+  navigator = {};
+  history = { pushState: () => {}, replaceState: () => {} };
+  navigation: EventTarget | undefined = new EventTarget();
+  /** Another origin's page is in the frame. */
+  foreign = false;
+  private page = fakeDocument("about:blank");
+  private listeners: [string, EventListenerOrEventListenerObject | null][] = [];
+
+  constructor(private readonly withNavigation = true) {
+    super();
+    if (!withNavigation) this.navigation = undefined;
+  }
+
+  get document() {
+    if (this.foreign) throw new Error("SecurityError");
+    return this.page;
+  }
+
+  override addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: AddEventListenerOptions | boolean,
+  ): void {
+    if (this.foreign) throw new Error("SecurityError");
+    this.listeners.push([type, listener]);
+    super.addEventListener(type, listener, options);
+  }
+
+  matchMedia(query: string) {
+    return { matches: false, media: query };
+  }
+
+  postMessage(): void {}
+
+  /** The page sets off for `href`, a cross-document navigation unless `same`. */
+  navigate(href: string, same = false): void {
+    const event = Object.assign(new Event("navigate", { cancelable: true }), {
+      destination: { url: href, sameDocument: same },
+      downloadRequest: null,
+    });
+    if (this.navigation) this.navigation.dispatchEvent(event);
+    else if (!same) this.dispatchEvent(new Event("beforeunload"));
+  }
+
+  /** The next page takes over at `href`. Off this origin, nothing of it can be read. */
+  commit(href: string, origin: "same" | "other" = "same"): void {
+    const blank = this.location.href === "about:blank";
+    if (!blank && !this.foreign) this.dispatchEvent(new Event("pagehide"));
+    if (!blank) {
+      for (const [type, listener] of this.listeners) super.removeEventListener(type, listener);
+      this.listeners = [];
+      for (const key of Object.getOwnPropertySymbols(this)) Reflect.deleteProperty(this, key);
+      Reflect.deleteProperty(this, "ontouchstart");
+      this.navigator = {};
+      if (this.withNavigation) this.navigation = new EventTarget();
+    }
+    this.foreign = origin === "other";
+    this.location.href = href;
+    this.page = fakeDocument(href);
+  }
+}
+
+let view: FakeView;
+
+/** The frame's window, blank, in the frame that just came up. */
+function attach(withNavigation = true): FakeView {
   const frame = frameElement();
-  Object.assign(frame, {
-    contentWindow: { location: { href }, navigation: new EventTarget() },
-    contentDocument: { title: "billing", head: new FakeElement("HEAD") },
+  view = new FakeView(withNavigation);
+  Object.defineProperty(frame, "contentWindow", { configurable: true, value: view });
+  Object.defineProperty(frame, "contentDocument", {
+    configurable: true,
+    get: () => (view.foreign ? null : view.document),
   });
-  frame.dispatchEvent(new Event("load"));
+  return view;
+}
+
+/** The frame's page comes in at `href`, runs its scripts a task later, and loads. */
+async function load(href: string, origin: "same" | "other" = "same"): Promise<void> {
+  if (!Reflect.get(frameElement(), "contentWindow")) attach();
+  view.commit(href, origin);
+  await Bun.sleep(1);
+  frameElement().dispatchEvent(new Event("load"));
 }
 
 beforeEach(() => {
@@ -373,6 +572,7 @@ beforeEach(() => {
   head = new FakeElement("HEAD");
   assigned = [];
   scrolls = [];
+  reloads = 0;
   location = { href: PAGE, origin: "http://localhost:3000", assign: (url) => assigned.push(url) };
   define("window", {
     location,
@@ -382,6 +582,7 @@ beforeEach(() => {
     devicePixelRatio: 1,
     scrollTo: (options: ScrollToOptions) => scrolls.push(options),
     requestAnimationFrame: () => 0,
+    setTimeout: () => 0,
     addEventListener: () => {},
     removeEventListener: () => {},
   });
@@ -391,6 +592,7 @@ beforeEach(() => {
     title: "settings",
     createElement: (tag: string) =>
       tag === "dialog" ? new FakeDialog() : new FakeElement(tag.toUpperCase()),
+    createElementNS: (_namespace: string, tag: string) => new FakeElement(tag),
     querySelector: (selector: string) =>
       selector === 'style[data-devknobs="width"]' ? (widthStyle() ?? null) : null,
     querySelectorAll: (selector: string) =>
@@ -511,17 +713,17 @@ describe("the frame over the page", () => {
     expect(zooms).toEqual([1.1, 0.9, "fit"]);
   });
 
-  test("puts the page's own address back over the frame's", () => {
+  test("puts the page's own address back over the frame's", async () => {
     apply(VIEWPORT);
-    load(FRAMED);
+    await load(FRAMED);
     expect(location.href).toBe(FRAMED);
     reset();
     expect(location.href).toBe(PAGE);
   });
 
-  test("leaves the address alone once the window went back to another entry", () => {
+  test("leaves the address alone once the window went back to another entry", async () => {
     apply(VIEWPORT);
-    load(FRAMED);
+    await load(FRAMED);
     location.href = EARLIER;
     reset();
     expect(location.href).toBe(EARLIER);
@@ -534,20 +736,214 @@ describe("the frame over the page", () => {
     expect(assigned).toEqual([]);
   });
 
-  test("sends the window after the frame instead, when the knobs go off", () => {
+  test("sends the window after the frame instead, when the knobs go off", async () => {
     apply(VIEWPORT);
-    load(FRAMED);
+    await load(FRAMED);
     apply(KNOBS);
     expect(assigned).toEqual([FRAMED]);
     expect(scrolls).toEqual([]);
   });
 
-  test("stays on the entry the window went back to, when the knobs go off", () => {
+  test("stays on the entry the window went back to, when the knobs go off", async () => {
     apply(VIEWPORT);
-    load(FRAMED);
+    await load(FRAMED);
     location.href = EARLIER;
     apply(KNOBS);
     expect(assigned).toEqual([]);
     expect(location.href).toBe(EARLIER);
+  });
+});
+
+/** A phone with no ratio and no browser drawn, which the fakes cannot measure or draw. */
+const PHONE_KNOBS = { device: "iphone-16-pro", dpr: "system", browser: "off" } as const;
+
+describe("a phone's body", () => {
+  /** An image that settles a task after it is asked for, the way `ok` says. */
+  function fakeImage(ok: boolean): void {
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => (ok ? this.onload : this.onerror)?.());
+      }
+    }
+    define("Image", FakeImage);
+  }
+
+  function mockDrawing(): FakeElement {
+    const drawing = everything().find((element) => element.getAttribute("class") === "mock");
+    if (!drawing) throw new Error("no mock");
+    return drawing;
+  }
+
+  function glass(): FakeElement {
+    const found = everything().find((element) =>
+      String(Reflect.get(element, "className")).startsWith("glass"),
+    );
+    if (!found) throw new Error("no glass");
+    return found;
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "Image");
+  });
+
+  test("is Apple's bezel image once it has loaded, with the frame where it was before", async () => {
+    fakeImage(true);
+    apply(merge(DEFAULT_STATE, { device: "iphone-18-pro-max", dpr: "system", browser: "off" }));
+    // The drawn mock stands in while it loads, the screen already where the image has it.
+    expect(mockDrawing().children.map((element) => element.tagName)).toContain("path");
+    const left = Reflect.get(glass().style, "left");
+    expect(left).toBe(`${(75 - 21) / 3}px`);
+    expect(Reflect.get(glass().style, "boxShadow")).toBe("");
+    await Bun.sleep(0);
+    const [image, ...rest] = mockDrawing().children;
+    expect(rest).toEqual([]);
+    expect(image?.tagName).toBe("image");
+    expect(image?.getAttribute("href")).toEndWith("/bezels/iphone-18-pro-max.webp");
+    expect(image?.getAttribute("width")).toBe("490");
+    expect(Reflect.get(glass().style, "left")).toBe(left);
+    expect(Reflect.get(glass().style, "borderRadius")).toBe("62px 62px 62px 62px");
+    expect(Reflect.get(glass().style, "boxShadow")).toBe("0 0 0 2px #000");
+  });
+
+  test("is the drawn mock when the image does not load, as with the folder deleted", async () => {
+    fakeImage(false);
+    apply(merge(DEFAULT_STATE, { device: "iphone-16-plus", dpr: "system", browser: "off" }));
+    expect(Reflect.get(glass().style, "left")).toBe(`${(90 - 23) / 3}px`);
+    await Bun.sleep(0);
+    const tags = mockDrawing().children.map((element) => element.tagName);
+    expect(tags).toEqual([...Array(5).fill("rect"), "path", "path", "rect"]);
+    expect(Reflect.get(glass().style, "left")).toBe(`${19.7 + 2.7}px`);
+    expect(Reflect.get(glass().style, "borderRadius")).toBe("55px 55px 55px 55px");
+    expect(Reflect.get(glass().style, "boxShadow")).toBe("");
+  });
+
+  test("is the drawn mock for a device without an image, and none with the mock off", () => {
+    fakeImage(true);
+    apply(merge(DEFAULT_STATE, { device: "iphone-se", browser: "off" }));
+    expect(mockDrawing().children.map((element) => element.tagName)).toContain("path");
+    apply(merge(DEFAULT_STATE, { device: "iphone-18-pro", browser: "off", mock: false }));
+    expect(everything().some((element) => element.getAttribute("class") === "mock")).toBe(false);
+  });
+});
+
+describe("a new identity", () => {
+  beforeEach(() => {
+    Object.assign(window, { setTimeout });
+  });
+
+  const phone = merge(DEFAULT_STATE, PHONE_KNOBS);
+  const pixel = merge(phone, { device: "pixel-9", dpr: "system" });
+
+  function framePhone(): void {
+    apply(phone);
+    sync(phone);
+  }
+
+  function pick(state: typeof phone): void {
+    apply(state);
+    sync(state);
+  }
+
+  test("patches the frame's first page before its scripts, and each page after", async () => {
+    framePhone();
+    await load(FRAMED);
+    expect(patchedAs(view)?.agent).toBe("iphone-safari");
+    expect("ontouchstart" in view).toBe(true);
+    pick(pixel);
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+    await load(FRAMED);
+    expect(patchedAs(view)?.agent).toBe("android-chrome");
+    view.navigate(PAGE);
+    await load(PAGE);
+    expect(patchedAs(view)?.agent).toBe("android-chrome");
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("reloads the frame once the knobs settle, once, and not for a zoom", async () => {
+    framePhone();
+    await load(FRAMED);
+    pick(pixel);
+    sync(merge(pixel, { dpr: 2 }));
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+    await load(FRAMED);
+    sync(merge(pixel, { dpr: 2, zoom: 0.5, orientation: "landscape" }));
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("leaves a frame on its first load to finish", async () => {
+    framePhone();
+    sync(merge(phone, { device: "pixel-9" }));
+    await Bun.sleep(5);
+    expect(reloads).toBe(0);
+  });
+
+  for (const navigation of [true, false]) {
+    test(`lets a slow page the frame set off for come in, patched as the knobs are now${navigation ? "" : ", without the navigation api"}`, async () => {
+      framePhone();
+      attach(navigation);
+      await load(FRAMED);
+      view.navigate(PAGE);
+      pick(pixel);
+      await Bun.sleep(5);
+      expect(reloads).toBe(0);
+      await load(PAGE);
+      expect(patchedAs(view)?.agent).toBe("android-chrome");
+      await Bun.sleep(5);
+      expect(reloads).toBe(0);
+    });
+  }
+
+  test("reloads for the knobs once the page stays after all", async () => {
+    framePhone();
+    await load(FRAMED);
+    view.navigate(PAGE);
+    pick(pixel);
+    await Bun.sleep(5);
+    expect(reloads).toBe(0);
+    view.navigation?.dispatchEvent(new Event("navigateerror"));
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("reloads for the knobs while the page only moves in its own document", async () => {
+    framePhone();
+    await load(FRAMED);
+    view.navigate(PAGE, true);
+    pick(pixel);
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("reloads a page that came in from another origin unpatched, once", async () => {
+    framePhone();
+    await load(FRAMED);
+    await load("http://127.0.0.1:3000/redirect", "other");
+    await load(PAGE);
+    expect(patchedAs(view)).toBeUndefined();
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+    await load(PAGE);
+    expect(patchedAs(view)?.agent).toBe("iphone-safari");
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("leaves a page unpatched after its reload as it is", async () => {
+    framePhone();
+    await load(FRAMED);
+    await load("http://127.0.0.1:3000/redirect", "other");
+    await load(PAGE);
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+    await load("http://127.0.0.1:3000/redirect", "other");
+    await load(PAGE);
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
   });
 });

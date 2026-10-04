@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { KNOBS, knobOf } from "../src/ui/catalog";
-import { filterOptions, resultText, search, words } from "../src/ui/search";
+import { filterOptions, resultText, search, searchActions, words } from "../src/ui/search";
 
 const DAY = 86_400_000;
 
@@ -21,6 +21,13 @@ describe("words", () => {
 });
 
 describe("search", () => {
+  test("finds a grab color by the knob and the color", () => {
+    expect(top("grab color pink")).toEqual(["grabColor pink"]);
+    expect(top("grab blue")).toEqual(["grabColor blue"]);
+    expect(top("grab color")).toEqual(["grabColor -"]);
+    expect(top("pink")).toEqual(["grabColor pink"]);
+  });
+
   test("a value alone finds its knob", () => {
     expect(top("dark")).toEqual(["scheme dark"]);
     expect(top("390")).toEqual(["width 390"]);
@@ -57,19 +64,23 @@ describe("search", () => {
   });
 
   test("devices by name, kind and browser, and a size typed out", () => {
-    expect(top("iphone")).toEqual(["device iphone-16"]);
-    expect(top("iphone pro max")).toEqual(["device iphone-16-pro-max"]);
-    expect(top("pixel")).toEqual(["device pixel-9"]);
-    expect(top("galaxy", 2)).toEqual(["device galaxy-s25", "device galaxy-s25-ultra"]);
+    expect(top("iphone")).toEqual(["device iphone-18-pro"]);
+    expect(top("iphone pro max")).toEqual(["device iphone-18-pro-max"]);
+    expect(top("iphone 16 pro max")).toEqual(["device iphone-16-pro-max"]);
+    expect(top("duo open")).toEqual(["device iphone-duo-open"]);
+    expect(top("air")).toEqual(["device iphone-air"]);
+    expect(top("pixel")).toEqual(["device pixel-10"]);
+    expect(top("pixel 9 pro xl")).toEqual(["device pixel-9-pro-xl"]);
+    expect(top("pixel 10a")).toEqual(["device pixel-10a"]);
     expect(top("ipad")).toEqual(["device ipad-mini"]);
     expect(top("macbook")).toEqual(["device macbook-air-13"]);
-    expect(top("phone")).toEqual(["device iphone-16"]);
+    expect(top("phone")).toEqual(["device iphone-18-pro"]);
     expect(top("tablet", 3)).toEqual([
       "device ipad-mini",
       "device ipad-air-11",
       "device ipad-pro-13",
     ]);
-    expect(top("android")).toEqual(["device pixel-9"]);
+    expect(top("android")).toEqual(["device pixel-10"]);
     expect(top("landscape")).toEqual(["device landscape"]);
     expect(top("rotate")).toEqual(["device -"]);
     expect(top("390x844")).toEqual(["device 390x844"]);
@@ -187,5 +198,24 @@ describe("filterOptions", () => {
       "ipad-safari",
       "mac-safari",
     ]);
+  });
+});
+
+describe("searchActions", () => {
+  test("finds grab by its name and its aliases", () => {
+    for (const query of ["grab", "gra", "inspect", "pick", "pick element"]) {
+      expect(searchActions(query).map((action) => action.id)).toEqual(["grab"]);
+    }
+  });
+
+  test("finds replay animations by what it does", () => {
+    for (const query of ["replay", "animations", "restart", "replay animations"]) {
+      expect(searchActions(query).map((action) => action.id)).toEqual(["replay"]);
+    }
+  });
+
+  test("finds nothing for no query or a knob", () => {
+    expect(searchActions("")).toEqual([]);
+    expect(searchActions("dark")).toEqual([]);
   });
 });

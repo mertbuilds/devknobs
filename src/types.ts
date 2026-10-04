@@ -95,6 +95,18 @@ export type HeightValue = number | "full";
 /** Which way the frame is held. Landscape puts its long side across. */
 export type OrientationValue = "portrait" | "landscape";
 
+/**
+ * Where a phone's browser keeps its bars: `auto` for the browser's own
+ * default, Safari's compact or Chrome's top, or `off` for none.
+ */
+export type BrowserValue = "auto" | "compact" | "bottom" | "top" | "off";
+
+/**
+ * A phone's browser bars: `auto` minimizes them on a scroll down and brings
+ * them back on a scroll up, as the browser does, or they stay one way.
+ */
+export type BarsValue = "auto" | "expanded" | "minimized";
+
 /** Device pixel ratio inside the frame, or `system` for the screen's own. */
 export type DprValue = number | "system";
 
@@ -113,6 +125,12 @@ export type VisionValue =
   | "tritanopia"
   | "achromatopsia"
   | "blur";
+
+/**
+ * The color grab draws its boxes in. `auto` is blue, and green where the page
+ * behind the element is blue.
+ */
+export type GrabColorValue = "auto" | "blue" | "green" | "pink" | "orange" | "purple" | "cyan";
 
 export interface UaValue {
   /**
@@ -169,6 +187,20 @@ export interface DevknobsState {
    * holds a device that way.
    */
   orientation: OrientationValue;
+  /** Draw a phone's or a tablet's body around its frame. */
+  mock: boolean;
+  /** On a device with a touch screen, the mouse acts as a finger inside its frame. */
+  touchPointer: boolean;
+  /** A phone's browser bars around the page, which take their room from the viewport. */
+  browser: BrowserValue;
+  /** The browser's bars following the page's scroll, or held expanded or minimized. */
+  bars: BarsValue;
+  /**
+   * Safari draws the page under its bars to the bottom of the screen, as the
+   * phone looks, where the page reads a taller viewport than Safari reports.
+   * Off, the page gets Safari's measured viewport.
+   */
+  edgeToEdge: boolean;
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;
   dpr: DprValue;
@@ -178,6 +210,7 @@ export interface DevknobsState {
   /** Mark the boxes that stick out of the viewport sideways. */
   overflow: boolean;
   outlines: boolean;
+  grabColor: GrabColorValue;
   panel: PanelValue;
 }
 

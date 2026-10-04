@@ -222,24 +222,36 @@ interface Shared {
 }
 
 /**
- * The early script and the full one are two copies. Whichever patches first
- * keeps the browser's own descriptors here, so the other never takes a patch
- * for the real thing, and either can put the real ones back.
+ * The early script and the full one are two copies, and the page above a
+ * frame patches the frame's window before either runs there. Whichever
+ * patches first keeps the browser's own descriptors on that window, so no
+ * other copy takes a patch for the real thing, and any can put the real ones
+ * back.
  */
 const SHARED = Symbol.for("devknobs.ua");
-const shared: Shared = ((globalThis as unknown as Record<symbol, Shared | undefined>)[SHARED] ??= {
-  originals: null,
-});
 
-function prototypeOf(): object | null {
-  return typeof Navigator === "undefined" ? null : Navigator.prototype;
+function isShared(value: unknown): value is Shared {
+  return typeof value === "object" && value !== null && "originals" in value;
+}
+
+function sharedOf(scope: object): Shared {
+  const had: unknown = Reflect.get(scope, SHARED);
+  if (isShared(had)) return had;
+  const shared: Shared = { originals: null };
+  Reflect.set(scope, SHARED, shared);
+  return shared;
+}
+
+function prototypeOf(scope: object): object | null {
+  const navigator: unknown = Reflect.get(scope, "Navigator");
+  return typeof navigator === "function" ? (navigator.prototype as object) : null;
 }
 
 function put(target: object, key: Key, value: unknown): void {
   Object.defineProperty(target, key, { configurable: true, enumerable: true, get: () => value });
 }
 
-function restore(target: object, key: Key): void {
+function restore(shared: Shared, target: object, key: Key): void {
   const descriptor = shared.originals?.get(key);
   if (descriptor) Object.defineProperty(target, key, descriptor);
   else Reflect.deleteProperty(target, key);
@@ -259,7 +271,7 @@ const NO_HINTS: UaSource = { brands: [], mobile: false, uaPlatform: "" };
  * where it has one. Every value comes from the one source, the high entropy
  * ones included.
  */
-function uaData(source: UaSource): object {
+function uaData(source: UaSource, scope: object): object {
   const brands = Object.freeze(source.brands.map((brand) => Object.freeze({ ...brand })));
   const low = () => ({ brands: copy(brands), mobile: source.mobile, platform: source.uaPlatform });
   const hints = source.hints;
@@ -271,7 +283,7 @@ function uaData(source: UaSource): object {
     platformVersion: hints?.platformVersion ?? "",
     uaFullVersion: hints?.uaFullVersion ?? "",
   });
-  const native: unknown = Reflect.get(globalThis, "NavigatorUAData");
+  const native: unknown = Reflect.get(scope, "NavigatorUAData");
   const proto = typeof native === "function" ? (native.prototype as object) : Object.prototype;
   return Object.create(proto, {
     brands: { enumerable: true, get: () => brands },
@@ -301,38 +313,59 @@ function uaData(source: UaSource): object {
  * from the same browser. Safari and Firefox have no `userAgentData`, so their
  * presets take it away. A custom string sets the string alone, as Chrome
  * DevTools does: the rest stays the browser's own, and a `userAgentData` the
- * browser has reports no brands.
+ * browser has reports no brands. `scope` is the window to patch, another one
+ * on this origin too.
  */
-export function apply(value: UaValue): void {
-  const target = prototypeOf();
+export function apply(value: UaValue, scope: object = globalThis): void {
+  const target = prototypeOf(scope);
   const preset = value.preset === "custom" ? undefined : uaPreset(value.preset);
   const userAgent = userAgentOf(value);
   if (!target || userAgent === "") {
-    reset();
+    reset(scope);
     return;
   }
+  const shared = sharedOf(scope);
   shared.originals ??= new Map(
     KEYS.map((key) => [key, Object.getOwnPropertyDescriptor(target, key)]),
   );
   put(target, "userAgent", userAgent);
   put(target, "appVersion", preset?.appVersion ?? appVersionOf(userAgent));
   if (!preset) {
-    for (const key of ["platform", "vendor", "maxTouchPoints"] as const) restore(target, key);
-    if (shared.originals.get("userAgentData")) put(target, "userAgentData", uaData(NO_HINTS));
-    else restore(target, "userAgentData");
+    for (const key of ["platform", "vendor", "maxTouchPoints"] as const) {
+      restore(shared, target, key);
+    }
+    if (shared.originals.get("userAgentData")) {
+      put(target, "userAgentData", uaData(NO_HINTS, scope));
+    } else restore(shared, target, "userAgentData");
     return;
   }
   put(target, "platform", preset.platform);
   put(target, "vendor", preset.vendor);
   put(target, "maxTouchPoints", preset.maxTouchPoints);
-  if (preset.brands.length > 0) put(target, "userAgentData", uaData(preset));
+  if (preset.brands.length > 0) put(target, "userAgentData", uaData(preset, scope));
   else Reflect.deleteProperty(target, "userAgentData");
 }
 
+/** The browser's own `navigator.platform`, whatever preset is on. */
+export function realPlatform(): string {
+  const getter = sharedOf(globalThis).originals?.get("platform")?.get;
+  try {
+    return String(getter ? getter.call(navigator) : navigator.platform);
+  } catch {
+    return "";
+  }
+}
+
+/** Whether the browser runs on an Apple platform, where shortcuts read `⌘` and `⇧`. */
+export function isMac(): boolean {
+  return /mac|iphone|ipad|ipod/i.test(realPlatform());
+}
+
 /** Hand every field back to the browser. */
-export function reset(): void {
-  const target = prototypeOf();
+export function reset(scope: object = globalThis): void {
+  const shared = sharedOf(scope);
+  const target = prototypeOf(scope);
   if (!shared.originals) return;
-  if (target) for (const key of KEYS) restore(target, key);
+  if (target) for (const key of KEYS) restore(shared, target, key);
   shared.originals = null;
 }

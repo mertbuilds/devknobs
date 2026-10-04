@@ -1,10 +1,11 @@
 import * as engine from "../engine";
 import { now, realNow } from "../engine/clock";
-import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
+import { frameForced, type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
-import { userAgentOf } from "../engine/ua";
+import { isMac, userAgentOf } from "../engine/ua";
 import { frameWindow, zoomKey } from "../engine/width";
+import type { GrabControl } from "../grab/control";
 import type {
   ClockValue,
   DevknobsState,
@@ -13,6 +14,8 @@ import type {
   PanelValue,
 } from "../types";
 import {
+  ACTIONS,
+  type Action,
   browse,
   isActive,
   type Knob,
@@ -27,9 +30,19 @@ import {
   rowOf,
   wallInput,
 } from "./catalog";
-import { escapeStep, hotkeyOf, isSearchKey, keyAction, zoomAction } from "./keys";
+import {
+  escapeStep,
+  highlightAt,
+  hotkeyOf,
+  isSearchKey,
+  keyAction,
+  paletteMove,
+  REPLAY_KEY,
+  radioMove,
+  zoomAction,
+} from "./keys";
 import { isListed, pinPatch, removePatch, rowText } from "./list";
-import { filterOptions, type Result, resultText, search } from "./search";
+import { filterOptions, type Result, resultText, search, searchActions } from "./search";
 import { CSS } from "./styles";
 
 export { wallInput } from "./catalog";
@@ -37,6 +50,8 @@ export { wallInput } from "./catalog";
 export interface PanelOptions {
   /** Key that toggles the panel. Defaults to `d`. */
   hotkey?: string;
+  /** Grab, where it is on, to show and to turn on from the search. */
+  grab?: GrabControl | null;
 }
 
 export interface Panel {
@@ -77,8 +92,6 @@ export const SNAP = 24;
 
 const CUSTOM_DEBOUNCE = 200;
 
-const SITE_URL = "https://knobs.dev/?utm_source=devknobs&utm_medium=panel&utm_campaign=footer";
-
 /**
  * The host's own style. It is as wide and as tall as an open panel whatever
  * the panel is doing, so it never takes a pointer: the stylesheet hands that
@@ -88,11 +101,50 @@ const SITE_URL = "https://knobs.dev/?utm_source=devknobs&utm_medium=panel&utm_ca
 export const HOST_STYLE = "position:fixed;right:0;top:0;z-index:2147483646;pointer-events:none";
 
 /**
- * What the footer says about the overflow knob, such as ` · 2 overflowing`.
+ * What the footer says about the overflow knob, such as `2 overflowing`.
  * Nothing while the knob is off, or before the count is known.
  */
 export function overflowBadge(on: boolean, count: number | null): string {
-  return on && count !== null ? ` · ${count} overflowing` : "";
+  return on && count !== null ? `${count} overflowing` : "";
+}
+
+/** What a footer hint does when it is clicked or its key is pressed. */
+export type Command = "panel" | "search" | "grab" | "replay" | "reset";
+
+/** A key in the footer and the words for what it does. */
+export interface KeyChip {
+  command: Command;
+  key: string;
+  word: string;
+}
+
+/**
+ * The grab key as its chip shows it. A Mac label such as `⌘C` stays as it is,
+ * and `ctrl+C` reads `Ctrl C`.
+ */
+export function chipKey(label: string): string {
+  return label
+    .replace(/\+(?=.)/g, " ")
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/**
+ * The keys the footer names, most used first: the hotkey, the search key, the
+ * grab key where there is a grab, the replay key, and reset last.
+ */
+export function keyChips(hotkey: string, grabLabel: string | null, mac: boolean): KeyChip[] {
+  const chips: KeyChip[] = [
+    { command: "panel", key: hotkey, word: "panel" },
+    { command: "search", key: "/", word: "search" },
+  ];
+  if (grabLabel !== null) chips.push({ command: "grab", key: chipKey(grabLabel), word: "grab" });
+  chips.push(
+    { command: "replay", key: REPLAY_KEY, word: "replay animations" },
+    { command: "reset", key: mac ? "⇧⌫" : "Shift Backspace", word: "reset" },
+  );
+  return chips;
 }
 
 /**
@@ -255,6 +307,13 @@ function reveal(node: HTMLElement, box: HTMLElement): void {
   }
 }
 
+/** The first control in a box that the tab key stops at and that shows. */
+function firstControl(box: Element | null): HTMLElement | null {
+  if (!box) return null;
+  const controls = Array.from(box.querySelectorAll<HTMLElement>("button, input, textarea"));
+  return controls.find((node) => node.tabIndex >= 0 && node.getClientRects().length > 0) ?? null;
+}
+
 /** Scroll a box to put a node in its middle. The box is the node's offset parent. */
 function center(node: HTMLElement, box: HTMLElement): void {
   box.scrollTop = node.offsetTop - (box.clientHeight - node.offsetHeight) / 2;
@@ -271,6 +330,9 @@ function center(node: HTMLElement, box: HTMLElement): void {
  */
 export function createPanel(options: PanelOptions = {}): Panel {
   const hotkey = hotkeyOf(options.hotkey);
+  const grab = options.grab ?? null;
+  /** The actions search finds: grab only where there is one. */
+  const actionsHere = grab ? ACTIONS : ACTIONS.filter((action) => action.id !== "grab");
 
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "panel");
@@ -282,9 +344,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const wrap = el("div", "wrap");
   const handle = button("handle", "knobs");
   handle.setAttribute("aria-label", `devknobs, press ${hotkey}`);
+  handle.title = "drag to move · shift-drag moves the handle";
   const panel = el("div", "panel");
 
-  // A label, so a click on the name lands in the field too.
+  // A label, so a click anywhere in the header lands in the field.
   const head = el("label", "head");
   const searchInput = document.createElement("input");
   searchInput.className = "search";
@@ -300,7 +363,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const closeSearch = button("search-close", "×");
   closeSearch.tabIndex = -1;
   closeSearch.setAttribute("aria-label", "close the search");
-  head.append(el("span", "name", "knobs"), searchInput, closeSearch);
+  head.append(searchInput, closeSearch);
 
   const body = el("div", "body");
   const empty = el("div", "empty", "nothing emulated");
@@ -312,25 +375,18 @@ export function createPanel(options: PanelOptions = {}): Panel {
   body.append(empty, rows, results);
 
   const foot = el("div", "foot");
-  const actions = el("div", "actions");
-  const replayButton = button("act", "replay");
-  const resetButton = button("act", "reset all");
   const badge = el("span", "badge");
-  actions.append(replayButton, resetButton, badge);
-  const home = document.createElement("a");
-  home.className = "foot-link";
-  home.href = SITE_URL;
-  home.target = "_blank";
-  home.rel = "noopener noreferrer";
-  home.textContent = "knobs.dev";
+  // The legend of the keys, and the controls they press.
   const meta = el("div", "meta");
-  meta.append(
-    home,
-    ` · dev only · press ${hotkey}`,
-    el("br", ""),
-    "/ to search · shift-drag moves the handle",
-  );
-  foot.append(actions, meta);
+  const hints = new Map<Command, HTMLButtonElement>();
+  for (const chip of keyChips(hotkey, grab ? grab.label : null, isMac())) {
+    const node = button("hint", "");
+    node.dataset.command = chip.command;
+    node.append(el("kbd", "hint-key", chip.key), chip.word);
+    meta.append(node);
+    hints.set(chip.command, node);
+  }
+  foot.append(badge, meta);
 
   panel.append(head, body, foot);
   wrap.append(handle, panel);
@@ -340,6 +396,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   let openRow: RowId | null = null;
   /** The search has focus and lists every knob, as nothing is typed. */
   let browsing = false;
+  /** The query the results last showed, so a new one puts the highlight back on top. */
+  let shownQuery = "";
   /** A pointer is down, so a blur it caused waits for its click to land. */
   let pressing = false;
   /** What the results or the browse list show, and which one Enter picks. */
@@ -375,6 +433,44 @@ export function createPanel(options: PanelOptions = {}): Panel {
     );
   }
 
+  /**
+   * A radio group is one tab stop, on the choice that is on, and the arrows
+   * move the choice as they move the focus.
+   */
+  function radioGroup(
+    knob: Knob,
+    track: HTMLElement,
+    items: { node: HTMLButtonElement; value: string }[],
+  ): Update {
+    // The choices shown, in the order they stand.
+    const shown = () =>
+      Array.from(track.children).flatMap((node) => {
+        const item = items.find((entry) => entry.node === node);
+        return item && !item.node.hidden ? [item] : [];
+      });
+    track.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const list = shown();
+      const at = list.findIndex((item) => item.node === event.target);
+      const next = at < 0 ? null : radioMove(event.key, at, list.length);
+      const item = next === null ? undefined : list[next];
+      if (!item) return;
+      event.preventDefault();
+      item.node.focus();
+      set(knob, item.value);
+    });
+    return (state) => {
+      const current = knob.read(state);
+      const list = shown();
+      const known = list.some((item) => item.value === current);
+      for (const item of items) {
+        const on = item.value === current;
+        mark(item.node, on, "aria-checked");
+        item.node.tabIndex = on || (!known && item === list[0]) ? 0 : -1;
+      }
+    };
+  }
+
   function segments(knob: Knob): [HTMLElement, Update] {
     const track = el("div", "seg");
     track.setAttribute("role", "radiogroup");
@@ -386,13 +482,43 @@ export function createPanel(options: PanelOptions = {}): Panel {
       track.append(node);
       return { node, value: option.value };
     });
+    const update = radioGroup(knob, track, items);
+    const offers = knob.offers;
+    if (!offers) return [track, update];
+    // Only the choices the state offers, in its order.
     return [
       track,
       (state) => {
-        const current = knob.read(state);
-        for (const item of items) mark(item.node, item.value === current, "aria-checked");
+        const offered = offers(state);
+        const order = offered.flatMap((value) => items.filter((item) => item.value === value));
+        for (const item of items) item.node.hidden = !order.includes(item);
+        const standing = Array.from(track.children).filter(
+          (node) => node instanceof HTMLElement && !node.hidden,
+        );
+        if (order.some((item, at) => standing[at] !== item.node)) {
+          track.append(...order.map((item) => item.node));
+        }
+        update(state);
       },
     ];
+  }
+
+  /** Colors as swatches, the one that is on with a ring around it. */
+  function swatches(knob: Knob): [HTMLElement, Update] {
+    const track = el("div", "swatches");
+    track.setAttribute("role", "radiogroup");
+    track.setAttribute("aria-label", knob.label);
+    const items = knob.options.map((option) => {
+      const node = button("swatch", "");
+      node.setAttribute("role", "radio");
+      node.setAttribute("aria-label", option.label);
+      node.title = option.label;
+      node.style.background = option.swatch ?? "";
+      node.addEventListener("click", () => set(knob, option.value));
+      track.append(node);
+      return { node, value: option.value };
+    });
+    return [track, radioGroup(knob, track, items)];
   }
 
   /**
@@ -522,6 +648,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   function control(knob: Knob): [HTMLElement, Update] {
     if (knob.control === "switch") return toggleSwitch(knob);
     if (knob.control === "segments") return segments(knob);
+    if (knob.control === "swatches") return swatches(knob);
     if (knob.control === "list") return list(knob);
     return chips(knob, knob.id === "width" ? widthField : null);
   }
@@ -654,6 +781,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const updates: Update[] = [];
     for (const knob of knobsOf(row)) {
       const line = el("div", `knob knob-${knob.control}`);
+      line.dataset.knob = knob.id;
       const [node, update] = control(knob);
       line.append(el("div", "knob-label", knob.label), node);
       updates.push(update);
@@ -661,6 +789,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
       if (extra) {
         line.append(extra[0]);
         updates.push(extra[1]);
+      }
+      // The frame switch changes nothing to see while another knob holds the frame up.
+      if (knob.id === "frame") {
+        updates.push((state) => {
+          line.hidden = frameForced(state);
+        });
+      }
+      // A knob whose choices depend on the device hides while it offers none.
+      const offers = knob.offers;
+      if (offers) {
+        updates.push((state) => {
+          line.hidden = offers(state).length === 0;
+        });
       }
       editor.append(line);
     }
@@ -687,6 +828,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
     });
     return { row, box, main, value, clear, editor, updates: buildEditor(row, editor) };
   });
+
+  /** Shown while grab is on, with the way out of it. */
+  const grabRow = el("div", "row");
+  const grabLine = el("div", "line");
+  const grabMain = el("div", "main");
+  grabMain.append(el("span", "row-label", "grab"), el("span", "row-value", "pick an element"));
+  const grabClear = button("clear", "×");
+  grabClear.setAttribute("aria-label", "stop grabbing");
+  grabClear.addEventListener("click", () => grab?.set(false));
+  grabLine.append(grabMain, grabClear);
+  grabRow.append(grabLine);
+  grabRow.hidden = true;
+  rows.prepend(grabRow);
 
   function viewOf(id: RowId): RowView | undefined {
     return views.find((view) => view.row.id === id);
@@ -716,7 +870,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   function setCursor(index: number): void {
-    cursor = Math.min(Math.max(index, 0), entries.length - 1);
+    cursor = highlightAt(index, entries.length);
     entries.forEach((entry, at) => {
       entry.node.classList.toggle("cursor", at === cursor);
       entry.node.setAttribute("aria-selected", at === cursor ? "true" : "false");
@@ -741,19 +895,41 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return { node, pick };
   }
 
+  function actionEntry(id: number, action: Action): Entry {
+    return entry(
+      id,
+      () => runAction(action.id),
+      el("span", "entry-knob", action.label),
+      el("span", "entry-value", action.long),
+    );
+  }
+
   function resultEntries(query: string, state: DevknobsState): Entry[] {
-    return search(query).map((result, index) => {
+    const actions = searchActions(query, actionsHere);
+    const found = search(query).map((result, index) => {
       const text = resultText(result);
       const value = el("span", "entry-value", text.value);
       const current = result.option !== null && result.knob.read(state) === result.option.value;
       value.classList.toggle("current", current);
-      return entry(index, () => pick(result), el("span", "entry-knob", text.knob), value);
+      return entry(
+        actions.length + index,
+        () => pick(result),
+        el("span", "entry-knob", text.knob),
+        value,
+      );
     });
+    return [...actions.map((action, index) => actionEntry(index, action)), ...found];
   }
 
   function browseEntries(state: DevknobsState): { nodes: HTMLElement[]; list: Entry[] } {
     const nodes: HTMLElement[] = [];
     const list: Entry[] = [];
+    nodes.push(el("div", "group-label", "actions"));
+    for (const action of actionsHere) {
+      const item = actionEntry(list.length, action);
+      list.push(item);
+      nodes.push(item.node);
+    }
     for (const group of browse()) {
       nodes.push(el("div", "group-label", group.category));
       for (const knob of group.knobs) {
@@ -788,7 +964,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       entries = [];
       results.replaceChildren();
     }
-    setCursor(cursor);
+    setCursor(highlightAt(cursor, entries.length, query !== shownQuery));
+    shownQuery = query;
   }
 
   /** Close the results and leave the search, query and all, for the rows. */
@@ -802,12 +979,30 @@ export function createPanel(options: PanelOptions = {}): Panel {
     else render();
   }
 
-  /** Bring a row into view and hand it the focus the search had. */
-  function showRow(id: RowId): void {
+  /**
+   * Bring a row into view and hand it the focus the search had: the knob's
+   * first control where its editor is open, so its value can be set at once,
+   * else the row itself.
+   */
+  function showRow(id: RowId, knob: Knob): void {
     const view = viewOf(id);
     if (!view) return;
     reveal(view.box, body);
-    view.main.focus();
+    const line = openRow === id ? view.editor.querySelector(`[data-knob="${knob.id}"]`) : null;
+    (firstControl(line) ?? view.main).focus();
+  }
+
+  /** Do what an action says. Grab takes the focus out of the panel, to the page. */
+  function runAction(id: Action["id"]): void {
+    if (id === "replay") {
+      engine.replay();
+      return;
+    }
+    if (!grab) return;
+    leaveSearch();
+    const focused = root.activeElement;
+    if (focused instanceof HTMLElement) focused.blur();
+    grab.set(true);
   }
 
   /** Set a result's value, or open the editor of a knob found by name. */
@@ -819,16 +1014,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
     const id = rowOf(knob.id).id;
     leaveSearch();
+    // Another knob holds the frame up, so the frame knob has nothing to set.
+    if (knob.id === "frame" && frameForced(engine.getState())) return;
+    if (knob.offers && !knob.offers(engine.getState()).includes(option.value)) return;
     set(knob, option.value);
     if (option.opens) openEditor(id);
-    showRow(id);
+    showRow(id, knob);
   }
 
   function openKnob(knob: Knob): void {
     const id = rowOf(knob.id).id;
     leaveSearch();
     openEditor(id);
-    showRow(id);
+    showRow(id, knob);
   }
 
   function render(): void {
@@ -854,10 +1052,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
       view.editor.hidden = !expanded;
       if (expanded) for (const update of view.updates) update(state);
     }
+    grabRow.hidden = !grab?.isOn();
+    anyShown ||= !grabRow.hidden;
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
     viewOf("debug")?.value.classList.toggle("hot", hot);
     empty.hidden = anyShown;
-    resetButton.disabled = !anyListed;
+    const resetHint = hints.get("reset");
+    if (resetHint) resetHint.disabled = !anyListed;
     badge.textContent = overflowBadge(state.overflow, live.overflow);
     badge.hidden = badge.textContent === "";
     badge.classList.toggle("hot", hot);
@@ -947,23 +1148,20 @@ export function createPanel(options: PanelOptions = {}): Panel {
   });
   searchInput.addEventListener("input", () => {
     browsing = true;
-    cursor = 0;
     body.scrollTop = 0;
     render();
   });
   searchInput.addEventListener("keydown", (event: KeyboardEvent) => {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      if (!browsing && !searchInput.value.trim()) {
-        browsing = true;
-        render();
-        return;
-      }
-      setCursor(cursor + (event.key === "ArrowDown" ? 1 : -1));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      entries[cursor]?.pick();
+    const move = event.isComposing ? null : paletteMove(event.key, cursor, entries.length);
+    if (!move) return;
+    event.preventDefault();
+    if (event.key !== "Enter" && !browsing && !searchInput.value.trim()) {
+      browsing = true;
+      render();
+      return;
     }
+    setCursor(move.cursor);
+    if (move.pick) entries[move.cursor]?.pick();
   });
   // A press on a result or the scrollbar keeps the focus in the search, so the
   // list stays put under it.
@@ -990,12 +1188,22 @@ export function createPanel(options: PanelOptions = {}): Panel {
     });
   }
 
-  replayButton.addEventListener("click", () => engine.replay());
-  resetButton.addEventListener("click", () => {
+  /** Every knob back to its default, the list emptied and the search left. */
+  function resetAll(): void {
     openRow = null;
     searchInput.value = "";
     engine.reset();
-  });
+  }
+
+  function runCommand(command: Command): void {
+    if (command === "panel") toggle(false);
+    else if (command === "search") searchInput.focus();
+    else if (command === "grab") runAction("grab");
+    else if (command === "replay") engine.replay();
+    else resetAll();
+  }
+
+  for (const [command, node] of hints) node.addEventListener("click", () => runCommand(command));
 
   let dragging = false;
   let dragged = false;
@@ -1083,7 +1291,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     // A drag owns the handle until the pointer is up, hotkey and escape too.
     if (dragging) return;
     if (action === "toggle") toggle();
-    else if (engine.getState().panel.open) toggle(false);
+    else if (!engine.getState().panel.open) return;
+    else if (action === "replay") runCommand("replay");
+    else if (action === "reset") runCommand("reset");
+    else if (action === "search") searchInput.focus();
+    else toggle(false);
   }
 
   /**
@@ -1125,6 +1337,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       return;
     }
     const action = keyAction(event, hotkey);
+    if (action === "reset" && !dragging && engine.getState().panel.open) event.preventDefault();
     if (action === "close") escape();
     else if (action) onAction(action);
     if (action || dragging || !engine.getState().panel.open || !isSearchKey(event)) return;
@@ -1148,6 +1361,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const ticker = window.setInterval(tick, 1000);
   const unsubscribe = engine.subscribe(render);
+  const stopGrab = grab?.subscribe(render);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("pointerdown", onPointerDown, true);
@@ -1172,6 +1386,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   return {
     destroy(): void {
       unsubscribe();
+      stopGrab?.();
       stopCount();
       clearInterval(ticker);
       for (const timer of pending.values()) clearTimeout(timer);
