@@ -1,15 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import { claim, free, superseded } from "../src/instance";
 
+/**
+ * A copy's way out, shaped as `unmount` is: a copy taken over does nothing,
+ * else it undoes its own and lets the page go.
+ */
+function copy(scope: object, name: string, calls: string[]): () => void {
+  const release = () => {
+    if (superseded(scope, release)) return;
+    calls.push(name);
+    free(scope, release);
+  };
+  return release;
+}
+
 describe("claim", () => {
   test("a second copy makes the first let go before it takes the page", () => {
     const scope = {};
     const calls: string[] = [];
-    const first = () => {
-      calls.push("first");
-      free(scope, first);
-    };
-    const second = () => calls.push("second");
+    const first = copy(scope, "first", calls);
+    const second = copy(scope, "second", calls);
     claim(scope, first);
     expect(calls).toEqual([]);
     claim(scope, second);
@@ -33,18 +43,11 @@ describe("claim", () => {
   test("a third copy only makes the one holding the page let go", () => {
     const scope = {};
     const calls: string[] = [];
-    const make = (name: string) => {
-      const release = () => {
-        calls.push(name);
-        free(scope, release);
-      };
-      return release;
-    };
-    const first = make("first");
-    const second = make("second");
+    const first = copy(scope, "first", calls);
+    const second = copy(scope, "second", calls);
     claim(scope, first);
     claim(scope, second);
-    claim(scope, make("third"));
+    claim(scope, copy(scope, "third", calls));
     expect(calls).toEqual(["first", "second"]);
   });
 });

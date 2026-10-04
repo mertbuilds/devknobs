@@ -13,13 +13,16 @@ import {
   parseGrabKey,
   releasesGrabKey,
 } from "./keys";
-import type { Mode } from "./mode";
+import type { Mode, ModeOptions } from "./mode";
 import { type GrabPlace, grabStep } from "./place";
 
 export interface GrabControlOptions {
   /** The key held to grab, such as `alt+shift+g`. Defaults to meta or ctrl with c. */
   key?: string;
 }
+
+/** Loads grab's mode, the overlay and the context, the first time grab turns on. */
+export type LoadMode = () => Promise<{ startMode: (options: ModeOptions) => Mode }>;
 
 export interface GrabControl {
   /** The grab key as the panel shows it, such as `⌘C`. */
@@ -83,7 +86,10 @@ function systemScheme(): "light" | "dark" {
  * to the frame and only shows it as on. The overlay and the context load the
  * first time grab turns on.
  */
-export function createGrab(options: GrabControlOptions = {}): GrabControl {
+export function createGrab(
+  options: GrabControlOptions = {},
+  loadMode: LoadMode = () => import("./index"),
+): GrabControl {
   const mac = isMac();
   const key = parseGrabKey(options.key, mac);
   const inFrame = isDevknobsFrame();
@@ -105,7 +111,7 @@ export function createGrab(options: GrabControlOptions = {}): GrabControl {
 
   function startLocal(): void {
     const at = ++turn;
-    void import("./index").then(({ startMode }) => {
+    void loadMode().then(({ startMode }) => {
       if (at !== turn || place !== "here") return;
       mode = startMode({
         pointer,
