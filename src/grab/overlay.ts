@@ -86,9 +86,6 @@ const CSS = `
   border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   border-radius: ${MIN_RADIUS}px;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent),
-    0 0 16px color-mix(in srgb, var(--accent) 22%, transparent);
   transition: opacity ${FADE}ms ease-out;
 }
 .box.on { opacity: 1; }
@@ -96,7 +93,6 @@ const CSS = `
   opacity: 1;
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   background: color-mix(in srgb, var(--accent) 5%, transparent);
-  box-shadow: none;
   transition: none;
 }
 .pill {
