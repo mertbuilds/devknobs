@@ -93,15 +93,31 @@ const GENERATED_CLASS = [
   /^jsx-\d+$/,
 ];
 
+/** The shape of a StyleX atom: an `x` and a short hash, which may have no digit, `xzcgazx`. */
+const ATOM = /^x[a-z0-9]{5,9}$/;
+const ATOM_LIKE = /^x[a-z0-9]{4,9}$/;
+
+/** A hash this long with under two vowels is no word. Shorter ones, `xsmall`, may be. */
+const WORDLESS_MIN = 7;
+
+/** Atoms come many to a class list. This many of the shape, and all of them are atoms. */
+const ATOM_CROWD = 3;
+
+function isWordless(token: string): boolean {
+  return token.length >= WORDLESS_MIN && (token.match(/[aeiou]/g)?.length ?? 0) < 2;
+}
+
 export function isGeneratedClass(token: string): boolean {
-  return GENERATED_CLASS.some((pattern) => pattern.test(token));
+  if (GENERATED_CLASS.some((pattern) => pattern.test(token))) return true;
+  return ATOM.test(token) && isWordless(token);
 }
 
 /** The class names a person wrote, the generated ones dropped. */
 export function readableClass(value: string): string {
-  return value
-    .split(/\s+/)
-    .filter((token) => token && !isGeneratedClass(token))
+  const tokens = value.split(/\s+/).filter(Boolean);
+  const crowd = tokens.filter((token) => ATOM_LIKE.test(token)).length >= ATOM_CROWD;
+  return tokens
+    .filter((token) => !isGeneratedClass(token) && !(crowd && ATOM.test(token)))
     .join(" ");
 }
 

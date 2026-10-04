@@ -49,6 +49,9 @@ describe("generated class names", () => {
     "x1jft12v",
     "xobvag8",
     "x78zum5",
+    "xzcgazx",
+    "xmbi4v7",
+    "xdt5ytf",
     "_title_1a2b3",
     "_title_1a2b3_7",
     "Card_title__3xK2a",
@@ -64,6 +67,8 @@ describe("generated class names", () => {
     "hero-title",
     "text-4xl",
     "xlarge",
+    "xl",
+    "xsmall",
     "x-small",
     "card__title",
     "card__title--active",
@@ -77,6 +82,21 @@ describe("generated class names", () => {
   test("keeps the readable names, in their order", () => {
     expect(readableClass("index__styles.displayTitle xobvag8 x1jft12v xb6ev31")).toBe("");
     expect(readableClass("  hero  _title_1a2b3 css-1x2y3z dark ")).toBe("hero dark");
+  });
+
+  test("drops StyleX atoms that have no digit, as a real card's class list has", () => {
+    const real = "xzcgazx xmbi4v7 x78zum5 xdt5ytf xaqueou xieioua x1n2onr6";
+    expect(readableClass(real)).toBe("");
+    expect(readableClass(`card ${real} is-open`)).toBe("card is-open");
+    expect(htmlPreview(el("li", { class: real }, ["Take photos"]))).toBe("<li>Take photos</li>");
+  });
+
+  test("keeps a word that starts with x, alone or among readable names", () => {
+    expect(readableClass("xlarge")).toBe("xlarge");
+    expect(readableClass("xl")).toBe("xl");
+    expect(readableClass("x-small")).toBe("x-small");
+    expect(readableClass("btn xlarge xsmall")).toBe("btn xlarge xsmall");
+    expect(readableClass("xaqueou")).toBe("xaqueou");
   });
 });
 
