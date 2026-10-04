@@ -337,7 +337,6 @@ export function bezelMock(id: string, orientation: OrientationValue): Mock | nul
     ...size,
     inset: sides,
     body: { x: 0, y: 0, ...size },
-    bezel: sides,
     screenRadius: turned ? turnRadius(bezel.radius) : bezel.radius,
     bodyRadius: 0,
     parts: [],

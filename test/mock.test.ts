@@ -66,7 +66,6 @@ describe("mockOf", () => {
     }
     // The buttons on both sides stand 2.7 px out of the body.
     const upright = mockOf("iphone-16-pro", "portrait");
-    expect(upright?.bezel).toEqual({ top: 14.7, right: 14.7, bottom: 14.4, left: 14.7 });
     expect(upright?.inset).toEqual({
       top: 14.7,
       right: 14.7 + 2.7,
@@ -84,10 +83,10 @@ describe("mockOf", () => {
     expect(turned?.height).toBe(upright?.width ?? 0);
     expect(turned?.body.x).toBe(0);
     expect(turned?.body.y).toBeCloseTo(2.7);
-    expect(mockOf("iphone-se", "landscape")?.bezel).toEqual({
-      top: 28.1,
+    expect(mockOf("iphone-se", "landscape")?.inset).toEqual({
+      top: 28.1 + 2.6,
       right: 110.3,
-      bottom: 28.1,
+      bottom: 28.1 + 2.6,
       left: 110.2,
     });
   });
@@ -125,7 +124,7 @@ describe("mockOf", () => {
 
   test("draws the iPhone SE from its drawing", () => {
     const mock = mockOf("iphone-se", "portrait");
-    expect(mock?.bezel).toEqual({ top: 110.2, right: 28.1, bottom: 110.3, left: 28.1 });
+    expect(mock?.inset).toEqual({ top: 110.2, right: 28.1 + 2.6, bottom: 110.3, left: 28.1 + 2.6 });
     expect(mock?.body.width).toBeCloseTo(431.2);
     expect(mock?.body.height).toBeCloseTo(887.5);
     const screen = { x: mock?.inset.left ?? 0, y: mock?.inset.top ?? 0 };
@@ -178,7 +177,7 @@ describe("mockOf", () => {
     expect(hole).toMatchObject({ width: 32, height: 32, radius: 16 });
     expect(center(hole).x - (mock?.inset.left ?? 0)).toBeCloseTo(205.5);
     expect(center(hole).y - (mock?.inset.top ?? 0)).toBeCloseTo(33);
-    expect(mock?.bezel).toEqual({ top: 21.9, right: 22.2, bottom: 21.9, left: 22.2 });
+    expect(mock?.inset).toEqual({ top: 21.9, right: 22.2 + 2.5, bottom: 21.9, left: 22.2 });
   });
 
   test("draws each newer Pixel's punch hole and buttons where Google's frame has them", () => {
@@ -206,7 +205,7 @@ describe("mockOf", () => {
 
   test("puts the iPad Air's camera on the right long edge, and the top button on top", () => {
     const mock = mockOf("ipad-air-11", "portrait");
-    expect(mock?.bezel).toEqual({ top: 53.5, right: 53.9, bottom: 53.5, left: 53.9 });
+    expect(mock?.inset).toEqual({ top: 53.5 + 2.5, right: 53.9 + 2.5, bottom: 53.5, left: 53.9 });
     const screen = { x: mock?.inset.left ?? 0, y: mock?.inset.top ?? 0 };
     const [lens] = parts(mock, "lens");
     expect(center(lens).x - screen.x).toBeCloseTo(850.5);

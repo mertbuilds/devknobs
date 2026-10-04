@@ -51,7 +51,6 @@ export interface Mock {
   inset: Sides;
   /** The body, in the mock. */
   body: Rect;
-  bezel: Sides;
   screenRadius: Radius;
   bodyRadius: Radius;
   parts: Part[];
@@ -150,7 +149,7 @@ export function mockOf(id: string, orientation: OrientationValue): Mock | null {
       return key ? [shown, round("key", at(key))] : [shown];
     }),
   ];
-  const upright: Mock = { width, height, inset, body, bezel, screenRadius, bodyRadius, parts };
+  const upright: Mock = { width, height, inset, body, screenRadius, bodyRadius, parts };
   if (orientation === "portrait") return upright;
   return {
     ...upright,
@@ -158,7 +157,6 @@ export function mockOf(id: string, orientation: OrientationValue): Mock | null {
     height: width,
     inset: turnSides(inset),
     body: turnRect(body, width),
-    bezel: turnSides(bezel),
     screenRadius: turnRadius(screenRadius),
     bodyRadius: turnRadius(bodyRadius),
     parts: upright.parts.map((part) => turnRect(part, width)),

@@ -13,6 +13,7 @@ import { type Color, luminance, parseColor } from "./color";
 import { give } from "./endroom";
 import { baseMatchMedia } from "./matchmedia";
 import type { Rect } from "./mock";
+import { navigationOf } from "./reload";
 import { buildSafari, SAFARI_CSS } from "./safaridraw";
 
 /**
@@ -94,11 +95,6 @@ function backgroundOf(doc: Document, view: Window, dark: boolean): [number, numb
   return base;
 }
 
-interface FrameNavigation {
-  canGoBack?: boolean;
-  canGoForward?: boolean;
-}
-
 /** What the bars show for the page in the frame, white and empty while it is out of reach. */
 export function readLook(frame: HTMLIFrameElement): Look {
   const fallback: Look = {
@@ -115,14 +111,18 @@ export function readLook(frame: HTMLIFrameElement): Look {
     if (!view || !doc?.documentElement) return fallback;
     const scheme = view.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     const [r, g, b] = backgroundOf(doc, view, scheme === "dark");
-    const navigation = (view as Window & { navigation?: FrameNavigation }).navigation;
+    const navigation = navigationOf(view);
+    const can = (key: string): boolean | null => {
+      const value: unknown = navigation && Reflect.get(navigation, key);
+      return typeof value === "boolean" ? value : null;
+    };
     return {
       background: `rgb(${r}, ${g}, ${b})`,
       dark: luminance(r, g, b) < 0.4,
       scheme,
       host: view.location.host,
-      canBack: navigation?.canGoBack ?? view.history.length > 1,
-      canForward: navigation?.canGoForward ?? false,
+      canBack: can("canGoBack") ?? view.history.length > 1,
+      canForward: can("canGoForward") ?? false,
     };
   } catch {
     return fallback;
