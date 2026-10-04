@@ -386,8 +386,9 @@ function chromeStatus(
 ): StatusBar {
   const hole = orientation === "portrait" ? sensorMiddle(id) : null;
   const y = hole?.y ?? height / 2;
-  // An estimate: the side padding, clear of the screen's round corners.
-  const side = orientation === "portrait" ? 26 : 16;
+  // An estimate: the side padding, clear of the screen's round corners, and in
+  // landscape of the punch hole on the left too.
+  const side = orientation === "portrait" ? 26 : 56;
   return {
     height,
     time: { x: side, y, size: 14 },

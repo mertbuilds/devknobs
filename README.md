@@ -260,6 +260,8 @@ reports to it from its first render.
 | orientation | portrait, landscape | turns a frame that has a width and a height, a device's or a custom one. it follows the size, so a size set across reads as landscape |
 | mock | on, off | draws a phone's or tablet's body around its frame. on by default, and only offered while a phone or tablet is picked. see devices below |
 | touch pointer | on, off | the mouse acts as a finger inside a touch device's frame, like the devtools device toolbar: a round cursor, touch events, `pointerType: "touch"`, no hover, drag to scroll. on by default, and only offered while a device with a touch screen is picked. see devices below |
+| browser | compact, bottom, top, off on an iPhone; top, bottom, off on an Android phone | draws the phone's browser in its screen around the page, Safari on an iPhone and Chrome on an Android phone, and makes the frame the viewport that browser leaves the page. on by default with the browser's own default layout, and only offered while a phone is picked. see devices below |
+| bars | expanded, minimized | the browser's bars as they stand, or minimized as after a scroll down, which gives the page more height. only offered while the browser is drawn |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
@@ -337,9 +339,9 @@ platform (`iphone`, `pixel`, `galaxy`, `ipad`, `macbook`, `phone`, `tablet`,
 | desktop | 1920 × 1080 | 1 | no |
 
 each size is the whole screen in css px, the device held its usual way:
-phones and tablets upright, laptops and desktops across. a browser on the
-device shows a little less, as its own address bar and toolbars take some of
-the height, and a laptop's menu bar and window frame do too.
+phones and tablets upright, laptops and desktops across. a phone shows its
+browser in that screen too, see below, and a laptop's menu bar and window
+frame would take some of the height as well.
 
 a phone or tablet picked after another is held the same way, anything else
 comes up its usual way, unless the patch names an orientation. a width or
@@ -355,6 +357,27 @@ tall forehead and chin and home button. it turns with the frame, is fitted
 and zoomed with it, and never takes a pointer. the viewport stays the device's
 size. the mock switch in the device editor turns it off. laptops and desktops
 have none.
+
+a phone shows the page in its browser, drawn in the screen around the frame:
+Safari's status bar, Liquid Glass bars and home indicator on an iPhone, and
+Android's status bar, Chrome's toolbar, the chin and the gesture handle on a
+Pixel or a Galaxy. the frame is then the viewport that browser leaves the
+page, so `innerWidth`, `innerHeight` and the viewport units read what they
+would on the phone, and the readout says that size: an iPhone 16 Pro gives
+402 × 714 in Safari's compact layout, 402 × 654 with the bar at the bottom and
+402 × 660 at the top, and a Pixel 9 412 × 777 with Chrome's toolbar. the
+browser knob picks the layout, Safari's compact, bottom or top and Chrome's
+top or bottom, or off for the whole screen, and the bars knob minimizes the
+bars as a scroll down would. turned across, Safari keeps one row at the top
+and leaves room for the island at both sides. Safari's numbers are measured in
+iOS 26.5 Safari, Chrome's come from the Chromium and AOSP sources, and the
+Galaxy status bar height is an estimate. the screen around the bars takes the
+page's own background, read again on each load, navigation and scheme change,
+and Safari's glass and glyphs go dark on a dark page as they do on the phone.
+the address shows the frame's host, back and forward step through the frame's
+history and reload reloads it, and the rest is drawn only. the glyphs are
+drawn for devknobs, none come from Apple or Google. tablets, laptops and
+desktops have no browser drawn.
 
 a device sets the user agent knob to its own browser too: iPhone or iPad
 Safari, Android Chrome, Mac Safari on the MacBook, Windows Chrome on the laptop
@@ -514,6 +537,16 @@ but no touch events. turn the switch off for the mouse as it is: clicks,
 hover and `pointerType: "mouse"`. `ontouchstart` is on the window only, not on
 elements or the document. `screen.width`,
 `screen.height` and `screen.orientation` keep the real screen's.
+
+the browser drawn around a phone's frame stands still. its bars do not
+minimize on a scroll (the bars knob does it), the page is not drawn under the
+glass, which takes the page's background color instead, and
+`env(safe-area-inset-*)` stays 0. there is no keyboard, and the tabs, the
+menus and the share sheet do not open. a page that changes its background
+without a load, a navigation or a scheme change keeps the old color around
+the bars until the next one. Safari is drawn as iOS 26.5 has it, with the
+more button in compact, where iOS 27 has the tabs button. Chrome is its
+classic toolbar, with no theme color and no dynamic color.
 
 the frame loads the page a second time, so in-memory state (a half-filled form,
 a client store) is not shared between the two, and the page under the frame

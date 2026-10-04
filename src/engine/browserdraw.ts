@@ -1,5 +1,6 @@
 import type { Bars } from "./browserui";
 import { type Actions, el, FONT, type Look, place } from "./browserkit";
+import { CHROME_CSS, paintChrome } from "./chromedraw";
 import { paintSafari, SAFARI_CSS } from "./safaridraw";
 
 /**
@@ -30,9 +31,10 @@ export const BARS_CSS = `
 .browser svg { overflow: visible; }
 .browser .press { pointer-events: auto; cursor: default; }
 ${SAFARI_CSS}
+${CHROME_CSS}
 `;
 
-const PAINTERS: Partial<Record<Bars["platform"], Painter>> = { safari: paintSafari };
+const PAINTERS: Record<Bars["platform"], Painter> = { safari: paintSafari, chrome: paintChrome };
 
 /** `rgb()` or `rgba()` as numbers, or null for a color in another form. */
 function parseRgb(color: string): [number, number, number, number] | null {
@@ -169,7 +171,7 @@ export function createBrowser(glass: HTMLElement, frame: HTMLIFrameElement): Bro
     const key = JSON.stringify([bars, look]);
     if (key === drawnKey) return;
     drawnKey = key;
-    layer.replaceChildren(...(PAINTERS[bars.platform]?.(bars, look, actions) ?? []));
+    layer.replaceChildren(...(PAINTERS[bars.platform](bars, look, actions)));
   };
   const read = () => {
     try {
