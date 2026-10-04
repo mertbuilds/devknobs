@@ -30,7 +30,16 @@ import {
   rowOf,
   wallInput,
 } from "./catalog";
-import { escapeStep, hotkeyOf, isSearchKey, keyAction, zoomAction } from "./keys";
+import {
+  escapeStep,
+  highlightAt,
+  hotkeyOf,
+  isSearchKey,
+  keyAction,
+  paletteMove,
+  radioMove,
+  zoomAction,
+} from "./keys";
 import { isListed, pinPatch, removePatch, rowText } from "./list";
 import { filterOptions, type Result, resultText, search, searchActions } from "./search";
 import { CSS } from "./styles";
@@ -289,6 +298,13 @@ function reveal(node: HTMLElement, box: HTMLElement): void {
   }
 }
 
+/** The first control in a box that the tab key stops at and that shows. */
+function firstControl(box: Element | null): HTMLElement | null {
+  if (!box) return null;
+  const controls = Array.from(box.querySelectorAll<HTMLElement>("button, input, textarea"));
+  return controls.find((node) => node.tabIndex >= 0 && node.getClientRects().length > 0) ?? null;
+}
+
 /** Scroll a box to put a node in its middle. The box is the node's offset parent. */
 function center(node: HTMLElement, box: HTMLElement): void {
   box.scrollTop = node.offsetTop - (box.clientHeight - node.offsetHeight) / 2;
@@ -369,6 +385,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   let openRow: RowId | null = null;
   /** The search has focus and lists every knob, as nothing is typed. */
   let browsing = false;
+  /** The query the results last showed, so a new one puts the highlight back on top. */
+  let shownQuery = "";
   /** A pointer is down, so a blur it caused waits for its click to land. */
   let pressing = false;
   /** What the results or the browse list show, and which one Enter picks. */
@@ -404,6 +422,36 @@ export function createPanel(options: PanelOptions = {}): Panel {
     );
   }
 
+  /**
+   * A radio group is one tab stop, on the choice that is on, and the arrows
+   * move the choice as they move the focus.
+   */
+  function radioGroup(
+    knob: Knob,
+    track: HTMLElement,
+    items: { node: HTMLButtonElement; value: string }[],
+  ): Update {
+    track.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const at = items.findIndex((item) => item.node === event.target);
+      const next = at < 0 ? null : radioMove(event.key, at, items.length);
+      const item = next === null ? undefined : items[next];
+      if (!item) return;
+      event.preventDefault();
+      item.node.focus();
+      set(knob, item.value);
+    });
+    return (state) => {
+      const current = knob.read(state);
+      const known = items.some((item) => item.value === current);
+      items.forEach((item, index) => {
+        const on = item.value === current;
+        mark(item.node, on, "aria-checked");
+        item.node.tabIndex = on || (!known && index === 0) ? 0 : -1;
+      });
+    };
+  }
+
   function segments(knob: Knob): [HTMLElement, Update] {
     const track = el("div", "seg");
     track.setAttribute("role", "radiogroup");
@@ -415,13 +463,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       track.append(node);
       return { node, value: option.value };
     });
-    return [
-      track,
-      (state) => {
-        const current = knob.read(state);
-        for (const item of items) mark(item.node, item.value === current, "aria-checked");
-      },
-    ];
+    return [track, radioGroup(knob, track, items)];
   }
 
   /** Colors as swatches, the one that is on with a ring around it. */
@@ -439,13 +481,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       track.append(node);
       return { node, value: option.value };
     });
-    return [
-      track,
-      (state) => {
-        const current = knob.read(state);
-        for (const item of items) mark(item.node, item.value === current, "aria-checked");
-      },
-    ];
+    return [track, radioGroup(knob, track, items)];
   }
 
   /**
@@ -708,6 +744,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const updates: Update[] = [];
     for (const knob of knobsOf(row)) {
       const line = el("div", `knob knob-${knob.control}`);
+      line.dataset.knob = knob.id;
       const [node, update] = control(knob);
       line.append(el("div", "knob-label", knob.label), node);
       updates.push(update);
@@ -789,7 +826,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   function setCursor(index: number): void {
-    cursor = Math.min(Math.max(index, 0), entries.length - 1);
+    cursor = highlightAt(index, entries.length);
     entries.forEach((entry, at) => {
       entry.node.classList.toggle("cursor", at === cursor);
       entry.node.setAttribute("aria-selected", at === cursor ? "true" : "false");
@@ -885,7 +922,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       entries = [];
       results.replaceChildren();
     }
-    setCursor(cursor);
+    setCursor(highlightAt(cursor, entries.length, query !== shownQuery));
+    shownQuery = query;
   }
 
   /** Close the results and leave the search, query and all, for the rows. */
@@ -899,12 +937,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
     else render();
   }
 
-  /** Bring a row into view and hand it the focus the search had. */
-  function showRow(id: RowId): void {
+  /**
+   * Bring a row into view and hand it the focus the search had: the knob's
+   * first control where its editor is open, so its value can be set at once,
+   * else the row itself.
+   */
+  function showRow(id: RowId, knob: Knob): void {
     const view = viewOf(id);
     if (!view) return;
     reveal(view.box, body);
-    view.main.focus();
+    const line = openRow === id ? view.editor.querySelector(`[data-knob="${knob.id}"]`) : null;
+    (firstControl(line) ?? view.main).focus();
   }
 
   /** Do what an action says. Grab takes the focus out of the panel, to the page. */
@@ -929,14 +972,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (knob.id === "frame" && frameForced(engine.getState())) return;
     set(knob, option.value);
     if (option.opens) openEditor(id);
-    showRow(id);
+    showRow(id, knob);
   }
 
   function openKnob(knob: Knob): void {
     const id = rowOf(knob.id).id;
     leaveSearch();
     openEditor(id);
-    showRow(id);
+    showRow(id, knob);
   }
 
   function render(): void {
@@ -1057,23 +1100,20 @@ export function createPanel(options: PanelOptions = {}): Panel {
   });
   searchInput.addEventListener("input", () => {
     browsing = true;
-    cursor = 0;
     body.scrollTop = 0;
     render();
   });
   searchInput.addEventListener("keydown", (event: KeyboardEvent) => {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      if (!browsing && !searchInput.value.trim()) {
-        browsing = true;
-        render();
-        return;
-      }
-      setCursor(cursor + (event.key === "ArrowDown" ? 1 : -1));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      entries[cursor]?.pick();
+    const move = event.isComposing ? null : paletteMove(event.key, cursor, entries.length);
+    if (!move) return;
+    event.preventDefault();
+    if (event.key !== "Enter" && !browsing && !searchInput.value.trim()) {
+      browsing = true;
+      render();
+      return;
     }
+    setCursor(move.cursor);
+    if (move.pick) entries[move.cursor]?.pick();
   });
   // A press on a result or the scrollbar keeps the focus in the search, so the
   // list stays put under it.

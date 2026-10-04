@@ -81,6 +81,45 @@ export function escapeStep(scene: EscapeScene): EscapeStep {
 }
 
 /**
+ * Where the search's highlight sits among `count` entries: on the first for a
+ * new query, else where it was, held inside the entries. -1 with no entries.
+ */
+export function highlightAt(cursor: number, count: number, newQuery = false): number {
+  return Math.min(Math.max(newQuery ? 0 : cursor, 0), count - 1);
+}
+
+/** Where a key in the search puts the highlight, and whether it picks the entry there. */
+export interface PaletteMove {
+  cursor: number;
+  pick: boolean;
+}
+
+/**
+ * The arrows move the search's highlight one entry, held at the ends, and
+ * Enter picks the entry it is on. Every other key is the field's.
+ */
+export function paletteMove(key: string, cursor: number, count: number): PaletteMove | null {
+  if (key === "ArrowDown" || key === "ArrowUp") {
+    return { cursor: highlightAt(cursor + (key === "ArrowDown" ? 1 : -1), count), pick: false };
+  }
+  if (key === "Enter") return { cursor: highlightAt(cursor, count), pick: count > 0 };
+  return null;
+}
+
+/**
+ * Where a key moves the choice in a radio group of `count`: right or down to
+ * the next, left or up to the one before, round past the ends, Home and End
+ * to the ends. Null for every other key.
+ */
+export function radioMove(key: string, index: number, count: number): number | null {
+  if (count === 0) return null;
+  if (key === "ArrowRight" || key === "ArrowDown") return (index + 1) % count;
+  if (key === "ArrowLeft" || key === "ArrowUp") return (index - 1 + count) % count;
+  if (key === "Home") return 0;
+  return key === "End" ? count - 1 : null;
+}
+
+/**
  * Inside the width knob's frame the keys stay in the frame while it has focus,
  * so send the panel's keys up to the page that has the panel, and the zoom
  * keys up to the letterbox, which the browser's own zoom does not get. Returns

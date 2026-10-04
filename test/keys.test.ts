@@ -3,10 +3,13 @@ import {
   type EscapeScene,
   escapeStep,
   forwardKeys,
+  highlightAt,
   hotkeyOf,
   isSearchKey,
   keyAction,
   type KeyLike,
+  paletteMove,
+  radioMove,
   zoomAction,
 } from "../src/ui/keys";
 
@@ -135,6 +138,68 @@ describe("escapeStep", () => {
 
   test("closes the panel when nothing else is open", () => {
     expect(escapeStep(idle)).toBe("panel");
+  });
+});
+
+describe("highlightAt", () => {
+  test("a new query puts the highlight back on the first entry", () => {
+    expect(highlightAt(4, 10, true)).toBe(0);
+    expect(highlightAt(0, 3, true)).toBe(0);
+  });
+
+  test("the same query keeps it where it was, inside the entries", () => {
+    expect(highlightAt(4, 10)).toBe(4);
+    expect(highlightAt(4, 3)).toBe(2);
+    expect(highlightAt(-1, 3)).toBe(0);
+  });
+
+  test("no entries, nothing highlighted", () => {
+    expect(highlightAt(0, 0, true)).toBe(-1);
+    expect(highlightAt(2, 0)).toBe(-1);
+  });
+});
+
+describe("paletteMove", () => {
+  test("the arrows move the highlight one entry, held at the ends", () => {
+    expect(paletteMove("ArrowDown", 0, 3)).toEqual({ cursor: 1, pick: false });
+    expect(paletteMove("ArrowUp", 1, 3)).toEqual({ cursor: 0, pick: false });
+    expect(paletteMove("ArrowDown", 2, 3)).toEqual({ cursor: 2, pick: false });
+    expect(paletteMove("ArrowUp", 0, 3)).toEqual({ cursor: 0, pick: false });
+  });
+
+  test("enter picks the highlighted entry", () => {
+    expect(paletteMove("Enter", 0, 3)).toEqual({ cursor: 0, pick: true });
+    expect(paletteMove("Enter", 2, 3)).toEqual({ cursor: 2, pick: true });
+  });
+
+  test("enter picks nothing with no entries", () => {
+    expect(paletteMove("Enter", 0, 0)).toEqual({ cursor: -1, pick: false });
+  });
+
+  test("other keys are the field's", () => {
+    expect(paletteMove("a", 0, 3)).toBeNull();
+    expect(paletteMove("ArrowLeft", 0, 3)).toBeNull();
+    expect(paletteMove("Tab", 0, 3)).toBeNull();
+  });
+});
+
+describe("radioMove", () => {
+  test("right and down go to the next choice, round past the end", () => {
+    expect(radioMove("ArrowRight", 0, 3)).toBe(1);
+    expect(radioMove("ArrowDown", 1, 3)).toBe(2);
+    expect(radioMove("ArrowRight", 2, 3)).toBe(0);
+  });
+
+  test("left and up go to the one before, round past the start", () => {
+    expect(radioMove("ArrowLeft", 2, 3)).toBe(1);
+    expect(radioMove("ArrowUp", 0, 3)).toBe(2);
+  });
+
+  test("home and end go to the ends, other keys nowhere", () => {
+    expect(radioMove("Home", 2, 3)).toBe(0);
+    expect(radioMove("End", 0, 3)).toBe(2);
+    expect(radioMove("Enter", 0, 3)).toBeNull();
+    expect(radioMove("ArrowRight", 0, 0)).toBeNull();
   });
 });
 
