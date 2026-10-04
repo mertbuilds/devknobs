@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { DEVICES, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
+import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import {
@@ -462,18 +463,108 @@ function widthStyle(): FakeElement | undefined {
   return head.children.find((element) => element.getAttribute("data-devknobs") === "width");
 }
 
-/** The frame's page loads at `href`, on this origin. */
-function load(href: string): void {
+/** A document in the frame, as far as the frame and the patches read one. */
+function fakeDocument(href: string) {
+  return {
+    URL: href,
+    title: "billing",
+    head: new FakeElement("HEAD"),
+    documentElement: new FakeElement("HTML"),
+    querySelector: () => null,
+    createElement: (tag: string) => new FakeElement(tag.toUpperCase()),
+  };
+}
+
+/**
+ * The frame's window as the page above holds it: one object for good, where
+ * each new page brings its own listeners, navigation and patches, as a real
+ * page's window does. The first page takes the blank one over, patches and
+ * all. A page on another origin cannot be read or listened to.
+ */
+class FakeView extends EventTarget {
+  location = { href: "about:blank", reload: () => reloads++ };
+  navigator = {};
+  history = { pushState: () => {}, replaceState: () => {} };
+  navigation: EventTarget | undefined = new EventTarget();
+  /** Another origin's page is in the frame. */
+  foreign = false;
+  private page = fakeDocument("about:blank");
+  private listeners: [string, EventListenerOrEventListenerObject | null][] = [];
+
+  constructor(private readonly withNavigation = true) {
+    super();
+    if (!withNavigation) this.navigation = undefined;
+  }
+
+  get document() {
+    if (this.foreign) throw new Error("SecurityError");
+    return this.page;
+  }
+
+  override addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: AddEventListenerOptions | boolean,
+  ): void {
+    if (this.foreign) throw new Error("SecurityError");
+    this.listeners.push([type, listener]);
+    super.addEventListener(type, listener, options);
+  }
+
+  matchMedia(query: string) {
+    return { matches: false, media: query };
+  }
+
+  postMessage(): void {}
+
+  /** The page sets off for `href`, a cross-document navigation unless `same`. */
+  navigate(href: string, same = false): void {
+    const event = Object.assign(new Event("navigate", { cancelable: true }), {
+      destination: { url: href, sameDocument: same },
+      downloadRequest: null,
+    });
+    if (this.navigation) this.navigation.dispatchEvent(event);
+    else if (!same) this.dispatchEvent(new Event("beforeunload"));
+  }
+
+  /** The next page takes over at `href`. Off this origin, nothing of it can be read. */
+  commit(href: string, origin: "same" | "other" = "same"): void {
+    const blank = this.location.href === "about:blank";
+    if (!blank && !this.foreign) this.dispatchEvent(new Event("pagehide"));
+    if (!blank) {
+      for (const [type, listener] of this.listeners) super.removeEventListener(type, listener);
+      this.listeners = [];
+      for (const key of Object.getOwnPropertySymbols(this)) Reflect.deleteProperty(this, key);
+      Reflect.deleteProperty(this, "ontouchstart");
+      this.navigator = {};
+      if (this.withNavigation) this.navigation = new EventTarget();
+    }
+    this.foreign = origin === "other";
+    this.location.href = href;
+    this.page = fakeDocument(href);
+  }
+}
+
+let view: FakeView;
+
+/** The frame's window, blank, in the frame that just came up. */
+function attach(withNavigation = true): FakeView {
   const frame = frameElement();
-  Object.assign(frame, {
-    contentWindow: Object.assign(new EventTarget(), {
-      location: { href, reload: () => reloads++ },
-      navigation: new EventTarget(),
-      postMessage: () => {},
-    }),
-    contentDocument: { title: "billing", head: new FakeElement("HEAD") },
+  view = new FakeView(withNavigation);
+  Object.defineProperty(frame, "contentWindow", { configurable: true, value: view });
+  Object.defineProperty(frame, "contentDocument", {
+    configurable: true,
+    get: () => (view.foreign ? null : view.document),
   });
-  frame.dispatchEvent(new Event("load"));
+  return view;
+}
+
+/** The frame's page comes in at `href`, runs its scripts a task later, and loads. */
+async function load(href: string, origin: "same" | "other" = "same"): Promise<void> {
+  if (!Reflect.get(frameElement(), "contentWindow")) attach();
+  view.commit(href, origin);
+  await Bun.sleep(1);
+  frameElement().dispatchEvent(new Event("load"));
 }
 
 beforeEach(() => {
@@ -622,17 +713,17 @@ describe("the frame over the page", () => {
     expect(zooms).toEqual([1.1, 0.9, "fit"]);
   });
 
-  test("puts the page's own address back over the frame's", () => {
+  test("puts the page's own address back over the frame's", async () => {
     apply(VIEWPORT);
-    load(FRAMED);
+    await load(FRAMED);
     expect(location.href).toBe(FRAMED);
     reset();
     expect(location.href).toBe(PAGE);
   });
 
-  test("leaves the address alone once the window went back to another entry", () => {
+  test("leaves the address alone once the window went back to another entry", async () => {
     apply(VIEWPORT);
-    load(FRAMED);
+    await load(FRAMED);
     location.href = EARLIER;
     reset();
     expect(location.href).toBe(EARLIER);
@@ -645,17 +736,17 @@ describe("the frame over the page", () => {
     expect(assigned).toEqual([]);
   });
 
-  test("sends the window after the frame instead, when the knobs go off", () => {
+  test("sends the window after the frame instead, when the knobs go off", async () => {
     apply(VIEWPORT);
-    load(FRAMED);
+    await load(FRAMED);
     apply(KNOBS);
     expect(assigned).toEqual([FRAMED]);
     expect(scrolls).toEqual([]);
   });
 
-  test("stays on the entry the window went back to, when the knobs go off", () => {
+  test("stays on the entry the window went back to, when the knobs go off", async () => {
     apply(VIEWPORT);
-    load(FRAMED);
+    await load(FRAMED);
     location.href = EARLIER;
     apply(KNOBS);
     expect(assigned).toEqual([]);
@@ -742,29 +833,90 @@ describe("a new identity", () => {
     Object.assign(window, { setTimeout });
   });
 
-  test("reloads the frame once the knobs settle, once, and not for a zoom", async () => {
-    const phone = merge(DEFAULT_STATE, PHONE_KNOBS);
+  const phone = merge(DEFAULT_STATE, PHONE_KNOBS);
+  const pixel = merge(phone, { device: "pixel-9", dpr: "system" });
+
+  function framePhone(): void {
     apply(phone);
     sync(phone);
-    load(FRAMED);
-    const pixel = merge(phone, { device: "pixel-9", dpr: "system" });
-    apply(pixel);
-    sync(pixel);
+  }
+
+  function pick(state: typeof phone): void {
+    apply(state);
+    sync(state);
+  }
+
+  test("patches the frame's first page before its scripts, and each page after", async () => {
+    framePhone();
+    await load(FRAMED);
+    expect(patchedAs(view)?.agent).toBe("iphone-safari");
+    expect("ontouchstart" in view).toBe(true);
+    pick(pixel);
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+    await load(FRAMED);
+    expect(patchedAs(view)?.agent).toBe("android-chrome");
+    view.navigate(PAGE);
+    await load(PAGE);
+    expect(patchedAs(view)?.agent).toBe("android-chrome");
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("reloads the frame once the knobs settle, once, and not for a zoom", async () => {
+    framePhone();
+    await load(FRAMED);
+    pick(pixel);
     sync(merge(pixel, { dpr: 2 }));
     await Bun.sleep(5);
     expect(reloads).toBe(1);
-    load(FRAMED);
+    await load(FRAMED);
     sync(merge(pixel, { dpr: 2, zoom: 0.5, orientation: "landscape" }));
     await Bun.sleep(5);
     expect(reloads).toBe(1);
   });
 
   test("leaves a frame on its first load to finish", async () => {
-    const phone = merge(DEFAULT_STATE, PHONE_KNOBS);
-    apply(phone);
-    sync(phone);
+    framePhone();
     sync(merge(phone, { device: "pixel-9" }));
     await Bun.sleep(5);
     expect(reloads).toBe(0);
+  });
+
+  for (const navigation of [true, false]) {
+    test(`lets a slow page the frame set off for come in, patched as the knobs are now${navigation ? "" : ", without the navigation api"}`, async () => {
+      framePhone();
+      attach(navigation);
+      await load(FRAMED);
+      view.navigate(PAGE);
+      pick(pixel);
+      await Bun.sleep(5);
+      expect(reloads).toBe(0);
+      await load(PAGE);
+      expect(patchedAs(view)?.agent).toBe("android-chrome");
+      await Bun.sleep(5);
+      expect(reloads).toBe(0);
+    });
+  }
+
+  test("reloads for the knobs once the page stays after all", async () => {
+    framePhone();
+    await load(FRAMED);
+    view.navigate(PAGE);
+    pick(pixel);
+    await Bun.sleep(5);
+    expect(reloads).toBe(0);
+    view.navigation?.dispatchEvent(new Event("navigateerror"));
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("reloads for the knobs while the page only moves in its own document", async () => {
+    framePhone();
+    await load(FRAMED);
+    view.navigate(PAGE, true);
+    pick(pixel);
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
   });
 });

@@ -46,6 +46,12 @@ const MARGIN = 24;
 /** How long a frame's next page gets to take over once the last one hid, in ms. */
 const COMMIT_WAIT = 1000;
 
+/**
+ * How long a page the frame's page left for holds off a reload, in ms. One
+ * that never comes, such as a download or a 204, lets it go after that.
+ */
+const LEAVE_WAIT = 30000;
+
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
 
@@ -342,6 +348,8 @@ let latest: DevknobsState | null = null;
 let identity: Identity | null = null;
 /** The reload a new identity asked for, once the knobs settle. */
 let reloading = 0;
+/** When the frame's page set off for another document, which a reload would cancel, or 0. */
+let leaving = 0;
 /** What a page node had before it was hidden here, so it gets exactly that back. */
 interface Hidden {
   /** Made inert here. One the page made inert stays the page's. */
@@ -438,7 +446,81 @@ export function sync(state: DevknobsState): void {
 function arrive(view: Window): void {
   if (!latest) return;
   identity = patchWindow(view, latest);
+  listen(view);
+}
+
+function isTarget(value: unknown): value is EventTarget {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof Reflect.get(value, "addEventListener") === "function"
+  );
+}
+
+/** The frame's navigation api, where the browser has one. */
+function navigationOf(view: Window): EventTarget | null {
+  const navigation: unknown = Reflect.get(view, "navigation");
+  return isTarget(navigation) ? navigation : null;
+}
+
+/**
+ * Hear the frame's page leave: for another document, which a reload would
+ * cancel, and as it hides for the next one. Each page has its own window, so
+ * each gets these again.
+ */
+function listen(view: Window): void {
   view.addEventListener("pagehide", onHide);
+  const navigation = navigationOf(view);
+  if (navigation) {
+    navigation.addEventListener("navigate", onNavigate);
+    navigation.addEventListener("navigatesuccess", onStay);
+    navigation.addEventListener("navigateerror", onStay);
+  } else view.addEventListener("beforeunload", onLeave);
+}
+
+function unlisten(view: Window): void {
+  try {
+    view.removeEventListener("pagehide", onHide);
+    view.removeEventListener("beforeunload", onLeave);
+    const navigation = navigationOf(view);
+    navigation?.removeEventListener("navigate", onNavigate);
+    navigation?.removeEventListener("navigatesuccess", onStay);
+    navigation?.removeEventListener("navigateerror", onStay);
+  } catch {
+    // Another origin, which was never listened to.
+  }
+}
+
+/**
+ * The frame's page sets off for another document. A page in its own document
+ * or a download stays.
+ */
+function onNavigate(event: Event): void {
+  const destination: unknown = Reflect.get(event, "destination");
+  const same =
+    typeof destination === "object" &&
+    destination !== null &&
+    Reflect.get(destination, "sameDocument") === true;
+  // A `download` link's request is its file name, empty where it has none.
+  if (same || typeof Reflect.get(event, "downloadRequest") === "string") return;
+  onLeave();
+}
+
+/** Without the navigation api, `beforeunload` says the page is on its way out. */
+function onLeave(): void {
+  leaving = performance.now();
+}
+
+/**
+ * The frame's page is no longer on its way out: it took the navigation over
+ * in its own document, cancelled it, or the next page is in. A reload held
+ * off for it goes now, if it is still due.
+ */
+function onStay(): void {
+  leaving = 0;
+  clearTimeout(reloading);
+  reloading = 0;
+  follow();
 }
 
 /**
@@ -452,6 +534,7 @@ function onHide(event: Event): void {
   // The whole tab going into the back/forward cache, with the frame as it is.
   if (!view || !gone || (event as PageTransitionEvent).persisted) return;
   identity = null;
+  onStay();
   const until = performance.now() + COMMIT_WAIT;
   const channel = new MessageChannel();
   channel.port1.onmessage = () => {
@@ -475,20 +558,29 @@ function onHide(event: Event): void {
  * Reload the frame once the knobs settle when its page loaded as another
  * device, so scripts that read the browser at load read the new one. One pick
  * that moves several knobs reloads once. A page still on its first load is
- * left to finish.
+ * left to finish, and so is a page on its way to the next one, which comes
+ * patched as the knobs are by then.
  */
 function follow(): void {
   if (reloading || !loaded || !latest || !stale(identity, identityOf(latest))) return;
-  reloading = window.setTimeout(() => {
-    reloading = 0;
-    if (!loaded || !latest || !stale(identity, identityOf(latest))) return;
-    identity = null;
-    try {
-      frameWindow()?.location.reload();
-    } catch {
-      // Another origin, which the knobs never reached.
-    }
-  }, 0);
+  reloading = window.setTimeout(reload, 0);
+}
+
+function reload(): void {
+  reloading = 0;
+  if (!loaded || !latest || !stale(identity, identityOf(latest))) return;
+  const wait = leaving ? leaving + LEAVE_WAIT - performance.now() : 0;
+  if (wait > 0) {
+    reloading = window.setTimeout(reload, wait);
+    return;
+  }
+  leaving = 0;
+  identity = null;
+  try {
+    frameWindow()?.location.reload();
+  } catch {
+    // Another origin, which the knobs never reached.
+  }
 }
 
 /** Where the frame is now. A frame that left the origin keeps the last place seen. */
@@ -601,13 +693,13 @@ function onLoad(): void {
     watch(view, doc);
     mirror();
     // A page the watch missed: the next one is patched still.
-    view.addEventListener("pagehide", onHide);
+    listen(view);
     if (latest) identity ??= patchedAs(view) ?? identityOf(latest);
   }
   browser?.refresh();
   checkZoom();
   share();
-  follow();
+  onStay();
 }
 
 /** A page that mounts late asks for the knobs once it listens. */
@@ -1177,8 +1269,11 @@ function close(follow: boolean): void {
   window.removeEventListener("resize", resize);
   frame?.removeEventListener("load", onLoad);
   titleObserver?.disconnect();
+  const view = frameWindow();
+  if (view) unlisten(view);
   clearTimeout(reloading);
   reloading = 0;
+  leaving = 0;
   identity = null;
   // The window shows its own page again, so its own address and title too.
   if (!moved) replaceUrl(pageUrl);

@@ -39,7 +39,7 @@ const PATCHED = Symbol.for("devknobs.identity");
 type Patched = Record<symbol, Identity | undefined>;
 
 /** The identity a window was patched as from the page above, if it was. */
-export function patchedAs(view: Window): Identity | undefined {
+export function patchedAs(view: object): Identity | undefined {
   return (view as unknown as Patched)[PATCHED];
 }
 
