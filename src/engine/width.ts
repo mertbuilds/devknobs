@@ -10,6 +10,7 @@ import {
   UNFRAMED,
   type ZoomAction,
 } from "./frame";
+import { drawMat } from "./mat";
 import { type Mock, mockOf, type Rect, type Sides } from "./mock";
 import { ensureStyle, removeStyle } from "./style";
 import { visionFilter } from "./vision";
@@ -71,19 +72,22 @@ const SANDBOX = [
   "allow-top-navigation-by-user-activation",
 ].join(" ");
 
-/** The blue of the cutting mat the frame lies on, and in P3 where the screen has it. */
-const MAT = "rgb(12, 66, 160)";
-const MAT_P3 = "color(display-p3 0.07 0.26 0.66)";
+/**
+ * The blue of the cutting mat the frame lies on, a little lighter up top and
+ * deeper toward the edges, and in P3 where the screen has it.
+ */
+const MAT = "radial-gradient(140% 100% at 50% 0%, rgb(20, 70, 152), rgb(12, 48, 114) 60%, rgb(7, 31, 80))";
+const MAT_P3 =
+  "radial-gradient(140% 100% at 50% 0%, color(display-p3 0.1 0.27 0.61), color(display-p3 0.06 0.19 0.46) 60%, color(display-p3 0.035 0.12 0.32))";
 
-/** Its grid: a thin line every 8 px, and a stronger one every 40. */
-const MINOR = "rgba(255, 255, 255, 0.08)";
-const MAJOR = "rgba(255, 255, 255, 0.16)";
+/** The light blue its lines and numbers are drawn in. */
+const LINE = "rgb(170, 205, 255)";
 
 /**
  * The letterbox around the frame. It lives in a shadow root like the panel,
  * so page css cannot reach it. A blue cutting mat reads as chrome in light and
- * dark, under a white page and a near black mock alike. Its grid stays put
- * from the top left as the frame is fitted or zoomed.
+ * dark, under a white page and a near black mock alike. Its grid and rulers
+ * stay put from the top left as the frame is fitted or zoomed.
  */
 const CSS = `
 .viewport {
@@ -95,16 +99,30 @@ const CSS = `
   flex-direction: column;
   overflow: hidden;
   direction: ltr;
-  background-color: ${MAT};
-  background-image:
-    linear-gradient(to right, ${MAJOR} 1px, transparent 1px),
-    linear-gradient(to bottom, ${MAJOR} 1px, transparent 1px),
-    linear-gradient(to right, ${MINOR} 1px, transparent 1px),
-    linear-gradient(to bottom, ${MINOR} 1px, transparent 1px);
-  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
-  background-position: 0 0;
+  background: ${MAT};
+}
+/* Under the strip and the stage, and never in the way of a pointer. */
+.mat {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  fill: ${LINE};
+}
+.mat .cell { opacity: 0.07; }
+.mat .major { opacity: 0.14; }
+.mat .span { opacity: 0.26; }
+.mat .angle { fill: none; stroke: ${LINE}; opacity: 0.3; }
+.mat .mark, .mat .tick { opacity: 0.55; }
+.mat text {
+  font: 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.5;
 }
 .size {
+  position: relative;
   flex: none;
   box-sizing: border-box;
   /* A set height, so the room the frame is fitted to never waits on the text. */
@@ -139,6 +157,7 @@ const CSS = `
 .zoom:focus { outline: none; }
 .zoom:hover, .zoom:focus-visible { color: #fff; border-color: rgba(255, 255, 255, 0.7); }
 .stage {
+  position: relative;
   flex: 1 1 0;
   min-height: 0;
   display: flex;
@@ -215,13 +234,17 @@ iframe {
 }
 .blocked button:hover { color: #fff; border-color: #fff; }
 @media (color-gamut: p3) {
-  .viewport, .blocked { background-color: ${MAT_P3}; }
+  .viewport, .blocked { background: ${MAT_P3}; }
 }
 `;
 
 let host: HTMLElement | null = null;
 /** The mat around the frame, readout strip included, which the frame is fitted to. */
 let letterbox: HTMLElement | null = null;
+/** The mat's grid and rulers, drawn for the letterbox's size. */
+let mat: SVGSVGElement | null = null;
+/** The size, line and readout the mat was last drawn for. */
+let matKey = "";
 /** Under the readout strip, and scrolls a frame drawn bigger than it. */
 let stage: HTMLElement | null = null;
 let drawing: HTMLElement | null = null;
@@ -757,6 +780,25 @@ function showMock(mock: Mock | null, place: Fit): void {
   }
 }
 
+/**
+ * Draw the mat for the letterbox's size, its lines one device pixel thin, and
+ * its top ruler unnumbered under the readout.
+ */
+function showMat(size: { width: number; height: number }): void {
+  if (!letterbox || !readout || !caption || !picker) return;
+  const hair = Math.max(0.5, 1 / (window.devicePixelRatio || 1));
+  const avoid = readout.hidden
+    ? undefined
+    : { from: caption.offsetLeft - 8, to: picker.offsetLeft + picker.offsetWidth + 8 };
+  const key = `${size.width}|${size.height}|${hair}|${avoid?.from}|${avoid?.to}`;
+  if (key === matKey) return;
+  matKey = key;
+  const next = drawMat(size, hair, avoid);
+  if (mat) mat.replaceWith(next);
+  else letterbox.prepend(next);
+  mat = next;
+}
+
 function resize(): void {
   if (!frame || !letterbox || !stage || !drawing || !screen || !readout || !caption) return;
   readout.hidden = !hasStrip(current);
@@ -771,6 +813,7 @@ function resize(): void {
   drawn = place;
   caption.textContent = label(place, { ...current, dpr: zoomWorks ? current.dpr : "system" });
   showZoom(place);
+  showMat(size);
   // A fitted frame never scrolls, so no rounding can bring a scrollbar.
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
   frame.style.width = `${place.width}px`;
@@ -945,6 +988,8 @@ function close(follow: boolean): void {
   host.remove();
   host = null;
   letterbox = null;
+  mat = null;
+  matKey = "";
   stage = null;
   drawing = null;
   screen = null;

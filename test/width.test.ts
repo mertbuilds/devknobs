@@ -317,6 +317,19 @@ class FakeElement extends EventTarget {
     this.append(...nodes);
   }
 
+  prepend(node: FakeElement): void {
+    node.parent = this;
+    this.children.unshift(node);
+  }
+
+  replaceWith(node: FakeElement): void {
+    const siblings = this.parent?.children;
+    if (!siblings) return;
+    node.parent = this.parent;
+    siblings.splice(siblings.indexOf(this), 1, node);
+    this.parent = null;
+  }
+
   appendChild(node: FakeElement): FakeElement {
     this.append(node);
     return node;
@@ -446,6 +459,7 @@ beforeEach(() => {
     title: "settings",
     createElement: (tag: string) =>
       tag === "dialog" ? new FakeDialog() : new FakeElement(tag.toUpperCase()),
+    createElementNS: (_namespace: string, tag: string) => new FakeElement(tag),
     querySelector: (selector: string) =>
       selector === 'style[data-devknobs="width"]' ? (widthStyle() ?? null) : null,
     querySelectorAll: (selector: string) =>
