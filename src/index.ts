@@ -7,6 +7,7 @@ import { TIME_ZONE_PRESETS } from "./engine/time";
 import { UA_PRESETS } from "./engine/ua";
 import { createGrab, type GrabControl } from "./grab/control";
 import type { GrabOptions, GrabPayload } from "./grab/types";
+import { claim, free, superseded } from "./instance";
 import type { GrabColorValue } from "./types";
 import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
@@ -82,9 +83,12 @@ let grabControl: GrabControl | null = null;
  * mid-parse, so that a theme script running before `DOMContentLoaded` sees the
  * emulated values. The panel host waits for the body. Inside the width knob's
  * frame there is no panel: the page above has it, and gets the frame's keys.
+ * A second copy of devknobs on the page, such as a hot update loads, takes
+ * over from the first, which unmounts.
  */
 export function mount(options: MountOptions = {}): void {
   if (panel || stopKeys) return;
+  claim(window, unmount);
   engine.start(options);
   // Ahead of the panel's keys, so escape ends grab before it closes the panel.
   if (options.grab !== false) grabControl = createGrab({ key: options.grabKey });
@@ -97,8 +101,9 @@ export function mount(options: MountOptions = {}): void {
   panel = createPanel({ hotkey: options.hotkey, grab: grabControl });
 }
 
-/** Remove the panel and undo every knob. */
+/** Remove the panel and undo every knob. A copy that was taken over has done so already. */
 export function unmount(): void {
+  if (superseded(window, unmount)) return;
   panel?.destroy();
   panel = null;
   grabControl?.destroy();
@@ -106,6 +111,7 @@ export function unmount(): void {
   stopKeys?.();
   stopKeys = null;
   engine.stop();
+  free(window, unmount);
 }
 
 export const getState = engine.getState;
