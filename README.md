@@ -346,7 +346,13 @@ platform (`iphone`, `pixel`, `galaxy`, `ipad`, `macbook`, `phone`, `tablet`,
 | iPhone 16 Pro | 402 × 874 | 3 | yes |
 | iPhone 16 Pro Max | 440 × 956 | 3 | yes |
 | iPhone SE | 375 × 667 | 2 | yes |
+| Pixel 10 | 412 × 924 | 2.625 | yes |
+| Pixel 10 Pro | 427 × 952 | 3 | yes |
+| Pixel 10 Pro XL | 448 × 998 | 3 | yes |
+| Pixel 10a | 412 × 924 | 2.625 | yes |
 | Pixel 9 | 412 × 924 | 2.625 | yes |
+| Pixel 9 Pro | 427 × 952 | 3 | yes |
+| Pixel 9 Pro XL | 448 × 998 | 3 | yes |
 | Galaxy S25 | 360 × 780 | 3 | yes |
 | Galaxy S25 Ultra | 384 × 832 | 2.8125 | yes |
 | iPad mini | 744 × 1133 | 2 | yes |
@@ -376,14 +382,18 @@ and zoomed with it, and never takes a pointer. the viewport stays the device's
 size. the mock switch in the device editor turns it off. laptops and desktops
 have none.
 
-every iPhone but the SE wears Apple's own product bezel instead, an image
-from Apple Design Resources at its true size, 3 image px per css px with its
-screen opening exactly on the frame, so no model is ever stretched onto
-another. it loads from `dist/bezels` the first time the device is shown with
-the mock on, the drawn mock standing in its place until then, and the drawn
-mock stays where an image does not load. the images are Apple's and not under
-this project's license, see THIRD_PARTY_NOTICES.md: delete `assets/bezels`
-and every iPhone draws its own mock again.
+every iPhone and every Pixel wears its maker's own bezel instead: Apple's
+product bezels from Apple Design Resources, Apple's marketing image of the
+iPhone SE, and the Pixel frames of Google's Android Studio emulator. each is
+drawn at its own size, 3 image px per css px on the newer iPhones, 3.52 on
+the SE and 2.62 or 3 on a Pixel, with its screen opening exactly on the
+frame, so no model is ever stretched onto another. the punch hole, the home
+button and the buttons are the image's own. it loads from `dist/bezels` the
+first time the device is shown with the mock on, the drawn mock standing in
+its place until then, and the drawn mock stays where an image does not load.
+the images are not under this project's license, see THIRD_PARTY_NOTICES.md:
+delete `assets/bezels` and every phone draws its own mock again. the Galaxies
+keep their drawn mock.
 
 a phone shows the page in its browser, drawn in the screen around the frame:
 Safari's status bar and Liquid Glass bars on an iPhone, and Android's status
@@ -409,7 +419,9 @@ inner box, or overflows a root of a set height, gets none. turn it off for Safar
 the top, 754, 754 and 768 minimized. the strip under the page then takes the
 page's background, and the end of the page fades into it. Chrome always gives
 its real viewport, as its toolbar is opaque: a Pixel 9 is 412 × 777 with the
-toolbar and 412 × 857 without.
+toolbar and 412 × 857 without. the 9s' status bars are AOSP's own. Google
+publishes none for the 10s, so theirs are derived from where the punch hole
+sits, as AOSP lines the 9s' bars up with theirs.
 
 the bars minimize and come back with the page's scroll, or stay one way with
 the bars knob. Safari's address capsule, or the bottom layout's card, is one
