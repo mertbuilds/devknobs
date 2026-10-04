@@ -14,6 +14,7 @@ import {
   releasesGrabKey,
 } from "./keys";
 import type { Mode } from "./mode";
+import { type GrabPlace, grabStep } from "./place";
 
 export interface GrabControlOptions {
   /** The key held to grab, such as `alt+shift+g`. Defaults to meta or ctrl with c. */
@@ -91,9 +92,8 @@ export function createGrab(options: GrabControlOptions = {}): GrabControl {
   const key = parseGrabKey(options.key, mac);
   const inFrame = isDevknobsFrame();
   const listeners = new Set<(on: boolean) => void>();
-  let on = false;
-  /** Grab is on in the frame, not here. */
-  let forwarded = false;
+  /** Where grab runs. Only `move` changes it. */
+  let place: GrabPlace = "off";
   let mode: Mode | null = null;
   /** Bumped each time grab goes on or off, so a mode that loads late knows it is stale. */
   let turn = 0;
@@ -103,29 +103,20 @@ export function createGrab(options: GrabControlOptions = {}): GrabControl {
   /** The scheme the page above said to draw in. */
   let scheme: "light" | "dark" | undefined;
 
-  function notify(next: boolean): void {
-    if (on === next) return;
-    on = next;
-    if (inFrame) post(window.parent, { source: "devknobs", type: "grab", on });
-    for (const listener of Array.from(listeners)) listener(on);
-  }
-
   function frame(): Window | null {
     return inFrame ? null : frameWindow();
   }
 
   function startLocal(): void {
     const at = ++turn;
-    notify(true);
     void import("./index").then(({ startMode }) => {
-      if (at !== turn || !on) return;
+      if (at !== turn || place !== "here") return;
       mode = startMode({
         pointer,
         scheme,
         onExit: () => {
           mode = null;
-          turn++;
-          notify(false);
+          move("off");
         },
       });
     });
@@ -137,21 +128,30 @@ export function createGrab(options: GrabControlOptions = {}): GrabControl {
     mode = null;
   }
 
+  /**
+   * The one way grab goes on, off, or over to the frame. A mode here, with its
+   * box and glow, never outlives grab being here.
+   */
+  function move(to: GrabPlace): void {
+    if (to === place) return;
+    const was = place !== "off";
+    if (place === "here") stopLocal();
+    place = to;
+    if (to === "here") startLocal();
+    const on = to !== "off";
+    if (on === was) return;
+    if (inFrame) post(window.parent, { source: "devknobs", type: "grab", on });
+    for (const listener of Array.from(listeners)) listener(on);
+  }
+
   function set(next: boolean): void {
     const target = frame();
-    if (target && (next || forwarded)) {
-      forwarded = next;
+    const to = grabStep(place, { type: "ask", on: next, frame: target !== null });
+    if (target && (to === "frame" || place === "frame")) {
       post(target, { source: "devknobs", type: "grab", on: next, scheme: systemScheme() });
       if (next) target.focus();
-      notify(next);
-      return;
     }
-    if (next === on) return;
-    if (next) startLocal();
-    else {
-      stopLocal();
-      notify(false);
-    }
+    move(to);
   }
 
   function step(event: HoldEvent): void {
@@ -166,8 +166,8 @@ export function createGrab(options: GrabControlOptions = {}): GrabControl {
       mode.keydown(event);
       return;
     }
-    if (on) {
-      // On in the frame, with the keys up here.
+    if (place !== "off") {
+      // On in the frame, or loading here, with the keys up here.
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -216,24 +216,14 @@ export function createGrab(options: GrabControlOptions = {}): GrabControl {
       return;
     }
     const message = readMessage(event, frameWindow(), window.location.origin);
-    if (message?.type === "grab") {
-      forwarded = message.on;
-      notify(message.on);
-    } else if (message?.type === "ready" && forwarded) {
-      // The frame loaded again, and grab with it is gone.
-      forwarded = false;
-      notify(false);
-    }
+    if (message?.type === "grab") move(grabStep(place, { type: "frame", on: message.on }));
+    // The frame loaded again, and grab with it is gone.
+    else if (message?.type === "ready") move(grabStep(place, { type: "frame", on: false }));
   }
 
   /** The frame coming up or going down takes grab with it. */
   const unsubscribe = engine.subscribe((state) => {
-    if (inFrame || !on) return;
-    const framed = needsFrame(state);
-    if (forwarded && !framed) {
-      forwarded = false;
-      notify(false);
-    } else if (!forwarded && framed) set(false);
+    if (!inFrame) move(grabStep(place, { type: "framed", frame: needsFrame(state) }));
   });
 
   window.addEventListener("keydown", onKeydown, true);
@@ -245,7 +235,7 @@ export function createGrab(options: GrabControlOptions = {}): GrabControl {
 
   return {
     label: grabKeyLabel(key, mac),
-    isOn: () => on,
+    isOn: () => place !== "off",
     set,
     subscribe(listener) {
       listeners.add(listener);
