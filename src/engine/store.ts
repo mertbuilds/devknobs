@@ -56,6 +56,7 @@ export const DEFAULT_STATE: DevknobsState = {
   touchPointer: true,
   browser: "auto",
   bars: "auto",
+  edgeToEdge: true,
   frame: false,
   dpr: "system",
   zoom: "fit",
@@ -209,6 +210,8 @@ export function parse(json: string | null | undefined): DevknobsState {
     browser: oneOf(state.browser, BROWSERS, DEFAULT_STATE.browser),
     // One stored when the bars were a minimized flag keeps them minimized.
     bars: state.browserMin === true ? "minimized" : oneOf(state.bars, BARS, DEFAULT_STATE.bars),
+    // A session stored before the switch draws the page under Safari's bars.
+    edgeToEdge: bool(state.edgeToEdge, DEFAULT_STATE.edgeToEdge),
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     // A session stored before the zoom knob fits the frame, as it did then.

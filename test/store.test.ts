@@ -35,6 +35,7 @@ describe("parse", () => {
         touchPointer: "no",
         browser: "floating",
         bars: "sometimes",
+        edgeToEdge: "yes",
         frame: true,
         dpr: 2,
         zoom: "huge",
@@ -76,6 +77,7 @@ describe("parse", () => {
       touchPointer: true,
       browser: "auto",
       bars: "auto",
+      edgeToEdge: true,
       frame: true,
       dpr: 2,
       zoom: "fit",
@@ -139,6 +141,9 @@ describe("parse", () => {
     for (const bars of ["auto", "expanded", "minimized"] as const) {
       expect(parse(JSON.stringify({ bars })).bars).toBe(bars);
     }
+    expect(DEFAULT_STATE.edgeToEdge).toBe(true);
+    expect(parse(JSON.stringify({ device: "iphone-16" })).edgeToEdge).toBe(true);
+    expect(parse(JSON.stringify({ edgeToEdge: false })).edgeToEdge).toBe(false);
     // A session from when the bars were a minimized flag.
     expect(parse(JSON.stringify({ browserMin: true })).bars).toBe("minimized");
     expect(parse(JSON.stringify({ browserMin: false })).bars).toBe("auto");

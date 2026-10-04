@@ -83,16 +83,37 @@ export function glyphAt(
 }
 
 
+/** Bars drawn once for a layout, then moved between expanded and minimized in place. */
+export interface Painted {
+  root: HTMLElement;
+  /** Show the bars expanded or minimized, for the page as it looks now. */
+  apply(minimized: boolean, look: Look): void;
+}
+
 /**
- * Fill a painted root: the parts with a key (the scroll edge) under the bars,
- * the bars in one group that morphs as a whole, and what stands still (the
- * status bar, the home indicator) over them.
+ * The morph between expanded and minimized bars, from the transitions.dev
+ * motion tokens: --duration-very-slow to minimize and --duration-slow to
+ * expand. Its curve is css's own ease: it answers the scroll at once and
+ * settles slowly. --ease-smooth-out, and an iOS spring's cubic-bezier(0.32,
+ * 0.72, 0, 1) too, cover three quarters of the way in the first quarter of
+ * the time, which reads as a snap, and a standard ease in out lags.
  */
-export function assemble(root: HTMLElement, nodes: Element[]): void {
-  const keyed = nodes.filter((node) => node.hasAttribute("data-key"));
-  const still = nodes.filter((node) => node.hasAttribute("data-still"));
-  const group = el("div", "group");
-  group.style.inset = "0";
-  group.append(...nodes.filter((node) => !keyed.includes(node) && !still.includes(node)));
-  root.append(...keyed, group, ...still);
+export const MORPH = {
+  minimize: 500,
+  expand: 400,
+  ease: "cubic-bezier(0.25, 0.1, 0.25, 1)",
+} as const;
+
+let measure: CanvasRenderingContext2D | null = null;
+
+/** How wide `text` sets in the system font at `size` px and `weight`. */
+export function textWidth(text: string, size: number, weight: number, spacing = 0): number {
+  try {
+    measure ??= document.createElement("canvas").getContext("2d");
+  } catch {
+    measure = null;
+  }
+  if (!measure) return text.length * size * 0.55;
+  measure.font = `${weight} ${size}px ${FONT}`;
+  return measure.measureText(text).width + spacing * text.length;
 }

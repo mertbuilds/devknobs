@@ -26,7 +26,7 @@ interface SafariSpec {
   top: number;
   /** The room each side of the page in landscape, around the island. */
   side: number;
-  /** A Face ID phone: a home indicator, and the island the status bar sits around. */
+  /** A Face ID phone: the island the status bar sits around, and its bars higher off the bottom. */
   faceId: boolean;
 }
 
@@ -117,12 +117,20 @@ export function viewportOf(
   orientation: OrientationValue,
   layout: BrowserLayout | null,
   minimized: boolean,
+  edge = false,
 ): Rect {
   const { width: W, height: H } = turn(device, orientation);
   const whole = rect(0, 0, W, H);
   if (!layout || layout === "off") return whole;
   const safari = SAFARI[device.id];
   if (safari) {
+    // Edge to edge, the page runs under the bars to the bottom of the screen,
+    // in both states, as it looks on the phone. The top keeps the status bar.
+    if (edge) {
+      return orientation === "landscape"
+        ? rect(safari.side, 0, W - 2 * safari.side, H)
+        : rect(0, safari.top, W, H - safari.top);
+    }
     if (orientation === "landscape") {
       const top = minimized ? 0 : SAFARI_BARS.landscape;
       return rect(safari.side, top, W - 2 * safari.side, H - top);
@@ -210,16 +218,20 @@ export interface StatusBar {
 export interface Bars {
   platform: Platform;
   layout: BrowserLayout;
+  /** The screen and the way it is held, so the bars' other state can be drawn too. */
+  screen: Screen;
+  orientation: OrientationValue;
+  minimized: boolean;
   status: StatusBar | null;
   shapes: Shape[];
-  /** The home indicator, or Android's gesture handle. */
-  handle: Rect | null;
   /** Chrome's chin under the toolbar, in the toolbar's color. */
   chin: Rect | null;
   /** Chrome's hairline between the toolbar and the page. */
   hairline: Rect | null;
   /** Safari's scroll edge under its bottom bars. */
   fade: Fade | null;
+  /** Safari draws the page under its bars, to the bottom of the screen. */
+  edge: boolean;
 }
 
 /**
@@ -253,6 +265,35 @@ const FADE: readonly [number, number][] = [
 
 /** How opaque the fade is at the screen's bottom. */
 const FADE_EDGE = 0.92;
+
+/**
+ * The scroll edge over a page drawn to the bottom of the screen, as a real
+ * iPhone shows it: clear 40 px over the top of the bottom bars, rising to
+ * 0.55 of the page's color at the bottom, and only over the last 24 px,
+ * weaker, while the bars are minimized. Never opaque. Estimates from a
+ * screenshot of a real iPhone.
+ */
+function edgeFade(bars: Bars, H: number): Fade {
+  const low = bars.shapes.filter((shape) => shape.kind !== "pill" && shape.y > H / 2);
+  if (bars.minimized || low.length === 0) {
+    const stops = [
+      { at: 0, alpha: 0 },
+      { at: 12, alpha: 0.12 },
+      { at: 24, alpha: 0.35 },
+    ];
+    return { y: H - 24, height: 24, stops };
+  }
+  const y = Math.min(...low.map((shape) => shape.y)) - 40;
+  const height = H - y;
+  const eased: [number, number][] = [
+    [0, 0],
+    [0.33, 0.06],
+    [0.6, 0.18],
+    [0.8, 0.33],
+    [1, 0.55],
+  ];
+  return { y, height, stops: eased.map(([at, alpha]) => ({ at: Math.round(at * height), alpha })) };
+}
 
 /** The fade under the bottom bars, from just over the viewport's end at `end`. */
 function fadeFrom(end: number, H: number): Fade | null {
@@ -313,20 +354,18 @@ function safariBars(
   minimized: boolean,
 ): Bars {
   const { width: W, height: H } = turn(device, orientation);
-  const handle = spec.faceId
-    ? orientation === "portrait"
-      ? rect((W - 140) / 2, H - 13, 140, 5)
-      : rect((W - 225) / 2, H - 13, 225, 5)
-    : null;
   const bars: Bars = {
     platform: "safari",
     layout,
+    screen: device,
+    orientation,
+    minimized,
     status: null,
     shapes: [],
-    handle,
     chin: null,
     hairline: null,
     fade: null,
+    edge: false,
   };
   if (orientation === "landscape") {
     // Measured on the 16 Pro: one row 10 under the top, starting 10 in from the side inset.
@@ -454,17 +493,18 @@ function chromeBars(
   const portrait = orientation === "portrait";
   const statusHeight = portrait ? spec.top : CHROME_BARS.landscapeTop;
   const page = viewportOf(device, orientation, layout, minimized);
-  // Gesture navigation: a 108 wide handle, 10 over the bottom. Its height is an estimate.
-  const handle = rect((W - 108) / 2, H - 14, 108, 4);
   const bars: Bars = {
     platform: "chrome",
     layout,
+    screen: device,
+    orientation,
+    minimized,
     status: chromeStatus(device.id, statusHeight, W, orientation),
     shapes: [],
-    handle,
     chin: null,
     hairline: null,
     fade: null,
+    edge: false,
   };
   if (minimized) return bars;
   const atTop = layout === "top" || !portrait;
@@ -509,10 +549,16 @@ export function barsOf(
   orientation: OrientationValue,
   layout: BrowserLayout | null,
   minimized: boolean,
+  edge = false,
 ): Bars | null {
   if (!layout || layout === "off") return null;
   const safari = SAFARI[device.id];
-  if (safari) return safariBars(device, safari, orientation, layout, minimized);
+  if (safari) {
+    const bars = safariBars(device, safari, orientation, layout, minimized);
+    if (!edge) return bars;
+    const { height: H } = turn(device, orientation);
+    return { ...bars, edge, fade: orientation === "portrait" ? edgeFade(bars, H) : null };
+  }
   const chrome = CHROME[device.id];
   if (chrome) return chromeBars(device, chrome, orientation, layout, minimized);
   return null;

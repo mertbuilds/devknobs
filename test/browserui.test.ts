@@ -124,6 +124,44 @@ describe("viewportOf", () => {
   });
 });
 
+describe("edge to edge", () => {
+  test("Safari's page runs to the bottom of the screen in every layout and state", () => {
+    for (const layout of ["compact", "bottom", "top"] as const) {
+      for (const minimized of [false, true]) {
+        const pro = viewportOf(device("iphone-16-pro"), "portrait", layout, minimized, true);
+        expect(pro).toEqual({ x: 0, y: 62, width: 402, height: 812 });
+        const se = viewportOf(device("iphone-se"), "portrait", layout, minimized, true);
+        expect(`${se.width}x${se.height}`).toBe("375x647");
+        const across = viewportOf(device("iphone-16-pro"), "landscape", layout, minimized, true);
+        expect(across).toEqual({ x: 62, y: 0, width: 750, height: 402 });
+      }
+    }
+    expect(viewportOf(device("iphone-16"), "portrait", "compact", false, true).height).toBe(793);
+  });
+
+  test("Chrome keeps its true viewport, and off is the whole screen either way", () => {
+    expect(size(device("pixel-9"), "top", false)).toBe("412x777");
+    const pixel = viewportOf(device("pixel-9"), "portrait", "top", false, true);
+    expect(`${pixel.width}x${pixel.height}`).toBe("412x777");
+    const off = viewportOf(device("iphone-16-pro"), "portrait", "off", false, true);
+    expect(`${off.width}x${off.height}`).toBe("402x874");
+  });
+
+  test("the scroll edge is light, 0.55 at the bottom at most, and short when minimized", () => {
+    const pro = device("iphone-16-pro");
+    const full = barsOf(pro, "portrait", "compact", false, true);
+    expect(full?.edge).toBe(true);
+    expect(full?.fade).toMatchObject({ y: 792 - 40, height: 122 });
+    expect(full?.fade?.stops.at(-1)).toEqual({ at: 122, alpha: 0.55 });
+    expect(Math.max(...(full?.fade?.stops.map((stop) => stop.alpha) ?? []))).toBeLessThan(1);
+    const mini = barsOf(pro, "portrait", "compact", true, true);
+    expect(mini?.fade).toMatchObject({ y: 850, height: 24 });
+    expect(barsOf(pro, "portrait", "bottom", false, true)?.fade?.y).toBe(732 - 40);
+    expect(barsOf(pro, "landscape", "compact", false, true)?.fade).toBeNull();
+    expect(barsOf(device("pixel-9"), "portrait", "top", false, true)?.edge).toBe(false);
+  });
+});
+
 describe("layouts", () => {
   test("Safari offers compact, bottom, top and off, Chrome top, bottom and off", () => {
     expect(layoutOptions("iphone-16")).toEqual(["compact", "bottom", "top", "off"]);
@@ -166,7 +204,6 @@ describe("bars", () => {
     expect(field?.marks[0]?.x).toBe(114);
     expect(field?.marks[1]?.x).toBe(290);
     expect(more?.marks[0]?.glyph).toBe("more");
-    expect(bars?.handle).toEqual({ x: 131, y: 861, width: 140, height: 5 });
   });
 
   test("Bottom draws a card with the address field and five buttons", () => {
@@ -186,7 +223,6 @@ describe("bars", () => {
     expect(card?.marks[0]?.y).toBe(824);
     const se = barsOf(device("iphone-se"), "portrait", "bottom", false);
     expect(se?.shapes[0]).toMatchObject({ x: 8, y: 531, width: 359 });
-    expect(se?.handle).toBeNull();
   });
 
   test("Top puts the address under the status bar and the buttons in a capsule", () => {
@@ -215,7 +251,6 @@ describe("bars", () => {
       [278, 318],
       [670, 132],
     ]);
-    expect(bars?.handle).toEqual({ x: 324.5, y: 389, width: 225, height: 5 });
     expect(barsOf(pro, "landscape", "top", true)?.shapes).toEqual([]);
   });
 
@@ -242,7 +277,6 @@ describe("bars", () => {
     const hidden = barsOf(pixel, "portrait", "top", true);
     expect(hidden?.shapes).toEqual([]);
     expect(hidden?.status?.height).toBe(66);
-    expect(hidden?.handle).toMatchObject({ width: 108 });
     expect(barsOf(pixel, "landscape", "bottom", false)?.shapes[0]).toMatchObject({ y: 24 });
   });
 

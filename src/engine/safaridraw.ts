@@ -1,31 +1,63 @@
-import type { Actions, Look, Shapes } from "./browserkit";
-import { assemble, el, glyphAt, place, svgNode } from "./browserkit";
-import type { Bars, Fade, Glyph, Shape, StatusBar } from "./browserui";
+import type { Actions, Look, Painted, Shapes } from "./browserkit";
+import { el, glyphAt, MORPH, place, svgNode, textWidth } from "./browserkit";
+import {
+  type Bars,
+  type Fade,
+  type Glyph,
+  type Mark,
+  SAFARI_TEXT,
+  type Shape,
+  type StatusBar,
+} from "./browserui";
+import type { Rect } from "./mock";
 
 /**
- * iOS 26 Safari: Liquid Glass capsules over the page's own color, the status
- * bar and the home indicator. The glyphs are drawn here from the common ideas
+ * iOS 26 Safari: Liquid Glass capsules over the page's own color and the
+ * status bar. No home indicator: it goes once you switch apps, and here none
+ * are switched. The glyphs are drawn here from the common ideas
  * (a chevron, a box with an arrow, an open book), not from Apple's symbols.
  * Colors are sampled from the simulator.
  */
 
 export const SAFARI_CSS = `
-.safari { color: #000; }
-.safari.dark { color: #f3f3f8; }
-.safari .capsule, .safari .card, .safari .pill {
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  backdrop-filter: blur(20px) saturate(1.6);
+.safari {
+  color: #000;
+  /* Minimizing: the shape morphs over --duration-very-slow, the parts that
+     leave go in 60% of it, and the address's own glyphs in --duration-quick. */
+  --main: ${MORPH.minimize}ms;
+  --side: 300ms;
+  --side-delay: 0ms;
+  --icon: 150ms;
+  --icon-delay: 0ms;
 }
-.safari .card { background: rgba(251, 251, 251, 0.94); }
+/* Expanding: --duration-slow, the shape leads and the parts come in after it. */
+.safari[data-state="max"] {
+  --main: ${MORPH.expand}ms;
+  --side: 250ms;
+  --side-delay: 120ms;
+  --icon: 250ms;
+  --icon-delay: 150ms;
+}
+.safari.dark { color: #f3f3f8; }
+.safari .surface > *, .safari .side > *, .safari .field > * { position: absolute; }
+/* Glass over the page: a fill the page shows faintly through, blurred. */
+.safari .capsule, .safari .card, .safari .surface {
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  -webkit-backdrop-filter: blur(10px) saturate(1.8);
+  backdrop-filter: blur(10px) saturate(1.8);
+}
+.safari .card, .safari[data-state="max"] .surface.from-card {
+  background: rgba(250, 250, 250, 0.82);
+}
 .safari .field { background: rgba(0, 0, 0, 0.05); }
-.safari.dark .capsule, .safari.dark .pill {
-  background: rgba(24, 24, 29, 0.92);
+/* Sampled from a real iPhone over a dark page. */
+.safari.dark .capsule, .safari.dark .surface {
+  background: rgba(40, 40, 42, 0.75);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.13);
 }
-.safari.dark .card {
-  background: rgba(38, 39, 38, 0.95);
+.safari.dark .card, .safari.dark[data-state="max"] .surface.from-card {
+  background: rgba(46, 46, 48, 0.8);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 .safari.dark .field { background: rgba(0, 0, 0, 0.14); }
@@ -40,30 +72,66 @@ export const SAFARI_CSS = `
 .safari .glyph.off { color: #babac7; }
 .safari.dark .glyph.off { color: #58585b; }
 .safari .domain {
+  left: 50%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: center;
-  font-size: 17px;
-  font-weight: 500;
+  font-size: ${SAFARI_TEXT.field}px;
+  font-weight: 400;
   letter-spacing: -0.2px;
   transform: translate(-50%, -50%);
 }
-.safari .pill {
-  display: flex;
-  align-items: center;
-  padding: 0 19px;
-  border-radius: 16px;
-  font-size: 13px;
-  font-weight: 500;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-.safari .pill.press { cursor: pointer; }
 .safari .time { font-weight: 600; letter-spacing: -0.3px; transform: translate(-50%, -50%); }
 .safari .status { fill: currentColor; }
-.safari .home { border-radius: 3px; background: rgba(0, 0, 0, 0.82); }
-.safari.dark .home { background: rgba(255, 255, 255, 0.78); }
+.safari .level { fill: #fff; font-size: 9.5px; font-weight: 600; letter-spacing: -0.3px; }
+.safari.dark .level { fill: #000; }
+/* One surface morphs: its box, corners and color, and the domain glides in it. */
+.safari .surface {
+  overflow: hidden;
+  transition:
+    left var(--main) ${MORPH.ease},
+    top var(--main) ${MORPH.ease},
+    width var(--main) ${MORPH.ease},
+    height var(--main) ${MORPH.ease},
+    border-radius var(--main) ${MORPH.ease},
+    background-color var(--main) ${MORPH.ease},
+    box-shadow var(--main) ${MORPH.ease};
+}
+.safari .domain, .safari .fade {
+  transition:
+    top var(--main) ${MORPH.ease},
+    height var(--main) ${MORPH.ease},
+    transform var(--main) ${MORPH.ease};
+}
+/* The parts only the expanded bars have: an icon swap, out early, in late. */
+.safari .full {
+  transition:
+    opacity var(--icon) ease-in-out var(--icon-delay),
+    filter var(--icon) ease-in-out var(--icon-delay),
+    transform var(--icon) ease-in-out var(--icon-delay);
+}
+.safari[data-state="min"] .full {
+  opacity: 0;
+  filter: blur(2px);
+  transform: scale(0.9);
+  pointer-events: none;
+}
+/* The capsules beside it fade and drift a few px toward where the bars go. */
+.safari .side {
+  transition:
+    opacity var(--side) ease-in-out var(--side-delay),
+    filter var(--side) ease-in-out var(--side-delay),
+    transform var(--side) ${MORPH.ease} var(--side-delay);
+}
+.safari[data-state="min"] .side {
+  opacity: 0;
+  filter: blur(2px);
+  transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(0.96);
+}
+.safari[data-state="min"] .side *, .safari[data-state="min"] .full * { pointer-events: none; }
+.safari[data-state="min"] .surface.tap { pointer-events: auto; cursor: pointer; }
+.browser[data-instant] * { transition: none !important; }
 `;
 
 function path(d: string, className?: string): SVGPathElement {
@@ -141,22 +209,24 @@ function signal(x: number, y: number): SVGSVGElement {
   return svg;
 }
 
-/** Battery, 27.3 x 13: a full cell in a faint outline, and its nub. */
+/**
+ * Battery, 27.3 x 13: a full cell with its charge written in it, knocked out
+ * of the fill, as iOS 26 shows it with the percentage on, and its nub.
+ */
 function battery(x: number, y: number): SVGSVGElement {
   const svg = svgNode("svg", { class: "status", viewBox: "0 0 27.3 13" });
   place(svg, x, y - 6.5, 27.3, 13);
+  const level = svgNode("text", {
+    class: "level",
+    x: 12.6,
+    y: 6.9,
+    "text-anchor": "middle",
+    "dominant-baseline": "middle",
+  });
+  level.textContent = "100";
   svg.append(
-    svgNode("rect", {
-      x: 0.5,
-      y: 0.5,
-      width: 24.6,
-      height: 12,
-      rx: 4,
-      fill: "none",
-      stroke: "currentColor",
-      "stroke-opacity": 0.4,
-    }),
-    svgNode("rect", { x: 2.5, y: 2.5, width: 20.6, height: 8, rx: 2.3 }),
+    svgNode("rect", { x: 0, y: 0, width: 25.2, height: 13, rx: 4.2 }),
+    level,
     svgNode("path", {
       d: "M26.1 4.6a1.2 1.2 0 0 1 1.2 1.2v1.4a1.2 1.2 0 0 1-1.2 1.2Z",
       "fill-opacity": 0.4,
@@ -188,83 +258,160 @@ function statusBar(status: StatusBar): Element[] {
   return [time, signal(air - 6 - 18, icons.y), wifi(air, icons.y), battery(cell, icons.y)];
 }
 
-/** A glass shape and the glyphs and domain in it. */
-function shapeNodes(shape: Shape, look: Look, actions: Actions): Element[] {
-  if (shape.kind === "pill") {
-    const pill = el("div", "pill", look.host);
-    // A tap on it brings the bars back, where they follow the scroll.
-    const expand = actions.expand;
-    if (expand) {
-      pill.classList.add("press");
-      pill.addEventListener("click", expand);
-    }
-    pill.style.left = `${shape.x}px`;
-    pill.style.top = `${shape.y}px`;
-    pill.style.height = `${shape.height}px`;
-    return [pill];
-  }
-  // Not `glass`: the viewport's own clipping wrapper has that class.
-  const box = el("div", shape.kind === "glass" ? "capsule" : shape.kind);
-  place(box, shape.x, shape.y, shape.width, shape.height);
-  box.style.borderRadius = `${shape.radius}px`;
-  const nodes: Element[] = [box];
-  for (const mark of shape.marks) {
-    const press =
-      mark.glyph === "back"
-        ? actions.back
-        : mark.glyph === "forward"
-          ? actions.forward
-          : mark.glyph === "reload"
-            ? actions.reload
-            : undefined;
-    const off =
-      (mark.glyph === "back" && !look.canBack) || (mark.glyph === "forward" && !look.canForward);
-    nodes.push(glyphAt(mark, GLYPHS, 30, off ? "off" : "", off ? undefined : press));
-  }
-  if (shape.text) {
-    const domain = el("div", "domain", look.host);
-    domain.style.left = `${shape.text.x}px`;
-    domain.style.top = `${shape.text.y}px`;
-    // Clear of the page menu and reload at its ends.
-    domain.style.maxWidth = `${shape.width - 96}px`;
-    nodes.push(domain);
-  }
-  return nodes;
+/** What a glyph does when pressed, where it does anything. */
+function pressOf(glyph: Glyph, actions: Actions): (() => void) | undefined {
+  if (glyph === "back") return actions.back;
+  if (glyph === "forward") return actions.forward;
+  if (glyph === "reload") return actions.reload;
+  return undefined;
 }
 
-/**
- * The scroll edge: the page's own color, from clear just over the end of the
- * frame to nearly opaque at the bottom, so the page reads as running under
- * the glass. It never takes a pointer, so the page under it still does.
- */
-function fadeNode(fade: Fade, look: Look): HTMLElement {
-  const node = el("div", "fade");
-  node.dataset.key = "fade";
-  node.style.cssText = `left: 0; right: 0; top: ${fade.y}px; height: ${fade.height}px`;
+/** A glyph at its mark, placed inside a box whose corner is at `origin`. */
+function glyphIn(mark: Mark, origin: Rect, className: string, actions: Actions): SVGSVGElement {
+  const svg = glyphAt(mark, GLYPHS, 30, className, pressOf(mark.glyph, actions));
+  svg.style.left = `${mark.x - origin.x - 15}px`;
+  svg.style.top = `${mark.y - origin.y - 15}px`;
+  return svg;
+}
+
+/** The minimized domain pill's box: as wide as its text and 19 px either side. */
+function pillBox(pill: Shape, host: string): Rect {
+  const width = Math.round(textWidth(host, SAFARI_TEXT.pill, 400, -0.2)) + 38;
+  return { x: pill.x - width / 2, y: pill.y, width, height: pill.height };
+}
+
+function placeBox(node: HTMLElement, box: Rect, radius: number): void {
+  place(node, box.x, box.y, box.width, box.height);
+  node.style.borderRadius = `${radius}px`;
+}
+
+/** The scroll edge's box and its gradient of the page's color. */
+function placeFade(node: HTMLElement, fade: Fade | null, look: Look): void {
+  node.hidden = fade === null;
+  if (!fade) return;
+  node.style.top = `${fade.y}px`;
+  node.style.height = `${fade.height}px`;
   // The page's color, `rgb(r, g, b)`, at each stop's opacity.
   const color = (alpha: number) => look.background.replace(/^rgb\((.*)\)$/, `rgba($1, ${alpha})`);
   const stops = fade.stops.map(({ at, alpha }) => `${color(alpha)} ${at}px`);
   node.style.background = `linear-gradient(to bottom, ${stops.join(", ")})`;
-  return node;
 }
 
-export function paintSafari(bars: Bars, look: Look, actions: Actions): Element[] {
-  const root = el("div", look.dark ? "safari dark" : "safari light");
+/**
+ * Safari's bars, drawn once for both states (the plus to menu morph of
+ * transitions.dev). The address capsule, Bottom's card or Top's address bar
+ * is one surface that becomes the minimized pill: its box and corners tween,
+ * the domain glides and scales from 17 to 13 px in it, and the page menu,
+ * reload and Bottom's buttons fade out as an icon swap. The capsules beside
+ * it fade and drift 10 px. The scroll edge moves on the same curve.
+ */
+export function buildSafari(full: Bars, mini: Bars, look: Look, actions: Actions): Painted {
+  const root = el("div", "safari");
   root.style.inset = "0";
-  const nodes: Element[] = [];
-  if (bars.fade) nodes.push(fadeNode(bars.fade, look));
-  if (bars.status) {
-    const status = statusBar(bars.status);
-    for (const node of status) node.setAttribute("data-still", "");
-    nodes.push(...status);
+  const fade = el("div", "fade");
+  fade.style.left = "0";
+  fade.style.right = "0";
+  root.append(fade);
+  if (full.status) root.append(...statusBar(full.status));
+  const pill = mini.shapes.find((shape) => shape.kind === "pill") ?? null;
+  // The shape that becomes the pill: the one with the domain, or Bottom's card.
+  const main = pill
+    ? (full.shapes.find((shape) => shape.kind === "card") ??
+      full.shapes.find((shape) => shape.text !== undefined) ??
+      null)
+    : null;
+  let surface: HTMLElement | null = null;
+  let domain: HTMLElement | null = null;
+  const glyphs: { node: SVGSVGElement; glyph: Glyph }[] = [];
+  const keep = (node: SVGSVGElement, glyph: Glyph) => {
+    glyphs.push({ node, glyph });
+    return node;
+  };
+  if (main && pill) {
+    surface = el("div", main.kind === "card" ? "surface from-card" : "surface");
+    const field = full.shapes.find((shape) => shape.kind === "field");
+    if (field) {
+      // Bottom: the field inside the card, and the buttons under it, leave.
+      const inner = el("div", "field full");
+      placeBox(inner, { ...field, x: field.x - main.x, y: field.y - main.y }, field.radius);
+      for (const mark of field.marks) {
+        inner.append(keep(glyphIn(mark, field, "", actions), mark.glyph));
+      }
+      surface.append(inner);
+    }
+    for (const mark of main.marks) {
+      const node = keep(glyphIn(mark, main, "full", actions), mark.glyph);
+      // Bottom's buttons keep their share of the card's width as it shrinks.
+      if (main.kind === "card") {
+        node.style.left = `calc(${((mark.x - main.x) / main.width) * 100}% - 15px)`;
+      } else if (mark.x > main.x + main.width / 2) {
+        // Reload rides the right end.
+        node.style.left = "";
+        node.style.right = `${main.x + main.width - mark.x - 15}px`;
+      }
+      surface.append(node);
+    }
+    domain = el("div", "domain");
+    const text = (field ?? main).text;
+    // Clear of the page menu and reload at its ends.
+    domain.style.maxWidth = `${(field ?? main).width - 96}px`;
+    domain.dataset.top = String((text?.y ?? main.y) - main.y);
+    surface.append(domain);
+    const expand = actions.expand;
+    if (expand) {
+      surface.classList.add("tap");
+      surface.addEventListener("click", () => {
+        if (root.dataset.state === "min") expand();
+      });
+    }
+    root.append(surface);
   }
-  for (const shape of bars.shapes) nodes.push(...shapeNodes(shape, look, actions));
-  if (bars.handle) {
-    const home = el("div", "home");
-    home.dataset.still = "";
-    place(home, bars.handle.x, bars.handle.y, bars.handle.width, bars.handle.height);
-    nodes.push(home);
+  // Everything else leaves as a side capsule, toward the surface, or up when turned across.
+  for (const shape of full.shapes) {
+    if (shape === main || shape.kind === "field") continue;
+    const side = el("div", "side capsule");
+    placeBox(side, shape, shape.radius);
+    const middle = shape.x + shape.width / 2;
+    const across = full.orientation === "landscape";
+    const toward = main ? main.x + main.width / 2 : middle;
+    side.style.setProperty("--dx", across ? "0px" : `${Math.sign(toward - middle) * 10}px`);
+    // Top's bottom capsule goes down, the turned row up.
+    const dy = across ? -12 : main && shape.y > main.y + main.height ? 12 : 0;
+    side.style.setProperty("--dy", `${dy}px`);
+    for (const mark of shape.marks) {
+      side.append(keep(glyphIn(mark, shape, "", actions), mark.glyph));
+    }
+    if (shape.text) {
+      const text = el("div", "domain");
+      text.style.top = `${shape.text.y - shape.y}px`;
+      text.style.maxWidth = `${shape.width - 96}px`;
+      side.append(text);
+    }
+    root.append(side);
   }
-  assemble(root, nodes);
-  return [root];
+  return {
+    root,
+    apply(minimized, sight) {
+      root.dataset.state = minimized ? "min" : "max";
+      root.className = sight.dark ? "safari dark" : "safari light";
+      placeFade(fade, (minimized ? mini : full).fade, sight);
+      for (const text of Array.from(root.querySelectorAll<HTMLElement>(".domain"))) {
+        text.textContent = sight.host;
+      }
+      for (const { node, glyph } of glyphs) {
+        const off =
+          (glyph === "back" && !sight.canBack) || (glyph === "forward" && !sight.canForward);
+        node.classList.toggle("off", off);
+        node.classList.toggle("press", !off && pressOf(glyph, actions) !== undefined);
+      }
+      if (surface && domain && main && pill) {
+        const box = minimized ? pillBox(pill, sight.host) : main;
+        placeBox(surface, box, minimized ? pill.radius : main.radius);
+        const top = minimized ? pill.height / 2 : Number(domain.dataset.top);
+        domain.style.top = `${top}px`;
+        const scale = minimized ? SAFARI_TEXT.pill / SAFARI_TEXT.field : 1;
+        domain.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      }
+    },
+  };
 }

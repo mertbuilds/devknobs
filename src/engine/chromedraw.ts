@@ -1,11 +1,13 @@
+import type { Look, Painted, Shapes } from "./browserkit";
+import { el, glyphAt, MORPH, place, svgNode } from "./browserkit";
 import type { Bars, Glyph, StatusBar } from "./browserui";
-import type { Look, Shapes } from "./browserkit";
-import { assemble, el, glyphAt, place, svgNode } from "./browserkit";
+import { turn } from "./devices";
 import type { Rect } from "./mock";
 
 /**
- * Chrome on Android: the Material 3 toolbar with its url pill, the status bar,
- * the chin over the gesture area and the gesture handle. Colors are Chromium's
+ * Chrome on Android: the Material 3 toolbar with its url pill, the status bar
+ * and the chin over the gesture area. No gesture handle: here no app is
+ * switched. Colors are Chromium's
  * baseline, before dynamic color, light or dark with the page's scheme. The
  * glyphs are drawn here, not taken from an icon set.
  */
@@ -43,7 +45,21 @@ export const CHROME_CSS = `
 .chrome .ink-light { color: #fff; }
 .chrome .ink-dark { color: #1f1f1f; }
 .chrome .status { fill: currentColor; }
-.chrome .handle { border-radius: 2px; background: currentColor; opacity: 0.6; }
+.chrome .clip { overflow: hidden; }
+.chrome .clip > *, .chrome .slide > *, .chrome .ink > * {
+  position: absolute;
+  box-sizing: border-box;
+}
+/* The same timing and curve as Safari's morph: a slide, not a morph. */
+.chrome { --main: ${MORPH.minimize}ms; }
+.chrome[data-state="max"] { --main: ${MORPH.expand}ms; }
+.chrome .slide, .chrome .tint, .chrome .ink {
+  transition:
+    transform var(--main) ${MORPH.ease},
+    opacity var(--main) ${MORPH.ease},
+    color var(--main) ${MORPH.ease};
+}
+.chrome[data-state="min"] .slide { transform: translateY(var(--away)); }
 `;
 
 function path(d: string, className?: string): SVGPathElement {
@@ -89,10 +105,10 @@ function box(className: string, rect: Rect): HTMLElement {
 }
 
 /** Wifi as a filled fan, signal as a filled triangle, battery as a filled pill. */
-function statusIcons(status: StatusBar, ink: string): Element[] {
+function statusIcons(status: StatusBar): Element[] {
   const { x, y } = status.icons;
   const icon = (left: number, width: number, height: number, ...parts: SVGElement[]) => {
-    const svg = svgNode("svg", { class: `status ${ink}`, viewBox: `0 0 ${width} ${height}` });
+    const svg = svgNode("svg", { class: "status", viewBox: `0 0 ${width} ${height}` });
     place(svg, left, y - height / 2, width, height);
     svg.append(...parts);
     return svg;
@@ -110,50 +126,76 @@ function statusIcons(status: StatusBar, ink: string): Element[] {
   return [wifi, signal, battery];
 }
 
-export function paintChrome(bars: Bars, look: Look): Element[] {
-  const root = el("div", `chrome ${look.scheme}`);
+/**
+ * Chrome's bars, drawn once for both states. The toolbar slides away under
+ * the status bar, or down off the screen with the chin when it is at the
+ * bottom, and back, on the same timing and curve as Safari's morph. The
+ * status bar loses the toolbar's color as it goes.
+ */
+export function buildChrome(full: Bars, mini: Bars, look: Look): Painted {
+  const root = el("div", "chrome");
   root.style.inset = "0";
-  const toolbar = bars.shapes.find((shape) => shape.kind === "toolbar");
-  const status = bars.status;
-  const nodes: Element[] = [];
-  // The status bar takes the toolbar's color while the toolbar sits under it.
-  const tinted = toolbar !== undefined && status !== null && toolbar.y === status.height;
-  const pageInk = look.dark ? "ink-light" : "ink-dark";
-  const barInk = look.scheme === "dark" ? "ink-light" : "ink-dark";
-  if (status) {
-    const ink = tinted ? barInk : pageInk;
-    if (tinted) {
-      nodes.push(box("surface", { x: 0, y: 0, width: toolbar.width, height: status.height }));
+  const toolbar = full.shapes.find((shape) => shape.kind === "toolbar");
+  const status = full.status;
+  const top = status?.height ?? 0;
+  const tinted = toolbar !== undefined && toolbar.y === top;
+  const { width: W, height: H } = turn(full.screen, full.orientation);
+  // Under the status bar, so the toolbar slides away beneath it.
+  const clip = el("div", "clip");
+  place(clip, 0, top, W, H - top);
+  const below = (rect: Rect): Rect => ({ ...rect, y: rect.y - top });
+  const bar = el("div", "slide");
+  bar.style.inset = "0";
+  const chin = el("div", "slide");
+  chin.style.inset = "0";
+  if (full.chin) {
+    // At the bottom the chin goes with the toolbar, at the top on its own.
+    (tinted ? chin : bar).append(box("surface", below(full.chin)));
+  }
+  for (const shape of full.shapes) {
+    const surface = box(shape.kind === "toolbar" ? "surface" : "url-pill", below(shape));
+    surface.style.borderRadius = `${shape.radius}px`;
+    bar.append(surface);
+    for (const mark of shape.marks) {
+      bar.append(glyphAt({ ...mark, y: mark.y - top }, GLYPHS, 28, ""));
     }
-    const clock = el("div", `clock ${ink}`, "9:41");
+    if (shape.text) {
+      const url = el("div", "url");
+      url.style.left = `${shape.text.x}px`;
+      url.style.top = `${shape.text.y - top}px`;
+      url.style.maxWidth = `${shape.x + shape.width - shape.text.x - 8}px`;
+      bar.append(url);
+    }
+  }
+  if (full.hairline) bar.append(box("hairline", below(full.hairline)));
+  // How far each goes: up by the toolbar under the status bar, down off the screen.
+  const away = toolbar ? (tinted ? -(toolbar.height + 1) : H - toolbar.y) : 0;
+  bar.style.setProperty("--away", `${away}px`);
+  chin.style.setProperty("--away", `${full.chin?.height ?? 0}px`);
+  clip.append(chin, bar);
+  const tint = box("surface tint", { x: 0, y: 0, width: W, height: top });
+  const ink = el("div", "ink");
+  ink.style.inset = "0";
+  if (status) {
+    const clock = el("div", "clock", "9:41");
     clock.style.left = `${status.time.x}px`;
     clock.style.top = `${status.time.y}px`;
-    const still = [clock, ...statusIcons(status, ink)];
-    for (const node of still) node.setAttribute("data-still", "");
-    nodes.push(...still);
+    ink.append(clock, ...statusIcons(status));
   }
-  if (bars.chin) nodes.push(box("surface", bars.chin));
-  for (const shape of bars.shapes) {
-    const surface = box(shape.kind === "toolbar" ? "surface" : "url-pill", shape);
-    surface.style.borderRadius = `${shape.radius}px`;
-    nodes.push(surface);
-    for (const mark of shape.marks) nodes.push(glyphAt(mark, GLYPHS, 28, ""));
-    if (shape.text) {
-      const url = el("div", "url", look.host);
-      url.style.left = `${shape.text.x}px`;
-      url.style.top = `${shape.text.y}px`;
-      url.style.maxWidth = `${shape.x + shape.width - shape.text.x - 8}px`;
-      nodes.push(url);
-    }
-  }
-  if (bars.hairline) nodes.push(box("hairline", bars.hairline));
-  if (bars.handle) {
-    const ink = bars.chin ? barInk : pageInk;
-    const handle = box(`handle ${ink}`, bars.handle);
-    handle.dataset.still = "";
-    nodes.push(handle);
-  }
-  assemble(root, nodes);
-  return [root];
+  root.append(clip, tint, ink);
+  return {
+    root,
+    apply(minimized, sight) {
+      root.dataset.state = minimized ? "min" : "max";
+      root.className = `chrome ${sight.scheme}`;
+      const shaded = tinted && !minimized;
+      tint.style.opacity = shaded ? "1" : "0";
+      // Over the toolbar's color the status bar follows the scheme, else the page.
+      const dark = shaded ? sight.scheme === "dark" : sight.dark;
+      ink.className = dark ? "ink ink-light" : "ink ink-dark";
+      for (const url of Array.from(root.querySelectorAll<HTMLElement>(".url"))) {
+        url.textContent = sight.host;
+      }
+    },
+  };
 }
-

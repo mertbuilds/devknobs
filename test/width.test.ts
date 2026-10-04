@@ -428,6 +428,7 @@ const KNOBS = {
   mock: true,
   browser: "auto",
   bars: "auto",
+  edgeToEdge: true,
   zoom: "fit",
   panel: { open: false },
 } as const;

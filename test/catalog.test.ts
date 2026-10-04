@@ -216,6 +216,21 @@ describe("summary", () => {
     expect(resetPatch(row("viewport"))).toMatchObject({ browser: "auto", bars: "auto" });
   });
 
+  test("edge to edge is on while Safari is drawn, and offered only then", () => {
+    const edge = knobOf("edgeToEdge");
+    expect(edge.read(DEFAULT_STATE)).toBe("off");
+    expect(edge.read(state({ device: "iphone-16-pro" }))).toBe("on");
+    expect(edge.read(state({ device: "iphone-16-pro", edgeToEdge: false }))).toBe("off");
+    expect(edge.read(state({ device: "pixel-9" }))).toBe("off");
+    expect(edge.offers?.(state({ device: "iphone-se" }))).toEqual(["off", "on"]);
+    expect(edge.offers?.(state({ device: "iphone-se", browser: "off" }))).toEqual([]);
+    expect(edge.offers?.(state({ device: "pixel-9" }))).toEqual([]);
+    expect(says("viewport", { device: "iphone-16-pro", edgeToEdge: false })).toBe(
+      "iPhone 16 Pro · portrait",
+    );
+    expect(resetPatch(row("viewport"))).toMatchObject({ edgeToEdge: true });
+  });
+
   test("the bars follow the scroll by default, and read so while no browser draws them", () => {
     const bars = knobOf("bars");
     expect(bars.options.map((option) => option.value)).toEqual(["auto", "expanded", "minimized"]);

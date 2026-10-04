@@ -1,4 +1,4 @@
-import { layoutOf, layoutOptions } from "../engine/browserui";
+import { layoutOf, layoutOptions, platformOf } from "../engine/browserui";
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
 import { DEVICES, deviceOf, hasTouch } from "../engine/devices";
 import { frameForced } from "../engine/frame";
@@ -115,6 +115,7 @@ export type KnobId =
   | "touchPointer"
   | "browser"
   | "bars"
+  | "edgeToEdge"
   | "width"
   | "dpr"
   | "zoom"
@@ -822,6 +823,26 @@ const BARS: Knob = {
   offers: (state) => (barsShown(state) ? ["auto", "expanded", "minimized"] : []),
 };
 
+/** Is Safari drawn, so its page can run under its bars? */
+function safariShown(state: DevknobsState): boolean {
+  return platformOf(state.device) === "safari" && barsShown(state);
+}
+
+const EDGE_TO_EDGE: Knob = {
+  id: "edgeToEdge",
+  label: "edge to edge",
+  category: "device",
+  control: "switch",
+  options: OFF_ON,
+  aliases: ["edge", "under bars", "true height", "full height"],
+  // On while Safari is drawn, so an iPhone is what puts it off its default.
+  read: (state) => flag(state.edgeToEdge && safariShown(state)),
+  write: (value) => ({ edgeToEdge: value === "on" }),
+  reset: { edgeToEdge: DEFAULT_STATE.edgeToEdge },
+  brief: () => "",
+  offers: (state) => (safariShown(state) ? ["off", "on"] : []),
+};
+
 const WIDTH: Knob = {
   id: "width",
   label: "width",
@@ -1049,6 +1070,7 @@ export const KNOBS: readonly Knob[] = [
   TOUCH_POINTER,
   BROWSER,
   BARS,
+  EDGE_TO_EDGE,
   WIDTH,
   DPR,
   ZOOM,
@@ -1082,6 +1104,7 @@ export const ROWS: readonly Row[] = [
       "touchPointer",
       "browser",
       "bars",
+      "edgeToEdge",
       "width",
       "dpr",
       "zoom",

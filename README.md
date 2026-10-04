@@ -270,6 +270,7 @@ reports to it from its first render.
 | touch pointer | on, off | the mouse acts as a finger inside a touch device's frame, like the devtools device toolbar: a round cursor, touch events, `pointerType: "touch"`, no hover, drag to scroll. on by default, and only offered while a device with a touch screen is picked. see devices below |
 | browser | compact, bottom, top, off on an iPhone; top, bottom, off on an Android phone | draws the phone's browser in its screen around the page, Safari on an iPhone and Chrome on an Android phone, and makes the frame the viewport that browser leaves the page. on by default with the browser's own default layout, and only offered while a phone is picked. see devices below |
 | bars | auto, expanded, minimized | auto follows the page's scroll as the phone does: a scroll down of 16 px minimizes the bars, which gives the page more height, and a scroll up of 40 px, the top of the page, a tap on the minimized address or a new page brings them back. expanded and minimized hold them one way. only offered while the browser is drawn |
+| edge to edge | on, off | on an iPhone, draws the page under Safari's bars to the bottom of the screen as the phone looks, in both states, so the page reads a taller viewport than Safari reports. off gives Safari's measured viewport. on by default, and only offered while Safari is drawn. see devices below |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
@@ -367,31 +368,49 @@ size. the mock switch in the device editor turns it off. laptops and desktops
 have none.
 
 a phone shows the page in its browser, drawn in the screen around the frame:
-Safari's status bar, Liquid Glass bars and home indicator on an iPhone, and
-Android's status bar, Chrome's toolbar, the chin and the gesture handle on a
-Pixel or a Galaxy. the frame is then the viewport that browser leaves the
-page, so `innerWidth`, `innerHeight` and the viewport units read what they
-would on the phone, and the readout says that size: an iPhone 16 Pro gives
-402 × 714 in Safari's compact layout, 402 × 654 with the bar at the bottom and
-402 × 660 at the top, and a Pixel 9 412 × 777 with Chrome's toolbar. the
-browser knob picks the layout, Safari's compact, bottom or top and Chrome's
-top or bottom, or off for the whole screen, and the bars minimize and come
-back with the page's scroll, or stay one way with the bars knob. they morph in
-320 ms with an ease out: Safari's bars shrink into the address pill and grow
-back out of it, Chrome's toolbar slides away, and the scroll edge moves with
-them. the page gets one resize for each change, at the start when its
-viewport grows and at the end when it shrinks, so no gap shows, and its own
-scrolling as it settles never flips the bars again. with reduced motion in
-the browser the bars just switch. turned across, Safari keeps one row at the top
-and leaves room for the island at both sides. Safari's numbers are measured in
-iOS 26.5 Safari, Chrome's come from the Chromium and AOSP sources, and the
-Galaxy status bar height is an estimate. the screen around the bars takes the
-page's own background, read again on each load, navigation and scheme change,
-and Safari's glass and glyphs go dark on a dark page as they do on the phone.
-the address shows the frame's host, back and forward step through the frame's
-history and reload reloads it, and the rest is drawn only. the glyphs are
-drawn for devknobs, none come from Apple or Google. tablets, laptops and
-desktops have no browser drawn.
+Safari's status bar and Liquid Glass bars on an iPhone, and Android's status
+bar, Chrome's toolbar and the chin on a Pixel or a Galaxy. the home indicator
+and the gesture handle are left out, as they go once you switch apps and here
+none are switched. the browser knob picks the layout, Safari's compact, bottom
+or top and Chrome's top or bottom, or off for the whole screen. the readout
+says the size the page gets.
+
+on an iPhone the edge to edge switch, on by default, draws the page as the
+phone looks: under Safari's bars to the bottom of the screen, expanded or
+minimized, with the glass over it and a light scroll edge over its last
+stretch. the page is then the screen under the status bar, 402 × 812 on an
+iPhone 16 Pro in every layout, taller than the viewport Safari reports, so
+`position: fixed; bottom: 0` elements and `100dvh` layouts sit lower than on
+the phone: 58 px lower in compact minimized, 98 expanded, 158 in bottom
+expanded. turn it off for Safari's real numbers, measured in iOS 26.5:
+402 × 714 in compact, 402 × 654 with the bar at the bottom and 402 × 660 at
+the top, 754, 754 and 768 minimized. the strip under the page then takes the
+page's background, and the end of the page fades into it. Chrome always gives
+its real viewport, as its toolbar is opaque: a Pixel 9 is 412 × 777 with the
+toolbar and 412 × 857 without.
+
+the bars minimize and come back with the page's scroll, or stay one way with
+the bars knob. Safari's address capsule, or the bottom layout's card, is one
+glass shape that becomes the minimized pill: its box and corners tween over
+500 ms when it minimizes and 400 ms when it expands (the transitions.dev
+very slow and slow durations) on css's ease, the address glides and shrinks
+from 17 to 13 px in it, the page menu, reload and the bottom buttons fade out
+early and in late, and the capsules beside it fade and drift 10 px. a scroll
+the other way mid way turns it back from where it is. Chrome's toolbar
+slides away under the status bar, or down with the chin, on the same timing.
+where the page's height changes, edge to edge off and on Chrome, it gets one
+resize for each change, at the start when its viewport grows and at the end
+when it shrinks, so no gap shows, and its own scrolling as it settles never
+flips the bars again. with reduced motion in the browser the bars just
+switch. turned across, Safari keeps one row at the top and leaves room for
+the island at both sides. Chrome's numbers come from the Chromium and AOSP
+sources, and the Galaxy status bar height is an estimate. the screen around
+the bars takes the page's own background, read again on each load,
+navigation and scheme change, and Safari's glass and glyphs go dark on a
+dark page as they do on the phone. the address shows the frame's host, back
+and forward step through the frame's history and reload reloads it, and the
+rest is drawn only. the glyphs are drawn for devknobs, none come from Apple
+or Google. tablets, laptops and desktops have no browser drawn.
 
 a device sets the user agent knob to its own browser too: iPhone or iPad
 Safari, Android Chrome, Mac Safari on the MacBook, Windows Chrome on the laptop
@@ -573,7 +592,8 @@ elements or the document. `screen.width`,
 
 the bars follow the scroll of the document only, as on the phone, so a page
 that scrolls an inner box keeps them as they are, and they do not come back
-at the bottom of the page. the page is not drawn under the glass: the screen there takes the page's background color, and Safari's
+at the bottom of the page. with edge to edge off the page is not drawn under
+the glass: the screen there takes the page's background color, and Safari's
 scroll edge fades the last 64 px of the page into that color, eased from
 clear to 0.85 opaque at the frame's end and 0.92 at the bottom, where on the
 phone the page runs on under the bars. the top edge has no fade, as Safari

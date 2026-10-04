@@ -25,7 +25,7 @@ const NAME = "width";
 export type ViewportValue = FrameKnobs &
   Pick<
     DevknobsState,
-    "scheme" | "device" | "orientation" | "mock" | "browser" | "bars" | "zoom"
+    "scheme" | "device" | "orientation" | "mock" | "browser" | "bars" | "edgeToEdge" | "zoom"
   > & {
     panel: Pick<PanelValue, "open">;
   };
@@ -306,6 +306,7 @@ let current: ViewportValue = {
   mock: true,
   browser: "auto",
   bars: "auto",
+  edgeToEdge: true,
   zoom: "fit",
   panel: { open: false },
 };
@@ -943,8 +944,9 @@ function resize(): void {
   const layout = device ? layoutOf(device.id, current.browser) : null;
   const auto = current.bars === "auto";
   const min = current.bars === "minimized" || (auto && browser?.minimized() === true);
-  const bars = device ? barsOf(device, current.orientation, layout, min) : null;
-  const page = bars && device ? viewportOf(device, current.orientation, layout, min) : null;
+  const edge = current.edgeToEdge;
+  const bars = device ? barsOf(device, current.orientation, layout, min, edge) : null;
+  const page = bars && device ? viewportOf(device, current.orientation, layout, min, edge) : null;
   const knobs = { ...current, dpr: zoomWorks ? current.dpr : "system" };
   caption.textContent = label(place, knobs, page ?? place);
   showZoom(place);

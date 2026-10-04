@@ -195,6 +195,12 @@ export interface DevknobsState {
   browser: BrowserValue;
   /** The browser's bars following the page's scroll, or held expanded or minimized. */
   bars: BarsValue;
+  /**
+   * Safari draws the page under its bars to the bottom of the screen, as the
+   * phone looks, where the page reads a taller viewport than Safari reports.
+   * Off, the page gets Safari's measured viewport.
+   */
+  edgeToEdge: boolean;
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;
   dpr: DprValue;
