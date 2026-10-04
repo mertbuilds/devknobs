@@ -5,9 +5,11 @@ import {
   type BarsMotion,
   barsOf,
   barsStep,
+  endRoom,
 } from "./browserui";
 import { type Actions, el, FONT, type Look, MORPH, type Painted, place } from "./browserkit";
 import { buildChrome, CHROME_CSS } from "./chromedraw";
+import { give } from "./endroom";
 import { baseMatchMedia } from "./matchmedia";
 import type { Rect } from "./mock";
 import { buildSafari, SAFARI_CSS } from "./safaridraw";
@@ -231,12 +233,39 @@ export function createBrowser(
     reload: () => frame.contentWindow?.location.reload(),
     expand: () => step({ type: "tap" }),
   };
+  /**
+   * Give the page the room its end needs under the bars it is drawn under.
+   * Another room moves the end of the page's scroll as another size does, so
+   * it locks the scroll too, and a page at its end stays at its end as the
+   * room grows, clear of the bars that came back.
+   */
+  const roomFrame = () => {
+    const bars = view?.bars ?? null;
+    try {
+      const page = frame.contentWindow;
+      const doc = frame.contentDocument;
+      if (!page || !doc?.documentElement) return;
+      const room = bars
+        ? endRoom(bars.screen, bars.orientation, bars.layout, bars.minimized, bars.edge)
+        : 0;
+      const had = give(doc, room);
+      if (had === room) return;
+      step({ type: "resize", time: performance.now() });
+      const end = doc.documentElement.scrollHeight - page.innerHeight;
+      if (room < had || page.scrollY <= 1 || page.scrollY < end - (room - had) - 1) return;
+      const still = baseMatchMedia("(prefers-reduced-motion: reduce)").matches;
+      page.scrollTo({ top: end, behavior: still ? "instant" : "smooth" });
+    } catch {
+      // Another origin: no page there to give room.
+    }
+  };
   /** Give the frame its page box. A new size locks the scroll, as the page settles into it. */
   const sizeFrame = () => {
     if (!view) return;
     view.sizeFrame();
     if (!same(view.page, applied)) step({ type: "resize", time: performance.now() });
     applied = view.page;
+    roomFrame();
   };
   /** The frame grows at once, under bars that are leaving, and shrinks once the bars are in. */
   const placeFrame = (instant: boolean) => {
