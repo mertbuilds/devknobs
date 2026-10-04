@@ -33,7 +33,7 @@ describe("mockOf", () => {
       screenRadius: 62,
       bodyRadius: 77.9,
     });
-    expect(mockOf("pixel-9", "portrait")).toMatchObject({ screenRadius: 50.3, bodyRadius: 72 });
+    expect(mockOf("pixel-9", "portrait")).toMatchObject({ screenRadius: 55, bodyRadius: 77 });
     expect(mockOf("ipad-air-11", "portrait")).toMatchObject({ screenRadius: 18, bodyRadius: 66.5 });
     // A square screen in a very round body.
     expect(mockOf("iphone-se", "portrait")).toMatchObject({ screenRadius: 0, bodyRadius: 65.6 });
@@ -179,6 +179,29 @@ describe("mockOf", () => {
     expect(center(hole).x - (mock?.inset.left ?? 0)).toBeCloseTo(205.5);
     expect(center(hole).y - (mock?.inset.top ?? 0)).toBeCloseTo(33);
     expect(mock?.bezel).toEqual({ top: 21.9, right: 22.2, bottom: 21.9, left: 22.2 });
+  });
+
+  test("draws each newer Pixel's punch hole and buttons where Google's frame has them", () => {
+    const holes: [string, number, number, number][] = [
+      ["pixel-10", 205.6, 33.9, 29.7],
+      ["pixel-10-pro", 213.6, 34.3, 30.6],
+      ["pixel-10-pro-xl", 224, 34.8, 30.2],
+      ["pixel-10a", 205.2, 33.3, 30.5],
+      ["pixel-9-pro", 213.4, 33.7, 30.9],
+      ["pixel-9-pro-xl", 224, 32.8, 30.8],
+    ];
+    for (const [id, x, y, size] of holes) {
+      const mock = mockOf(id, "portrait");
+      const [hole] = parts(mock, "sensor");
+      expect(hole).toMatchObject({ width: size, height: size, radius: size / 2 });
+      expect(center(hole).x - (mock?.inset.left ?? 0)).toBeCloseTo(x);
+      expect(center(hole).y - (mock?.inset.top ?? 0)).toBeCloseTo(y);
+      // The power button and the volume rocker, both on the right.
+      const buttons = parts(mock, "button");
+      expect(buttons).toHaveLength(2);
+      const right = (mock?.body.x ?? 0) + (mock?.body.width ?? 0);
+      for (const button of buttons) expect(button.x + button.width).toBeGreaterThan(right);
+    }
   });
 
   test("puts the iPad Air's camera on the right long edge, and the top button on top", () => {

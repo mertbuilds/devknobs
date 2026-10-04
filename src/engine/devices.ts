@@ -22,7 +22,9 @@ export interface DevicePreset {
 }
 
 /**
- * Popular devices in 2026, by kind, iPhones newest first. The iPhone Duo is
+ * Popular devices in 2026, by kind, iPhones and Pixels newest first. A
+ * Pixel's size is its panel in px over its density, rounded up as Chrome
+ * rounds the screen, so 2992 px at 3 is 998. The iPhone Duo is
  * two screens, so two devices: the cover screen of the folded phone, and the
  * inner screen of the open one, which is held across.
  */
@@ -159,11 +161,71 @@ export const DEVICES: readonly DevicePreset[] = [
     kind: "phone",
   },
   {
+    id: "pixel-10",
+    label: "Pixel 10",
+    width: 412,
+    height: 924,
+    dpr: 2.625,
+    ua: "android-chrome",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "pixel-10-pro",
+    label: "Pixel 10 Pro",
+    width: 427,
+    height: 952,
+    dpr: 3,
+    ua: "android-chrome",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "pixel-10-pro-xl",
+    label: "Pixel 10 Pro XL",
+    width: 448,
+    height: 998,
+    dpr: 3,
+    ua: "android-chrome",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "pixel-10a",
+    label: "Pixel 10a",
+    width: 412,
+    height: 924,
+    dpr: 2.625,
+    ua: "android-chrome",
+    touch: true,
+    kind: "phone",
+  },
+  {
     id: "pixel-9",
     label: "Pixel 9",
     width: 412,
     height: 924,
     dpr: 2.625,
+    ua: "android-chrome",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "pixel-9-pro",
+    label: "Pixel 9 Pro",
+    width: 427,
+    height: 952,
+    dpr: 3,
+    ua: "android-chrome",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "pixel-9-pro-xl",
+    label: "Pixel 9 Pro XL",
+    width: 448,
+    height: 998,
+    dpr: 3,
     ua: "android-chrome",
     touch: true,
     kind: "phone",

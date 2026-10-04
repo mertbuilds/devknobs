@@ -73,7 +73,10 @@ function iphoneRight(control: number): Button[] {
  * 17, Air, 18 and Duo are measured from Apple's product bezel images, at 3
  * image px per css px: the bezel, the island or camera hole, and the buttons
  * that stand out. Their body radius is an estimate, the screen's radius and
- * the bezel, and Camera Control is left out where it sits flush.
+ * the bezel, and Camera Control is left out where it sits flush. The Pixels
+ * but the 9 are measured the same way from Google's emulator frames, at their
+ * own density: the bezel, the corner, the punch hole and the right side's
+ * buttons, with the body radius an estimate as on the iPhones.
  */
 export const BODIES: Record<string, Body> = {
   "iphone-18-pro": {
@@ -194,14 +197,63 @@ export const BODIES: Record<string, Body> = {
     ],
     buttons: [left(94.6, 36), left(187.5, 68.1), left(268.3, 68.1), right(188, 68.1)],
   },
+  "pixel-10": {
+    bezel: sides(21, 22.1, 21.4, 22.5),
+    screenRadius: 55,
+    bodyRadius: 77,
+    out: 3.1,
+    front: [dot("sensor", 205.6, 33.9, 29.7)],
+    buttons: [right(269.6, 77), right(389.3, 134.2)],
+  },
+  "pixel-10-pro": {
+    bezel: sides(20, 20.7, 17.3, 19.7),
+    screenRadius: 59,
+    bodyRadius: 79,
+    out: 3,
+    front: [dot("sensor", 213.6, 34.3, 30.6)],
+    buttons: [right(276.4, 78.4), right(399.1, 137)],
+  },
+  "pixel-10-pro-xl": {
+    bezel: sides(18.3, 20.3, 18, 20),
+    screenRadius: 52,
+    bodyRadius: 71,
+    out: 2.3,
+    front: [dot("sensor", 224, 34.8, 30.2)],
+    buttons: [right(280.5, 77), right(401.2, 134.4)],
+  },
+  "pixel-10a": {
+    bezel: sides(24, 24.8, 24, 24.8),
+    screenRadius: 55,
+    bodyRadius: 79,
+    out: 3.1,
+    front: [dot("sensor", 205.2, 33.3, 30.5)],
+    buttons: [right(273, 75.9), right(393.1, 132.7)],
+  },
   "pixel-9": {
     bezel: sides(21.9, 22.2, 21.9, 22.2),
-    screenRadius: 50.3,
-    // Estimates: the body radius, how far the buttons stand out, and where they are.
-    bodyRadius: 72,
+    // The frame's opening. The display config's corner is 132 px, 50.3.
+    screenRadius: 55,
+    // Estimates: how far the buttons stand out, and where they are.
+    bodyRadius: 77,
     out: 2.5,
     front: [dot("sensor", 205.5, 33, 32)],
     buttons: [right(290, 70), right(385, 135)],
+  },
+  "pixel-9-pro": {
+    bezel: sides(20.3, 20.3, 19, 20),
+    screenRadius: 58,
+    bodyRadius: 78,
+    out: 2.3,
+    front: [dot("sensor", 213.4, 33.7, 30.9)],
+    buttons: [right(269.7, 77.7), right(392.1, 142.7)],
+  },
+  "pixel-9-pro-xl": {
+    bezel: sides(18.7, 19.3, 17.3, 19),
+    screenRadius: 57,
+    bodyRadius: 76,
+    out: 2.3,
+    front: [dot("sensor", 224, 32.8, 30.8)],
+    buttons: [right(274.1, 75.7), right(393.8, 139.4)],
   },
   "galaxy-s25": {
     bezel: sides(11, 12.4, 11, 12.4),

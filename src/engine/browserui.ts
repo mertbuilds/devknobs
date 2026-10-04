@@ -62,11 +62,23 @@ interface ChromeSpec {
   tall?: number;
 }
 
+/**
+ * Derived for the Pixel 10 family, whose overlays are not published: the 9s'
+ * status bars are twice their punch hole's center, as their overlays align
+ * the bar to the camera cutout, so each 10 gets twice its hole's center as its
+ * frame draws it, moved by as much as the 9 of its size is off from its
+ * overlay there, to the nearest dp.
+ */
 const CHROME: Record<string, ChromeSpec> = {
   // 2424 px at 2.625 is 923.4 css px, and the page gets the whole px under it.
+  "pixel-10": { top: 69, tall: 923 },
+  "pixel-10-pro": { top: 69 },
+  // 2992 px at 3 is 997.3 css px.
+  "pixel-10-pro-xl": { top: 70, tall: 997 },
+  "pixel-10a": { top: 68, tall: 923 },
   "pixel-9": { top: 66, tall: 923 },
   "pixel-9-pro": { top: 68 },
-  "pixel-9-pro-xl": { top: 66 },
+  "pixel-9-pro-xl": { top: 66, tall: 997 },
   // An estimate: Samsung publishes no status bar height.
   "galaxy-s25": { top: 40 },
   "galaxy-s25-ultra": { top: 40 },

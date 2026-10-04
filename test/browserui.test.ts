@@ -25,10 +25,6 @@ function device(id: string): Screen {
   return found;
 }
 
-/** Pixel 9 Pro and Pro XL are not presets, but the browser knows their screens. */
-const PIXEL_9_PRO: Screen = { id: "pixel-9-pro", width: 427, height: 952 };
-const PIXEL_9_PRO_XL: Screen = { id: "pixel-9-pro-xl", width: 448, height: 997 };
-
 function size(
   screen: Screen,
   layout: BrowserLayout | null,
@@ -140,14 +136,32 @@ describe("viewportOf", () => {
   test("gives Chrome's viewport from its toolbar, chin and status bar", () => {
     expect(size(device("pixel-9"), "top", false)).toBe("412x777");
     expect(size(device("pixel-9"), "top", true)).toBe("412x857");
-    expect(size(PIXEL_9_PRO, "top", false)).toBe("427x804");
-    expect(size(PIXEL_9_PRO, "top", true)).toBe("427x884");
-    expect(size(PIXEL_9_PRO_XL, "top", false)).toBe("448x851");
-    expect(size(PIXEL_9_PRO_XL, "top", true)).toBe("448x931");
+    expect(size(device("pixel-9-pro"), "top", false)).toBe("427x804");
+    expect(size(device("pixel-9-pro"), "top", true)).toBe("427x884");
+    // 998 css px on the screen, 997 whole ones for the page.
+    expect(size(device("pixel-9-pro-xl"), "top", false)).toBe("448x851");
+    expect(size(device("pixel-9-pro-xl"), "top", true)).toBe("448x931");
     expect(size(device("pixel-9"), "bottom", false)).toBe("412x777");
     // The Galaxy status bar of 40 is an estimate.
     expect(size(device("galaxy-s25"), "top", false)).toBe("360x660");
     expect(size(device("galaxy-s25-ultra"), "top", true)).toBe("384x792");
+  });
+
+  test("gives the Pixel 10 family a status bar derived from its punch hole", () => {
+    // Derived, not measured: 69, 69, 70 and 68 dp.
+    const derived: [string, string, string][] = [
+      ["pixel-10", "412x774", "412x854"],
+      ["pixel-10-pro", "427x803", "427x883"],
+      ["pixel-10-pro-xl", "448x847", "448x927"],
+      ["pixel-10a", "412x775", "412x855"],
+    ];
+    for (const [id, expanded, minimized] of derived) {
+      expect(size(device(id), "top", false)).toBe(expanded);
+      expect(size(device(id), "top", true)).toBe(minimized);
+      expect(size(device(id), "bottom", false)).toBe(expanded);
+    }
+    const tops = derived.map(([id]) => viewportOf(device(id), "portrait", "bottom", false).y);
+    expect(tops).toEqual([69, 69, 70, 68]);
   });
 
   test("puts Chrome's toolbar over the page at the top, and under it at the bottom", () => {

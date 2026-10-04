@@ -69,7 +69,9 @@ describe("search", () => {
     expect(top("iphone 16 pro max")).toEqual(["device iphone-16-pro-max"]);
     expect(top("duo open")).toEqual(["device iphone-duo-open"]);
     expect(top("air")).toEqual(["device iphone-air"]);
-    expect(top("pixel")).toEqual(["device pixel-9"]);
+    expect(top("pixel")).toEqual(["device pixel-10"]);
+    expect(top("pixel 9 pro xl")).toEqual(["device pixel-9-pro-xl"]);
+    expect(top("pixel 10a")).toEqual(["device pixel-10a"]);
     expect(top("galaxy", 2)).toEqual(["device galaxy-s25", "device galaxy-s25-ultra"]);
     expect(top("ipad")).toEqual(["device ipad-mini"]);
     expect(top("macbook")).toEqual(["device macbook-air-13"]);
@@ -79,7 +81,7 @@ describe("search", () => {
       "device ipad-air-11",
       "device ipad-pro-13",
     ]);
-    expect(top("android")).toEqual(["device pixel-9"]);
+    expect(top("android")).toEqual(["device pixel-10"]);
     expect(top("landscape")).toEqual(["device landscape"]);
     expect(top("rotate")).toEqual(["device -"]);
     expect(top("390x844")).toEqual(["device 390x844"]);

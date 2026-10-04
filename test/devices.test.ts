@@ -44,6 +44,39 @@ describe("DEVICES", () => {
     expect(DEVICES.slice(0, iphones.length)).toEqual(iphones);
   });
 
+  test("lists the Pixels newest first, then the Galaxies, each at its own size and ratio", () => {
+    const android = DEVICES.filter((device) => device.ua === "android-chrome");
+    expect(android.map(({ id, width, height, dpr }) => `${id} ${width}x${height}@${dpr}`)).toEqual([
+      "pixel-10 412x924@2.625",
+      "pixel-10-pro 427x952@3",
+      "pixel-10-pro-xl 448x998@3",
+      "pixel-10a 412x924@2.625",
+      "pixel-9 412x924@2.625",
+      "pixel-9-pro 427x952@3",
+      "pixel-9-pro-xl 448x998@3",
+      "galaxy-s25 360x780@3",
+      "galaxy-s25-ultra 384x832@2.8125",
+    ]);
+  });
+
+  test("gives each Pixel the size of its panel at its ratio, rounded up", () => {
+    const panels: [string, number, number][] = [
+      ["pixel-10", 1080, 2424],
+      ["pixel-10-pro", 1280, 2856],
+      ["pixel-10-pro-xl", 1344, 2992],
+      ["pixel-10a", 1080, 2424],
+      ["pixel-9", 1080, 2424],
+      ["pixel-9-pro", 1280, 2856],
+      ["pixel-9-pro-xl", 1344, 2992],
+    ];
+    for (const [id, across, down] of panels) {
+      const device = deviceOf(id);
+      if (!device) throw new Error(`no device ${id}`);
+      expect(device.width).toBe(Math.ceil(across / device.dpr - 1e-9));
+      expect(device.height).toBe(Math.ceil(down / device.dpr - 1e-9));
+    }
+  });
+
   test("knows a device by id, and its touch screen", () => {
     expect(deviceOf("iphone-16-pro")).toMatchObject({ width: 402, height: 874, dpr: 3 });
     expect(deviceOf("none")).toBeUndefined();
