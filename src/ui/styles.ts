@@ -432,7 +432,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .badge { color: var(--faint); }
 .badge.hot { color: var(--hot); }
 /* The key hints, each a button for what its key does. Where they leave no
-   room, the line wraps, and reset keeps to the end, set apart. */
+   room, the line wraps. */
 .meta {
   display: flex;
   flex-wrap: wrap;
@@ -455,7 +455,6 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .hint:focus-visible { outline-offset: 2px; }
 .hint:disabled { cursor: default; opacity: 0.5; }
 .hint:disabled:hover { color: inherit; }
-.hint[data-command="reset"] { margin-left: auto; }
 .hint-key {
   box-sizing: border-box;
   min-width: 14px;

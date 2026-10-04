@@ -133,9 +133,8 @@ search `d` is just a letter.
 
 the footer lists the keys, most used first: the hotkey for the panel, `/` for
 search, the grab key, `r` for replay animations and `⇧R` (`Shift R` off a Mac)
-for reset, set apart at the end. each one is a button too, so a click does
-what its key does. with the overflow knob on, the count of overflowing boxes
-sits above them.
+for reset. each one is a button too, so a click does what its key does. with
+the overflow knob on, the count of overflowing boxes sits above them.
 
 the panel keeps the real color scheme and motion preference of the browser,
 whatever the knobs emulate for the page.
