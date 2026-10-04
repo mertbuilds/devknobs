@@ -11,6 +11,10 @@ import type { GrabEntry } from "./types";
 /** How long the pointer rests on an element before its context is worked out, in ms. */
 const PREPARE = 80;
 
+// adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
+/** The least time between two hit tests as the pointer moves, in ms. */
+const HIT_EVERY = 32;
+
 /** Pointer and mouse events that would reach the page's own handlers. */
 const BLOCKED = [
   "pointerdown",
@@ -68,7 +72,9 @@ export function startMode(options: ModeOptions): Mode {
   let current: Element | null = null;
   let picked: Element[] = [];
   let prepareTimer = 0;
-  let frame = 0;
+  let point: { x: number; y: number } | null = null;
+  let hitAt = 0;
+  let hitTimer = 0;
   let stopped = false;
 
   ensureStyle("grab-cursor").textContent = "*:not([data-devknobs]){cursor:crosshair!important}";
@@ -91,16 +97,12 @@ export function startMode(options: ModeOptions): Mode {
     return { tag: element.tagName.toLowerCase(), name };
   }
 
+  /** Hand the overlay what to box. It reads the bounds and draws on its own frames. */
   function draw(): void {
-    frame = 0;
     if (stopped) return;
     if (current && !current.isConnected) current = null;
     picked = picked.filter((element) => element.isConnected);
     overlay.draw(current, current ? labelOf(current) : { tag: "", name: null }, picked);
-  }
-
-  function schedule(): void {
-    if (!frame) frame = window.requestAnimationFrame(draw);
   }
 
   function select(element: Element | null): void {
@@ -128,11 +130,27 @@ export function startMode(options: ModeOptions): Mode {
     exit();
   }
 
-  function onPointerMove(event: PointerEvent): void {
-    if (!event.isPrimary) return;
-    const target = grabTargetAt(document, event.clientX, event.clientY);
+  function hit(): void {
+    hitTimer = 0;
+    if (!point) return;
+    hitAt = performance.now();
+    const target = grabTargetAt(document, point.x, point.y);
     if (target !== current) navigator.clear();
     select(target);
+  }
+
+  /** The hit test runs at most once in a while, and once more where the pointer came to rest. */
+  function onPointerMove(event: PointerEvent): void {
+    if (!event.isPrimary) return;
+    point = { x: event.clientX, y: event.clientY };
+    overlay.point(point.x);
+    const wait = HIT_EVERY - (performance.now() - hitAt);
+    if (wait <= 0) {
+      clearTimeout(hitTimer);
+      hit();
+    } else if (!hitTimer) {
+      hitTimer = window.setTimeout(hit, wait);
+    }
   }
 
   function onBlocked(event: Event): void {
@@ -140,7 +158,9 @@ export function startMode(options: ModeOptions): Mode {
     event.preventDefault();
     event.stopPropagation();
     if (event.type !== "click" || !(event instanceof MouseEvent)) return;
-    const target = grabTargetAt(document, event.clientX, event.clientY) ?? current;
+    const target =
+      grabTargetAt(document, event.clientX, event.clientY) ??
+      (current?.isConnected ? current : null);
     if (!target) return;
     if (event.shiftKey) {
       picked = togglePick(picked, target);
@@ -163,8 +183,11 @@ export function startMode(options: ModeOptions): Mode {
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const next = current ? navigator.next(step, current) : null;
-      if (next) select(next);
+      const next = current?.isConnected ? navigator.next(step, current) : null;
+      if (next) {
+        overlay.point(null);
+        select(next);
+      }
       return;
     }
     if (event.repeat) {
@@ -187,19 +210,15 @@ export function startMode(options: ModeOptions): Mode {
   for (const type of BLOCKED) window.addEventListener(type, onBlocked, true);
   window.addEventListener("pointermove", onPointerMove, true);
   window.addEventListener("keyup", onKeyup, true);
-  window.addEventListener("scroll", schedule, { capture: true, passive: true });
-  window.addEventListener("resize", schedule);
 
   function stop(): void {
     if (stopped) return;
     stopped = true;
     clearTimeout(prepareTimer);
-    if (frame) window.cancelAnimationFrame(frame);
+    clearTimeout(hitTimer);
     for (const type of BLOCKED) window.removeEventListener(type, onBlocked, true);
     window.removeEventListener("pointermove", onPointerMove, true);
     window.removeEventListener("keyup", onKeyup, true);
-    window.removeEventListener("scroll", schedule, true);
-    window.removeEventListener("resize", schedule);
     removeStyle("grab-cursor");
     overlay.destroy();
   }
@@ -209,7 +228,11 @@ export function startMode(options: ModeOptions): Mode {
     options.onExit();
   }
 
-  if (options.pointer) select(grabTargetAt(document, options.pointer.x, options.pointer.y));
+  if (options.pointer) {
+    point = options.pointer;
+    overlay.point(point.x);
+    hit();
+  }
 
   return { keydown, stop };
 }
