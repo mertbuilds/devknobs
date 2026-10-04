@@ -1308,6 +1308,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     else if (!engine.getState().panel.open) return;
     else if (action === "replay") runCommand("replay");
     else if (action === "reset") runCommand("reset");
+    else if (action === "search") searchInput.focus();
     else toggle(false);
   }
 

@@ -135,15 +135,17 @@ export function radioMove(key: string, index: number, count: number): number | n
 /**
  * Inside the width knob's frame the keys stay in the frame while it has focus,
  * so send the panel's keys up to the page that has the panel, and the zoom
- * keys up to the letterbox, which the browser's own zoom does not get. Returns
- * the way to stop.
+ * keys up to the letterbox, which the browser's own zoom does not get. `/`
+ * goes up while the panel is open, as it does on the page, and is then typed
+ * nowhere. Returns the way to stop.
  */
-export function forwardKeys(hotkey?: string): () => void {
+export function forwardKeys(hotkey?: string, open: () => boolean = () => true): () => void {
   const key = hotkeyOf(hotkey);
   function onKeydown(event: KeyboardEvent): void {
     const zoom = zoomAction(event);
-    if (zoom) event.preventDefault();
-    const action = keyAction(event, key) ?? zoom;
+    const search = isSearchKey(event) && open();
+    if (zoom || search) event.preventDefault();
+    const action = keyAction(event, key) ?? zoom ?? (search ? "search" : null);
     if (action) post(window.parent, { source: "devknobs", type: "key", action });
   }
   window.addEventListener("keydown", onKeydown, true);

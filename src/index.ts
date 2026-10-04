@@ -93,7 +93,7 @@ export function mount(options: MountOptions = {}): void {
   // Ahead of the panel's keys, so escape ends grab before it closes the panel.
   if (options.grab !== false) grabControl = createGrab({ key: options.grabKey });
   if (isDevknobsFrame()) {
-    stopKeys = forwardKeys(options.hotkey);
+    stopKeys = forwardKeys(options.hotkey, () => engine.getState().panel.open);
     return;
   }
   if (options.open !== undefined) engine.setState({ panel: { open: options.open } });

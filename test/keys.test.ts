@@ -314,6 +314,26 @@ describe("forwardKeys", () => {
     expect(prevented).toBe(2);
   });
 
+  test("posts / up to focus the search while the panel is open, and types it nowhere", () => {
+    let open = true;
+    forwardKeys(undefined, () => open);
+    let prevented = 0;
+    const slash = (patch: Partial<KeyLike> = {}) =>
+      Object.assign(key({ key: "/", ...patch }), { preventDefault: () => prevented++ });
+    listener?.(slash());
+    listener?.(slash({ shiftKey: true }));
+    listener?.(slash({ target: element("INPUT") }));
+    listener?.(slash({ target: element("DIV", true) }));
+    listener?.(slash({ metaKey: true }));
+    open = false;
+    listener?.(slash());
+    expect(posted).toEqual([
+      [{ source: "devknobs", type: "key", action: "search" }, "/"],
+      [{ source: "devknobs", type: "key", action: "search" }, "/"],
+    ]);
+    expect(prevented).toBe(2);
+  });
+
   test("stops listening when told to", () => {
     const stop = forwardKeys();
     expect(listener).not.toBeNull();
