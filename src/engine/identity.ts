@@ -1,6 +1,7 @@
 import type { DevknobsState, DprValue } from "../types";
 import { hasTouch } from "./devices";
 import { coarse } from "./media";
+import * as scrollbars from "./scrollbars";
 import { equip } from "./touch";
 import * as ua from "./ua";
 
@@ -44,9 +45,9 @@ export function patchedAs(view: Window): Identity | undefined {
 
 /**
  * Patch the frame's new window from the page above, as the frame's own copy
- * would on mount: the user agent, the touch screen and its pointer queries,
- * before the window's first script. The copy there takes them over. A window
- * patched already keeps what it has, and says what that is.
+ * would on mount: the user agent, the touch screen, its pointer queries and
+ * its scrollbars, before the window's first script. The copy there takes them
+ * over. A window patched already keeps what it has, and says what that is.
  */
 export function patchWindow(view: Window, state: IdentityKnobs): Identity {
   const had = patchedAs(view);
@@ -57,6 +58,7 @@ export function patchWindow(view: Window, state: IdentityKnobs): Identity {
   if (identity.touch) {
     equip(view, ua.uaPreset(state.ua.preset) === undefined);
     coarse(view);
+    scrollbars.equip(view);
   }
   return identity;
 }

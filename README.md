@@ -441,6 +441,12 @@ knobs, `'ontouchstart' in window` is true, and `navigator.maxTouchPoints` reads
 5, or what the user agent preset says while one is set. the page above the
 frame keeps its own pointer.
 
+its scrollbars take no room either, as a phone's lie over the page: every
+scroller in the frame, the page itself included, has its scrollbar hidden from
+before the page's first script, so `documentElement.clientWidth` and
+`innerWidth` both read the device's width. the page scrolls as before, by the
+wheel and the touch pointer. laptops and desktops keep their scrollbars.
+
 the mouse acts as a finger there too, as in the devtools device toolbar. the
 cursor over the frame is a round dot, a little smaller and darker while
 pressed. a press sends `touchstart`, `touchmove` and `touchend` (`touchcancel`
@@ -589,6 +595,11 @@ but no touch events. turn the switch off for the mouse as it is: clicks,
 hover and `pointerType: "mouse"`. `ontouchstart` is on the window only, not on
 elements or the document. `screen.width`,
 `screen.height` and `screen.orientation` keep the real screen's.
+
+a touch device's scrollbars are hidden, not drawn as a phone draws them: the
+thin indicator that shows over the page while it scrolls is left out, and a
+page's own `::-webkit-scrollbar` or `scrollbar-width` styles do not show in
+the frame.
 
 the bars follow the scroll of the document only, as on the phone, so a page
 that scrolls an inner box keeps them as they are, and they do not come back
