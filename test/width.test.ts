@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { DEVICES, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
+import { mockOf } from "../src/engine/mock";
 import { apply, fit, label, onZoom, origin, reset, STRIP, zoomKey } from "../src/engine/width";
 import type { ZoomValue } from "../src/types";
 
@@ -152,6 +153,58 @@ describe("fit", () => {
   test("lets a panel over most of the room cover the frame", () => {
     const narrow = { width: 500, height: 900 };
     expect(fit(DESKTOP, narrow, { aside: PANEL })).toEqual(fit(DESKTOP, narrow));
+  });
+
+  test("fits the whole mock, and places the frame inside it at its css size", () => {
+    const mock = { top: 12, right: 14, bottom: 12, left: 14 };
+    const place = fit(PHONE, BOX, { mock });
+    expect(place).toMatchObject({ width: 402, height: 874 });
+    expect(place.scale).toBeCloseTo(752 / 898);
+    expect(place.box.height).toBeCloseTo(800);
+    expect(place.box.width).toBeCloseTo(430 * place.scale + 48);
+    expect(place.left).toBeCloseTo(24 + 14 * place.scale);
+    expect(place.top).toBeCloseTo(24 + 12 * place.scale);
+    const zoomed = fit({ ...PHONE, zoom: 1 }, BOX, { mock });
+    expect(zoomed.box).toEqual({ width: 430 + 48, height: 898 + 48 });
+    expect(zoomed).toMatchObject({ left: 38, top: 36 });
+  });
+
+  test("shows every mock whole with a margin, either way up, beside the panel too", () => {
+    const windows = [
+      { width: 1200, height: 805 },
+      { width: 1440, height: 900 },
+      { width: 800, height: 600 },
+      { width: 390, height: 700 },
+    ];
+    for (const device of DEVICES) {
+      for (const way of ["portrait", "landscape"] as const) {
+        const mock = mockOf(device.id, way);
+        if (!mock) continue;
+        const size = turn(device, way);
+        for (const letterbox of windows) {
+          for (const aside of [0, PANEL]) {
+            const place = fit({ ...size, zoom: "fit" }, letterbox, { aside, mock: mock.inset });
+            const margin = place.left - mock.inset.left * place.scale;
+            expect(place.box.width).toBeLessThanOrEqual(letterbox.width + 1e-9);
+            expect(place.box.height).toBeLessThanOrEqual(letterbox.height - STRIP + 1e-9);
+            expect(margin).toBeGreaterThan(0);
+            expect(mock.width * place.scale + 2 * margin).toBeLessThanOrEqual(
+              place.box.width + 1e-9,
+            );
+            const top = place.top - mock.inset.top * place.scale;
+            expect(mock.height * place.scale + 2 * top).toBeCloseTo(place.box.height);
+          }
+        }
+      }
+    }
+  });
+
+  test("keeps a mocked frame clear of the open panel", () => {
+    const mock = mockOf("ipad-pro-13", "landscape")?.inset;
+    const size = turn({ width: 1032, height: 1376 }, "landscape");
+    const place = fit({ ...size, zoom: "fit" }, BOX, { aside: PANEL, mock });
+    const right = place.left + (size.width + (mock?.right ?? 0)) * place.scale;
+    expect(right + 24).toBeLessThanOrEqual(1200 - PANEL + 1e-9);
   });
 
   test("leaves the scale alone when there is no room to measure", () => {
@@ -327,6 +380,8 @@ const KNOBS = {
   ...UNFRAMED,
   scheme: "system",
   device: "none",
+  orientation: "portrait",
+  mock: true,
   zoom: "fit",
   panel: { open: false },
 } as const;

@@ -31,6 +31,7 @@ describe("parse", () => {
         height: "tall",
         device: "pixel-42",
         orientation: "sideways",
+        mock: "no",
         frame: true,
         dpr: 2,
         zoom: "huge",
@@ -68,6 +69,7 @@ describe("parse", () => {
       height: "full",
       device: "none",
       orientation: "portrait",
+      mock: true,
       frame: true,
       dpr: 2,
       zoom: "fit",
@@ -108,6 +110,11 @@ describe("parse", () => {
     const stored = { width: 874, height: 402, device: "iphone-16-pro", orientation: "landscape" };
     expect(parse(JSON.stringify(stored))).toMatchObject(stored);
     expect(parse(JSON.stringify({ height: 0 })).height).toBe("full");
+  });
+
+  test("draws a mock when the session predates it, and keeps one turned off", () => {
+    expect(parse(JSON.stringify({ device: "pixel-9" })).mock).toBe(true);
+    expect(parse(JSON.stringify({ mock: false })).mock).toBe(false);
   });
 
   test("fits the frame when the session predates the zoom, and keeps a zoom in reason", () => {

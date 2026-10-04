@@ -3,6 +3,7 @@ import { DEVICES, deviceOf } from "../engine/devices";
 import { frameForced } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
+import { mockOf } from "../engine/mock";
 import { DEFAULT_STATE } from "../engine/store";
 import { canonicalZone, TIME_ZONE_PRESETS } from "../engine/time";
 import { GRAB_COLOR_NAMES, GRAB_COLORS } from "../grab/colors";
@@ -107,6 +108,7 @@ export type KnobId =
   | "connection"
   | "saveData"
   | "device"
+  | "mock"
   | "width"
   | "dpr"
   | "zoom"
@@ -730,6 +732,26 @@ const DEVICE: Knob = {
   extra: () => ORIENTATIONS,
 };
 
+/** Does the device in use have a mock to draw? */
+export function hasMock(state: DevknobsState): boolean {
+  return mockOf(state.device, state.orientation) !== null;
+}
+
+const MOCK: Knob = {
+  id: "mock",
+  label: "mock",
+  category: "device",
+  control: "switch",
+  options: OFF_ON,
+  aliases: ["mockup", "bezel", "body"],
+  // On while it is drawn, so a phone or tablet is what puts it off its default.
+  read: (state) => flag(state.mock && hasMock(state)),
+  write: (value) => ({ mock: value === "on" }),
+  reset: { mock: DEFAULT_STATE.mock },
+  // The device says enough.
+  brief: () => "",
+};
+
 const WIDTH: Knob = {
   id: "width",
   label: "width",
@@ -953,6 +975,7 @@ export const KNOBS: readonly Knob[] = [
   CONNECTION,
   SAVE_DATA,
   DEVICE,
+  MOCK,
   WIDTH,
   DPR,
   ZOOM,
@@ -980,7 +1003,7 @@ export const ROWS: readonly Row[] = [
   {
     id: "viewport",
     label: "viewport",
-    knobs: ["device", "width", "dpr", "zoom", "frame", "vision"],
+    knobs: ["device", "mock", "width", "dpr", "zoom", "frame", "vision"],
   },
   { id: "ua", label: "user agent", knobs: ["ua"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },

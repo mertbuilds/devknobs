@@ -258,6 +258,7 @@ reports to it from its first render.
 | viewport height | px, full | makes the frame that tall, centered in the window both ways, so `innerHeight`, `100vh`, `svh`, `dvh` and height media queries see it. a frame taller or wider than the window is scaled down to fit both ways |
 | device | a preset, none | sets the width, height and device pixel ratio of a phone, tablet, laptop or desktop together, and a touch screen where it has one. see devices below |
 | orientation | portrait, landscape | turns a frame that has a width and a height, a device's or a custom one. it follows the size, so a size set across reads as landscape |
+| mock | on, off | draws a phone's or tablet's body around its frame. on by default, and only offered while a phone or tablet is picked. see devices below |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
@@ -343,6 +344,12 @@ a phone or tablet picked after another is held the same way, anything else
 comes up its usual way, unless the patch names an orientation. a width or
 height set by hand that is no longer the device's drops the device and keeps
 the size, and a device pixel ratio set by hand keeps the device.
+
+a phone or tablet comes up in a mock of its body, drawn in svg around the
+frame: the bezel, the dynamic island, the punch hole or the home button, and
+the side buttons. it turns with the frame, is fitted and zoomed with it, and
+never takes a pointer. the viewport stays the device's size. the mock switch in
+the device editor turns it off. laptops and desktops have none.
 
 a device sets the user agent knob to its own browser too: iPhone or iPad
 Safari, Android Chrome, Mac Safari on the MacBook, Windows Chrome on the laptop

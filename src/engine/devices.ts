@@ -2,6 +2,12 @@ import type { DevknobsState, DevknobsStatePatch, OrientationValue } from "../typ
 
 export type DeviceKind = "phone" | "tablet" | "laptop" | "desktop";
 
+/**
+ * The body the mock draws around the screen: an iPhone with the dynamic
+ * island, one with a home button, a phone with a punch-hole camera, a tablet.
+ */
+export type MockFamily = "island" | "home" | "hole" | "tablet";
+
 export interface DevicePreset {
   id: string;
   label: string;
@@ -17,6 +23,8 @@ export interface DevicePreset {
   ua: string;
   touch: boolean;
   kind: DeviceKind;
+  /** The body of its mock. Laptops and desktops have none. */
+  mock?: MockFamily;
 }
 
 /** Popular devices in 2026, by kind. */
@@ -30,6 +38,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "iphone-safari",
     touch: true,
     kind: "phone",
+    mock: "island",
   },
   {
     id: "iphone-16-pro",
@@ -40,6 +49,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "iphone-safari",
     touch: true,
     kind: "phone",
+    mock: "island",
   },
   {
     id: "iphone-16-pro-max",
@@ -50,6 +60,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "iphone-safari",
     touch: true,
     kind: "phone",
+    mock: "island",
   },
   {
     id: "iphone-se",
@@ -60,6 +71,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "iphone-safari",
     touch: true,
     kind: "phone",
+    mock: "home",
   },
   {
     id: "pixel-9",
@@ -70,6 +82,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "android-chrome",
     touch: true,
     kind: "phone",
+    mock: "hole",
   },
   {
     id: "galaxy-s25",
@@ -80,6 +93,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "android-chrome",
     touch: true,
     kind: "phone",
+    mock: "hole",
   },
   {
     id: "galaxy-s25-ultra",
@@ -90,6 +104,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "android-chrome",
     touch: true,
     kind: "phone",
+    mock: "hole",
   },
   {
     id: "ipad-mini",
@@ -100,6 +115,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "ipad-safari",
     touch: true,
     kind: "tablet",
+    mock: "tablet",
   },
   {
     id: "ipad-air-11",
@@ -110,6 +126,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "ipad-safari",
     touch: true,
     kind: "tablet",
+    mock: "tablet",
   },
   {
     id: "ipad-pro-13",
@@ -120,6 +137,7 @@ export const DEVICES: readonly DevicePreset[] = [
     ua: "ipad-safari",
     touch: true,
     kind: "tablet",
+    mock: "tablet",
   },
   {
     id: "macbook-air-13",

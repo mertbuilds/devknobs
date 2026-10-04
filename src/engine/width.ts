@@ -10,6 +10,7 @@ import {
   UNFRAMED,
   type ZoomAction,
 } from "./frame";
+import { type Mock, mockOf, type Rect, type Sides } from "./mock";
 import { ensureStyle, removeStyle } from "./style";
 import { visionFilter } from "./vision";
 import { anchorScroll, percent, type Point, stepZoom, wheelZoom, ZOOM_PRESETS } from "./zoom";
@@ -18,7 +19,9 @@ const NAME = "width";
 
 /** What the frame takes from the knobs. */
 export type ViewportValue = FrameKnobs &
-  Pick<DevknobsState, "scheme" | "device" | "zoom"> & { panel: Pick<PanelValue, "open"> };
+  Pick<DevknobsState, "scheme" | "device" | "orientation" | "mock" | "zoom"> & {
+    panel: Pick<PanelValue, "open">;
+  };
 
 /** One under the panel host, so the panel stays on top of the frame. */
 const Z_INDEX = 2147483645;
@@ -31,6 +34,15 @@ const MARGIN = 24;
 
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
+
+/** The body of a mock, near black, and its edge a little lighter. */
+const BODY = "#111112";
+const EDGE = "#3a3a3c";
+
+const SVG = "http://www.w3.org/2000/svg";
+
+/** No mock: the frame takes no room beyond its own. */
+const BARE: Sides = { top: 0, right: 0, bottom: 0, left: 0 };
 
 /** The pixels a wheel line stands for, where a wheel counts in lines. */
 const WHEEL_LINE = 20;
@@ -132,6 +144,26 @@ const CSS = `
   left: 0;
   transform-origin: 0 0;
 }
+/* Clips the frame to the screen's corners in a mock, in the body's color so
+   no gray shows at the seam. */
+.glass.mocked {
+  position: absolute;
+  overflow: hidden;
+  background: ${BODY};
+}
+/* Over the frame, and never in the way of a pointer. */
+.mock {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.mock .body { fill: ${BODY}; fill-rule: evenodd; }
+.mock .edge { fill: none; stroke: ${EDGE}; stroke-width: 1; }
+.mock .button { fill: ${EDGE}; }
+.mock .sensor { fill: #000; }
+.mock .ring { fill: none; stroke: ${EDGE}; stroke-width: 1.5; }
 iframe {
   display: block;
   border: 0;
@@ -174,6 +206,12 @@ let letterbox: HTMLElement | null = null;
 let stage: HTMLElement | null = null;
 let drawing: HTMLElement | null = null;
 let screen: HTMLElement | null = null;
+/** Holds the frame, and clips it to the screen's corners under a mock. */
+let glass: HTMLElement | null = null;
+/** The device's body drawn around the frame, while it has one. */
+let mockDrawing: SVGSVGElement | null = null;
+/** The device and the way it is held that the mock was last drawn for. */
+let mockKey = "";
 let frame: HTMLIFrameElement | null = null;
 let readout: HTMLElement | null = null;
 /** What the readout says, before its zoom control. */
@@ -197,6 +235,8 @@ let current: ViewportValue = {
   ...UNFRAMED,
   scheme: "system",
   device: "none",
+  orientation: "portrait",
+  mock: true,
   zoom: "fit",
   panel: { open: false },
 };
@@ -492,14 +532,16 @@ function margin(size: number): number {
  * fitted to the room left of it, while that is most of the room. A zoom draws
  * the frame at that scale instead, and none of it changes the css size. The
  * device pixel ratio's `zoom` on the frame keeps its css size too, and the
- * wrapper takes it back out of the drawing.
+ * wrapper takes it back out of the drawing. A device's mock takes `mock` px
+ * of the frame's on each side, drawn at the same scale, and the whole of it
+ * is fitted and centered.
  */
 export function fit(
   knobs: Pick<DevknobsState, "width" | "height" | "zoom">,
   size: { width: number; height: number },
-  options: { frameZoom?: number; aside?: number } = {},
+  options: { frameZoom?: number; aside?: number; mock?: Sides } = {},
 ): Fit {
-  const { frameZoom = 1, aside = 0 } = options;
+  const { frameZoom = 1, aside = 0, mock = BARE } = options;
   const room = {
     width: size.width,
     height: Math.max(0, size.height - (hasStrip(knobs) ? STRIP : 0)),
@@ -508,16 +550,19 @@ export function fit(
   const width = typeof knobs.width === "number" ? knobs.width : room.width;
   const x = sized ? margin(room.width) : 0;
   const y = typeof knobs.height === "number" ? margin(room.height) : 0;
-  const across = width > 0 && room.width > 0 ? (room.width - 2 * x) / width : 1;
+  const sides = { width: mock.left + mock.right, height: mock.top + mock.bottom };
+  const across = width > 0 && room.width > 0 ? (room.width - 2 * x) / (width + sides.width) : 1;
   const tall = typeof knobs.height === "number" && knobs.height > 0 && room.height > 0;
-  const whole = Math.min(1, across, tall ? (room.height - 2 * y) / Number(knobs.height) : 1);
+  const upright = (room.height - 2 * y) / (Number(knobs.height) + sides.height);
+  const whole = Math.min(1, across, tall ? upright : 1);
   const height = typeof knobs.height === "number" ? knobs.height : room.height / whole;
+  const outer = { width: width + sides.width, height: height + sides.height };
   const covered =
     sized &&
     aside > 0 &&
     aside <= room.width / 2 &&
-    (room.width + width * whole) / 2 + x > room.width - aside;
-  const fitted = covered ? Math.min(whole, (room.width - aside - 2 * x) / width) : whole;
+    (room.width + outer.width * whole) / 2 + x > room.width - aside;
+  const fitted = covered ? Math.min(whole, (room.width - aside - 2 * x) / outer.width) : whole;
   const scale = knobs.zoom === "fit" ? fitted : knobs.zoom;
   // The room under the panel stays in the box, so centering it centers the frame left of the panel.
   const beside = knobs.zoom === "fit" && covered ? aside : 0;
@@ -528,9 +573,9 @@ export function fit(
     scale,
     fit: fitted,
     transform: scale / frameZoom,
-    box: { width: width * scale + 2 * x + beside, height: height * scale + 2 * y },
-    left: x,
-    top: y,
+    box: { width: outer.width * scale + 2 * x + beside, height: outer.height * scale + 2 * y },
+    left: x + mock.left * scale,
+    top: y + mock.top * scale,
   };
 }
 
@@ -615,12 +660,94 @@ function panelWidth(): number {
   return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
 }
 
+/** A rounded rect as path data. */
+function roundRect(rect: Rect, radius: number): string {
+  const { x, y, width, height } = rect;
+  const r = Math.min(radius, width / 2, height / 2);
+  const arc = `A${r} ${r} 0 0 1`;
+  return [
+    `M${x + r} ${y}H${x + width - r}${arc} ${x + width} ${y + r}`,
+    `V${y + height - r}${arc} ${x + width - r} ${y + height}`,
+    `H${x + r}${arc} ${x} ${y + height - r}`,
+    `V${y + r}${arc} ${x + r} ${y}Z`,
+  ].join("");
+}
+
+function svgNode<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attributes: Record<string, string | number>,
+): SVGElementTagNameMap[K] {
+  const node = document.createElementNS(SVG, tag);
+  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
+  return node;
+}
+
+/**
+ * The device's body, in css px of the frame: the buttons under it, the body
+ * with the screen cut out of it and its edge, and the sensors on top.
+ */
+function drawMock(mock: Mock, screenSize: { width: number; height: number }): SVGSVGElement {
+  const svg = svgNode("svg", {
+    class: "mock",
+    viewBox: `0 0 ${mock.width} ${mock.height}`,
+    "aria-hidden": "true",
+  });
+  const part = (shape: Mock["parts"][number]) =>
+    svgNode("rect", {
+      class: shape.kind,
+      x: shape.x,
+      y: shape.y,
+      width: shape.width,
+      height: shape.height,
+      rx: shape.radius,
+    });
+  const opening = { x: mock.inset.left, y: mock.inset.top, ...screenSize };
+  const { x, y, width, height } = mock.body;
+  const edge = { x: x + 0.5, y: y + 0.5, width: width - 1, height: height - 1 };
+  svg.append(
+    ...mock.parts.filter((shape) => shape.kind === "button").map(part),
+    svgNode("path", {
+      class: "body",
+      d: roundRect(mock.body, mock.bodyRadius) + roundRect(opening, mock.screenRadius),
+    }),
+    svgNode("path", { class: "edge", d: roundRect(edge, mock.bodyRadius - 0.5) }),
+    ...mock.parts.filter((shape) => shape.kind !== "button").map(part),
+  );
+  return svg;
+}
+
+/** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
+function showMock(mock: Mock | null, place: Fit): void {
+  if (!screen || !glass) return;
+  const key = mock ? `${current.device}|${current.orientation}` : "";
+  if (key !== mockKey) {
+    mockKey = key;
+    mockDrawing?.remove();
+    mockDrawing = mock ? drawMock(mock, place) : null;
+    if (mockDrawing) screen.append(mockDrawing);
+    glass.className = mock ? "glass mocked" : "glass";
+  }
+  const zoom = place.zoom;
+  glass.style.left = mock ? `${mock.inset.left * zoom}px` : "";
+  glass.style.top = mock ? `${mock.inset.top * zoom}px` : "";
+  glass.style.borderRadius = mock ? `${mock.screenRadius * zoom}px` : "";
+  if (mock && mockDrawing) {
+    mockDrawing.style.width = `${mock.width * zoom}px`;
+    mockDrawing.style.height = `${mock.height * zoom}px`;
+  }
+}
+
 function resize(): void {
   if (!frame || !letterbox || !stage || !drawing || !screen || !readout || !caption) return;
   readout.hidden = !hasStrip(current);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
   const aside = current.panel.open ? panelWidth() : 0;
-  const place = fit(current, size, { frameZoom: zoomFor(current.dpr), aside });
+  const mock = current.mock ? mockOf(current.device, current.orientation) : null;
+  const place = fit(current, size, {
+    frameZoom: zoomFor(current.dpr),
+    aside,
+    mock: mock?.inset,
+  });
   drawn = place;
   caption.textContent = label(place, { ...current, dpr: zoomWorks ? current.dpr : "system" });
   showZoom(place);
@@ -631,8 +758,10 @@ function resize(): void {
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
   drawing.style.width = `${place.box.width}px`;
   drawing.style.height = `${place.box.height}px`;
-  screen.style.left = `${place.left}px`;
-  screen.style.top = `${place.top}px`;
+  // The wrapper starts at the mock's corner, and the frame sits in it by as much.
+  screen.style.left = `${place.left - (mock?.inset.left ?? 0) * place.scale}px`;
+  screen.style.top = `${place.top - (mock?.inset.top ?? 0) * place.scale}px`;
+  showMock(mock, place);
   screen.style.transform = place.transform === 1 ? "" : `scale(${place.transform})`;
   // Natively, the page inside gets the scheme as its real preference. System
   // leaves the frame to follow the window.
@@ -735,6 +864,8 @@ function open(): void {
   drawing.className = "drawing";
   screen = document.createElement("div");
   screen.className = "screen";
+  glass = document.createElement("div");
+  glass.className = "glass";
   frame = document.createElement("iframe");
   frame.setAttribute(FRAME_ATTRIBUTE, "");
   frame.name = FRAME_NAME;
@@ -749,7 +880,8 @@ function open(): void {
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
   notice = createNotice();
-  screen.append(frame);
+  glass.append(frame);
+  screen.append(glass);
   drawing.append(screen);
   stage.append(drawing);
   letterbox.append(readout, stage, notice);
@@ -796,6 +928,9 @@ function close(follow: boolean): void {
   stage = null;
   drawing = null;
   screen = null;
+  glass = null;
+  mockDrawing = null;
+  mockKey = "";
   frame = null;
   notice = null;
   readout = null;

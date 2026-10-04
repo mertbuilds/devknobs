@@ -168,6 +168,17 @@ describe("summary", () => {
     );
   });
 
+  test("the mock is on while a phone or tablet draws one, and the device says enough", () => {
+    const mock = knobOf("mock");
+    expect(mock.read(state({ device: "iphone-16-pro" }))).toBe("on");
+    expect(mock.read(state({ device: "iphone-16-pro", mock: false }))).toBe("off");
+    expect(mock.read(state({ device: "desktop" }))).toBe("off");
+    expect(mock.read(state({ width: 390, height: 844 }))).toBe("off");
+    expect(isActive(row("viewport"), state({ mock: false }))).toBe(false);
+    expect(says("viewport", { device: "pixel-9", mock: false })).toBe("Pixel 9 · portrait");
+    expect(resetPatch(row("viewport"))).toMatchObject({ mock: true });
+  });
+
   test("a zoom off fit says its percent", () => {
     expect(says("viewport", { device: "iphone-16-pro", zoom: 1.25 })).toBe(
       "iPhone 16 Pro · portrait · 125%",

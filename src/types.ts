@@ -175,6 +175,8 @@ export interface DevknobsState {
    * holds a device that way.
    */
   orientation: OrientationValue;
+  /** Draw a phone's or a tablet's body around its frame. */
+  mock: boolean;
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;
   dpr: DprValue;

@@ -17,6 +17,7 @@ import {
   ACTIONS,
   type Action,
   browse,
+  hasMock,
   isActive,
   type Knob,
   type KnobId,
@@ -759,6 +760,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
           line.hidden = frameForced(state);
         });
       }
+      // The mock switch only shows for a device that has one.
+      if (knob.id === "mock") {
+        updates.push((state) => {
+          line.hidden = !hasMock(state);
+        });
+      }
       editor.append(line);
     }
     return updates;
@@ -970,6 +977,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     leaveSearch();
     // Another knob holds the frame up, so the frame knob has nothing to set.
     if (knob.id === "frame" && frameForced(engine.getState())) return;
+    if (knob.id === "mock" && !hasMock(engine.getState())) return;
     set(knob, option.value);
     if (option.opens) openEditor(id);
     showRow(id, knob);

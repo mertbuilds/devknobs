@@ -50,6 +50,7 @@ export const DEFAULT_STATE: DevknobsState = {
   height: "full",
   device: "none",
   orientation: "portrait",
+  mock: true,
   frame: false,
   dpr: "system",
   zoom: "fit",
@@ -193,6 +194,8 @@ export function parse(json: string | null | undefined): DevknobsState {
     height: numberOr(state.height, "full", DEFAULT_STATE.height),
     device: deviceOf(device) ? device : DEFAULT_STATE.device,
     orientation: oneOf(state.orientation, ORIENTATIONS, DEFAULT_STATE.orientation),
+    // A session stored before the mock draws one.
+    mock: bool(state.mock, DEFAULT_STATE.mock),
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     // A session stored before the zoom knob fits the frame, as it did then.
