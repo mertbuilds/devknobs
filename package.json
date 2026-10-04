@@ -9,7 +9,8 @@
   "types": "./dist/index.d.ts",
   "main": "./dist/index.js",
   "files": [
-    "dist"
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "exports": {
     ".": {
@@ -24,7 +25,7 @@
     "./early": "./dist/early.global.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --format esm && bun build src/react.tsx --outdir dist --format esm --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist/index.global.js --format iife --minify && bun build src/early.ts --outfile dist/early.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json",
+    "build": "bun build src/index.ts --outdir dist --format esm --splitting && bun build src/react.tsx --outdir dist --format esm --splitting --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist/index.global.js --format iife --minify && bun build src/early.ts --outfile dist/early.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
@@ -41,5 +42,8 @@
     "@types/react": "^19.2.14",
     "react": "^19.2.4",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "bippy": "^0.7.3"
   }
 }

@@ -5,6 +5,7 @@ import { GEO_PRESETS } from "./engine/geo";
 import { LOCALE_PRESETS } from "./engine/locale";
 import { TIME_ZONE_PRESETS } from "./engine/time";
 import { UA_PRESETS } from "./engine/ua";
+import type { GrabOptions, GrabPayload } from "./grab/types";
 import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
@@ -43,6 +44,7 @@ export type { DeviceKind, DevicePreset } from "./engine/devices";
 export type { GeoPreset } from "./engine/geo";
 export type { UaBrand, UaHints, UaPreset } from "./engine/ua";
 export type { EngineOptions } from "./engine";
+export type { GrabEntry, GrabFrame, GrabOptions, GrabPayload, ResolvedSource } from "./grab/types";
 
 export interface MountOptions extends engine.EngineOptions {
   /** Key that toggles the panel. Defaults to `d`. */
@@ -92,3 +94,16 @@ export const getState = engine.getState;
 export const setState = engine.setState;
 export const reset = engine.reset;
 export const replay = engine.replay;
+
+/**
+ * Copy what an agent needs to find the elements in the code: their html, the
+ * components that rendered them and where. Loads on first use, so the page
+ * never pays for it until then. Null when nothing was copied.
+ */
+export async function grab(
+  elements: Element[],
+  options?: GrabOptions,
+): Promise<GrabPayload | null> {
+  const loaded = await import("./grab");
+  return loaded.grab(elements, options);
+}

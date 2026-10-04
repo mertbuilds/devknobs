@@ -1,6 +1,6 @@
-import { getState, mount, replay, reset, setState, unmount } from "./index";
+import { getState, grab, mount, replay, reset, setState, unmount } from "./index";
 
-const api = { mount, unmount, getState, setState, reset, replay };
+const api = { mount, unmount, getState, setState, reset, replay, grab };
 
 declare global {
   interface Window {
