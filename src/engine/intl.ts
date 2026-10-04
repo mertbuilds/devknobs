@@ -3,9 +3,9 @@
  * browser takes from its language setting when the caller names none. Each
  * member is swapped for an accessor that hands out a proxy of the real one,
  * which puts the knob's tag in when the locales are left out. Whatever the page
- * or another knob assigns meanwhile (geo puts its own `DateTimeFormat` there)
- * only replaces what sits under the proxy, so both apply, and a reset leaves
- * the last assignment in place.
+ * or another knob assigns meanwhile (the time zone knob puts its own
+ * `DateTimeFormat` and `toLocale*String` there) only replaces what sits under
+ * the proxy, so both apply, and a reset leaves the last assignment in place.
  */
 
 /** A patched member, and where the `locales` argument sits in its calls. */
@@ -78,6 +78,11 @@ export function withLocale(args: unknown[], index: number, locale: string | null
   return next;
 }
 
+/** What sits under a locale proxy, or the value itself when it is not one. */
+export function underLocale(value: unknown): unknown {
+  return (typeof value === "function" && targets.get(value)) || value;
+}
+
 /**
  * One proxy per real member, so the same member reads as the same function
  * every time. It reads the tag on each call, so a proxy a page kept hold of
@@ -122,7 +127,7 @@ function install(member: Member): void {
       });
       return;
     }
-    slot.inner = (typeof value === "function" && targets.get(value)) || value;
+    slot.inner = underLocale(value);
   }
   Object.defineProperty(member.owner, member.key, {
     configurable: true,

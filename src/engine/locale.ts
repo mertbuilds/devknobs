@@ -1,4 +1,5 @@
 import type { LocaleValue } from "../types";
+import { realNow } from "./clock";
 import { setDefaultLocale } from "./intl";
 
 export const LOCALE_PRESETS = [
@@ -241,7 +242,7 @@ function reloadWait(): number {
     const previous = Number(window.sessionStorage.getItem(RELOAD_KEY));
     if (!(previous > 0)) return 0;
     // A time ahead of the clock waits one window at a time, not until the clock catches up.
-    return Math.min(RELOAD_THROTTLE, Math.max(0, previous + RELOAD_THROTTLE - Date.now()));
+    return Math.min(RELOAD_THROTTLE, Math.max(0, previous + RELOAD_THROTTLE - realNow()));
   } catch {
     // No storage, no way to tell one reload from the next: do not start one.
     return Infinity;
@@ -256,7 +257,7 @@ function reloadBlocked(): boolean {
 /** Time this reload, so the next ask moments from now reads as a loop. */
 function reloadOnce(): boolean {
   try {
-    window.sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+    window.sessionStorage.setItem(RELOAD_KEY, String(realNow()));
   } catch {
     // Storage answered a moment ago and refuses now: nothing would time this
     // reload, so do not start it.
@@ -378,7 +379,7 @@ function setAttribute(name: string, value: string | null): void {
  * to do.
  */
 function restoreHeld(): void {
-  const now = Date.now();
+  const now = realNow();
   if (now - holdWindow >= 1000) {
     holdWindow = now;
     holdCount = 0;

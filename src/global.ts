@@ -1,6 +1,7 @@
-import { getState, mount, replay, reset, setState, unmount } from "./index";
+import { bezelsBeside } from "./engine/bezels";
+import { getState, grab, mount, replay, reset, setState, unmount } from "./index";
 
-const api = { mount, unmount, getState, setState, reset, replay };
+const api = { mount, unmount, getState, setState, reset, replay, grab };
 
 declare global {
   interface Window {
@@ -9,5 +10,9 @@ declare global {
 }
 
 window.devknobs = api;
+
+// Read as the script runs, the only time the document knows which one it is.
+const script = document.currentScript;
+bezelsBeside(script instanceof HTMLScriptElement ? script.src : "");
 
 mount();
