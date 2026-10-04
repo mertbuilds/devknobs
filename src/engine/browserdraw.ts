@@ -143,6 +143,15 @@ export function readLook(frame: HTMLIFrameElement): Look {
   }
 }
 
+/** Can the frame's page be read? Not on another origin, or behind an error page. */
+function reaches(frame: HTMLIFrameElement): boolean {
+  try {
+    return !!frame.contentDocument?.documentElement;
+  } catch {
+    return false;
+  }
+}
+
 /** What the bars are drawn for. */
 export interface BrowserView {
   bars: Bars | null;
@@ -242,12 +251,23 @@ export function createBrowser(
       if (same(view?.page ?? null, page)) sizeFrame();
     }, MORPH.expand);
   };
+  /**
+   * The frame's own background takes the page's color. The frame's edges fall
+   * between device pixels at most scales, where its background is drawn into
+   * the part of a pixel the page is not, and its stylesheet's white there is a
+   * hairline along the edge of a dark page, which comes and goes as the page
+   * is drawn in new layers. A page out of reach keeps the stylesheet's.
+   */
+  const back = () => {
+    frame.style.background = reaches(frame) ? (look ??= readLook(frame)).background : "";
+  };
   const draw = () => {
     const bars = view?.bars ?? null;
     if (!view || !bars) {
       clearTimeout(shrinking);
       layer.replaceChildren();
       glass.style.background = "";
+      back();
       painted = null;
       built = "";
       if (view) sizeFrame();
@@ -255,6 +275,7 @@ export function createBrowser(
     }
     look ??= readLook(frame);
     glass.style.background = look.background;
+    back();
     const { platform, layout, screen, orientation, edge } = bars;
     const base = JSON.stringify([platform, layout, screen, orientation, edge, view.follow]);
     const fresh = base !== built || !painted;
@@ -312,11 +333,18 @@ export function createBrowser(
       draw();
     },
     refresh() {
-      if (!view?.bars) return;
-      read();
+      if (!view) return;
+      // Without bars only the frame's background follows the page.
+      const again = view.bars
+        ? read
+        : () => {
+            look = readLook(frame);
+            back();
+          };
+      again();
       // A knob's change reaches the page a message later, and its styles after that.
       clearTimeout(later);
-      later = window.setTimeout(read, RESTYLE);
+      later = window.setTimeout(again, RESTYLE);
     },
     minimized: () => motion.minimized,
     remove() {

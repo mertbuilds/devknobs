@@ -43,9 +43,9 @@ describe("fit", () => {
   test("is the whole window at full size, with no strip and no margin", () => {
     expect(fit(FULL, BOX)).toMatchObject({
       width: 1200,
-      height: 824,
+      height: 800 + STRIP,
       scale: 1,
-      box: { width: 1200, height: 824 },
+      box: { width: 1200, height: 800 + STRIP },
       left: 0,
       top: 0,
     });
@@ -491,6 +491,7 @@ beforeEach(() => {
     devicePixelRatio: 1,
     scrollTo: (options: ScrollToOptions) => scrolls.push(options),
     requestAnimationFrame: () => 0,
+    setTimeout: () => 0,
     addEventListener: () => {},
     removeEventListener: () => {},
   });
