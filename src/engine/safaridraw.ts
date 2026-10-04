@@ -237,7 +237,7 @@ function battery(x: number, y: number): SVGSVGElement {
 
 /** The time at its center, the icons beside the island, or the SE's either side of the time. */
 function statusBar(status: StatusBar): Element[] {
-  const time = el("div", "time", "9:41");
+  const time = el("div", "time", "04:47");
   time.style.left = `${status.time.x}px`;
   time.style.top = `${status.time.y}px`;
   time.style.fontSize = `${status.time.size}px`;
