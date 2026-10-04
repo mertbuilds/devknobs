@@ -12,6 +12,7 @@ declare global {
 window.devknobs = api;
 
 // Read as the script runs, the only time the document knows which one it is.
-bezelsBeside((document.currentScript as HTMLScriptElement | null)?.src ?? "");
+const script = document.currentScript;
+bezelsBeside(script instanceof HTMLScriptElement ? script.src : "");
 
 mount();

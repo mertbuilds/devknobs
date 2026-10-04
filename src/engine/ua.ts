@@ -230,8 +230,16 @@ interface Shared {
  */
 const SHARED = Symbol.for("devknobs.ua");
 
+function isShared(value: unknown): value is Shared {
+  return typeof value === "object" && value !== null && "originals" in value;
+}
+
 function sharedOf(scope: object): Shared {
-  return ((scope as Record<symbol, Shared | undefined>)[SHARED] ??= { originals: null });
+  const had: unknown = Reflect.get(scope, SHARED);
+  if (isShared(had)) return had;
+  const shared: Shared = { originals: null };
+  Reflect.set(scope, SHARED, shared);
+  return shared;
 }
 
 function prototypeOf(scope: object): object | null {

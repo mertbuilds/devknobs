@@ -360,7 +360,7 @@ function mirror(): void {
  * history. Both go with the frame's window on its next load.
  */
 function watch(view: Window, doc: Document): void {
-  const navigation = (view as Window & { navigation?: EventTarget }).navigation;
+  const navigation = reload.navigationOf(view);
   if (navigation) {
     navigation.addEventListener("currententrychange", mirror);
   } else {

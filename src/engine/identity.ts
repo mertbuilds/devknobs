@@ -36,11 +36,14 @@ export function stale(loaded: Identity | null, next: Identity): boolean {
 /** On a window patched from above: the identity it was patched as. */
 const PATCHED = Symbol.for("devknobs.identity");
 
-type Patched = Record<symbol, Identity | undefined>;
+function isIdentity(value: unknown): value is Identity {
+  return typeof value === "object" && value !== null && "agent" in value && "touch" in value;
+}
 
 /** The identity a window was patched as from the page above, if it was. */
 export function patchedAs(view: object): Identity | undefined {
-  return (view as unknown as Patched)[PATCHED];
+  const identity: unknown = Reflect.get(view, PATCHED);
+  return isIdentity(identity) ? identity : undefined;
 }
 
 /**
@@ -53,7 +56,7 @@ export function patchWindow(view: Window, state: IdentityKnobs): Identity {
   const had = patchedAs(view);
   if (had) return had;
   const identity = identityOf(state);
-  (view as unknown as Patched)[PATCHED] = identity;
+  Reflect.set(view, PATCHED, identity);
   ua.apply(state.ua, view);
   if (identity.touch) {
     equip(view, ua.uaPreset(state.ua.preset) === undefined);

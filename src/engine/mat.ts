@@ -1,4 +1,4 @@
-const SVG = "http://www.w3.org/2000/svg";
+import { svgNode } from "./browserkit";
 
 /** The light blue the mat's lines and numbers are drawn in. */
 const LINE = "rgb(170, 205, 255)";
@@ -129,15 +129,6 @@ export function along(from: Point, angle: number, radius: number, off = 0): Poin
   return { x: from.x + radius * step.x + off * step.y, y: from.y + radius * step.y - off * step.x };
 }
 
-function node<K extends keyof SVGElementTagNameMap>(
-  tag: K,
-  attributes: Record<string, string | number>,
-): SVGElementTagNameMap[K] {
-  const element = document.createElementNS(SVG, tag);
-  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, String(value));
-  return element;
-}
-
 /**
  * The cutting mat, `size` css px, with lines `hair` px thin: a grid with a
  * mark where the spans cross, rulers along the top and left edges numbered
@@ -150,12 +141,12 @@ export function drawMat(
   hair: number,
   avoid?: { from: number; to: number },
 ): SVGSVGElement {
-  const svg = node("svg", { class: "mat", "aria-hidden": "true" });
+  const svg = svgNode("svg", { class: "mat", "aria-hidden": "true" });
   const half = SPAN / 2;
   const minor: number[] = [];
   for (let at = CELL; at < SPAN; at += CELL) if (at !== half) minor.push(at);
   const arm = 6;
-  const pattern = node("pattern", {
+  const pattern = svgNode("pattern", {
     id: "mat-grid",
     x: -half,
     y: -half,
@@ -164,16 +155,16 @@ export function drawMat(
     patternUnits: "userSpaceOnUse",
   });
   pattern.append(
-    node("path", { class: "cell", d: lines(minor, SPAN, hair) }),
-    node("path", { class: "major", d: lines([0], SPAN, hair) }),
-    node("path", { class: "span", d: lines([half], SPAN, hair) }),
-    node("path", {
+    svgNode("path", { class: "cell", d: lines(minor, SPAN, hair) }),
+    svgNode("path", { class: "major", d: lines([0], SPAN, hair) }),
+    svgNode("path", { class: "span", d: lines([half], SPAN, hair) }),
+    svgNode("path", {
       class: "mark",
       d: `M${half - arm} ${half}h${2 * arm + hair}v${hair}h${-2 * arm - hair}Z` +
         `M${half} ${half - arm}h${hair}v${2 * arm + hair}h${-hair}Z`,
     }),
   );
-  const defs = node("defs", {});
+  const defs = svgNode("defs", {});
   defs.append(pattern);
   const top = ticks(size.width)
     .map((tick) => `M${tick.at} 0h${hair}v${tick.size}h${-hair}Z`)
@@ -183,14 +174,14 @@ export function drawMat(
     .join("");
   svg.append(
     defs,
-    node("rect", { width: "100%", height: "100%", fill: "url(#mat-grid)" }),
-    node("path", { class: "tick", d: top + left }),
+    svgNode("rect", { width: "100%", height: "100%", fill: "url(#mat-grid)" }),
+    svgNode("path", { class: "tick", d: top + left }),
   );
   const origin = vertex(size.height);
   if (origin) {
     const base = along(origin, 0, ARC);
     const rim = { x: origin.x, y: origin.y - ARC };
-    const arc = node("path", {
+    const arc = svgNode("path", {
       class: "angle",
       d: `M${base.x} ${base.y}A${ARC} ${ARC} 0 0 0 ${rim.x} ${rim.y}`,
       "stroke-width": hair,
@@ -200,7 +191,7 @@ export function drawMat(
     for (const angle of ANGLES) {
       const start = along(origin, angle, ARC);
       const end = exit(origin, angle, size);
-      const line = node("path", {
+      const line = svgNode("path", {
         class: "angle",
         d: `M${start.x} ${start.y}L${end.x} ${end.y}`,
         "stroke-width": hair,
@@ -210,18 +201,22 @@ export function drawMat(
       const reach = Math.hypot(end.x - origin.x, end.y - origin.y);
       const at = along(origin, angle, LABEL.radius, LABEL.off);
       if (reach < LABEL.radius + LABEL.room || at.y < LABEL.top) continue;
-      const text = node("text", { x: at.x, y: at.y, transform: `rotate(${-angle} ${at.x} ${at.y})` });
+      const text = svgNode("text", {
+        x: at.x,
+        y: at.y,
+        transform: `rotate(${-angle} ${at.x} ${at.y})`,
+      });
       text.textContent = `${angle}°`;
       svg.append(text);
     }
   }
   for (const at of numbers(size.width, avoid)) {
-    const text = node("text", { x: at + 3, y: TICK.span + 1 });
+    const text = svgNode("text", { x: at + 3, y: TICK.span + 1 });
     text.textContent = String(at);
     svg.append(text);
   }
   for (const at of numbers(size.height)) {
-    const text = node("text", { x: TICK.span + 2, y: at, "dominant-baseline": "middle" });
+    const text = svgNode("text", { x: TICK.span + 2, y: at, "dominant-baseline": "middle" });
     text.textContent = String(at);
     svg.append(text);
   }

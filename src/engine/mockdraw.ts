@@ -1,3 +1,4 @@
+import { svgNode } from "./browserkit";
 import type { Mock, Radius, Rect } from "./mock";
 
 /** The front glass of a mock, near black, and the band around it a little lighter. */
@@ -8,8 +9,6 @@ const RIM = "#2a2a2c";
 
 /** How much of the band shows around the front glass, in css px of the screen. */
 const BAND = 2.5;
-
-const SVG = "http://www.w3.org/2000/svg";
 
 /** A device's body over the frame, drawn by `drawMock`, in the letterbox's shadow root. */
 export const MOCK_CSS = `
@@ -54,15 +53,6 @@ function roundRect(rect: Rect, radius: Radius): string {
     `H${x + d}${arc(d)} ${x} ${y + height - d}`,
     `V${y + a}${arc(a)} ${x + a} ${y}Z`,
   ].join("");
-}
-
-function svgNode<K extends keyof SVGElementTagNameMap>(
-  tag: K,
-  attributes: Record<string, string | number>,
-): SVGElementTagNameMap[K] {
-  const node = document.createElementNS(SVG, tag);
-  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
-  return node;
 }
 
 /**

@@ -144,11 +144,11 @@ export function settle(): void {
  * its first script a task or more later. Look every task until it is there.
  * The window is the same, its page is not.
  */
-function onHide(event: Event): void {
+function onHide(event: PageTransitionEvent): void {
   const view = frame?.view() ?? null;
   const gone = frame?.page() ?? null;
   // The whole tab going into the back/forward cache, with the frame as it is.
-  if (!view || !gone || (event as PageTransitionEvent).persisted) return;
+  if (!view || !gone || event.persisted) return;
   identity = null;
   settle();
   const until = performance.now() + COMMIT_WAIT;

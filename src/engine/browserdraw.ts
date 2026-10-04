@@ -9,6 +9,7 @@ import {
 } from "./browserui";
 import { type Actions, el, FONT, type Look, MORPH, type Painted, place } from "./browserkit";
 import { buildChrome, CHROME_CSS } from "./chromedraw";
+import { type Color, luminance, parseColor } from "./color";
 import { give } from "./endroom";
 import { baseMatchMedia } from "./matchmedia";
 import type { Rect } from "./mock";
@@ -52,16 +53,9 @@ ${CHROME_CSS}
 
 const BUILDERS: Record<Bars["platform"], Builder> = { safari: buildSafari, chrome: buildChrome };
 
-/** `rgb()` or `rgba()` as numbers, or null for a color in another form. */
-function parseRgb(color: string): [number, number, number, number] | null {
-  const match = /^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)$/.exec(color);
-  if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4] ?? 1)];
-}
-
-/** Any css color as `rgb()`, through a canvas, for the forms getComputedStyle keeps as written. */
-function toRgb(color: string): [number, number, number, number] | null {
-  const parsed = parseRgb(color);
+/** Any css color as a color, through a canvas for the forms `parseColor` leaves. */
+function toRgb(color: string): Color | null {
+  const parsed = parseColor(color);
   if (parsed) return parsed;
   try {
     const canvas = document.createElement("canvas");
@@ -72,19 +66,10 @@ function toRgb(color: string): [number, number, number, number] | null {
     context.fillStyle = color;
     context.fillRect(0, 0, 1, 1);
     const [r = 0, g = 0, b = 0, a = 0] = context.getImageData(0, 0, 1, 1).data;
-    return [r, g, b, a / 255];
+    return { red: r, green: g, blue: b, alpha: a / 255 };
   } catch {
     return null;
   }
-}
-
-/** Relative luminance, 0 for black to 1 for white. */
-export function luminance(r: number, g: number, b: number): number {
-  const linear = (value: number) => {
-    const c = value / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 }
 
 /**
@@ -100,12 +85,11 @@ function backgroundOf(doc: Document, view: Window, dark: boolean): [number, numb
   const layers = [doc.body, doc.documentElement].filter((node): node is HTMLElement => !!node);
   for (const node of layers) {
     const color = toRgb(view.getComputedStyle(node).backgroundColor);
-    if (!color || color[3] === 0) continue;
-    const [r, g, b, a] = color;
-    base = [0, 1, 2].map((at) => {
-      const over = [r, g, b][at] ?? 0;
-      return Math.round(over * a + (base[at] ?? 0) * (1 - a));
-    }) as [number, number, number];
+    if (!color || color.alpha === 0) continue;
+    const { red, green, blue, alpha } = color;
+    const [r, g, b] = base;
+    const over = (top: number, under: number) => Math.round(top * alpha + under * (1 - alpha));
+    base = [over(red, r), over(green, g), over(blue, b)];
   }
   return base;
 }

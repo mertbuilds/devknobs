@@ -47,7 +47,7 @@ describe("angle guides", () => {
     expect(vertex(629)).toEqual({ x: 0, y: 500 });
     expect(vertex(130)).toEqual({ x: 0, y: 100 });
     expect(vertex(129)).toBeNull();
-    for (const height of [131, 457, 900, 1333]) expect(vertex(height)!.y % SPAN).toBe(0);
+    for (const height of [131, 457, 900, 1333]) expect((vertex(height)?.y ?? 1) % SPAN).toBe(0);
   });
 
   test("the 45 degree guide runs through every span crossing on its way", () => {
