@@ -363,8 +363,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   home.textContent = "knobs.dev";
   const meta = el("div", "meta");
   for (const chip of keyChips(hotkey, grab ? grab.label : null)) {
-    const node = el("span", "chip");
-    node.append(el("kbd", "key", chip.key), chip.word);
+    const node = el("span", "hint");
+    node.append(el("kbd", "hint-key", chip.key), chip.word);
     meta.append(node);
   }
   meta.append(home);

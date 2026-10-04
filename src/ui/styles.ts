@@ -437,7 +437,7 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 .act:disabled:hover { color: var(--faint); }
 .badge { color: var(--faint); }
 .badge.hot { color: var(--hot); }
-/* One line of key chips with the link at its right end. Where a long key
+/* One line of key hints with the link at its right end. Where a long key
    leaves no room, the line wraps and the link keeps to the right. */
 .meta {
   display: flex;
@@ -448,13 +448,16 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   line-height: 1.4;
   color: var(--faint);
 }
-.chip { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
-.key {
+/* A key and its word. Only the key is a box. */
+.hint { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.hint-key {
   box-sizing: border-box;
   min-width: 14px;
   padding: 0 3px;
   font: inherit;
+  color: inherit;
   text-align: center;
+  background: transparent;
   border: 1px solid var(--line);
   border-radius: 4px;
 }
