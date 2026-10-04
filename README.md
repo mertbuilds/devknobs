@@ -163,7 +163,7 @@ while it is on:
   line each.
 - up goes to the parent, down back the way it came or to the first child, left
   and right (and tab, shift-tab) along the siblings. enter or `c` copies.
-- a small "copied" shows by the element for a moment.
+- a check and "Copied" show by the element for a moment, the box still on it.
 
 the context of the element under the pointer is worked out while the pointer
 rests there, so a click copies it whole, inside the click, as Safari wants.

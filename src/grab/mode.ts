@@ -122,9 +122,9 @@ export function startMode(options: ModeOptions): Mode {
     if (elements.length === 0) return;
     const entries = elements.map((element) => ready.get(element) ?? quickEntry(element));
     const anchor = elements[elements.length - 1] ?? null;
-    overlay.toast(copiedText(elements.length), anchor);
+    overlay.toast(copiedText(elements.length), anchor, true);
     void copyGrab({ content: joinEntries(entries), entries }).then((copied) => {
-      if (!copied) overlay.toast("copy failed", anchor);
+      if (!copied) overlay.toast("Copy failed", anchor, false);
     });
     for (const element of elements) warm(element);
     exit();

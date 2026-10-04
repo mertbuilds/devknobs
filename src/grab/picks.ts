@@ -12,7 +12,7 @@ export function flushPicks<T>(picked: readonly T[], clicked: T | null): T[] {
   return [...picked, clicked];
 }
 
-/** What the toast says: `copied`, or `copied 3` for more than one. */
+/** What the toast says: `Copied`, or `Copied 3` for more than one. */
 export function copiedText(count: number): string {
-  return count > 1 ? `copied ${count}` : "copied";
+  return count > 1 ? `Copied ${count}` : "Copied";
 }

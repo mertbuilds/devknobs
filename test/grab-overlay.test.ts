@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { boxRadius, labelPlace, LERP, parseRadius, tweenStep } from "../src/grab/overlay";
+import {
+  boxRadius,
+  labelPlace,
+  LERP,
+  parseRadius,
+  TOAST_TIME,
+  tweenStep,
+} from "../src/grab/overlay";
 
 const view = { width: 400, height: 300 };
 const pill = { width: 80, height: 20 };
@@ -72,6 +79,12 @@ describe("labelPlace", () => {
   test("stays in the window sideways", () => {
     expect(labelPlace({ ...box, left: 300, right: 400 }, pill, view, 395).x).toBe(312);
     expect(labelPlace({ ...box, left: -40, right: 60 }, pill, view, 2).x).toBe(8);
+  });
+});
+
+describe("toast", () => {
+  test("stays a second and a half, and the box with it", () => {
+    expect(TOAST_TIME).toBe(1500);
   });
 });
 

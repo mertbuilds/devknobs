@@ -18,7 +18,7 @@ describe("picks", () => {
   });
 
   test("the toast counts more than one", () => {
-    expect(copiedText(1)).toBe("copied");
-    expect(copiedText(3)).toBe("copied 3");
+    expect(copiedText(1)).toBe("Copied");
+    expect(copiedText(3)).toBe("Copied 3");
   });
 });

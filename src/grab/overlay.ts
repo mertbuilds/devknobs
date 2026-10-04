@@ -4,9 +4,6 @@ import { createThemeReader, GRAB_COLORS, invertTheme } from "./theme";
 /** Over everything, the panel too. It never takes a pointer. */
 const Z_INDEX = 2147483647;
 
-/** How long the toast stays, in ms. */
-export const TOAST_TIME = 1200;
-
 /** Space between a box and its label or toast, in px. */
 const GAP = 4;
 
@@ -29,6 +26,10 @@ const FADE = 125;
 const HIDE_WAIT = 100;
 /** How often the bounds are read again, to catch the page's layout moving, in ms. */
 const SYNC_EVERY = 100;
+/** How long the toast stays, and the box with it, in ms. */
+export const TOAST_TIME = 1500;
+/** How long the toast takes to come in, in ms. */
+const TOAST_FADE = 100;
 
 /**
  * One color for the boxes and the glow, wider where the screen shows P3: a
@@ -75,16 +76,9 @@ const CSS = `
   transition:
     opacity ${FADE}ms ease-out,
     border-color ${FADE}ms ease-out,
-    background-color ${FADE}ms ease-out,
-    box-shadow ${FADE}ms ease-out;
+    background-color ${FADE}ms ease-out;
 }
 .box.on { opacity: 1; }
-.box.copied {
-  border-color: color-mix(in srgb, var(--grab) 90%, transparent);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--grab) 25%, transparent),
-    0 0 24px color-mix(in srgb, var(--grab) 45%, transparent);
-}
 .box.pick {
   opacity: 1;
   border-color: color-mix(in srgb, var(--grab) 30%, transparent);
@@ -96,6 +90,7 @@ const CSS = `
   top: 0;
   left: 0;
   display: flex;
+  align-items: center;
   gap: 6px;
   max-width: calc(100% - ${2 * MARGIN}px);
   box-sizing: border-box;
@@ -111,6 +106,12 @@ const CSS = `
   transition: opacity ${FADE}ms ease-out;
 }
 .pill.on { opacity: 1; }
+.pill.toast.on { transition: opacity ${TOAST_FADE}ms ease-out; }
+.check {
+  flex: none;
+  margin-right: -2px;
+  opacity: 0.85;
+}
 .tag { color: #a7a7a7; }
 .pill[data-bar="light"] {
   color: #171717;
@@ -192,16 +193,38 @@ export interface Overlay {
   /** Where the pointer is sideways, for the label. Null once the keys move the box. */
   point(x: number | null): void;
   /**
-   * Say something by an element for a moment, where its label was, with the
-   * box on it and glowing. The glow goes with the toast.
+   * Say something by an element for a moment, where its label was, after a
+   * check mark where it went well. The box stays on the element as it was,
+   * and goes with the toast.
    */
-  toast(text: string, near: Element | null): void;
+  toast(text: string, near: Element | null, check: boolean): void;
   /** Fade out and go, once a toast is over where there is one. */
   destroy(): void;
 }
 
 /** A box as the tween takes it: x, y, width, height and radius. */
 type Shape = [number, number, number, number, number];
+
+const SVG = "http://www.w3.org/2000/svg";
+
+/** A check mark in the color of the text by it. */
+function checkIcon(): SVGSVGElement {
+  const icon = document.createElementNS(SVG, "svg");
+  icon.setAttribute("class", "check");
+  icon.setAttribute("width", "12");
+  icon.setAttribute("height", "12");
+  icon.setAttribute("viewBox", "0 0 12 12");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(SVG, "path");
+  path.setAttribute("d", "M2.5 6.5 5 9l4.5-5.5");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.5");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  icon.append(path);
+  return icon;
+}
 
 function place(node: HTMLElement, [x, y, width, height, radius]: readonly number[]): void {
   node.style.transform = `translate(${x}px, ${y}px)`;
@@ -226,10 +249,11 @@ export function createOverlay(): Overlay {
   box.className = "box";
   const label = document.createElement("div");
   label.className = "pill";
+  const check = checkIcon();
   const tag = document.createElement("span");
   tag.className = "tag";
   const name = document.createElement("span");
-  label.append(tag, name);
+  label.append(check, tag, name);
   const picks: HTMLElement[] = [];
   layer.append(glow, box, label);
   root.append(style, layer);
@@ -252,6 +276,8 @@ export function createOverlay(): Overlay {
   let stale = false;
   let pointerX: number | null = null;
   let text: { tag: string; name: string | null } = { tag: "", name: null };
+  /** The label starts with the check mark. */
+  let checked = false;
   /** The text the label's size was read for. */
   let sized: string | null = null;
   let size = { width: 0, height: 0 };
@@ -344,8 +370,9 @@ export function createOverlay(): Overlay {
   }
 
   function writeLabel(): void {
-    const key = `${text.tag}\n${text.name ?? ""}`;
+    const key = `${checked}\n${text.tag}\n${text.name ?? ""}`;
     if (key === sized) return;
+    check.toggleAttribute("hidden", !checked);
     tag.textContent = text.tag;
     tag.hidden = !text.tag;
     name.textContent = text.name ?? "";
@@ -367,6 +394,7 @@ export function createOverlay(): Overlay {
     };
     shown = at !== null && target !== null;
     box.classList.toggle("on", shown);
+    label.classList.toggle("toast", toasting);
     label.classList.toggle("on", shown || toasting);
     if (!at || !target) {
       last = 0;
@@ -444,6 +472,7 @@ export function createOverlay(): Overlay {
         hideTimer = 0;
         element = current;
         text = next;
+        checked = false;
       } else if (element && !hideTimer) {
         hideTimer = window.setTimeout(hide, HIDE_WAIT);
       }
@@ -455,23 +484,21 @@ export function createOverlay(): Overlay {
       pointerX = x;
       if (element) schedule();
     },
-    toast(message, near) {
+    toast(message, near, mark) {
       if (removed) return;
       clearTimeout(hideTimer);
       clearTimeout(toastTimer);
       clearTimeout(fadeTimer);
       hideTimer = 0;
       toasting = true;
-      box.classList.add("copied");
       element = near?.isConnected ? near : null;
       text = { tag: "", name: message };
+      checked = mark;
       stale = true;
       schedule();
       toastTimer = window.setTimeout(() => {
         toasting = false;
         hide();
-        // On the way out the glow fades with the box, and goes with the layer.
-        if (!closing) box.classList.remove("copied");
         if (closing) fadeTimer = window.setTimeout(remove, fade());
       }, TOAST_TIME);
     },
