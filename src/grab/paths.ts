@@ -10,9 +10,46 @@ export interface SourceClass {
 /** A bundler layer such as Next's `(app-pages-browser)/`, at the start of a path. */
 const LAYER_PREFIX = /^(?:\.\/)?\/?\([a-z][a-z0-9-]*\)\//;
 
-/** A path as an editor wants it: bundler schemes, query strings and layers gone. */
-export function normalizeFilePath(fileName: string): string {
-  const path = normalizeFileName(fileName).replace(LAYER_PREFIX, "");
+const HTTP = /^https?:\/\//;
+
+/** Vite serves a file from outside its root by its place on disk. */
+const FS_PREFIX = "/@fs/";
+
+function urlPath(url: string): string | null {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The dev server's root on disk, from a source map's `file` and the url that
+ * serves it: `/repo/web/src/App.tsx` at `/src/App.tsx` is `/repo/web`.
+ */
+export function rootOf(file: string | undefined, url: string): string | null {
+  const path = HTTP.test(url) ? urlPath(url) : null;
+  if (!file || !path || path.startsWith(FS_PREFIX) || !file.endsWith(path)) return null;
+  return file.slice(0, -path.length) || null;
+}
+
+let projectRoot: string | null = null;
+
+export function rememberRoot(root: string | null): void {
+  if (root) projectRoot = root;
+}
+
+/**
+ * A path as an editor wants it, from the project's root: the origin, bundler
+ * schemes, query strings, layers and the slash a url starts with gone.
+ */
+export function normalizeFilePath(fileName: string, root: string | null = projectRoot): string {
+  // bippy takes a short first folder such as `/src` for a base path, and drops it.
+  const served = HTTP.test(fileName) ? urlPath(fileName) : null;
+  let path = (served ?? normalizeFileName(fileName)).replace(LAYER_PREFIX, "");
+  if (path.startsWith(FS_PREFIX)) path = path.slice(FS_PREFIX.length - 1);
+  else if (served !== null) path = path.replace(/^\/+/, "");
+  if (root && path.startsWith(`${root}/`)) path = path.slice(root.length + 1);
   return path.startsWith("./") ? path.slice(2) : path;
 }
 

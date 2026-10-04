@@ -170,8 +170,10 @@ interface FrameLine {
   text: string;
   /** Real app source, which makes a selector unneeded. */
   isApp: boolean;
-  /** Trusted app source, which spends the budget. Shared ui and library lines are free. */
+  /** Trusted app source, which spends the budget. Shared ui lines are free. */
   spends: boolean;
+  /** A library's or a bundle's frame, which stays out unless nothing else names the element. */
+  isLibrary: boolean;
 }
 
 function frameLine(
@@ -181,29 +183,29 @@ function frameLine(
   next: boolean,
 ): FrameLine | null {
   const pkg = kind.packageName;
-  const appFile = kind.origin === "app" ? frame.fileName : undefined;
-  if (frame.isServer && !appFile && (name || !frame.functionName)) {
-    const tag = pkg ? `${pkg} at Server` : "at Server";
-    return { text: `\n  in ${name ?? "<anonymous>"} (${tag})`, isApp: false, spends: false };
-  }
-  if (!appFile && name) {
-    return {
-      text: pkg ? `\n  in ${name} (${pkg})` : `\n  in ${name}`,
-      isApp: false,
-      spends: false,
+  if (kind.origin === "app" && frame.fileName) {
+    const source: ResolvedSource = {
+      filePath: frame.fileName,
+      lineNumber: frame.lineNumber ?? null,
+      columnNumber: frame.columnNumber ?? null,
+      componentName: name,
+      origin: "app",
+      symbolicated: frame.isSymbolicated === true,
     };
+    const spends = isTrustedAppPath(frame.fileName);
+    return { text: sourceLine(source, next), isApp: true, spends, isLibrary: false };
   }
-  if (pkg) return { text: `\n  in ${pkg}`, isApp: false, spends: false };
-  if (!appFile) return null;
-  const source: ResolvedSource = {
-    filePath: appFile,
-    lineNumber: frame.lineNumber ?? null,
-    columnNumber: frame.columnNumber ?? null,
-    componentName: name,
-    origin: "app",
-    symbolicated: frame.isSymbolicated === true,
+  if (!name) return null;
+  if (pkg) return { text: `\n  in ${name} (${pkg})`, isApp: false, spends: false, isLibrary: true };
+  if (frame.isServer) {
+    return { text: `\n  in ${name} (at Server)`, isApp: false, spends: false, isLibrary: false };
+  }
+  return {
+    text: `\n  in ${name}`,
+    isApp: false,
+    spends: false,
+    isLibrary: Boolean(frame.fileName),
   };
-  return { text: sourceLine(source, next), isApp: true, spends: isTrustedAppPath(appFile) };
 }
 
 export function resolveMaxLines(maxLines: number | undefined): number {
@@ -213,9 +215,11 @@ export function resolveMaxLines(maxLines: number | undefined): number {
 
 /**
  * The owner stack as `in Comp (...)` lines, after a leading source line when
- * there is one. Only trusted app lines spend `maxLines`; library and shared ui
- * lines are free up to the hard cap of 20, so wrapper noise never crowds out
- * the app's own components.
+ * there is one. Only the app's own frames show: a library's, React's and
+ * nameless ones stay out, so wrapper noise never crowds out the app's
+ * components. Trusted app lines spend `maxLines`, and shared ui lines are free
+ * up to the hard cap of 20. With no line at all, the nearest named library
+ * component stands in as one hint.
  */
 export function formatStack(
   stack: StackFrame[],
@@ -227,7 +231,7 @@ export function formatStack(
   const next = options.next ?? false;
   const lines: string[] = [];
   const names = new Set<string>();
-  let previousLibrary: string | null = null;
+  let hint: { text: string; name: string } | null = null;
   let dedupedLeading = false;
   let trusted = false;
   let hasBudgetedFrame = false;
@@ -243,29 +247,32 @@ export function formatStack(
 
   for (const frame of stack) {
     if (!maxLines || lines.length >= hardMax) break;
-    const kind = classifySourcePath(frame.fileName);
     const name = sourceName(frame.functionName, next);
-    const library = kind.packageName
-      ? `${kind.packageName}:${name ?? ""}:${frame.isServer ? "server" : "client"}`
-      : null;
-    if (library && library === previousLibrary) continue;
+    const line = frameLine(frame, classifySourcePath(frame.fileName), name, next);
+    if (!line) continue;
+    if (line.isLibrary) {
+      if (name) hint ??= { text: line.text, name };
+      continue;
+    }
     // The top frame usually names the leading line's component again. Drop that one only.
     if (!dedupedLeading && name && name === leading?.componentName) {
       dedupedLeading = true;
       continue;
     }
-    const line = frameLine(frame, kind, name, next);
-    if (!line) continue;
     if (line.spends && spent >= maxLines) continue;
     if (line.text === lines[lines.length - 1]) continue;
-    if (line.isApp && line.spends) trusted = true;
     if (line.spends) {
+      trusted = true;
       spent += 1;
       hasBudgetedFrame = true;
     }
     if (name) names.add(name);
     lines.push(line.text);
-    previousLibrary = library;
+  }
+
+  if (lines.length === 0 && hint) {
+    names.add(hint.name);
+    lines.push(hint.text);
   }
 
   return {

@@ -5,12 +5,24 @@ import {
   isSharedUiPath,
   isTrustedAppPath,
   normalizeFilePath,
+  rootOf,
 } from "../src/grab/paths";
 import type { SourceOrigin } from "../src/grab/types";
 
 describe("normalizeFilePath", () => {
   test.each([
-    ["http://localhost:5173/src/components/Button.tsx?t=1712", "/src/components/Button.tsx"],
+    ["http://localhost:5173/src/components/Button.tsx?t=1712", "src/components/Button.tsx"],
+    [
+      "https://app.localhost/src/routes/index.tsx?tsr-split=component&v=6b0316c7",
+      "src/routes/index.tsx",
+    ],
+    ["http://localhost:5173/src/lib/utils.ts", "src/lib/utils.ts"],
+    [
+      "http://localhost:5173/@fs/Users/me/repo/packages/ui/src/index.ts?v=1",
+      "/Users/me/repo/packages/ui/src/index.ts",
+    ],
+    ["index.tsx?tsr-split=component", "index.tsx"],
+    ["src/routes/__root.tsx", "src/routes/__root.tsx"],
     ["webpack-internal:///(app-pages-browser)/./src/app/page.tsx", "src/app/page.tsx"],
     ["/Users/me/app/src/App.tsx", "/Users/me/app/src/App.tsx"],
     ["./src/App.tsx", "src/App.tsx"],
@@ -20,9 +32,38 @@ describe("normalizeFilePath", () => {
   });
 });
 
+describe("the project's root", () => {
+  const ROOT = "/Users/me/repo/apps/web";
+
+  test("comes from a source map's file and the url that serves it", () => {
+    const file = `${ROOT}/src/routes/index.tsx`;
+    const url = "https://app.localhost/src/routes/index.tsx?tsr-split=component";
+    expect(rootOf(file, url)).toBe(ROOT);
+    expect(rootOf(file, "https://app.localhost/src/other.tsx")).toBeNull();
+    expect(rootOf(undefined, url)).toBeNull();
+    expect(rootOf("/Users/me/x.ts", "http://localhost:5173/@fs/Users/me/x.ts")).toBeNull();
+  });
+
+  test("is cut from a path under it, by its place on disk or through /@fs/", () => {
+    expect(normalizeFilePath(`${ROOT}/src/App.tsx`, ROOT)).toBe("src/App.tsx");
+    expect(normalizeFilePath(`http://localhost:5173/@fs${ROOT}/src/App.tsx?v=1`, ROOT)).toBe(
+      "src/App.tsx",
+    );
+    expect(normalizeFilePath("/Users/me/repo/packages/ui/src/index.ts", ROOT)).toBe(
+      "/Users/me/repo/packages/ui/src/index.ts",
+    );
+  });
+});
+
 describe("classifySourcePath", () => {
   test.each<[string, SourceOrigin, string | null]>([
     ["http://localhost:5173/src/components/Button.tsx?t=1", "app", null],
+    ["https://app.localhost/src/routes/index.tsx?tsr-split=component&v=6b0316c7", "app", null],
+    [
+      "http://localhost:5173/node_modules/.vite/deps/@tanstack_react-router.js?v=6b0316c7",
+      "package",
+      "@tanstack/react-router",
+    ],
     ["webpack-internal:///(app-pages-browser)/./src/app/page.tsx", "app", null],
     ["@components/forms/Field.tsx", "app", null],
     [
