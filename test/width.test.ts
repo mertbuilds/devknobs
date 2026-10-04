@@ -919,4 +919,31 @@ describe("a new identity", () => {
     await Bun.sleep(5);
     expect(reloads).toBe(1);
   });
+
+  test("reloads a page that came in from another origin unpatched, once", async () => {
+    framePhone();
+    await load(FRAMED);
+    await load("http://127.0.0.1:3000/redirect", "other");
+    await load(PAGE);
+    expect(patchedAs(view)).toBeUndefined();
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+    await load(PAGE);
+    expect(patchedAs(view)?.agent).toBe("iphone-safari");
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
+
+  test("leaves a page unpatched after its reload as it is", async () => {
+    framePhone();
+    await load(FRAMED);
+    await load("http://127.0.0.1:3000/redirect", "other");
+    await load(PAGE);
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+    await load("http://127.0.0.1:3000/redirect", "other");
+    await load(PAGE);
+    await Bun.sleep(5);
+    expect(reloads).toBe(1);
+  });
 });

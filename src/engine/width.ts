@@ -350,6 +350,8 @@ let identity: Identity | null = null;
 let reloading = 0;
 /** When the frame's page set off for another document, which a reload would cancel, or 0. */
 let leaving = 0;
+/** The frame's page loaded unpatched, and was reloaded once to patch it. */
+let repatched = false;
 /** What a page node had before it was hidden here, so it gets exactly that back. */
 interface Hidden {
   /** Made inert here. One the page made inert stays the page's. */
@@ -446,6 +448,7 @@ export function sync(state: DevknobsState): void {
 function arrive(view: Window): void {
   if (!latest) return;
   identity = patchWindow(view, latest);
+  repatched = false;
   listen(view);
 }
 
@@ -694,12 +697,29 @@ function onLoad(): void {
     mirror();
     // A page the watch missed: the next one is patched still.
     listen(view);
-    if (latest) identity ??= patchedAs(view) ?? identityOf(latest);
+    if (latest && !identity) identity = unpatched(view, latest);
   }
   browser?.refresh();
   checkZoom();
   share();
   onStay();
+}
+
+/**
+ * What a page loaded without the watch reads. One that came in after another
+ * origin, where nothing could listen for it, ran unpatched, so it reads the
+ * browser's own agent and no touch screen, and a reload patches it. One still
+ * unpatched after that reload is left as it is.
+ */
+function unpatched(view: Window, state: DevknobsState): Identity {
+  const had = patchedAs(view);
+  if (had || repatched) {
+    repatched = false;
+    return had ?? identityOf(state);
+  }
+  const real = { agent: "", touch: false, dpr: state.dpr };
+  repatched = stale(real, identityOf(state));
+  return real;
 }
 
 /** A page that mounts late asks for the knobs once it listens. */
@@ -1274,6 +1294,7 @@ function close(follow: boolean): void {
   clearTimeout(reloading);
   reloading = 0;
   leaving = 0;
+  repatched = false;
   identity = null;
   // The window shows its own page again, so its own address and title too.
   if (!moved) replaceUrl(pageUrl);
