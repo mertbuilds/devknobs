@@ -136,6 +136,21 @@ describe("readMessage", () => {
     expect(from({ source: "devknobs", type: "overflow" })).toBeNull();
   });
 
+  test("reads grab going on and off, and the scheme to draw it in", () => {
+    expect(from({ source: "devknobs", type: "grab", on: true, scheme: "dark" })).toEqual({
+      source: "devknobs",
+      type: "grab",
+      on: true,
+      scheme: "dark",
+    });
+    expect(from({ source: "devknobs", type: "grab", on: false, scheme: "blue" })).toEqual({
+      source: "devknobs",
+      type: "grab",
+      on: false,
+    });
+    expect(from({ source: "devknobs", type: "grab", on: "yes" })).toBeNull();
+  });
+
   test("refuses another origin or another window", () => {
     const message = { source: "devknobs", type: "ready" };
     expect(from(message, parent, "http://evil.test")).toBeNull();

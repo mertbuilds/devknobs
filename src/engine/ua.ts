@@ -329,6 +329,16 @@ export function apply(value: UaValue): void {
   else Reflect.deleteProperty(target, "userAgentData");
 }
 
+/** The browser's own `navigator.platform`, whatever preset is on. */
+export function realPlatform(): string {
+  const getter = shared.originals?.get("platform")?.get;
+  try {
+    return String(getter ? getter.call(navigator) : navigator.platform);
+  } catch {
+    return "";
+  }
+}
+
 /** Hand every field back to the browser. */
 export function reset(): void {
   const target = prototypeOf();

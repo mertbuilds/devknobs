@@ -24,6 +24,7 @@ export type DevknobsMessage =
   | { source: "devknobs"; type: "state"; state: DevknobsState }
   | { source: "devknobs"; type: "key"; action: KeyAction }
   | { source: "devknobs"; type: "overflow"; count: number }
+  | { source: "devknobs"; type: "grab"; on: boolean; scheme?: "light" | "dark" }
   | { source: "devknobs"; type: "ready" | "replay" };
 
 /** The parts of a `MessageEvent` that decide whether devknobs reads it. */
@@ -121,6 +122,14 @@ export function readMessage(
     const count = message.count;
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return null;
     return { source: "devknobs", type, count };
+  }
+  if (type === "grab") {
+    if (typeof message.on !== "boolean") return null;
+    const scheme =
+      message.scheme === "light" || message.scheme === "dark" ? message.scheme : undefined;
+    return scheme
+      ? { source: "devknobs", type, on: message.on, scheme }
+      : { source: "devknobs", type, on: message.on };
   }
   if (type === "ready" || type === "replay") return { source: "devknobs", type };
   return null;
