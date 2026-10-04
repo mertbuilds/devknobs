@@ -1,14 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import {
   backgroundTheme,
+  decideGrab,
   decideTheme,
+  GRAB_COLORS,
+  type GrabSignals,
   invertTheme,
+  isBlue,
   luminance,
   markerTheme,
   parseColor,
   schemeTheme,
   textTheme,
   type ThemeSignals,
+  toHsl,
 } from "../src/grab/theme";
 
 const none: ThemeSignals = {
@@ -164,5 +169,136 @@ describe("invertTheme", () => {
   test("gives the bar the other theme", () => {
     expect(invertTheme("dark")).toBe("light");
     expect(invertTheme("light")).toBe("dark");
+  });
+});
+
+const clear: GrabSignals = { surface: null, own: null, border: null, text: null };
+
+function blue(value: string): boolean {
+  return isBlue(parseColor(value));
+}
+
+describe("toHsl", () => {
+  test("puts the primaries a third of the wheel apart", () => {
+    expect(toHsl({ red: 255, green: 0, blue: 0, alpha: 1 })).toEqual({
+      hue: 0,
+      saturation: 1,
+      lightness: 0.5,
+    });
+    expect(toHsl({ red: 0, green: 255, blue: 0, alpha: 1 }).hue).toBe(120);
+    expect(toHsl({ red: 0, green: 0, blue: 255, alpha: 1 }).hue).toBe(240);
+  });
+
+  test("wraps a hue under red back onto the wheel", () => {
+    expect(toHsl({ red: 255, green: 0, blue: 128, alpha: 1 }).hue).toBeCloseTo(329.88, 1);
+  });
+
+  test("gives a gray no hue and no saturation", () => {
+    expect(toHsl({ red: 128, green: 128, blue: 128, alpha: 1 })).toEqual({
+      hue: 0,
+      saturation: 0,
+      lightness: 128 / 255,
+    });
+  });
+});
+
+describe("isBlue", () => {
+  test("takes the blues brands paint with", () => {
+    expect(blue("rgb(0, 112, 243)")).toBe(true);
+    expect(blue("rgb(24, 119, 242)")).toBe(true);
+    expect(blue("rgb(37, 99, 235)")).toBe(true);
+    expect(blue("rgb(29, 155, 240)")).toBe(true);
+    expect(blue("rgb(79, 70, 229)")).toBe(true);
+    expect(blue(GRAB_COLORS.blue.srgb)).toBe(true);
+  });
+
+  test("takes a navy", () => {
+    expect(blue("rgb(0, 0, 128)")).toBe(true);
+    expect(blue("rgb(30, 58, 138)")).toBe(true);
+  });
+
+  test("leaves a light sky tint, under the saturation or over the lightness", () => {
+    expect(blue("rgb(200, 210, 220)")).toBe(false);
+    expect(blue("rgb(226, 232, 240)")).toBe(false);
+    expect(blue("rgb(240, 249, 255)")).toBe(false);
+  });
+
+  test("leaves white, black and the grays", () => {
+    expect(blue("rgb(255, 255, 255)")).toBe(false);
+    expect(blue("rgb(0, 0, 0)")).toBe(false);
+    expect(blue("rgb(22, 22, 22)")).toBe(false);
+    expect(blue("rgb(128, 128, 128)")).toBe(false);
+  });
+
+  test("leaves a blue too dark to tell from black", () => {
+    expect(blue("rgb(2, 6, 23)")).toBe(false);
+  });
+
+  test("leaves the other hues", () => {
+    expect(blue("rgb(48, 209, 88)")).toBe(false);
+    expect(blue("rgb(22, 163, 74)")).toBe(false);
+    expect(blue("rgb(239, 68, 68)")).toBe(false);
+    expect(blue("rgb(255, 0, 0)")).toBe(false);
+    expect(blue("rgb(210, 57, 192)")).toBe(false);
+    expect(blue("rgb(124, 58, 237)")).toBe(false);
+    expect(blue("rgb(20, 184, 166)")).toBe(false);
+  });
+
+  test("leaves a blue that is clear, or not there", () => {
+    expect(blue("rgba(0, 112, 243, 0.5)")).toBe(false);
+    expect(blue("rgba(0, 112, 243, 0.6)")).toBe(true);
+    expect(isBlue(null)).toBe(false);
+  });
+});
+
+describe("decideGrab", () => {
+  const brand = parseColor("rgb(0, 112, 243)");
+  const white = parseColor("rgb(255, 255, 255)");
+  const none = parseColor("rgba(0, 0, 0, 0)");
+  const ink = parseColor("rgb(23, 23, 23)");
+
+  test("is blue where the page says nothing", () => {
+    expect(decideGrab(clear)).toBe("blue");
+  });
+
+  test("is blue on white, on black, on green and on red", () => {
+    const values = ["rgb(255, 255, 255)", "rgb(0, 0, 0)", "rgb(22, 163, 74)", "rgb(239, 68, 68)"];
+    for (const value of values) {
+      const surface = parseColor(value);
+      expect(decideGrab({ surface, own: surface, border: null, text: ink })).toBe("blue");
+    }
+  });
+
+  test("is green on a blue surface", () => {
+    expect(decideGrab({ ...clear, surface: brand, own: brand })).toBe("green");
+    expect(decideGrab({ ...clear, surface: brand, own: none })).toBe("green");
+    expect(decideGrab({ ...clear, surface: parseColor("rgb(0, 0, 128)") })).toBe("green");
+  });
+
+  test("is green on a clear element with a blue border or blue text", () => {
+    expect(decideGrab({ surface: white, own: none, border: brand, text: ink })).toBe("green");
+    expect(decideGrab({ surface: white, own: none, border: null, text: brand })).toBe("green");
+    expect(decideGrab({ surface: white, own: null, border: null, text: brand })).toBe("green");
+  });
+
+  test("leaves the border and the text of an element that paints its own background", () => {
+    expect(decideGrab({ surface: white, own: white, border: brand, text: brand })).toBe("blue");
+  });
+});
+
+describe("GRAB_COLORS", () => {
+  test("gives each tone an sRGB color and a P3 one", () => {
+    expect(GRAB_COLORS.blue).toEqual({
+      srgb: "rgb(41, 151, 255)",
+      p3: "color(display-p3 0.2 0.6 1)",
+    });
+    expect(GRAB_COLORS.green).toEqual({
+      srgb: "rgb(48, 209, 88)",
+      p3: "color(display-p3 0.25 0.85 0.4)",
+    });
+  });
+
+  test("has a green that is not a blue, to stand out where the blue does not", () => {
+    expect(blue(GRAB_COLORS.green.srgb)).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { baseMatchMedia } from "../engine/matchmedia";
-import { createThemeReader, invertTheme } from "./theme";
+import { createThemeReader, GRAB_COLORS, invertTheme } from "./theme";
 
 /** Over everything, the panel too. It never takes a pointer. */
 const Z_INDEX = 2147483647;
@@ -30,11 +30,10 @@ const HIDE_WAIT = 100;
 /** How often the bounds are read again, to catch the page's layout moving, in ms. */
 const SYNC_EVERY = 100;
 
-// adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
 /**
- * One color for the boxes and the glow, the same on any page, and wider
- * where the screen shows P3. The label goes by the page: light on a dark
- * one, dark on a light one.
+ * One color for the boxes and the glow, wider where the screen shows P3: a
+ * blue, and a green where the page is blue. The label goes by the page:
+ * light on a dark one, dark on a light one.
  */
 const CSS = `
 .layer {
@@ -44,22 +43,24 @@ const CSS = `
   overflow: hidden;
   pointer-events: none;
   direction: ltr;
-  --grab: rgb(210, 57, 192);
+  --grab: ${GRAB_COLORS.blue.srgb};
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 11px;
   font-weight: 400;
   line-height: 16px;
   -webkit-font-smoothing: antialiased;
 }
+.layer[data-grab="green"] { --grab: ${GRAB_COLORS.green.srgb}; }
 @media (color-gamut: p3) {
-  .layer { --grab: color(display-p3 0.84 0.19 0.78); }
+  .layer { --grab: ${GRAB_COLORS.blue.p3}; }
+  .layer[data-grab="green"] { --grab: ${GRAB_COLORS.green.p3}; }
 }
 .glow {
   position: absolute;
   inset: 0;
   opacity: 0;
   box-shadow: inset 0 0 50px color-mix(in srgb, var(--grab) 15%, transparent);
-  transition: opacity ${FADE}ms ease-out;
+  transition: opacity ${FADE}ms ease-out, box-shadow ${FADE}ms ease-out;
 }
 .glow.on { opacity: 1; }
 .box {
@@ -71,7 +72,11 @@ const CSS = `
   border: 1px solid color-mix(in srgb, var(--grab) 50%, transparent);
   border-radius: ${MIN_RADIUS}px;
   background: color-mix(in srgb, var(--grab) 8%, transparent);
-  transition: opacity ${FADE}ms ease-out, border-color ${FADE}ms ease-out, box-shadow ${FADE}ms ease-out;
+  transition:
+    opacity ${FADE}ms ease-out,
+    border-color ${FADE}ms ease-out,
+    background-color ${FADE}ms ease-out,
+    box-shadow ${FADE}ms ease-out;
 }
 .box.on { opacity: 1; }
 .box.copied {
@@ -84,7 +89,7 @@ const CSS = `
   opacity: 1;
   border-color: color-mix(in srgb, var(--grab) 30%, transparent);
   background: color-mix(in srgb, var(--grab) 5%, transparent);
-  transition: none;
+  transition: border-color ${FADE}ms ease-out, background-color ${FADE}ms ease-out;
 }
 .pill {
   position: absolute;
@@ -233,7 +238,7 @@ export function createOverlay(): Overlay {
   /** The real setting, under the motion knob: the layer is devknobs' own. */
   const reduce = baseMatchMedia("(prefers-reduced-motion: reduce)");
   const radii = new WeakMap<Element, number>();
-  const themeOf = createThemeReader();
+  const read = createThemeReader();
   /** The element the box is on, or on its way to. */
   let element: Element | null = null;
   /** The element the target was last read from. */
@@ -313,7 +318,11 @@ export function createOverlay(): Overlay {
   function measure(): void {
     if (element && !element.isConnected) element = null;
     drawPicks();
-    if (element || toasting) label.dataset.bar = invertTheme(themeOf(element));
+    if (element || toasting) {
+      const { theme, grab } = read(element);
+      label.dataset.bar = invertTheme(theme);
+      layer.dataset.grab = grab;
+    }
     if (!element) {
       measured = null;
       target = null;

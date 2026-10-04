@@ -138,21 +138,105 @@ export function decideTheme(signals: ThemeSignals): Theme {
   );
 }
 
+/** The color grab draws its boxes and its glow in. */
+export type GrabTone = "blue" | "green";
+
+/** Each tone as the `--grab` variable takes it, in sRGB and wider in P3. */
+export const GRAB_COLORS: Record<GrabTone, { srgb: string; p3: string }> = {
+  blue: { srgb: "rgb(41, 151, 255)", p3: "color(display-p3 0.2 0.6 1)" },
+  green: { srgb: "rgb(48, 209, 88)", p3: "color(display-p3 0.25 0.85 0.4)" },
+};
+
+/** The hues a blue goes from and to, in degrees. */
+const BLUE_HUES = [190, 260] as const;
+/** A color no more saturated than this is a gray, or a tint, not a blue. */
+const BLUE_SATURATION = 0.35;
+/** The lightness a blue goes from and to: under it is black, over it white. */
+const BLUE_LIGHTNESS = [0.15, 0.85] as const;
+
+/** A color in HSL: the hue in degrees, the saturation and the lightness from 0 to 1. */
+export function toHsl(color: Color): { hue: number; saturation: number; lightness: number } {
+  const red = color.red / 255;
+  const green = color.green / 255;
+  const blue = color.blue / 255;
+  const high = Math.max(red, green, blue);
+  const low = Math.min(red, green, blue);
+  const spread = high - low;
+  const lightness = (high + low) / 2;
+  if (spread === 0) return { hue: 0, saturation: 0, lightness };
+  const saturation = spread / (1 - Math.abs(2 * lightness - 1));
+  let hue: number;
+  if (high === red) hue = ((green - blue) / spread) % 6;
+  else if (high === green) hue = (blue - red) / spread + 2;
+  else hue = (red - green) / spread + 4;
+  return { hue: (hue * 60 + 360) % 360, saturation, lightness };
+}
+
+/** Whether a color is a blue that grab's own blue would be lost on. Not a clear one. */
+export function isBlue(color: Color | null): boolean {
+  if (!color || color.alpha <= SOLID) return false;
+  const { hue, saturation, lightness } = toHsl(color);
+  return (
+    hue >= BLUE_HUES[0] &&
+    hue <= BLUE_HUES[1] &&
+    saturation > BLUE_SATURATION &&
+    lightness >= BLUE_LIGHTNESS[0] &&
+    lightness <= BLUE_LIGHTNESS[1]
+  );
+}
+
+/** The colors read where an element is, each null where there is none. */
+export interface GrabSignals {
+  /** The nearest painted background from the element up, the page's too. */
+  surface: Color | null;
+  /** The element's own background. */
+  own: Color | null;
+  /** The element's border, where it has one. */
+  border: Color | null;
+  /** The element's text color. */
+  text: Color | null;
+}
+
+/**
+ * The tone grab takes on an element: green where what is behind it is blue,
+ * or where the element is clear and its border or its text is blue. Blue
+ * anywhere else.
+ */
+export function decideGrab(signals: GrabSignals): GrabTone {
+  if (isBlue(signals.surface)) return "green";
+  const clear = !signals.own || signals.own.alpha <= SOLID;
+  if (clear && (isBlue(signals.border) || isBlue(signals.text))) return "green";
+  return "blue";
+}
+
 /** The other theme: the one a bar takes to stand out on a page. */
 export function invertTheme(theme: Theme): Theme {
   return theme === "dark" ? "light" : "dark";
 }
 
+/** What a reader finds where an element is: the theme, and the tone grab takes. */
+export interface Reading {
+  theme: Theme;
+  grab: GrabTone;
+}
+
+/** What is read off the page once: its signals, and the color of its backdrop. */
+interface Page {
+  signals: Omit<ThemeSignals, "surface">;
+  backdrop: Color | null;
+}
+
 /**
  * Reads the theme of this document where an element is, or of the page with
- * none. The page is read once and each element's surface once, so a reader
- * is good for one run of grab.
+ * none, and the tone grab takes there. The page is read once and each
+ * element once, so a reader is good for one run of grab.
  */
-export function createThemeReader(): (element: Element | null) => Theme {
+export function createThemeReader(): (element: Element | null) => Reading {
   const colors = new Map<string, Color | null>();
-  const surfaces = new WeakMap<Element, Theme | null>();
+  const surfaces = new WeakMap<Element, Color | null>();
+  const tones = new WeakMap<Element, GrabTone>();
   let context: CanvasRenderingContext2D | null | undefined;
-  let page: Omit<ThemeSignals, "surface"> | null = null;
+  let page: Page | null = null;
 
   /**
    * A color the parser does not know, such as `oklch()`, painted on a pixel
@@ -189,9 +273,14 @@ export function createThemeReader(): (element: Element | null) => Theme {
     return root instanceof ShadowRoot ? root.host : null;
   }
 
-  function surfaceOf(element: Element): Theme | null {
+  /** A color that is painted, or null for one too clear to say anything. */
+  function solid(color: Color | null): Color | null {
+    return color && color.alpha > SOLID ? color : null;
+  }
+
+  function surfaceOf(element: Element): Color | null {
     const walked: Element[] = [];
-    let found: Theme | null = null;
+    let found: Color | null = null;
     let node: Element | null = element;
     while (node && node !== document.body && node !== document.documentElement) {
       const known = surfaces.get(node);
@@ -200,7 +289,7 @@ export function createThemeReader(): (element: Element | null) => Theme {
         break;
       }
       walked.push(node);
-      found = backgroundTheme(colorOf(getComputedStyle(node).backgroundColor));
+      found = solid(colorOf(getComputedStyle(node).backgroundColor));
       if (found) break;
       node = parentOf(node);
     }
@@ -208,23 +297,26 @@ export function createThemeReader(): (element: Element | null) => Theme {
     return found;
   }
 
-  function first(
+  function first<Value>(
     roots: readonly (HTMLElement | null)[],
-    read: (root: HTMLElement) => Theme | null,
-  ): Theme | null {
+    read: (root: HTMLElement) => Value | null,
+  ): Value | null {
     for (const root of roots) {
-      const theme = root ? read(root) : null;
-      if (theme) return theme;
+      const value = root ? read(root) : null;
+      if (value) return value;
     }
     return null;
   }
 
   /** The markers are read html first, the paint body first: that is where each tends to be. */
-  function readPage(): Omit<ThemeSignals, "surface"> {
+  function readPage(): Page {
     const html = document.documentElement;
     const body = document.body;
     const meta = document.querySelector('meta[name="color-scheme"]')?.getAttribute("content");
-    return {
+    const backdrop = first([body, html], (root) =>
+      solid(colorOf(getComputedStyle(root).backgroundColor)),
+    );
+    const signals = {
       marker: first([html, body], (root) =>
         markerTheme(
           (name) => root.classList.contains(name),
@@ -235,15 +327,36 @@ export function createThemeReader(): (element: Element | null) => Theme {
         first([html, body], (root) =>
           schemeTheme(root.style.colorScheme || getComputedStyle(root).colorScheme),
         ) ?? schemeTheme(meta ?? ""),
-      backdrop: first([body, html], (root) =>
-        backgroundTheme(colorOf(getComputedStyle(root).backgroundColor)),
-      ),
+      backdrop: backgroundTheme(backdrop),
       text: textTheme(colorOf(getComputedStyle(html).color)),
     };
+    return { signals, backdrop };
+  }
+
+  function toneOf(element: Element, surface: Color | null): GrabTone {
+    let tone = tones.get(element);
+    if (tone === undefined) {
+      const style = getComputedStyle(element);
+      tone = decideGrab({
+        surface,
+        own: colorOf(style.backgroundColor),
+        border: Number.parseFloat(style.borderTopWidth) > 0 ? colorOf(style.borderTopColor) : null,
+        text: colorOf(style.color),
+      });
+      tones.set(element, tone);
+    }
+    return tone;
   }
 
   return (element) => {
     page ??= readPage();
-    return decideTheme({ surface: element ? surfaceOf(element) : null, ...page });
+    const near = element ? surfaceOf(element) : null;
+    const surface = near ?? page.backdrop;
+    return {
+      theme: decideTheme({ surface: backgroundTheme(near), ...page.signals }),
+      grab: element
+        ? toneOf(element, surface)
+        : decideGrab({ surface, own: null, border: null, text: null }),
+    };
   };
 }
