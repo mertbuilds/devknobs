@@ -64,13 +64,16 @@ describe("search", () => {
   });
 
   test("devices by name, kind and browser, and a size typed out", () => {
-    expect(top("iphone")).toEqual(["device iphone-16"]);
-    expect(top("iphone pro max")).toEqual(["device iphone-16-pro-max"]);
+    expect(top("iphone")).toEqual(["device iphone-18-pro"]);
+    expect(top("iphone pro max")).toEqual(["device iphone-18-pro-max"]);
+    expect(top("iphone 16 pro max")).toEqual(["device iphone-16-pro-max"]);
+    expect(top("duo open")).toEqual(["device iphone-duo-open"]);
+    expect(top("air")).toEqual(["device iphone-air"]);
     expect(top("pixel")).toEqual(["device pixel-9"]);
     expect(top("galaxy", 2)).toEqual(["device galaxy-s25", "device galaxy-s25-ultra"]);
     expect(top("ipad")).toEqual(["device ipad-mini"]);
     expect(top("macbook")).toEqual(["device macbook-air-13"]);
-    expect(top("phone")).toEqual(["device iphone-16"]);
+    expect(top("phone")).toEqual(["device iphone-18-pro"]);
     expect(top("tablet", 3)).toEqual([
       "device ipad-mini",
       "device ipad-air-11",

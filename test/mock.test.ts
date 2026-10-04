@@ -39,6 +39,19 @@ describe("mockOf", () => {
     expect(mockOf("iphone-se", "portrait")).toMatchObject({ screenRadius: 0, bodyRadius: 65.6 });
   });
 
+  test("gives the iPhone Duo's cover screen square corners on the hinge side, turned too", () => {
+    expect(mockOf("iphone-duo-closed", "portrait")).toMatchObject({
+      screenRadius: [8, 59, 59, 8],
+      bodyRadius: [10, 75, 75, 10],
+    });
+    // The top of the phone goes to the left, so the hinge goes to the bottom.
+    expect(mockOf("iphone-duo-closed", "landscape")).toMatchObject({
+      screenRadius: [59, 59, 8, 8],
+      bodyRadius: [75, 75, 10, 10],
+    });
+    expect(mockOf("iphone-duo-open", "portrait")).toMatchObject({ screenRadius: 55 });
+  });
+
   test("is the screen and the room around it, either way up", () => {
     for (const device of DEVICES) {
       for (const way of ["portrait", "landscape"] as const) {
@@ -84,6 +97,30 @@ describe("mockOf", () => {
     expect(kinds("iphone-se")).toEqual([...Array(4).fill("button"), "slot", "lens", "home", "key"]);
     expect(kinds("galaxy-s25")).toEqual(["button", "button", "sensor"]);
     expect(kinds("ipad-mini")).toEqual(["button", "button", "button", "lens"]);
+  });
+
+  test("draws each newer iPhone's island or camera hole where Apple's bezel has it", () => {
+    const sensor = (id: string) => {
+      const mock = mockOf(id, "portrait");
+      const [part] = parts(mock, "sensor");
+      if (!mock || !part) return null;
+      return [part.x - mock.inset.left, part.y - mock.inset.top, part.width, part.height];
+    };
+    const close = (id: string, expected: number[]) => {
+      const found = sensor(id) ?? [];
+      for (const [at, value] of expected.entries()) expect(found[at]).toBeCloseTo(value, 5);
+    };
+    close("iphone-18-pro", [154, 14.3, 94, 36.1]);
+    close("iphone-18-pro-max", [173.2, 14.5, 93.6, 35.8]);
+    close("iphone-17", [138.8, 14.3, 124.5, 35.9]);
+    close("iphone-17-pro", [138.8, 14.4, 124.4, 35.8]);
+    close("iphone-17-pro-max", [157.8, 14.5, 124.4, 35.8]);
+    close("iphone-air", [147.8, 20.4, 124.6, 36]);
+    close("iphone-16-plus", [152.3, 11.3, 125.4, 36.7]);
+    close("iphone-duo-closed", [400.2, 29.6, 36.3, 36.3]);
+    expect(sensor("iphone-duo-open")).toBeNull();
+    expect(kinds("iphone-duo-closed")).toEqual(["button", "button", "button", "sensor"]);
+    expect(kinds("iphone-duo-open")).toEqual(["button", "button", "button"]);
   });
 
   test("draws the iPhone SE from its drawing", () => {

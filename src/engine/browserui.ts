@@ -30,8 +30,26 @@ interface SafariSpec {
   faceId: boolean;
 }
 
+/**
+ * The 16 family and the SE are measured. The 17 family and the Air have the
+ * simulator's insets. Estimates: the 18 Pro's, whose island keeps the 17
+ * Pro's top and height, and the 16 Plus's, the 16's. Derived, as no one has
+ * measured Safari on a Duo: the cover screen's top inset is the simulator's
+ * 82 under its camera hole, at both sides too when turned, and the inner
+ * screen, which has no cut-out, gets a plain bar 40 high and 24 at each side
+ * when held across, clear of its round corners.
+ */
 const SAFARI: Record<string, SafariSpec> = {
+  "iphone-18-pro": { top: 62, side: 62, faceId: true },
+  "iphone-18-pro-max": { top: 62, side: 62, faceId: true },
+  "iphone-duo-closed": { top: 82, side: 82, faceId: true },
+  "iphone-duo-open": { top: 40, side: 24, faceId: true },
+  "iphone-air": { top: 68, side: 68, faceId: true },
+  "iphone-17": { top: 62, side: 62, faceId: true },
+  "iphone-17-pro": { top: 62, side: 62, faceId: true },
+  "iphone-17-pro-max": { top: 62, side: 62, faceId: true },
   "iphone-16": { top: 59, side: 59, faceId: true },
+  "iphone-16-plus": { top: 59, side: 59, faceId: true },
   "iphone-16-pro": { top: 62, side: 62, faceId: true },
   "iphone-16-pro-max": { top: 62, side: 62, faceId: true },
   "iphone-se": { top: 20, side: 0, faceId: false },
@@ -462,10 +480,13 @@ function safariBars(
  * iOS's status bar: on a Face ID phone the time in the left ear and the
  * icons in the right, both on the island's center line; on the SE the time in
  * the middle, the bars and wifi on the left and the battery on the right.
+ * Derived for the Duo: on its cover screen the time on the left and the icons
+ * left of the camera hole, on the hole's center line, and on its inner screen
+ * a plain bar, the time and the icons clear of the round corners.
  */
 function safariStatus(id: string, spec: SafariSpec, W: number): StatusBar {
   const island = sensorMiddle(id);
-  if (!spec.faceId || !island) {
+  if (!spec.faceId) {
     return {
       height: spec.top,
       time: { x: W / 2, y: 10, size: 15 },
@@ -473,7 +494,22 @@ function safariStatus(id: string, spec: SafariSpec, W: number): StatusBar {
       battery: { x: W - 7, y: 10 },
     };
   }
+  if (!island) {
+    const y = spec.top / 2 + 2;
+    return {
+      height: spec.top,
+      time: { x: 58, y, size: 17 },
+      icons: { x: W - 36, y, align: "end" },
+    };
+  }
   const left = island.x - island.width / 2;
+  if (left > W / 2) {
+    return {
+      height: spec.top,
+      time: { x: 52, y: island.y, size: 17 },
+      icons: { x: left - 12, y: island.y, align: "end" },
+    };
+  }
   // Measured on the 16 Pro: the time a little right of the ear's middle, the
   // battery 35.4 in from the edge.
   return {

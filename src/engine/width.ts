@@ -14,7 +14,7 @@ import {
 } from "./frame";
 import { type Identity, identityOf, patchedAs, patchWindow, stale } from "./identity";
 import { drawMat } from "./mat";
-import { type Mock, mockOf, type Rect, type Sides } from "./mock";
+import { type Mock, mockOf, type Radius, type Rect, type Sides } from "./mock";
 import { ensureStyle, removeStyle } from "./style";
 import { visionFilter } from "./vision";
 import { anchorScroll, percent, type Point, stepZoom, wheelZoom, ZOOM_PRESETS } from "./zoom";
@@ -809,16 +809,22 @@ function panelWidth(): number {
   return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
 }
 
+/** The radius of each corner, from the top left round by the right, `by` added to each. */
+function corners(radius: Radius, by = 0): [number, number, number, number] {
+  const [a, b, c, d] = typeof radius === "number" ? [radius, radius, radius, radius] : radius;
+  return [a + by, b + by, c + by, d + by];
+}
+
 /** A rounded rect as path data. */
-function roundRect(rect: Rect, radius: number): string {
+function roundRect(rect: Rect, radius: Radius): string {
   const { x, y, width, height } = rect;
-  const r = Math.min(radius, width / 2, height / 2);
-  const arc = `A${r} ${r} 0 0 1`;
+  const [a, b, c, d] = corners(radius).map((r) => Math.max(0, Math.min(r, width / 2, height / 2)));
+  const arc = (r = 0) => `A${r} ${r} 0 0 1`;
   return [
-    `M${x + r} ${y}H${x + width - r}${arc} ${x + width} ${y + r}`,
-    `V${y + height - r}${arc} ${x + width - r} ${y + height}`,
-    `H${x + r}${arc} ${x} ${y + height - r}`,
-    `V${y + r}${arc} ${x + r} ${y}Z`,
+    `M${x + a} ${y}H${x + width - b}${arc(b)} ${x + width} ${y + b}`,
+    `V${y + height - c}${arc(c)} ${x + width - c} ${y + height}`,
+    `H${x + d}${arc(d)} ${x} ${y + height - d}`,
+    `V${y + a}${arc(a)} ${x + a} ${y}Z`,
   ].join("");
 }
 
@@ -854,7 +860,7 @@ function drawMock(mock: Mock, screenSize: { width: number; height: number }): SV
   const opening = { x: mock.inset.left, y: mock.inset.top, ...screenSize };
   const { x, y, width, height } = mock.body;
   const front = { x: x + BAND, y: y + BAND, width: width - 2 * BAND, height: height - 2 * BAND };
-  const inside = roundRect(front, mock.bodyRadius - BAND);
+  const inside = roundRect(front, corners(mock.bodyRadius, -BAND));
   svg.append(
     ...mock.parts.filter((shape) => shape.kind === "button").map(part),
     svgNode("path", { class: "band", d: roundRect(mock.body, mock.bodyRadius) + inside }),
@@ -878,7 +884,8 @@ function showMock(mock: Mock | null, place: Fit): void {
   const zoom = place.zoom;
   glass.style.left = mock ? `${mock.inset.left * zoom}px` : "";
   glass.style.top = mock ? `${mock.inset.top * zoom}px` : "";
-  glass.style.borderRadius = mock ? `${mock.screenRadius * zoom}px` : "";
+  const round = mock ? corners(mock.screenRadius).map((radius) => `${radius * zoom}px`) : [];
+  glass.style.borderRadius = round.join(" ");
   if (mock && mockDrawing) {
     mockDrawing.style.width = `${mock.width * zoom}px`;
     mockDrawing.style.height = `${mock.height * zoom}px`;

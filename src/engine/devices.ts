@@ -17,15 +17,112 @@ export interface DevicePreset {
   ua: string;
   touch: boolean;
   kind: DeviceKind;
+  /** The way it is held when picked fresh, where that is not the way its size stands. */
+  usual?: OrientationValue;
 }
 
-/** Popular devices in 2026, by kind. */
+/**
+ * Popular devices in 2026, by kind, iPhones newest first. The iPhone Duo is
+ * two screens, so two devices: the cover screen of the folded phone, and the
+ * inner screen of the open one, which is held across.
+ */
 export const DEVICES: readonly DevicePreset[] = [
+  {
+    id: "iphone-18-pro",
+    label: "iPhone 18 Pro",
+    width: 402,
+    height: 874,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "iphone-18-pro-max",
+    label: "iPhone 18 Pro Max",
+    width: 440,
+    height: 956,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "iphone-duo-closed",
+    label: "iPhone Duo (closed)",
+    width: 466,
+    height: 678,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "iphone-duo-open",
+    label: "iPhone Duo (open)",
+    width: 669,
+    height: 951,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+    usual: "landscape",
+  },
+  {
+    id: "iphone-air",
+    label: "iPhone Air",
+    width: 420,
+    height: 912,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "iphone-17",
+    label: "iPhone 17",
+    width: 402,
+    height: 874,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "iphone-17-pro",
+    label: "iPhone 17 Pro",
+    width: 402,
+    height: 874,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "iphone-17-pro-max",
+    label: "iPhone 17 Pro Max",
+    width: 440,
+    height: 956,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+  },
   {
     id: "iphone-16",
     label: "iPhone 16",
     width: 393,
     height: 852,
+    dpr: 3,
+    ua: "iphone-safari",
+    touch: true,
+    kind: "phone",
+  },
+  {
+    id: "iphone-16-plus",
+    label: "iPhone 16 Plus",
+    width: 430,
+    height: 932,
     dpr: 3,
     ua: "iphone-safari",
     touch: true,
@@ -205,7 +302,7 @@ export function hold(state: DevknobsState, patch: DevknobsStatePatch): DevknobsS
   if (device) {
     const before = deviceOf(state.device);
     const keep = before !== undefined && handheld(before) && handheld(device);
-    const usual = device.width > device.height ? "landscape" : "portrait";
+    const usual = device.usual ?? (device.width > device.height ? "landscape" : "portrait");
     const orientation = patch.orientation ?? (keep ? state.orientation : usual);
     const size = turn(device, orientation);
     return withUa({ ...size, dpr: device.dpr, ...patch, orientation }, device.ua);

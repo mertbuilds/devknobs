@@ -1,4 +1,4 @@
-import type { Rect, Sides } from "./mock";
+import type { Radius, Rect, Sides } from "./mock";
 
 /**
  * A shape on the front, relative to the screen's top left in portrait: the
@@ -23,8 +23,8 @@ export interface Button {
 /** One device's body around its screen, held upright, in css px of the screen. */
 export interface Body {
   bezel: Sides;
-  screenRadius: number;
-  bodyRadius: number;
+  screenRadius: Radius;
+  bodyRadius: Radius;
   /** How far its buttons stand out of the band. */
   out: number;
   front: Front[];
@@ -51,7 +51,12 @@ const right = (at: number, length: number, out?: number): Button => ({
   length,
   out,
 });
-const top = (at: number, length: number): Button => ({ side: "top", at, length });
+const top = (at: number, length: number, out?: number): Button => ({
+  side: "top",
+  at,
+  length,
+  out,
+});
 
 /** The action button and the volume keys of the iPhone 16 family, on the left. */
 const IPHONE_LEFT = [left(185, 41.7), left(257.4, 67.6), left(343.2, 67.6)];
@@ -64,9 +69,84 @@ function iphoneRight(control: number): Button[] {
 /**
  * The front of each phone and tablet, from Apple's dimensional drawings, the
  * AOSP display config and measured window insets. Android bodies have no
- * drawing: their body radius and buttons are estimates.
+ * drawing: their body radius and buttons are estimates. The iPhone 16 Plus,
+ * 17, Air, 18 and Duo are measured from Apple's product bezel images, at 3
+ * image px per css px: the bezel, the island or camera hole, and the buttons
+ * that stand out. Their body radius is an estimate, the screen's radius and
+ * the bezel, and Camera Control is left out where it sits flush.
  */
 export const BODIES: Record<string, Body> = {
+  "iphone-18-pro": {
+    bezel: sides(15.7, 16, 15.7, 15.7),
+    screenRadius: 62,
+    bodyRadius: 77.7,
+    out: 3,
+    // Narrower than the 17 Pro's 124.4: Face ID sits under the display.
+    front: [pill("sensor", 154, 14.3, 94, 36.1)],
+    buttons: [left(186, 41.7), left(258.3, 67.7), left(344, 68), right(281.7, 107, 2.7)],
+  },
+  "iphone-18-pro-max": {
+    bezel: sides(15.3, 15.3, 15, 15.3),
+    screenRadius: 62,
+    bodyRadius: 77.3,
+    out: 2.7,
+    front: [pill("sensor", 173.2, 14.5, 93.6, 35.8)],
+    buttons: [left(186.3, 41.7), left(258.7, 67.7), left(344.3, 67.7), right(282, 106.7)],
+  },
+  // The folded phone's cover screen: the hinge on the left, so square corners
+  // there, and a round camera hole at the top right.
+  "iphone-duo-closed": {
+    bezel: sides(16.3, 16, 16, 25.7),
+    // The simulator's radii. The image measures 7.5 and 57.7.
+    screenRadius: [8, 59, 59, 8],
+    bodyRadius: [10, 75, 75, 10],
+    out: 2.7,
+    front: [dot("sensor", 418.35, 47.75, 36.3)],
+    buttons: [right(202.7, 112.7), top(235, 65.7, 2.3), top(316, 65.7, 2.3)],
+  },
+  // The open phone's inner screen, held upright. Its camera is under the display.
+  "iphone-duo-open": {
+    bezel: sides(20.3, 20.7, 20.7, 20.7),
+    // The simulator's radius. The image measures 53.
+    screenRadius: 55,
+    bodyRadius: 75.7,
+    out: 2.7,
+    front: [],
+    buttons: [left(134.3, 57), left(206.3, 65.7), top(202.3, 112.7)],
+  },
+  "iphone-air": {
+    bezel: sides(15.3, 15.3, 15.3, 15.3),
+    screenRadius: 62,
+    bodyRadius: 77.3,
+    out: 2.7,
+    // The island sits 6 lower than on the 17.
+    front: [pill("sensor", 147.8, 20.4, 124.6, 36)],
+    buttons: [left(185, 41.7), left(257.3, 67.7), left(343, 67.7), right(280.7, 106.7, 3)],
+  },
+  "iphone-17": {
+    bezel: sides(14.3, 14.7, 14.3, 14.7),
+    screenRadius: 62,
+    bodyRadius: 76.7,
+    out: 3,
+    front: [pill("sensor", 138.8, 14.3, 124.5, 35.9)],
+    buttons: [left(185, 41.7), left(257.3, 67.7), left(342.7, 68), right(280.3, 107, 2.7)],
+  },
+  "iphone-17-pro": {
+    bezel: sides(15.7, 16, 15.7, 15.7),
+    screenRadius: 62,
+    bodyRadius: 77.7,
+    out: 3,
+    front: [pill("sensor", 138.8, 14.4, 124.4, 35.8)],
+    buttons: [left(186, 41.7), left(258.3, 67.7), left(344, 67.7), right(281.7, 107, 2.7)],
+  },
+  "iphone-17-pro-max": {
+    bezel: sides(15.3, 15.3, 15, 15.3),
+    screenRadius: 62,
+    bodyRadius: 77.3,
+    out: 2.7,
+    front: [pill("sensor", 157.8, 14.5, 124.4, 35.8)],
+    buttons: [left(186.3, 41.7), left(258.7, 67.7), left(344.3, 67.7), right(282, 106.7)],
+  },
   "iphone-16": {
     bezel: sides(19.7, 19.7, 19.8, 19.7),
     screenRadius: 55,
@@ -74,6 +154,15 @@ export const BODIES: Record<string, Body> = {
     out: 2.7,
     front: [pill("sensor", 134, 11.3, 124.9, 36.7)],
     buttons: [...IPHONE_LEFT, ...iphoneRight(529.5)],
+  },
+  "iphone-16-plus": {
+    bezel: sides(19.7, 19.7, 19.7, 19.7),
+    screenRadius: 55,
+    bodyRadius: 75.5,
+    out: 2.7,
+    front: [pill("sensor", 152.3, 11.3, 125.4, 36.7)],
+    // An estimate: where Camera Control is, as far under the 16's as the body is taller.
+    buttons: [...IPHONE_LEFT, ...iphoneRight(608.5)],
   },
   "iphone-16-pro": {
     bezel: sides(14.7, 14.7, 14.4, 14.7),

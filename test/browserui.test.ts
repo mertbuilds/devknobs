@@ -47,6 +47,23 @@ const SAFARI_TABLE: [string, number, Record<"compact" | "bottom" | "top", [numbe
   ["iphone-se", 375, { compact: [549, 589], bottom: [495, 589], top: [495, 603] }],
 ];
 
+/**
+ * Derived, not measured: the same formulas with each device's size and top
+ * inset, 62 on the 17 and 18 families, 68 on the Air, 59 on the 16 Plus, 82
+ * on the Duo's cover screen and 40 on its inner one.
+ */
+const SAFARI_DERIVED: typeof SAFARI_TABLE = [
+  ["iphone-18-pro", 402, { compact: [714, 754], bottom: [654, 754], top: [660, 768] }],
+  ["iphone-18-pro-max", 440, { compact: [796, 836], bottom: [736, 836], top: [742, 850] }],
+  ["iphone-duo-closed", 466, { compact: [498, 538], bottom: [438, 538], top: [444, 552] }],
+  ["iphone-duo-open", 669, { compact: [813, 853], bottom: [753, 853], top: [759, 867] }],
+  ["iphone-air", 420, { compact: [746, 786], bottom: [686, 786], top: [692, 800] }],
+  ["iphone-17", 402, { compact: [714, 754], bottom: [654, 754], top: [660, 768] }],
+  ["iphone-17-pro", 402, { compact: [714, 754], bottom: [654, 754], top: [660, 768] }],
+  ["iphone-17-pro-max", 440, { compact: [796, 836], bottom: [736, 836], top: [742, 850] }],
+  ["iphone-16-plus", 430, { compact: [775, 815], bottom: [715, 815], top: [721, 829] }],
+];
+
 describe("viewportOf", () => {
   test("gives Safari's measured viewport in every layout, expanded and minimized", () => {
     for (const [id, width, layouts] of SAFARI_TABLE) {
@@ -56,6 +73,18 @@ describe("viewportOf", () => {
         expect(size(device(id), kind, true)).toBe(`${width}x${minimized}`);
       }
     }
+  });
+
+  test("gives the newer iPhones the same viewport formulas with their own top inset", () => {
+    for (const [id, width, layouts] of SAFARI_DERIVED) {
+      for (const [layout, [expanded, minimized]] of Object.entries(layouts)) {
+        const kind = layout as BrowserLayout;
+        expect(size(device(id), kind, false)).toBe(`${width}x${expanded}`);
+        expect(size(device(id), kind, true)).toBe(`${width}x${minimized}`);
+      }
+    }
+    const tops = SAFARI_DERIVED.map(([id]) => viewportOf(device(id), "portrait", "compact", false).y);
+    expect(tops).toEqual([62, 62, 82, 40, 68, 62, 62, 62, 59]);
   });
 
   test("places Safari's viewport under the status bar, and under Top's address bar", () => {
@@ -89,6 +118,23 @@ describe("viewportOf", () => {
     const pro = viewportOf(device("iphone-16-pro"), "landscape", "compact", false);
     expect(pro.x).toBe(62);
     expect(pro.y).toBe(64);
+  });
+
+  test("gives the newer iPhones' landscape viewport from their side inset", () => {
+    // Derived: the side inset is the top inset, and 24 on the Duo's inner screen.
+    const landscape: [string, string, string][] = [
+      ["iphone-18-pro", "750x338", "750x402"],
+      ["iphone-18-pro-max", "832x376", "832x440"],
+      ["iphone-duo-closed", "514x402", "514x466"],
+      ["iphone-duo-open", "903x605", "903x669"],
+      ["iphone-air", "776x356", "776x420"],
+      ["iphone-17", "750x338", "750x402"],
+      ["iphone-16-plus", "814x366", "814x430"],
+    ];
+    for (const [id, expanded, minimized] of landscape) {
+      expect(size(device(id), "compact", false, "landscape")).toBe(expanded);
+      expect(size(device(id), "compact", true, "landscape")).toBe(minimized);
+    }
   });
 
   test("gives Chrome's viewport from its toolbar, chin and status bar", () => {
@@ -302,6 +348,27 @@ describe("bars", () => {
       height: 20,
       time: { x: 187.5 },
     });
+  });
+
+  test("the status bar goes around each island, and clear of the Duo's camera hole", () => {
+    const status = (id: string) => barsOf(device(id), "portrait", "compact", false)?.status;
+    // The 18 Pro's island is narrower, so its left ear is wider and the time further in.
+    expect(status("iphone-18-pro")?.time.x).toBeCloseTo(154 * 0.535);
+    expect(status("iphone-17-pro")?.time.x).toBeCloseTo(138.8 * 0.535);
+    expect(status("iphone-18-pro")?.time.y).toBeCloseTo(14.3 + 36.1 / 2);
+    // The Air's island sits 6 lower, and its status bar is 6 taller.
+    expect(status("iphone-air")).toMatchObject({ height: 68 });
+    expect(status("iphone-air")?.time.y).toBeCloseTo(38.4);
+    // The cover screen: everything left of the hole, on its center line.
+    const cover = status("iphone-duo-closed");
+    expect(cover).toMatchObject({ height: 82, icons: { align: "end" } });
+    expect(cover?.icons.x).toBeLessThan(400.2);
+    expect(cover?.time.x).toBeLessThan(cover?.icons.x ?? 0);
+    expect(cover?.time.y).toBeCloseTo(47.75);
+    expect(cover?.icons.y).toBeCloseTo(47.75);
+    // The inner screen has no cut-out: a plain bar, clear of the round corners.
+    const inner = status("iphone-duo-open");
+    expect(inner).toMatchObject({ height: 40, time: { x: 58, y: 22 }, icons: { x: 633, y: 22 } });
   });
 
   test("Chrome draws its toolbar, pill, chin and hairline per layout", () => {

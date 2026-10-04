@@ -24,6 +24,26 @@ describe("DEVICES", () => {
     }
   });
 
+  test("lists the iPhones newest first, each at its own size and ratio", () => {
+    const iphones = DEVICES.filter((device) => device.id.startsWith("iphone-"));
+    expect(iphones.map(({ id, width, height, dpr }) => `${id} ${width}x${height}@${dpr}`)).toEqual([
+      "iphone-18-pro 402x874@3",
+      "iphone-18-pro-max 440x956@3",
+      "iphone-duo-closed 466x678@3",
+      "iphone-duo-open 669x951@3",
+      "iphone-air 420x912@3",
+      "iphone-17 402x874@3",
+      "iphone-17-pro 402x874@3",
+      "iphone-17-pro-max 440x956@3",
+      "iphone-16 393x852@3",
+      "iphone-16-plus 430x932@3",
+      "iphone-16-pro 402x874@3",
+      "iphone-16-pro-max 440x956@3",
+      "iphone-se 375x667@2",
+    ]);
+    expect(DEVICES.slice(0, iphones.length)).toEqual(iphones);
+  });
+
   test("knows a device by id, and its touch screen", () => {
     expect(deviceOf("iphone-16-pro")).toMatchObject({ width: 402, height: 874, dpr: 3 });
     expect(deviceOf("none")).toBeUndefined();
@@ -92,6 +112,21 @@ describe("a device", () => {
     expect(merge(desk, { device: "iphone-16" })).toMatchObject({
       width: 393,
       height: 852,
+      orientation: "portrait",
+    });
+  });
+
+  test("the open iPhone Duo comes up across, and upright after a phone held upright", () => {
+    expect(state({ device: "iphone-duo-open" })).toMatchObject({
+      width: 951,
+      height: 669,
+      orientation: "landscape",
+    });
+    const upright = state({ device: "iphone-duo-closed" });
+    expect(upright).toMatchObject({ width: 466, height: 678, orientation: "portrait" });
+    expect(merge(upright, { device: "iphone-duo-open" })).toMatchObject({
+      width: 669,
+      height: 951,
       orientation: "portrait",
     });
   });

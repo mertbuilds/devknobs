@@ -120,6 +120,14 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ height: 0 })).height).toBe("full");
   });
 
+  test("keeps the size of a stored device that is no longer a preset, as a plain frame", () => {
+    const stored = { width: 390, height: 844, device: "iphone-14", orientation: "portrait" };
+    expect(parse(JSON.stringify(stored))).toMatchObject({ ...stored, device: "none" });
+    for (const id of ["iphone-16", "iphone-16-pro", "iphone-16-pro-max", "iphone-se"]) {
+      expect(parse(JSON.stringify({ device: id })).device).toBe(id);
+    }
+  });
+
   test("draws a mock when the session predates it, and keeps one turned off", () => {
     expect(parse(JSON.stringify({ device: "pixel-9" })).mock).toBe(true);
     expect(parse(JSON.stringify({ mock: false })).mock).toBe(false);

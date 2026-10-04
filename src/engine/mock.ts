@@ -18,6 +18,12 @@ export interface Rect {
 }
 
 /**
+ * A corner radius, or one for each corner where they differ: top left, top
+ * right, bottom right, bottom left.
+ */
+export type Radius = number | readonly [number, number, number, number];
+
+/**
  * A shape on the body: a button on its edge, drawn under it, the island or a
  * punch hole, a receiver slot, a camera lens, or a home button and its key.
  */
@@ -36,8 +42,8 @@ export interface Mock {
   /** The body, in the mock. */
   body: Rect;
   bezel: Sides;
-  screenRadius: number;
-  bodyRadius: number;
+  screenRadius: Radius;
+  bodyRadius: Radius;
   parts: Part[];
 }
 
@@ -70,8 +76,15 @@ function turnRect<T extends Rect>(rect: T, width: number): T {
   return { ...rect, x: y, y: width - x - rect.width, width: rect.height, height: rect.width };
 }
 
-function turnSides(sides: Sides): Sides {
+export function turnSides(sides: Sides): Sides {
   return { top: sides.right, right: sides.bottom, bottom: sides.left, left: sides.top };
+}
+
+/** The corners after the same turn: the top right one comes to the top left. */
+export function turnRadius(radius: Radius): Radius {
+  if (typeof radius === "number") return radius;
+  const [topLeft, topRight, bottomRight, bottomLeft] = radius;
+  return [topRight, bottomRight, bottomLeft, topLeft];
 }
 
 /**
@@ -122,6 +135,8 @@ export function mockOf(id: string, orientation: OrientationValue): Mock | null {
     inset: turnSides(inset),
     body: turnRect(body, width),
     bezel: turnSides(bezel),
+    screenRadius: turnRadius(screenRadius),
+    bodyRadius: turnRadius(bodyRadius),
     parts: upright.parts.map((part) => turnRect(part, width)),
   };
 }
