@@ -1,9 +1,10 @@
 // adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
+import type { Fiber } from "bippy";
 import type { StackFrame } from "bippy/source";
 import { componentNames, getFiber, listKey, nearestFiberElement } from "./fiber";
 import { htmlPreview } from "./preview";
 import { elementSelector, nearestSemanticSelector, selectorTarget } from "./selector";
-import { EMPTY, resolve } from "./source";
+import { EMPTY, type Resolution, resolve } from "./source";
 import {
   formatStack,
   HARD_MAX_LINES,
@@ -118,12 +119,13 @@ function toFrame(frame: StackFrame): GrabFrame {
   };
 }
 
-/** Everything a grab knows about one element. */
-export async function grabEntry(element: Element, options: GrabOptions = {}): Promise<GrabEntry> {
-  const next = isNext(element.ownerDocument);
-  const fiberElement = nearestFiberElement(element);
-  const fiber = getFiber(fiberElement);
-  const { fiberSource, stack } = fiber ? await resolve(fiber, next, options.signal) : EMPTY;
+function entryFrom(
+  element: Element,
+  fiber: Fiber | null,
+  next: boolean,
+  { fiberSource, stack }: Resolution,
+  options: GrabOptions,
+): GrabEntry {
   const ancestors = (max: number, accept: (name: string) => boolean) =>
     componentNames(fiber, max, (name) => isUsefulName(name, next) && accept(name));
   const trace = buildTrace(stack, fiberSource, ancestors, { maxLines: options.maxLines, next });
@@ -144,6 +146,30 @@ export async function grabEntry(element: Element, options: GrabOptions = {}): Pr
     stackContext: trace.text,
     frames: stack.map(toFrame),
   };
+}
+
+/** Everything a grab knows about one element. */
+export async function grabEntry(element: Element, options: GrabOptions = {}): Promise<GrabEntry> {
+  const next = isNext(element.ownerDocument);
+  const fiber = getFiber(nearestFiberElement(element));
+  const resolution = fiber ? await resolve(fiber, next, options.signal) : EMPTY;
+  return entryFrom(element, fiber, next, resolution, options);
+}
+
+/**
+ * The entry made at once, for a copy that cannot wait: the components above
+ * the element by name, without the owner stack and its lines and columns.
+ */
+export function quickEntry(element: Element, options: GrabOptions = {}): GrabEntry {
+  const next = isNext(element.ownerDocument);
+  return entryFrom(element, getFiber(nearestFiberElement(element)), next, EMPTY, options);
+}
+
+/** The nearest component that rendered the element, by name, for its label. */
+export function componentOf(element: Element): string | null {
+  const next = isNext(element.ownerDocument);
+  const fiber = getFiber(nearestFiberElement(element));
+  return componentNames(fiber, 1, (name) => isUsefulName(name, next))[0] ?? null;
 }
 
 /** One entry per element, duplicates dropped, and their lines joined. */

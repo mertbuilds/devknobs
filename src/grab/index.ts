@@ -2,6 +2,8 @@ import { copyGrab } from "./clipboard";
 import { grabContext } from "./context";
 import type { GrabOptions, GrabPayload } from "./types";
 
+export { startMode } from "./mode";
+
 /** Build the elements' context and copy it. Null when nothing was copied. */
 export async function grab(
   elements: Element[],
