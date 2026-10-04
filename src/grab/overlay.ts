@@ -86,9 +86,15 @@ const CSS = `
   border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   border-radius: ${MIN_RADIUS}px;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  transition: opacity ${FADE}ms ease-out;
+  transition: opacity ${FADE}ms ease-out, border-color ${FADE}ms ease-out, box-shadow ${FADE}ms ease-out;
 }
 .box.on { opacity: 1; }
+.box.copied {
+  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent),
+    0 0 24px color-mix(in srgb, var(--accent) 45%, transparent);
+}
 .box.pick {
   opacity: 1;
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
@@ -189,7 +195,10 @@ export interface Overlay {
   ): void;
   /** Where the pointer is sideways, for the label. Null once the keys move the box. */
   point(x: number | null): void;
-  /** Say something by an element for a moment, where its label was, with the box on it. */
+  /**
+   * Say something by an element for a moment, where its label was, with the
+   * box on it and glowing. The glow goes with the toast.
+   */
   toast(text: string, near: Element | null): void;
   /** Fade out and go, once a toast is over where there is one. */
   destroy(): void;
@@ -452,6 +461,7 @@ export function createOverlay(scheme?: "light" | "dark"): Overlay {
       clearTimeout(fadeTimer);
       hideTimer = 0;
       toasting = true;
+      box.classList.add("copied");
       element = near?.isConnected ? near : null;
       text = { tag: "", name: message };
       stale = true;
@@ -459,6 +469,8 @@ export function createOverlay(scheme?: "light" | "dark"): Overlay {
       toastTimer = window.setTimeout(() => {
         toasting = false;
         hide();
+        // On the way out the glow fades with the box, and goes with the layer.
+        if (!closing) box.classList.remove("copied");
         if (closing) fadeTimer = window.setTimeout(remove, fade());
       }, TOAST_TIME);
     },
