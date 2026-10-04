@@ -3,16 +3,18 @@ import { deviceOf, turn } from "./devices";
 import { type Mock, type Radius, type Sides, turnRadius, turnSides } from "./mock";
 
 /**
- * Apple's product bezel images as the body of an iPhone, in place of the
- * drawn mock. The images are Apple's, from Apple Design Resources, and not
- * under this project's license: see THIRD_PARTY_NOTICES.md. They all live in
- * assets/bezels, which the build copies to dist/bezels, and nothing but this
- * module names them. Each loads when its device is first shown with the mock
- * on. Delete assets/bezels and every device draws its own mock again, as it
- * does where an image does not load.
+ * The maker's own bezel image as the body of an iPhone or a Pixel, in place
+ * of the drawn mock: Apple's product bezels from Apple Design Resources and
+ * its App Store marketing artwork, and Google's Android Studio emulator frames
+ * from AOSP. None of them is under this project's license: see
+ * THIRD_PARTY_NOTICES.md. They all live in assets/bezels, which the build
+ * copies to dist/bezels, and nothing but this module names them. Each loads
+ * when its device is first shown with the mock on. Delete assets/bezels and
+ * every device draws its own mock again, as it does where an image does not
+ * load.
  */
 
-/** One image, measured in its own px. */
+/** One image, measured in its own px, at its own density: see `densityOf`. */
 export interface Bezel {
   file: string;
   size: readonly [width: number, height: number];
@@ -33,7 +35,8 @@ export interface Bezel {
 /**
  * The clip of the 62 px screens, the 16 and 16 Plus, and the Duo's inner
  * screen: the biggest whole radius whose corner still holds every clear pixel
- * of the opening, measured on Apple's PNGs.
+ * of the opening, measured on Apple's PNGs. Each Pixel's is measured the same
+ * way on Google's, and the SE's screen is square.
  */
 const PRO = 62;
 const BASE = 54;
@@ -167,6 +170,85 @@ export const BEZELS: Record<string, { portrait: Bezel; landscape?: Bezel }> = {
       cutout: [548.05, 109, 373.9, 107.98],
       radius: PRO,
     },
+  },  "iphone-se": {
+    portrait: {
+      file: "iphone-se.webp",
+      size: [1536, 3120],
+      opening: [109, 387, 1320, 2346],
+      body: [0, 0, 1536, 3119],
+      radius: 0,
+    },
+  },
+  // Google's frames: each opening is the panel in its own px, the punch hole in the frame.
+  "pixel-10": {
+    portrait: {
+      file: "pixel-10.webp",
+      size: [1205, 2535],
+      opening: [59, 55, 1080, 2424],
+      body: [0, 0, 1205, 2535],
+      cutout: [559.13, 105.06, 77.96, 77.93],
+      radius: 55,
+    },
+  },
+  "pixel-10-pro": {
+    portrait: {
+      file: "pixel-10-pro.webp",
+      size: [1410, 2968],
+      opening: [59, 60, 1280, 2856],
+      body: [0, 0, 1410, 2968],
+      cutout: [653.66, 117.05, 91.8, 91.89],
+      radius: 59,
+    },
+  },
+  "pixel-10-pro-xl": {
+    portrait: {
+      file: "pixel-10-pro-xl.webp",
+      size: [1472, 3111],
+      opening: [60, 55, 1344, 2992],
+      body: [0, 0, 1472, 3101],
+      cutout: [686.41, 113.94, 90.67, 90.58],
+      radius: 52,
+    },
+  },
+  "pixel-10a": {
+    portrait: {
+      file: "pixel-10a.webp",
+      size: [1218, 2553],
+      opening: [65, 64, 1080, 2424],
+      body: [1, 1, 1217, 2551],
+      cutout: [562.3, 112.19, 81.94, 78.28],
+      radius: 55,
+    },
+  },
+  "pixel-9": {
+    portrait: {
+      file: "pixel-9.webp",
+      size: [1198, 2531],
+      opening: [55, 58, 1080, 2424],
+      body: [0, 0, 1198, 2531],
+      cutout: [554.1, 101.98, 82.13, 82.11],
+      radius: 55,
+    },
+  },
+  "pixel-9-pro": {
+    portrait: {
+      file: "pixel-9-pro.webp",
+      size: [1408, 2974],
+      opening: [60, 61, 1280, 2856],
+      body: [0, 0, 1408, 2974],
+      cutout: [654.07, 115.62, 92, 93.16],
+      radius: 58,
+    },
+  },
+  "pixel-9-pro-xl": {
+    portrait: {
+      file: "pixel-9-pro-xl.webp",
+      size: [1466, 3101],
+      opening: [57, 56, 1344, 2992],
+      body: [0, 0, 1466, 3100],
+      cutout: [682.72, 108.15, 92.21, 92.29],
+      radius: 57,
+    },
   },
 };
 
@@ -191,6 +273,14 @@ const URLS: Record<string, () => string> = {
     new URL("./bezels/iphone-duo-inner-open-portrait.webp", import.meta.url).href,
   "iphone-duo-inner-open-landscape.webp": () =>
     new URL("./bezels/iphone-duo-inner-open-landscape.webp", import.meta.url).href,
+  "iphone-se.webp": () => new URL("./bezels/iphone-se.webp", import.meta.url).href,
+  "pixel-9.webp": () => new URL("./bezels/pixel-9.webp", import.meta.url).href,
+  "pixel-9-pro.webp": () => new URL("./bezels/pixel-9-pro.webp", import.meta.url).href,
+  "pixel-9-pro-xl.webp": () => new URL("./bezels/pixel-9-pro-xl.webp", import.meta.url).href,
+  "pixel-10.webp": () => new URL("./bezels/pixel-10.webp", import.meta.url).href,
+  "pixel-10-pro.webp": () => new URL("./bezels/pixel-10-pro.webp", import.meta.url).href,
+  "pixel-10-pro-xl.webp": () => new URL("./bezels/pixel-10-pro-xl.webp", import.meta.url).href,
+  "pixel-10a.webp": () => new URL("./bezels/pixel-10a.webp", import.meta.url).href,
 };
 
 /** The script the global build runs as, which is no module and has no address of its own. */

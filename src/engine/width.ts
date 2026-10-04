@@ -962,10 +962,10 @@ function showMat(size: { width: number; height: number }): void {
 }
 
 /**
- * The body around the frame: Apple's bezel image where the device has one,
- * and the drawn mock where it has none or the image does not load. While the
- * image loads the drawn mock stands in its room, so the frame never moves as
- * it comes in.
+ * The body around the frame: the maker's bezel image where the device has
+ * one, and the drawn mock where it has none or the image does not load. While
+ * the image loads the drawn mock stands in its room, so the frame never moves
+ * as it comes in.
  */
 function bodyOf(value: ViewportValue): Mock | null {
   if (!value.mock) return null;

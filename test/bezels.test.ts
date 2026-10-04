@@ -38,11 +38,11 @@ afterEach(() => {
 });
 
 describe("BEZELS", () => {
-  test("every iPhone but the SE has an image, and nothing else does", () => {
-    const ids = DEVICES.filter((device) => device.ua === "iphone-safari" && device.id !== "iphone-se");
+  test("every iPhone and every Pixel has an image, and nothing else does", () => {
+    const ids = DEVICES.filter((device) => /^(iphone|pixel)-/.test(device.id));
     expect(Object.keys(BEZELS).sort()).toEqual(ids.map((device) => device.id).sort());
-    expect(SHOTS).toHaveLength(13);
-    expect(new Set(SHOTS.map(([, , shot]) => shot.file)).size).toBe(13);
+    expect(SHOTS).toHaveLength(21);
+    expect(new Set(SHOTS.map(([, , shot]) => shot.file)).size).toBe(21);
   });
 
   test("each opening is its device's screen at the image's density, never stretched", () => {
@@ -106,10 +106,23 @@ describe("BEZELS", () => {
 });
 
 describe("densityOf", () => {
-  test("is 3 in each of Apple's iPhone images", () => {
-    for (const [id, , shot] of SHOTS) {
-      if (id.startsWith("iphone-")) expect(densityAt(id, shot)).toBeCloseTo(3, 9);
+  test("is 3 in Apple's iPhone images, 3.52 in the SE's and the panel's own in Google's", () => {
+    const densities = Object.fromEntries(
+      SHOTS.map(([id, , shot]) => [id, Math.round(densityAt(id, shot) * 100) / 100]),
+    );
+    for (const [id, density] of Object.entries(densities)) {
+      if (id.startsWith("iphone-") && id !== "iphone-se") expect(density).toBe(3);
     }
+    expect(densities).toMatchObject({
+      "iphone-se": 3.52,
+      "pixel-10": 2.62,
+      "pixel-10-pro": 3,
+      "pixel-10-pro-xl": 3,
+      "pixel-10a": 2.62,
+      "pixel-9": 2.62,
+      "pixel-9-pro": 3,
+      "pixel-9-pro-xl": 3,
+    });
   });
 
   test("is an image's own scale, from its opening's width and height together", () => {
@@ -222,9 +235,40 @@ describe("bezelMock", () => {
     }
   });
 
+  test("draws an image at its own density, the screen in the middle of the opening", () => {
+    // Pixel 9: 1080 x 2424 image px over 412 x 924 css px.
+    const density = 3504 / 1336;
+    const pixel = bezelMock("pixel-9", "portrait");
+    expect(pixel?.image).toMatchObject({ file: "pixel-9.webp", turn: null });
+    expect(pixel?.image?.x).toBeCloseTo(0);
+    expect(pixel?.image?.width).toBeCloseTo(1198 / density);
+    expect(pixel?.image?.height).toBeCloseTo(2531 / density);
+    expect(pixel?.inset.left).toBeCloseTo((55 + (1080 - 412 * density) / 2) / density);
+    expect(pixel?.inset.top).toBeCloseTo((58 + (2424 - 924 * density) / 2) / density);
+    // The opening's middle is the screen's middle.
+    const middle = (pixel?.image?.x ?? 0) + (55 + 1080 / 2) / density;
+    expect(middle).toBeCloseTo((pixel?.inset.left ?? 0) + 412 / 2);
+    // The SE at 3.52, its square screen with the home button and camera in the image.
+    const se = bezelMock("iphone-se", "portrait");
+    expect(se?.image?.width).toBeCloseTo((1536 * 1042) / 3666);
+    expect(se?.screenRadius).toBe(0);
+    expect(se?.parts).toEqual([]);
+    expect(se?.inset.top).toBeCloseTo((387 + (2346 - (667 * 3666) / 1042) / 2) / (3666 / 1042));
+  });
+
+  test("turns a Pixel's upright image with the device, punch hole to the left", () => {
+    const upright = bezelMock("pixel-10-pro", "portrait");
+    const turned = bezelMock("pixel-10-pro", "landscape");
+    if (!upright?.image || !turned) throw new Error("no bezel");
+    expect(turned.image).toEqual({ ...upright.image, turn: upright.width });
+    expect(turned.width).toBeCloseTo(upright.height);
+    expect(turned.inset.left).toBeCloseTo(upright.inset.top);
+    expect(turned.width).toBeCloseTo(952 + turned.inset.left + turned.inset.right);
+  });
+
   test("has none for a device without an image", () => {
-    expect(bezelMock("iphone-se", "portrait")).toBeNull();
-    expect(bezelMock("pixel-9", "portrait")).toBeNull();
+    expect(bezelMock("galaxy-s25", "portrait")).toBeNull();
+    expect(bezelMock("ipad-mini", "portrait")).toBeNull();
     expect(bezelMock("none", "portrait")).toBeNull();
   });
 });
