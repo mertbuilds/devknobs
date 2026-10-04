@@ -79,6 +79,32 @@ function isInternal(name: string): boolean {
   return name.startsWith("data-devknobs") || name.startsWith("data-react-grab-");
 }
 
+/** Class names a tool wrote, which say nothing a reader can search the source for. */
+const GENERATED_CLASS = [
+  // StyleX: its debug name, `index__styles.title`, and its atoms, `x1abc2d`.
+  /^[\w-]+__[\w-]+\.[\w-]+$/,
+  /^x(?=[a-z]*\d)[0-9a-z]{5,}$/,
+  // CSS modules: `_title_1a2b3` and `Card_title__1a2b3`.
+  /^_[\w-]+_[\w-]{4,}$/,
+  /^[A-Za-z][\w-]*_[\w-]+__[\w-]{5,}$/,
+  // emotion, styled-components and styled-jsx.
+  /^css-[\w-]+$/,
+  /^sc-[\w-]+$/,
+  /^jsx-\d+$/,
+];
+
+export function isGeneratedClass(token: string): boolean {
+  return GENERATED_CLASS.some((pattern) => pattern.test(token));
+}
+
+/** The class names a person wrote, the generated ones dropped. */
+export function readableClass(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter((token) => token && !isGeneratedClass(token))
+    .join(" ");
+}
+
 function formatAttribute(name: string, value: string, max: number): string {
   return `${name}="${truncateEscaped(escapeAttribute(value), max)}"`;
 }
@@ -87,7 +113,8 @@ function priorityAttributes(element: Element): string[] {
   const parts: string[] = [];
   for (const name of PRIORITY) {
     if (parts.length >= ATTRIBUTE_MAX) break;
-    const value = element.getAttribute(name);
+    const raw = element.getAttribute(name);
+    const value = raw && name === "class" ? readableClass(raw) : raw;
     if (!value) continue;
     parts.push(formatAttribute(name, value, name === "class" ? VALUE_MAX : IDENTIFYING_VALUE_MAX));
   }

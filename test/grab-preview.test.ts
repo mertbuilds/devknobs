@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { htmlPreview, truncateEscaped } from "../src/grab/preview";
+import { htmlPreview, isGeneratedClass, readableClass, truncateEscaped } from "../src/grab/preview";
 
 const XHTML = "http://www.w3.org/1999/xhtml";
 const SVG = "http://www.w3.org/2000/svg";
@@ -43,7 +43,54 @@ describe("truncateEscaped", () => {
   });
 });
 
+describe("generated class names", () => {
+  test.each([
+    "index__styles.displayTitle",
+    "x1jft12v",
+    "xobvag8",
+    "x78zum5",
+    "_title_1a2b3",
+    "_title_1a2b3_7",
+    "Card_title__3xK2a",
+    "css-1x2y3z",
+    "sc-bdnylx",
+    "jsx-3140235276",
+  ])("%s is generated", (token) => {
+    expect(isGeneratedClass(token)).toBe(true);
+  });
+
+  test.each([
+    "btn",
+    "hero-title",
+    "text-4xl",
+    "xlarge",
+    "x-small",
+    "card__title",
+    "card__title--active",
+    "MuiButton-root",
+    "md:flex",
+    "w-[420px]",
+  ])("%s is written by hand", (token) => {
+    expect(isGeneratedClass(token)).toBe(false);
+  });
+
+  test("keeps the readable names, in their order", () => {
+    expect(readableClass("index__styles.displayTitle xobvag8 x1jft12v xb6ev31")).toBe("");
+    expect(readableClass("  hero  _title_1a2b3 css-1x2y3z dark ")).toBe("hero dark");
+  });
+});
+
 describe("htmlPreview", () => {
+  test("shows a class without its generated names, and no class when all of them are", () => {
+    const stylex = "index__styles.displayTitle xobvag8 x1jft12v xb6ev31 x72az59 x1uo3zyz";
+    expect(htmlPreview(el("h1", { class: stylex }, ["Stop fighting"]))).toBe(
+      "<h1>Stop fighting</h1>",
+    );
+    expect(htmlPreview(el("p", { class: "lead css-1x2y3z sc-bdnylx" }))).toBe('<p class="lead" />');
+    const tailwind = "flex items-center gap-2 rounded-md px-3";
+    expect(htmlPreview(el("div", { class: tailwind }))).toBe('<div class="flex items-c..." />');
+  });
+
   test("lists the priority attributes first, in their order, then identifying, then the rest", () => {
     const button = el("button", {
       "data-x": "1",
