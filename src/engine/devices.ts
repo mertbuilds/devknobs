@@ -86,7 +86,7 @@ export const DEVICES: readonly DevicePreset[] = [
     label: "Galaxy S25 Ultra",
     width: 384,
     height: 832,
-    dpr: 3.75,
+    dpr: 2.8125,
     ua: "android-chrome",
     touch: true,
     kind: "phone",

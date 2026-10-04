@@ -95,6 +95,12 @@ export type HeightValue = number | "full";
 /** Which way the frame is held. Landscape puts its long side across. */
 export type OrientationValue = "portrait" | "landscape";
 
+/**
+ * Where a phone's browser keeps its bars: `auto` for the browser's own
+ * default, Safari's compact or Chrome's top, or `off` for none.
+ */
+export type BrowserValue = "auto" | "compact" | "bottom" | "top" | "off";
+
 /** Device pixel ratio inside the frame, or `system` for the screen's own. */
 export type DprValue = number | "system";
 
@@ -179,6 +185,10 @@ export interface DevknobsState {
   mock: boolean;
   /** On a device with a touch screen, the mouse acts as a finger inside its frame. */
   touchPointer: boolean;
+  /** A phone's browser bars around the page, which take their room from the viewport. */
+  browser: BrowserValue;
+  /** The browser's bars minimized, as after a scroll down. */
+  browserMin: boolean;
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;
   dpr: DprValue;

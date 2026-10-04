@@ -33,6 +33,8 @@ describe("parse", () => {
         orientation: "sideways",
         mock: "no",
         touchPointer: "no",
+        browser: "floating",
+        browserMin: "yes",
         frame: true,
         dpr: 2,
         zoom: "huge",
@@ -72,6 +74,8 @@ describe("parse", () => {
       orientation: "portrait",
       mock: true,
       touchPointer: true,
+      browser: "auto",
+      browserMin: false,
       frame: true,
       dpr: 2,
       zoom: "fit",
@@ -122,6 +126,17 @@ describe("parse", () => {
   test("has the mouse act as a finger when the session predates it, and keeps it turned off", () => {
     expect(parse(JSON.stringify({ device: "pixel-9" })).touchPointer).toBe(true);
     expect(parse(JSON.stringify({ touchPointer: false })).touchPointer).toBe(false);
+  });
+
+  test("shows the device's browser expanded when the session predates it, and keeps a pick", () => {
+    expect(DEFAULT_STATE.browser).toBe("auto");
+    expect(DEFAULT_STATE.browserMin).toBe(false);
+    expect(parse(JSON.stringify({ device: "pixel-9" })).browser).toBe("auto");
+    expect(parse(JSON.stringify({ device: "pixel-9" })).browserMin).toBe(false);
+    for (const browser of ["auto", "compact", "bottom", "top", "off"] as const) {
+      expect(parse(JSON.stringify({ browser })).browser).toBe(browser);
+    }
+    expect(parse(JSON.stringify({ browserMin: true })).browserMin).toBe(true);
   });
 
   test("fits the frame when the session predates the zoom, and keeps a zoom in reason", () => {

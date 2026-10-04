@@ -328,7 +328,7 @@ platform (`iphone`, `pixel`, `galaxy`, `ipad`, `macbook`, `phone`, `tablet`,
 | iPhone SE | 375 × 667 | 2 | yes |
 | Pixel 9 | 412 × 924 | 2.625 | yes |
 | Galaxy S25 | 360 × 780 | 3 | yes |
-| Galaxy S25 Ultra | 384 × 832 | 3.75 | yes |
+| Galaxy S25 Ultra | 384 × 832 | 2.8125 | yes |
 | iPad mini | 744 × 1133 | 2 | yes |
 | iPad Air 11 | 820 × 1180 | 2 | yes |
 | iPad Pro 13 | 1032 × 1376 | 2 | yes |

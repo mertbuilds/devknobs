@@ -1,3 +1,4 @@
+import { layoutOf, layoutOptions } from "../engine/browserui";
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
 import { DEVICES, deviceOf, hasTouch } from "../engine/devices";
 import { frameForced } from "../engine/frame";
@@ -10,6 +11,7 @@ import { GRAB_COLOR_NAMES, GRAB_COLORS } from "../grab/colors";
 import { UA_PRESETS, uaPreset } from "../engine/ua";
 import { percent, ZOOM_MAX, ZOOM_MIN, ZOOM_PRESETS } from "../engine/zoom";
 import type {
+  BrowserValue,
   ClockMode,
   ConnectionValue,
   ContrastValue,
@@ -110,6 +112,8 @@ export type KnobId =
   | "device"
   | "mock"
   | "touchPointer"
+  | "browser"
+  | "browserMin"
   | "width"
   | "dpr"
   | "zoom"
@@ -147,6 +151,8 @@ export interface Knob {
   extra?(): readonly Option[];
   /** False where the browser has nothing for the knob to act on. */
   available?(): boolean;
+  /** The option values the editor shows for this state, in order, where they depend on it. */
+  offers?(state: DevknobsState): readonly string[];
 }
 
 export type RowId =
@@ -767,6 +773,53 @@ const TOUCH_POINTER: Knob = {
   brief: () => "",
 };
 
+/** The layout of the phone's browser in use, or off for a device without one. */
+function layoutNow(state: DevknobsState): string {
+  return layoutOf(state.device, state.browser) ?? "off";
+}
+
+const BROWSER: Knob = {
+  id: "browser",
+  label: "browser",
+  category: "device",
+  control: "segments",
+  options: [
+    { value: "compact", label: "compact", aliases: ["floating"] },
+    { value: "bottom", label: "bottom" },
+    { value: "top", label: "top" },
+    { value: "off", label: "off", aliases: ["fullscreen"] },
+  ],
+  aliases: ["safari", "chrome", "address bar", "url bar", "search bar", "toolbar", "browser ui"],
+  // The browser's own default while it is drawn, so a phone is what puts it off its default.
+  read: layoutNow,
+  write: (value) => ({ browser: value as BrowserValue }),
+  reset: { browser: DEFAULT_STATE.browser },
+  // The browser's own default says nothing.
+  brief: (state) => (layoutNow(state) === layoutOptions(state.device)[0] ? "" : layoutNow(state)),
+  offers: (state) => layoutOptions(state.device),
+};
+
+/** Are the browser's bars drawn, so they can be minimized? */
+function barsShown(state: DevknobsState): boolean {
+  return layoutNow(state) !== "off";
+}
+
+const BROWSER_MIN: Knob = {
+  id: "browserMin",
+  label: "bars",
+  category: "device",
+  control: "segments",
+  options: [
+    { value: "expanded", label: "expanded" },
+    { value: "minimized", label: "minimized", aliases: ["scrolled"] },
+  ],
+  aliases: ["browser bars", "minimize", "collapse"],
+  read: (state) => (state.browserMin && barsShown(state) ? "minimized" : "expanded"),
+  write: (value) => ({ browserMin: value === "minimized" }),
+  reset: { browserMin: DEFAULT_STATE.browserMin },
+  offers: (state) => (barsShown(state) ? ["expanded", "minimized"] : []),
+};
+
 const WIDTH: Knob = {
   id: "width",
   label: "width",
@@ -992,6 +1045,8 @@ export const KNOBS: readonly Knob[] = [
   DEVICE,
   MOCK,
   TOUCH_POINTER,
+  BROWSER,
+  BROWSER_MIN,
   WIDTH,
   DPR,
   ZOOM,
@@ -1019,7 +1074,18 @@ export const ROWS: readonly Row[] = [
   {
     id: "viewport",
     label: "viewport",
-    knobs: ["device", "mock", "touchPointer", "width", "dpr", "zoom", "frame", "vision"],
+    knobs: [
+      "device",
+      "mock",
+      "touchPointer",
+      "browser",
+      "browserMin",
+      "width",
+      "dpr",
+      "zoom",
+      "frame",
+      "vision",
+    ],
   },
   { id: "ua", label: "user agent", knobs: ["ua"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },

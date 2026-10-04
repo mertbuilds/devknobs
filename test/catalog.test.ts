@@ -193,6 +193,44 @@ describe("summary", () => {
     expect(resetPatch(row("viewport"))).toMatchObject({ touchPointer: true });
   });
 
+  test("the browser reads its layout on a phone, its default saying nothing", () => {
+    const browser = knobOf("browser");
+    expect(browser.read(DEFAULT_STATE)).toBe("off");
+    expect(browser.read(state({ device: "iphone-16-pro" }))).toBe("compact");
+    expect(browser.read(state({ device: "pixel-9" }))).toBe("top");
+    expect(browser.read(state({ device: "pixel-9", browser: "compact" }))).toBe("top");
+    expect(browser.read(state({ device: "ipad-mini", browser: "top" }))).toBe("off");
+    expect(browser.offers?.(state({ device: "iphone-se" }))).toEqual([
+      "compact",
+      "bottom",
+      "top",
+      "off",
+    ]);
+    expect(browser.offers?.(state({ device: "galaxy-s25" }))).toEqual(["top", "bottom", "off"]);
+    expect(browser.offers?.(state({ device: "desktop" }))).toEqual([]);
+    expect(says("viewport", { device: "iphone-16-pro" })).toBe("iPhone 16 Pro · portrait");
+    expect(says("viewport", { device: "iphone-16-pro", browser: "bottom" })).toBe(
+      "iPhone 16 Pro · portrait · bottom",
+    );
+    expect(browser.write("top", DEFAULT_STATE)).toEqual({ browser: "top" });
+    expect(resetPatch(row("viewport"))).toMatchObject({ browser: "auto", browserMin: false });
+  });
+
+  test("the bars read minimized only while a browser draws them", () => {
+    const bars = knobOf("browserMin");
+    expect(bars.read(state({ device: "iphone-16", browserMin: true }))).toBe("minimized");
+    expect(bars.read(state({ device: "iphone-16", browserMin: true, browser: "off" }))).toBe(
+      "expanded",
+    );
+    expect(bars.read(state({ device: "desktop", browserMin: true }))).toBe("expanded");
+    expect(bars.offers?.(state({ device: "pixel-9" }))).toEqual(["expanded", "minimized"]);
+    expect(bars.offers?.(state({ device: "pixel-9", browser: "off" }))).toEqual([]);
+    expect(says("viewport", { device: "pixel-9", browser: "bottom", browserMin: true })).toBe(
+      "Pixel 9 · portrait · bottom · minimized",
+    );
+    expect(bars.write("minimized", DEFAULT_STATE)).toEqual({ browserMin: true });
+  });
+
   test("a zoom off fit says its percent", () => {
     expect(says("viewport", { device: "iphone-16-pro", zoom: 1.25 })).toBe(
       "iPhone 16 Pro · portrait · 125%",

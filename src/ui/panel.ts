@@ -433,11 +433,18 @@ export function createPanel(options: PanelOptions = {}): Panel {
     track: HTMLElement,
     items: { node: HTMLButtonElement; value: string }[],
   ): Update {
+    // The choices shown, in the order they stand.
+    const shown = () =>
+      Array.from(track.children).flatMap((node) => {
+        const item = items.find((entry) => entry.node === node);
+        return item && !item.node.hidden ? [item] : [];
+      });
     track.addEventListener("keydown", (event: KeyboardEvent) => {
       if (event.altKey || event.ctrlKey || event.metaKey) return;
-      const at = items.findIndex((item) => item.node === event.target);
-      const next = at < 0 ? null : radioMove(event.key, at, items.length);
-      const item = next === null ? undefined : items[next];
+      const list = shown();
+      const at = list.findIndex((item) => item.node === event.target);
+      const next = at < 0 ? null : radioMove(event.key, at, list.length);
+      const item = next === null ? undefined : list[next];
       if (!item) return;
       event.preventDefault();
       item.node.focus();
@@ -445,12 +452,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
     });
     return (state) => {
       const current = knob.read(state);
-      const known = items.some((item) => item.value === current);
-      items.forEach((item, index) => {
+      const list = shown();
+      const known = list.some((item) => item.value === current);
+      for (const item of items) {
         const on = item.value === current;
         mark(item.node, on, "aria-checked");
-        item.node.tabIndex = on || (!known && index === 0) ? 0 : -1;
-      });
+        item.node.tabIndex = on || (!known && item === list[0]) ? 0 : -1;
+      }
     };
   }
 
@@ -465,7 +473,23 @@ export function createPanel(options: PanelOptions = {}): Panel {
       track.append(node);
       return { node, value: option.value };
     });
-    return [track, radioGroup(knob, track, items)];
+    const update = radioGroup(knob, track, items);
+    const offers = knob.offers;
+    if (!offers) return [track, update];
+    // Only the choices the state offers, in its order.
+    return [
+      track,
+      (state) => {
+        const offered = offers(state);
+        const order = offered.flatMap((value) => items.filter((item) => item.value === value));
+        for (const item of items) item.node.hidden = !order.includes(item);
+        const standing = Array.from(track.children).filter((node) => !(node as HTMLElement).hidden);
+        if (order.some((item, at) => standing[at] !== item.node)) {
+          track.append(...order.map((item) => item.node));
+        }
+        update(state);
+      },
+    ];
   }
 
   /** Colors as swatches, the one that is on with a ring around it. */
@@ -773,6 +797,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
           line.hidden = !hasTouch(state.device);
         });
       }
+      // And a knob whose choices depend on the device, while it offers none.
+      const offers = knob.offers;
+      if (offers) {
+        updates.push((state) => {
+          line.hidden = offers(state).length === 0;
+        });
+      }
       editor.append(line);
     }
     return updates;
@@ -986,6 +1017,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (knob.id === "frame" && frameForced(engine.getState())) return;
     if (knob.id === "mock" && !hasMock(engine.getState())) return;
     if (knob.id === "touchPointer" && !hasTouch(engine.getState().device)) return;
+    if (knob.offers && !knob.offers(engine.getState()).includes(option.value)) return;
     set(knob, option.value);
     if (option.opens) openEditor(id);
     showRow(id, knob);

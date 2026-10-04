@@ -1,4 +1,5 @@
 import type {
+  BrowserValue,
   ClockMode,
   ConnectionValue,
   ContrastValue,
@@ -52,6 +53,8 @@ export const DEFAULT_STATE: DevknobsState = {
   orientation: "portrait",
   mock: true,
   touchPointer: true,
+  browser: "auto",
+  browserMin: false,
   frame: false,
   dpr: "system",
   zoom: "fit",
@@ -74,6 +77,7 @@ const CLOCK_MODES: ClockMode[] = ["system", "offset", "frozen"];
 const ONLINES: OnlineValue[] = ["offline", "system"];
 const CONNECTIONS: ConnectionValue[] = ["slow-2g", "2g", "3g", "4g", "system"];
 const SAVE_DATAS: SaveDataValue[] = ["on", "off", "system"];
+const BROWSERS: BrowserValue[] = ["auto", "compact", "bottom", "top", "off"];
 const ORIENTATIONS: OrientationValue[] = ["portrait", "landscape"];
 const EDGES: EdgeValue[] = ["top", "bottom", "none"];
 const VISIONS: VisionValue[] = [
@@ -199,6 +203,9 @@ export function parse(json: string | null | undefined): DevknobsState {
     mock: bool(state.mock, DEFAULT_STATE.mock),
     // A session stored before the touch pointer has the mouse act as a finger.
     touchPointer: bool(state.touchPointer, DEFAULT_STATE.touchPointer),
+    // A session stored before the browser bars shows the device's browser, expanded.
+    browser: oneOf(state.browser, BROWSERS, DEFAULT_STATE.browser),
+    browserMin: bool(state.browserMin, DEFAULT_STATE.browserMin),
     frame: bool(state.frame, DEFAULT_STATE.frame),
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     // A session stored before the zoom knob fits the frame, as it did then.

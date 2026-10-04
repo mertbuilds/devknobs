@@ -409,6 +409,8 @@ const KNOBS = {
   device: "none",
   orientation: "portrait",
   mock: true,
+  browser: "auto",
+  browserMin: false,
   zoom: "fit",
   panel: { open: false },
 } as const;
