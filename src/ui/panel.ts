@@ -322,7 +322,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   handle.title = "drag to move · shift-drag moves the handle";
   const panel = el("div", "panel");
 
-  // A label, so a click on the name lands in the field too.
+  // A label, so a click anywhere in the header lands in the field.
   const head = el("label", "head");
   const searchInput = document.createElement("input");
   searchInput.className = "search";
@@ -338,7 +338,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const closeSearch = button("search-close", "×");
   closeSearch.tabIndex = -1;
   closeSearch.setAttribute("aria-label", "close the search");
-  head.append(el("span", "name", "knobs"), searchInput, closeSearch);
+  head.append(searchInput, closeSearch);
 
   const body = el("div", "body");
   const empty = el("div", "empty", "nothing emulated");

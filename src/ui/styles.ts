@@ -166,7 +166,6 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
   cursor: text;
 }
 .head:focus-within { box-shadow: inset 0 0 0 1px var(--line); }
-.name { flex: none; font-size: 11px; color: var(--faint); }
 .search { flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; }
 .search::placeholder { color: var(--faint); }
 /* 4 in from the search's edges, so 4 round. */
