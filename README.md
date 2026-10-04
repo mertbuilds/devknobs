@@ -1,8 +1,8 @@
 # devknobs
 
 a dev-only panel for flipping browser preferences from inside the page. one
-script tag and the knobs are there. no css to add, no code to change, no
-runtime dependencies.
+script tag and the knobs are there. no css to add, no code to change. one
+runtime dependency, bippy, which only loads when you grab.
 
 ## install
 
@@ -411,4 +411,5 @@ them:
 
 ## license
 
-MIT
+MIT. bippy and the code adapted from react-grab are MIT too, see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
