@@ -34,7 +34,7 @@ describe("parse", () => {
         mock: "no",
         touchPointer: "no",
         browser: "floating",
-        browserMin: "yes",
+        bars: "sometimes",
         frame: true,
         dpr: 2,
         zoom: "huge",
@@ -75,7 +75,7 @@ describe("parse", () => {
       mock: true,
       touchPointer: true,
       browser: "auto",
-      browserMin: false,
+      bars: "auto",
       frame: true,
       dpr: 2,
       zoom: "fit",
@@ -128,15 +128,20 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ touchPointer: false })).touchPointer).toBe(false);
   });
 
-  test("shows the device's browser expanded when the session predates it, and keeps a pick", () => {
+  test("shows the device's browser following the scroll when the session predates it, and keeps a pick", () => {
     expect(DEFAULT_STATE.browser).toBe("auto");
-    expect(DEFAULT_STATE.browserMin).toBe(false);
+    expect(DEFAULT_STATE.bars).toBe("auto");
     expect(parse(JSON.stringify({ device: "pixel-9" })).browser).toBe("auto");
-    expect(parse(JSON.stringify({ device: "pixel-9" })).browserMin).toBe(false);
+    expect(parse(JSON.stringify({ device: "pixel-9" })).bars).toBe("auto");
     for (const browser of ["auto", "compact", "bottom", "top", "off"] as const) {
       expect(parse(JSON.stringify({ browser })).browser).toBe(browser);
     }
-    expect(parse(JSON.stringify({ browserMin: true })).browserMin).toBe(true);
+    for (const bars of ["auto", "expanded", "minimized"] as const) {
+      expect(parse(JSON.stringify({ bars })).bars).toBe(bars);
+    }
+    // A session from when the bars were a minimized flag.
+    expect(parse(JSON.stringify({ browserMin: true })).bars).toBe("minimized");
+    expect(parse(JSON.stringify({ browserMin: false })).bars).toBe("auto");
   });
 
   test("fits the frame when the session predates the zoom, and keeps a zoom in reason", () => {

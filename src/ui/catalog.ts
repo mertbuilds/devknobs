@@ -11,6 +11,7 @@ import { GRAB_COLOR_NAMES, GRAB_COLORS } from "../grab/colors";
 import { UA_PRESETS, uaPreset } from "../engine/ua";
 import { percent, ZOOM_MAX, ZOOM_MIN, ZOOM_PRESETS } from "../engine/zoom";
 import type {
+  BarsValue,
   BrowserValue,
   ClockMode,
   ConnectionValue,
@@ -113,7 +114,7 @@ export type KnobId =
   | "mock"
   | "touchPointer"
   | "browser"
-  | "browserMin"
+  | "bars"
   | "width"
   | "dpr"
   | "zoom"
@@ -804,20 +805,21 @@ function barsShown(state: DevknobsState): boolean {
   return layoutNow(state) !== "off";
 }
 
-const BROWSER_MIN: Knob = {
-  id: "browserMin",
+const BARS: Knob = {
+  id: "bars",
   label: "bars",
   category: "device",
   control: "segments",
   options: [
+    { value: "auto", label: "auto", aliases: ["scroll", "follow"] },
     { value: "expanded", label: "expanded" },
-    { value: "minimized", label: "minimized", aliases: ["scrolled"] },
+    { value: "minimized", label: "minimized", aliases: ["scrolled", "collapsed"] },
   ],
   aliases: ["browser bars", "minimize", "collapse"],
-  read: (state) => (state.browserMin && barsShown(state) ? "minimized" : "expanded"),
-  write: (value) => ({ browserMin: value === "minimized" }),
-  reset: { browserMin: DEFAULT_STATE.browserMin },
-  offers: (state) => (barsShown(state) ? ["expanded", "minimized"] : []),
+  read: (state) => (barsShown(state) ? state.bars : "auto"),
+  write: (value) => ({ bars: value as BarsValue }),
+  reset: { bars: DEFAULT_STATE.bars },
+  offers: (state) => (barsShown(state) ? ["auto", "expanded", "minimized"] : []),
 };
 
 const WIDTH: Knob = {
@@ -1046,7 +1048,7 @@ export const KNOBS: readonly Knob[] = [
   MOCK,
   TOUCH_POINTER,
   BROWSER,
-  BROWSER_MIN,
+  BARS,
   WIDTH,
   DPR,
   ZOOM,
@@ -1079,7 +1081,7 @@ export const ROWS: readonly Row[] = [
       "mock",
       "touchPointer",
       "browser",
-      "browserMin",
+      "bars",
       "width",
       "dpr",
       "zoom",

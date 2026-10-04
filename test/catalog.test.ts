@@ -213,22 +213,24 @@ describe("summary", () => {
       "iPhone 16 Pro · portrait · bottom",
     );
     expect(browser.write("top", DEFAULT_STATE)).toEqual({ browser: "top" });
-    expect(resetPatch(row("viewport"))).toMatchObject({ browser: "auto", browserMin: false });
+    expect(resetPatch(row("viewport"))).toMatchObject({ browser: "auto", bars: "auto" });
   });
 
-  test("the bars read minimized only while a browser draws them", () => {
-    const bars = knobOf("browserMin");
-    expect(bars.read(state({ device: "iphone-16", browserMin: true }))).toBe("minimized");
-    expect(bars.read(state({ device: "iphone-16", browserMin: true, browser: "off" }))).toBe(
-      "expanded",
-    );
-    expect(bars.read(state({ device: "desktop", browserMin: true }))).toBe("expanded");
-    expect(bars.offers?.(state({ device: "pixel-9" }))).toEqual(["expanded", "minimized"]);
+  test("the bars follow the scroll by default, and read so while no browser draws them", () => {
+    const bars = knobOf("bars");
+    expect(bars.options.map((option) => option.value)).toEqual(["auto", "expanded", "minimized"]);
+    expect(bars.read(DEFAULT_STATE)).toBe("auto");
+    expect(bars.read(state({ device: "iphone-16" }))).toBe("auto");
+    expect(bars.read(state({ device: "iphone-16", bars: "minimized" }))).toBe("minimized");
+    expect(bars.read(state({ device: "iphone-16", bars: "minimized", browser: "off" }))).toBe("auto");
+    expect(bars.read(state({ device: "desktop", bars: "expanded" }))).toBe("auto");
+    expect(bars.offers?.(state({ device: "pixel-9" }))).toEqual(["auto", "expanded", "minimized"]);
     expect(bars.offers?.(state({ device: "pixel-9", browser: "off" }))).toEqual([]);
-    expect(says("viewport", { device: "pixel-9", browser: "bottom", browserMin: true })).toBe(
+    expect(says("viewport", { device: "pixel-9", browser: "bottom", bars: "minimized" })).toBe(
       "Pixel 9 · portrait · bottom · minimized",
     );
-    expect(bars.write("minimized", DEFAULT_STATE)).toEqual({ browserMin: true });
+    expect(says("viewport", { device: "pixel-9", bars: "auto" })).toBe("Pixel 9 · portrait");
+    expect(bars.write("expanded", DEFAULT_STATE)).toEqual({ bars: "expanded" });
   });
 
   test("a zoom off fit says its percent", () => {

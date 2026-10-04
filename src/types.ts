@@ -101,6 +101,12 @@ export type OrientationValue = "portrait" | "landscape";
  */
 export type BrowserValue = "auto" | "compact" | "bottom" | "top" | "off";
 
+/**
+ * A phone's browser bars: `auto` minimizes them on a scroll down and brings
+ * them back on a scroll up, as the browser does, or they stay one way.
+ */
+export type BarsValue = "auto" | "expanded" | "minimized";
+
 /** Device pixel ratio inside the frame, or `system` for the screen's own. */
 export type DprValue = number | "system";
 
@@ -187,8 +193,8 @@ export interface DevknobsState {
   touchPointer: boolean;
   /** A phone's browser bars around the page, which take their room from the viewport. */
   browser: BrowserValue;
-  /** The browser's bars minimized, as after a scroll down. */
-  browserMin: boolean;
+  /** The browser's bars following the page's scroll, or held expanded or minimized. */
+  bars: BarsValue;
   /** Render the page in a full-width frame even at full width, for the native scheme. */
   frame: boolean;
   dpr: DprValue;

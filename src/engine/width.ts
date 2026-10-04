@@ -24,7 +24,7 @@ const NAME = "width";
 export type ViewportValue = FrameKnobs &
   Pick<
     DevknobsState,
-    "scheme" | "device" | "orientation" | "mock" | "browser" | "browserMin" | "zoom"
+    "scheme" | "device" | "orientation" | "mock" | "browser" | "bars" | "zoom"
   > & {
     panel: Pick<PanelValue, "open">;
   };
@@ -301,7 +301,7 @@ let current: ViewportValue = {
   orientation: "portrait",
   mock: true,
   browser: "auto",
-  browserMin: false,
+  bars: "auto",
   zoom: "fit",
   panel: { open: false },
 };
@@ -812,16 +812,27 @@ function showMock(mock: Mock | null, place: Fit): void {
  * Put the frame where the phone's browser leaves the page in the screen, and
  * draw the browser around it, or fill the screen with the frame again.
  */
-function showBrowser(bars: ReturnType<typeof barsOf>, page: Rect | null, place: Fit): void {
-  if (!glass || !pageBox) return;
+function showBrowser(
+  bars: ReturnType<typeof barsOf>,
+  page: Rect | null,
+  place: Fit,
+  follow: boolean,
+): void {
+  if (!glass || !pageBox || !browser) return;
   const zoom = place.zoom;
-  pageBox.className = page ? "page placed" : "page";
-  pageBox.style.left = page ? `${page.x * zoom}px` : "";
-  pageBox.style.top = page ? `${page.y * zoom}px` : "";
+  const box = pageBox;
+  const sizeFrame = () => {
+    if (!frame) return;
+    frame.style.width = `${page?.width ?? place.width}px`;
+    frame.style.height = `${page?.height ?? place.height}px`;
+    box.className = page ? "page placed" : "page";
+    box.style.left = page ? `${page.x * zoom}px` : "";
+    box.style.top = page ? `${page.y * zoom}px` : "";
+  };
   glass.style.width = page ? `${place.width * zoom}px` : "";
   glass.style.height = page ? `${place.height * zoom}px` : "";
-  browser?.show(bars, place, zoom);
-  browser?.refresh();
+  browser.show({ bars, page, size: place, zoom, follow, sizeFrame });
+  browser.refresh();
 }
 
 /**
@@ -857,19 +868,18 @@ function resize(): void {
   drawn = place;
   const device = deviceOf(current.device);
   const layout = device ? layoutOf(device.id, current.browser) : null;
-  const bars = device ? barsOf(device, current.orientation, layout, current.browserMin) : null;
-  const page =
-    bars && device ? viewportOf(device, current.orientation, layout, current.browserMin) : null;
+  const auto = current.bars === "auto";
+  const min = current.bars === "minimized" || (auto && browser?.minimized() === true);
+  const bars = device ? barsOf(device, current.orientation, layout, min) : null;
+  const page = bars && device ? viewportOf(device, current.orientation, layout, min) : null;
   const knobs = { ...current, dpr: zoomWorks ? current.dpr : "system" };
   caption.textContent = label(place, knobs, page ?? place);
   showZoom(place);
   showMat(size);
   // A fitted frame never scrolls, so no rounding can bring a scrollbar.
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
-  frame.style.width = `${page?.width ?? place.width}px`;
-  frame.style.height = `${page?.height ?? place.height}px`;
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
-  showBrowser(bars, page, place);
+  showBrowser(bars, page, place, auto);
   drawing.style.width = `${place.box.width}px`;
   drawing.style.height = `${place.box.height}px`;
   // The wrapper starts at the mock's corner, and the frame sits in it by as much.
@@ -998,7 +1008,8 @@ function open(): void {
   pageBox.className = "page";
   pageBox.append(frame);
   glass.append(pageBox);
-  browser = createBrowser(glass, frame);
+  // The page's scroll minimizing or bringing back the bars resizes the frame.
+  browser = createBrowser(glass, frame, resize);
   screen.append(glass);
   drawing.append(screen);
   stage.append(drawing);

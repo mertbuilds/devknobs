@@ -517,3 +517,53 @@ export function barsOf(
   if (chrome) return chromeBars(device, chrome, orientation, layout, minimized);
   return null;
 }
+
+/**
+ * How the bars follow the page's scroll, as Safari and Chrome do: a scroll
+ * down minimizes them, a deliberate scroll up or the top of the page brings
+ * them back, and so do a tap on the minimized bar and a new page.
+ */
+export interface BarsMotion {
+  minimized: boolean;
+  /** The scroll position the travel since the last turn counts from. */
+  anchor: number;
+  /** The scroll position last seen. */
+  y: number;
+  /** Until when scrolls are the page settling into a new viewport, not the user's. */
+  lockUntil: number;
+}
+
+export type BarsEvent =
+  | { type: "scroll"; y: number; time: number }
+  | { type: "tap" }
+  | { type: "navigate" }
+  /** The frame was resized for the bars, at `time`. */
+  | { type: "resize"; time: number };
+
+/** Downward travel that minimizes, and upward travel that brings the bars back, in css px. */
+export const BARS_DOWN = 16;
+export const BARS_UP = 40;
+/** At or above this the page is at its top, where the bars always show. */
+const BARS_TOP = 1;
+/** How long the scrolls after a resize of the frame are its own, in ms. */
+export const BARS_LOCK = 450;
+
+export const BARS_START: BarsMotion = { minimized: false, anchor: 0, y: 0, lockUntil: 0 };
+
+export function barsStep(state: BarsMotion, event: BarsEvent): BarsMotion {
+  if (event.type === "navigate") return BARS_START;
+  if (event.type === "tap") return { ...state, minimized: false, anchor: state.y };
+  if (event.type === "resize") return { ...state, lockUntil: event.time + BARS_LOCK };
+  const { y, time } = event;
+  // The page moving under a resize is not the user scrolling: count from here.
+  if (time < state.lockUntil) return { ...state, y, anchor: y };
+  if (y <= BARS_TOP) return { ...state, minimized: false, y, anchor: y };
+  if (state.minimized) {
+    const anchor = Math.max(state.anchor, y);
+    if (anchor - y >= BARS_UP) return { ...state, minimized: false, y, anchor: y };
+    return { ...state, y, anchor };
+  }
+  const anchor = Math.min(state.anchor, y);
+  if (y - anchor >= BARS_DOWN) return { ...state, minimized: true, y, anchor: y };
+  return { ...state, y, anchor };
+}

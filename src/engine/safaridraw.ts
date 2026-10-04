@@ -1,5 +1,5 @@
 import type { Actions, Look, Shapes } from "./browserkit";
-import { el, glyphAt, place, svgNode } from "./browserkit";
+import { assemble, el, glyphAt, place, svgNode } from "./browserkit";
 import type { Bars, Fade, Glyph, Shape, StatusBar } from "./browserui";
 
 /**
@@ -59,6 +59,7 @@ export const SAFARI_CSS = `
   transform: translateX(-50%);
   white-space: nowrap;
 }
+.safari .pill.press { cursor: pointer; }
 .safari .time { font-weight: 600; letter-spacing: -0.3px; transform: translate(-50%, -50%); }
 .safari .status { fill: currentColor; }
 .safari .home { border-radius: 3px; background: rgba(0, 0, 0, 0.82); }
@@ -191,6 +192,12 @@ function statusBar(status: StatusBar): Element[] {
 function shapeNodes(shape: Shape, look: Look, actions: Actions): Element[] {
   if (shape.kind === "pill") {
     const pill = el("div", "pill", look.host);
+    // A tap on it brings the bars back, where they follow the scroll.
+    const expand = actions.expand;
+    if (expand) {
+      pill.classList.add("press");
+      pill.addEventListener("click", expand);
+    }
     pill.style.left = `${shape.x}px`;
     pill.style.top = `${shape.y}px`;
     pill.style.height = `${shape.height}px`;
@@ -232,6 +239,7 @@ function shapeNodes(shape: Shape, look: Look, actions: Actions): Element[] {
  */
 function fadeNode(fade: Fade, look: Look): HTMLElement {
   const node = el("div", "fade");
+  node.dataset.key = "fade";
   node.style.cssText = `left: 0; right: 0; top: ${fade.y}px; height: ${fade.height}px`;
   // The page's color, `rgb(r, g, b)`, at each stop's opacity.
   const color = (alpha: number) => look.background.replace(/^rgb\((.*)\)$/, `rgba($1, ${alpha})`);
@@ -245,13 +253,18 @@ export function paintSafari(bars: Bars, look: Look, actions: Actions): Element[]
   root.style.inset = "0";
   const nodes: Element[] = [];
   if (bars.fade) nodes.push(fadeNode(bars.fade, look));
-  if (bars.status) nodes.push(...statusBar(bars.status));
+  if (bars.status) {
+    const status = statusBar(bars.status);
+    for (const node of status) node.setAttribute("data-still", "");
+    nodes.push(...status);
+  }
   for (const shape of bars.shapes) nodes.push(...shapeNodes(shape, look, actions));
   if (bars.handle) {
     const home = el("div", "home");
+    home.dataset.still = "";
     place(home, bars.handle.x, bars.handle.y, bars.handle.width, bars.handle.height);
     nodes.push(home);
   }
-  root.append(...nodes);
+  assemble(root, nodes);
   return [root];
 }

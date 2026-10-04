@@ -1,6 +1,6 @@
 import type { Bars, Glyph, StatusBar } from "./browserui";
 import type { Look, Shapes } from "./browserkit";
-import { el, glyphAt, place, svgNode } from "./browserkit";
+import { assemble, el, glyphAt, place, svgNode } from "./browserkit";
 import type { Rect } from "./mock";
 
 /**
@@ -128,7 +128,9 @@ export function paintChrome(bars: Bars, look: Look): Element[] {
     const clock = el("div", `clock ${ink}`, "9:41");
     clock.style.left = `${status.time.x}px`;
     clock.style.top = `${status.time.y}px`;
-    nodes.push(clock, ...statusIcons(status, ink));
+    const still = [clock, ...statusIcons(status, ink)];
+    for (const node of still) node.setAttribute("data-still", "");
+    nodes.push(...still);
   }
   if (bars.chin) nodes.push(box("surface", bars.chin));
   for (const shape of bars.shapes) {
@@ -147,9 +149,11 @@ export function paintChrome(bars: Bars, look: Look): Element[] {
   if (bars.hairline) nodes.push(box("hairline", bars.hairline));
   if (bars.handle) {
     const ink = bars.chin ? barInk : pageInk;
-    nodes.push(box(`handle ${ink}`, bars.handle));
+    const handle = box(`handle ${ink}`, bars.handle);
+    handle.dataset.still = "";
+    nodes.push(handle);
   }
-  root.append(...nodes);
+  assemble(root, nodes);
   return [root];
 }
 

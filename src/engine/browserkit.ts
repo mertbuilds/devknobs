@@ -22,6 +22,8 @@ export interface Actions {
   back(): void;
   forward(): void;
   reload(): void;
+  /** Bring the minimized bars back, where they follow the scroll. */
+  expand?: () => void;
 }
 
 /** The system font, never a bundled one. */
@@ -80,3 +82,17 @@ export function glyphAt(
   return svg;
 }
 
+
+/**
+ * Fill a painted root: the parts with a key (the scroll edge) under the bars,
+ * the bars in one group that morphs as a whole, and what stands still (the
+ * status bar, the home indicator) over them.
+ */
+export function assemble(root: HTMLElement, nodes: Element[]): void {
+  const keyed = nodes.filter((node) => node.hasAttribute("data-key"));
+  const still = nodes.filter((node) => node.hasAttribute("data-still"));
+  const group = el("div", "group");
+  group.style.inset = "0";
+  group.append(...nodes.filter((node) => !keyed.includes(node) && !still.includes(node)));
+  root.append(...keyed, group, ...still);
+}

@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BARS_DOWN,
+  BARS_LOCK,
+  BARS_START,
+  BARS_UP,
+  type BarsEvent,
+  type BarsMotion,
   barsOf,
+  barsStep,
   type BrowserLayout,
   layoutOf,
   layoutOptions,
@@ -259,5 +266,56 @@ describe("bars", () => {
   test("nothing for the browser off or a device without one", () => {
     expect(barsOf(pro, "portrait", "off", false)).toBeNull();
     expect(barsOf(device("ipad-mini"), "portrait", null, false)).toBeNull();
+  });
+});
+
+describe("barsStep", () => {
+  const run = (events: BarsEvent[], from: BarsMotion = BARS_START) =>
+    events.reduce((state, event) => barsStep(state, event), from);
+  const scroll = (y: number, time = 1000): BarsEvent => ({ type: "scroll", y, time });
+
+  test("minimizes once the page has gone down far enough, not before", () => {
+    expect(run([scroll(5), scroll(10)]).minimized).toBe(false);
+    expect(run([scroll(5), scroll(10), scroll(BARS_DOWN)]).minimized).toBe(true);
+    expect(run([scroll(300)]).minimized).toBe(true);
+  });
+
+  test("counts the way down from the lowest point, so jitter does not minimize", () => {
+    const jitter = [scroll(100), scroll(95), scroll(102), scroll(97), scroll(104)];
+    const expanded = { ...BARS_START, y: 100, anchor: 100 };
+    expect(run(jitter, expanded).minimized).toBe(false);
+  });
+
+  test("comes back on a deliberate scroll up, not on a small one", () => {
+    const down = run([scroll(400)]);
+    expect(down.minimized).toBe(true);
+    expect(run([scroll(420), scroll(390)], down).minimized).toBe(true);
+    expect(run([scroll(420), scroll(420 - BARS_UP + 1)], down).minimized).toBe(true);
+    expect(run([scroll(420), scroll(420 - BARS_UP)], down).minimized).toBe(false);
+  });
+
+  test("comes back at the top of the page, on a tap and on a new page", () => {
+    const down = run([scroll(30)]);
+    expect(run([scroll(0)], down).minimized).toBe(false);
+    expect(run([{ type: "tap" }], down).minimized).toBe(false);
+    expect(run([{ type: "navigate" }], down)).toEqual(BARS_START);
+  });
+
+  test("a tap counts the next way down from where the page is", () => {
+    const tapped = run([scroll(500), { type: "tap" }]);
+    expect(run([scroll(510)], tapped).minimized).toBe(false);
+    expect(run([scroll(500 + BARS_DOWN)], tapped).minimized).toBe(true);
+  });
+
+  test("the page settling into a resized frame never flips the bars", () => {
+    const down = run([scroll(400, 1000), { type: "resize", time: 1000 }]);
+    // The taller viewport clamps the scroll up by 100: still minimized.
+    const settled = run([scroll(300, 1100), scroll(300, 1300)], down);
+    expect(settled.minimized).toBe(true);
+    // After the lock the user's way up counts from where the page settled.
+    expect(run([scroll(300 - BARS_UP + 1, 1000 + BARS_LOCK)], settled).minimized).toBe(true);
+    expect(run([scroll(300 - BARS_UP, 1000 + BARS_LOCK)], settled).minimized).toBe(false);
+    const up = run([scroll(10, 1000), { type: "resize", time: 1000 }, scroll(90, 1200)]);
+    expect(up.minimized).toBe(false);
   });
 });

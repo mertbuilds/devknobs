@@ -269,7 +269,7 @@ reports to it from its first render.
 | mock | on, off | draws a phone's or tablet's body around its frame. on by default, and only offered while a phone or tablet is picked. see devices below |
 | touch pointer | on, off | the mouse acts as a finger inside a touch device's frame, like the devtools device toolbar: a round cursor, touch events, `pointerType: "touch"`, no hover, drag to scroll. on by default, and only offered while a device with a touch screen is picked. see devices below |
 | browser | compact, bottom, top, off on an iPhone; top, bottom, off on an Android phone | draws the phone's browser in its screen around the page, Safari on an iPhone and Chrome on an Android phone, and makes the frame the viewport that browser leaves the page. on by default with the browser's own default layout, and only offered while a phone is picked. see devices below |
-| bars | expanded, minimized | the browser's bars as they stand, or minimized as after a scroll down, which gives the page more height. only offered while the browser is drawn |
+| bars | auto, expanded, minimized | auto follows the page's scroll as the phone does: a scroll down of 16 px minimizes the bars, which gives the page more height, and a scroll up of 40 px, the top of the page, a tap on the minimized address or a new page brings them back. expanded and minimized hold them one way. only offered while the browser is drawn |
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
@@ -375,8 +375,14 @@ would on the phone, and the readout says that size: an iPhone 16 Pro gives
 402 × 714 in Safari's compact layout, 402 × 654 with the bar at the bottom and
 402 × 660 at the top, and a Pixel 9 412 × 777 with Chrome's toolbar. the
 browser knob picks the layout, Safari's compact, bottom or top and Chrome's
-top or bottom, or off for the whole screen, and the bars knob minimizes the
-bars as a scroll down would. turned across, Safari keeps one row at the top
+top or bottom, or off for the whole screen, and the bars minimize and come
+back with the page's scroll, or stay one way with the bars knob. they morph in
+320 ms with an ease out: Safari's bars shrink into the address pill and grow
+back out of it, Chrome's toolbar slides away, and the scroll edge moves with
+them. the page gets one resize for each change, at the start when its
+viewport grows and at the end when it shrinks, so no gap shows, and its own
+scrolling as it settles never flips the bars again. with reduced motion in
+the browser the bars just switch. turned across, Safari keeps one row at the top
 and leaves room for the island at both sides. Safari's numbers are measured in
 iOS 26.5 Safari, Chrome's come from the Chromium and AOSP sources, and the
 Galaxy status bar height is an estimate. the screen around the bars takes the
@@ -546,9 +552,9 @@ hover and `pointerType: "mouse"`. `ontouchstart` is on the window only, not on
 elements or the document. `screen.width`,
 `screen.height` and `screen.orientation` keep the real screen's.
 
-the browser drawn around a phone's frame stands still. its bars do not
-minimize on a scroll (the bars knob does it), and the page is not drawn under
-the glass: the screen there takes the page's background color, and Safari's
+the bars follow the scroll of the document only, as on the phone, so a page
+that scrolls an inner box keeps them as they are, and they do not come back
+at the bottom of the page. the page is not drawn under the glass: the screen there takes the page's background color, and Safari's
 scroll edge fades the last 64 px of the page into that color, eased from
 clear to 0.85 opaque at the frame's end and 0.92 at the bottom, where on the
 phone the page runs on under the bars. the top edge has no fade, as Safari
