@@ -4,6 +4,7 @@ import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
 import { DEFAULT_STATE } from "../engine/store";
 import { canonicalZone, TIME_ZONE_PRESETS } from "../engine/time";
+import { GRAB_COLOR_NAMES, GRAB_COLORS } from "../grab/colors";
 import { UA_PRESETS, uaPreset } from "../engine/ua";
 import { percent, ZOOM_MAX, ZOOM_MIN, ZOOM_PRESETS } from "../engine/zoom";
 import type {
@@ -14,6 +15,7 @@ import type {
   DevknobsStatePatch,
   DirValue,
   GeoErrorValue,
+  GrabColorValue,
   MotionValue,
   OnlineValue,
   SaveDataValue,
@@ -49,8 +51,11 @@ export const CATEGORIES: readonly Category[] = [
   "debug",
 ];
 
-/** How an editor sets the knob: on and off, a few choices, number chips, or a long list. */
-export type Control = "switch" | "segments" | "chips" | "list";
+/**
+ * How an editor sets the knob: on and off, a few choices, colors to pick
+ * from, number chips, or a long list.
+ */
+export type Control = "switch" | "segments" | "swatches" | "chips" | "list";
 
 export interface Option {
   /** What the knob is set to, as text. */
@@ -65,6 +70,8 @@ export interface Option {
   opens?: boolean;
   /** The heading a long list shows it under. */
   group?: string;
+  /** What a swatch is painted with, as a css background. */
+  swatch?: string;
 }
 
 /** What changes without a knob moving. */
@@ -106,7 +113,8 @@ export type KnobId =
   | "vision"
   | "ua"
   | "overflow"
-  | "outlines";
+  | "outlines"
+  | "grabColor";
 
 export interface Knob {
   id: KnobId;
@@ -152,7 +160,8 @@ export type RowId =
   | "network"
   | "viewport"
   | "ua"
-  | "debug";
+  | "debug"
+  | "grabColor";
 
 /** One line of the active list, with the knobs that read best together. */
 export interface Row {
@@ -885,6 +894,37 @@ const OUTLINES: Knob = {
   brief: () => "outlines",
 };
 
+/** Half blue and half green: the two colors grab picks from on its own. */
+const AUTO_SWATCH = [
+  "linear-gradient(135deg",
+  `${GRAB_COLORS.blue.srgb} 50%`,
+  `${GRAB_COLORS.green.srgb} 50%)`,
+].join(", ");
+
+const GRAB_COLOR: Knob = {
+  id: "grabColor",
+  label: "grab color",
+  category: "debug",
+  control: "swatches",
+  options: [
+    {
+      value: "auto",
+      label: "auto",
+      aliases: ["automatic"],
+      swatch: AUTO_SWATCH,
+    },
+    ...GRAB_COLOR_NAMES.map((name) => ({
+      value: name,
+      label: name,
+      swatch: GRAB_COLORS[name].srgb,
+    })),
+  ],
+  aliases: ["highlight", "overlay"],
+  read: (state) => state.grabColor,
+  write: (value) => ({ grabColor: value as GrabColorValue }),
+  reset: { grabColor: DEFAULT_STATE.grabColor },
+};
+
 /**
  * Every knob, in the order search breaks ties by, the most asked for first:
  * `reduce` is motion before it is transparency. The browse list keeps this
@@ -920,6 +960,7 @@ export const KNOBS: readonly Knob[] = [
   UA,
   OVERFLOW,
   OUTLINES,
+  GRAB_COLOR,
 ];
 
 export const ROWS: readonly Row[] = [
@@ -942,6 +983,7 @@ export const ROWS: readonly Row[] = [
   },
   { id: "ua", label: "user agent", knobs: ["ua"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },
+  { id: "grabColor", label: "grab color", knobs: ["grabColor"] },
 ];
 
 export function knobOf(id: KnobId): Knob {

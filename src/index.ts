@@ -7,6 +7,7 @@ import { TIME_ZONE_PRESETS } from "./engine/time";
 import { UA_PRESETS } from "./engine/ua";
 import { createGrab, type GrabControl } from "./grab/control";
 import type { GrabOptions, GrabPayload } from "./grab/types";
+import type { GrabColorValue } from "./types";
 import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
@@ -22,6 +23,7 @@ export type {
   EdgeValue,
   GeoErrorValue,
   GeoValue,
+  GrabColorValue,
   HeightValue,
   Knob,
   LocaleValue,
@@ -56,6 +58,11 @@ export interface MountOptions extends engine.EngineOptions {
   grab?: boolean;
   /** The key held to grab, such as `alt+shift+g`. Defaults to meta or ctrl with c. */
   grabKey?: string;
+  /**
+   * The color grab draws its boxes in. Defaults to the stored one, `auto` at
+   * first: blue, and green where the page behind the element is blue.
+   */
+  grabColor?: GrabColorValue;
 }
 
 export const PRESETS = {
@@ -86,6 +93,7 @@ export function mount(options: MountOptions = {}): void {
     return;
   }
   if (options.open !== undefined) engine.setState({ panel: { open: options.open } });
+  if (options.grabColor !== undefined) engine.setState({ grabColor: options.grabColor });
   panel = createPanel({ hotkey: options.hotkey, grab: grabControl });
 }
 

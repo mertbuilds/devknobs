@@ -114,6 +114,12 @@ export type VisionValue =
   | "achromatopsia"
   | "blur";
 
+/**
+ * The color grab draws its boxes in. `auto` is blue, and green where the page
+ * behind the element is blue.
+ */
+export type GrabColorValue = "auto" | "blue" | "green" | "pink" | "orange" | "purple" | "cyan";
+
 export interface UaValue {
   /**
    * A preset id such as `iphone-safari`, `custom` to use the custom string, or
@@ -178,6 +184,7 @@ export interface DevknobsState {
   /** Mark the boxes that stick out of the viewport sideways. */
   overflow: boolean;
   outlines: boolean;
+  grabColor: GrabColorValue;
   panel: PanelValue;
 }
 

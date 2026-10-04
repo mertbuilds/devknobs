@@ -138,14 +138,8 @@ export function decideTheme(signals: ThemeSignals): Theme {
   );
 }
 
-/** The color grab draws its boxes and its glow in. */
+/** The color grab draws in where it picks its own: blue, or green on a blue page. */
 export type GrabTone = "blue" | "green";
-
-/** Each tone as the `--grab` variable takes it, in sRGB and wider in P3. */
-export const GRAB_COLORS: Record<GrabTone, { srgb: string; p3: string }> = {
-  blue: { srgb: "rgb(41, 151, 255)", p3: "color(display-p3 0.2 0.6 1)" },
-  green: { srgb: "rgb(48, 209, 88)", p3: "color(display-p3 0.25 0.85 0.4)" },
-};
 
 /** The hues a blue goes from and to, in degrees. */
 const BLUE_HUES = [190, 260] as const;

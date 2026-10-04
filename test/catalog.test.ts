@@ -63,6 +63,7 @@ const BUSY = state({
   ua: { preset: "iphone-safari" },
   overflow: true,
   outlines: true,
+  grabColor: "pink",
 });
 
 describe("catalog", () => {
@@ -364,6 +365,45 @@ describe("the device knob", () => {
       "laptop",
       "desktop",
     ]);
+  });
+});
+
+describe("grab color", () => {
+  const knob = knobOf("grabColor");
+
+  test("is a row of its own, with a swatch for auto and for each color", () => {
+    expect(rowOf("grabColor")).toEqual({
+      id: "grabColor",
+      label: "grab color",
+      knobs: ["grabColor"],
+    });
+    expect(knob.control).toBe("swatches");
+    expect(knob.options.map((option) => option.value)).toEqual([
+      "auto",
+      "blue",
+      "green",
+      "pink",
+      "orange",
+      "purple",
+      "cyan",
+    ]);
+    for (const option of knob.options) expect(option.swatch).toBeTruthy();
+    expect(knob.options.find((option) => option.value === "pink")?.swatch).toBe(
+      "rgb(210, 57, 192)",
+    );
+  });
+
+  test("reads and writes the state, and goes back to auto", () => {
+    expect(knob.read(DEFAULT_STATE)).toBe("auto");
+    const pink = merge(DEFAULT_STATE, knob.write("pink", DEFAULT_STATE));
+    expect(pink.grabColor).toBe("pink");
+    expect(merge(pink, knob.reset).grabColor).toBe("auto");
+  });
+
+  test("says the name of the color in its row", () => {
+    expect(says("grabColor", { grabColor: "pink" })).toBe("pink");
+    expect(says("grabColor", { grabColor: "blue" })).toBe("blue");
+    expect(says("grabColor", { grabColor: "auto" })).toBe("");
   });
 });
 

@@ -38,6 +38,7 @@ describe("parse", () => {
         ua: { preset: "iphone-safari", custom: 3 },
         overflow: true,
         outlines: "yes",
+        grabColor: "teal",
         panel: {
           open: false,
           y: 40,
@@ -74,6 +75,7 @@ describe("parse", () => {
       ua: { preset: "iphone-safari", custom: "" },
       overflow: true,
       outlines: false,
+      grabColor: "auto",
       panel: {
         open: false,
         y: 40,
@@ -83,6 +85,16 @@ describe("parse", () => {
         pinned: ["scheme", "clock"],
       },
     });
+  });
+
+  test("lets grab pick its color, and keeps one stored", () => {
+    expect(DEFAULT_STATE.grabColor).toBe("auto");
+    expect(parse(JSON.stringify({ scheme: "dark" })).grabColor).toBe("auto");
+    expect(parse(JSON.stringify({ grabColor: "magenta" })).grabColor).toBe("auto");
+    expect(parse(JSON.stringify({ grabColor: 3 })).grabColor).toBe("auto");
+    for (const color of ["auto", "blue", "green", "pink", "orange", "purple", "cyan"] as const) {
+      expect(parse(JSON.stringify({ grabColor: color })).grabColor).toBe(color);
+    }
   });
 
   test("starts the panel closed, and keeps one stored open", () => {

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { GRAB_COLOR_NAMES, GRAB_COLORS, grabColor } from "../src/grab/colors";
 import {
   backgroundTheme,
   decideGrab,
   decideTheme,
-  GRAB_COLORS,
   type GrabSignals,
   invertTheme,
   isBlue,
@@ -286,8 +286,22 @@ describe("decideGrab", () => {
   });
 });
 
+describe("grabColor", () => {
+  test("goes by the page with auto", () => {
+    expect(grabColor("auto", "blue")).toBe("blue");
+    expect(grabColor("auto", "green")).toBe("green");
+  });
+
+  test("keeps a picked color whatever the page", () => {
+    expect(grabColor("blue", "green")).toBe("blue");
+    expect(grabColor("pink", "green")).toBe("pink");
+    expect(grabColor("cyan", "blue")).toBe("cyan");
+  });
+});
+
 describe("GRAB_COLORS", () => {
-  test("gives each tone an sRGB color and a P3 one", () => {
+  test("gives each color an sRGB value and a P3 one", () => {
+    expect(GRAB_COLOR_NAMES).toEqual(["blue", "green", "pink", "orange", "purple", "cyan"]);
     expect(GRAB_COLORS.blue).toEqual({
       srgb: "rgb(41, 151, 255)",
       p3: "color(display-p3 0.2 0.6 1)",
@@ -296,6 +310,10 @@ describe("GRAB_COLORS", () => {
       srgb: "rgb(48, 209, 88)",
       p3: "color(display-p3 0.25 0.85 0.4)",
     });
+    for (const name of GRAB_COLOR_NAMES) {
+      expect(parseColor(GRAB_COLORS[name].srgb)).not.toBeNull();
+      expect(GRAB_COLORS[name].p3).toStartWith("color(display-p3 ");
+    }
   });
 
   test("has a green that is not a blue, to stand out where the blue does not", () => {

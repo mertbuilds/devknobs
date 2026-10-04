@@ -402,6 +402,30 @@ export function createPanel(options: PanelOptions = {}): Panel {
     ];
   }
 
+  /** Colors as swatches, the one that is on with a ring around it. */
+  function swatches(knob: Knob): [HTMLElement, Update] {
+    const track = el("div", "swatches");
+    track.setAttribute("role", "radiogroup");
+    track.setAttribute("aria-label", knob.label);
+    const items = knob.options.map((option) => {
+      const node = button("swatch", "");
+      node.setAttribute("role", "radio");
+      node.setAttribute("aria-label", option.label);
+      node.title = option.label;
+      node.style.background = option.swatch ?? "";
+      node.addEventListener("click", () => set(knob, option.value));
+      track.append(node);
+      return { node, value: option.value };
+    });
+    return [
+      track,
+      (state) => {
+        const current = knob.read(state);
+        for (const item of items) mark(item.node, item.value === current, "aria-checked");
+      },
+    ];
+  }
+
   /**
    * Presets as chips. A value set some other way, from search say, shows as a
    * chip of its own, or in the custom field where the knob has one.
@@ -529,6 +553,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   function control(knob: Knob): [HTMLElement, Update] {
     if (knob.control === "switch") return toggleSwitch(knob);
     if (knob.control === "segments") return segments(knob);
+    if (knob.control === "swatches") return swatches(knob);
     if (knob.control === "list") return list(knob);
     return chips(knob, knob.id === "width" ? widthField : null);
   }

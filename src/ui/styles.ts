@@ -281,6 +281,18 @@ button:focus-visible, a:focus-visible { outline: 1px solid var(--faint); outline
 .seg-item:hover { color: var(--fg); }
 .seg-item.on { color: var(--fg); background: var(--raised); box-shadow: var(--lift); }
 
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 3px 5px; }
+.swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 3px transparent;
+  transition: box-shadow 120ms ease-out;
+}
+.swatch:hover { box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--faint); }
+.swatch.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--fg); }
+.swatch:focus-visible { outline-offset: 4px; }
+
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip {
   height: 22px;

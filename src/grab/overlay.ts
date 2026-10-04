@@ -1,5 +1,7 @@
+import { getState, subscribe } from "../engine";
 import { baseMatchMedia } from "../engine/matchmedia";
-import { createThemeReader, GRAB_COLORS, invertTheme } from "./theme";
+import { GRAB_COLOR_NAMES, GRAB_COLORS, grabColor } from "./colors";
+import { createThemeReader, type GrabTone, invertTheme } from "./theme";
 
 /** Over everything, the panel too. It never takes a pointer. */
 const Z_INDEX = 2147483647;
@@ -35,10 +37,16 @@ export const TOAST_TIME = 1500;
 /** How long the toast takes to come in, in ms. */
 const TOAST_FADE = 100;
 
+function colorRules(gamut: "srgb" | "p3"): string {
+  return GRAB_COLOR_NAMES.map(
+    (name) => `.layer[data-grab="${name}"] { --grab: ${GRAB_COLORS[name][gamut]}; }`,
+  ).join("\n");
+}
+
 /**
- * One color for the boxes and the glow, wider where the screen shows P3: a
- * blue, and a green where the page is blue. The label goes by the page:
- * light on a dark one, dark on a light one.
+ * One color for the boxes and the glow, wider where the screen shows P3: the
+ * one picked, or a blue, and a green where the page is blue. The label goes
+ * by the page: light on a dark one, dark on a light one.
  */
 const CSS = `
 .layer {
@@ -55,10 +63,9 @@ const CSS = `
   line-height: 16px;
   -webkit-font-smoothing: antialiased;
 }
-.layer[data-grab="green"] { --grab: ${GRAB_COLORS.green.srgb}; }
+${colorRules("srgb")}
 @media (color-gamut: p3) {
-  .layer { --grab: ${GRAB_COLORS.blue.p3}; }
-  .layer[data-grab="green"] { --grab: ${GRAB_COLORS.green.p3}; }
+${colorRules("p3")}
 }
 .glow {
   position: absolute;
@@ -337,6 +344,9 @@ export function createOverlay(): Overlay {
   const reduce = baseMatchMedia("(prefers-reduced-motion: reduce)");
   const radii = new WeakMap<Element, number>();
   const read = createThemeReader();
+  /** The color picked in the panel, and the tone the page asks for where it is `auto`. */
+  let color = getState().grabColor;
+  let tone: GrabTone = "blue";
   /** The element the box is on, or on its way to. */
   let element: Element | null = null;
   /** The element the target was last read from. */
@@ -370,6 +380,10 @@ export function createOverlay(): Overlay {
 
   function still(): void {
     layer.toggleAttribute("data-still", reduce.matches);
+  }
+
+  function paint(): void {
+    layer.dataset.grab = grabColor(color, tone);
   }
 
   function schedule(): void {
@@ -421,7 +435,8 @@ export function createOverlay(): Overlay {
     if (element || toasting) {
       const { theme, grab } = read(element);
       label.dataset.bar = invertTheme(theme);
-      layer.dataset.grab = grab;
+      tone = grab;
+      paint();
     }
     if (!element) {
       measured = null;
@@ -526,10 +541,16 @@ export function createOverlay(): Overlay {
     window.removeEventListener("scroll", sync, true);
     window.removeEventListener("resize", sync);
     reduce.removeEventListener("change", still);
+    stopColor();
     host.remove();
   }
 
   still();
+  paint();
+  const stopColor = subscribe((state) => {
+    color = state.grabColor;
+    paint();
+  });
   reduce.addEventListener("change", still);
   window.addEventListener("scroll", sync, { capture: true, passive: true });
   window.addEventListener("resize", sync);

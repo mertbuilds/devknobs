@@ -7,6 +7,7 @@ import type {
   DirValue,
   EdgeValue,
   GeoErrorValue,
+  GrabColorValue,
   MotionValue,
   OnlineValue,
   OrientationValue,
@@ -56,6 +57,7 @@ export const DEFAULT_STATE: DevknobsState = {
   ua: { preset: "system", custom: "" },
   overflow: false,
   outlines: false,
+  grabColor: "auto",
   // Closed, the handle alone, until the user opens it.
   panel: { open: false, y: 16, top: 16, edge: "none", tab: "none", pinned: [] },
 };
@@ -79,6 +81,16 @@ const VISIONS: VisionValue[] = [
   "tritanopia",
   "achromatopsia",
   "blur",
+];
+
+const GRAB_COLORS: GrabColorValue[] = [
+  "auto",
+  "blue",
+  "green",
+  "pink",
+  "orange",
+  "purple",
+  "cyan",
 ];
 
 function record(value: unknown): Record<string, unknown> {
@@ -192,6 +204,8 @@ export function parse(json: string | null | undefined): DevknobsState {
     },
     overflow: bool(state.overflow, DEFAULT_STATE.overflow),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
+    // A session stored before grab had a color to pick lets grab pick it.
+    grabColor: oneOf(state.grabColor, GRAB_COLORS, DEFAULT_STATE.grabColor),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),
       y: panelY,

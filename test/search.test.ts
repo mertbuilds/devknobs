@@ -21,6 +21,13 @@ describe("words", () => {
 });
 
 describe("search", () => {
+  test("finds a grab color by the knob and the color", () => {
+    expect(top("grab color pink")).toEqual(["grabColor pink"]);
+    expect(top("grab blue")).toEqual(["grabColor blue"]);
+    expect(top("grab color")).toEqual(["grabColor -"]);
+    expect(top("pink")).toEqual(["grabColor pink"]);
+  });
+
   test("a value alone finds its knob", () => {
     expect(top("dark")).toEqual(["scheme dark"]);
     expect(top("390")).toEqual(["width 390"]);
