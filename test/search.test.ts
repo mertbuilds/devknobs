@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { KNOBS, knobOf } from "../src/ui/catalog";
-import { filterOptions, resultText, search, words } from "../src/ui/search";
+import { filterOptions, resultText, search, searchActions, words } from "../src/ui/search";
 
 const DAY = 86_400_000;
 
@@ -21,6 +21,13 @@ describe("words", () => {
 });
 
 describe("search", () => {
+  test("finds a grab color by the knob and the color", () => {
+    expect(top("grab color pink")).toEqual(["grabColor pink"]);
+    expect(top("grab blue")).toEqual(["grabColor blue"]);
+    expect(top("grab color")).toEqual(["grabColor -"]);
+    expect(top("pink")).toEqual(["grabColor pink"]);
+  });
+
   test("a value alone finds its knob", () => {
     expect(top("dark")).toEqual(["scheme dark"]);
     expect(top("390")).toEqual(["width 390"]);
@@ -50,10 +57,34 @@ describe("search", () => {
 
   test("aliases", () => {
     expect(top("dark mode")).toEqual(["scheme dark"]);
-    expect(top("phone")).toEqual(["width 390"]);
+    expect(top("mobile")).toEqual(["width 390"]);
     expect(top("turkish")).toEqual(["locale tr"]);
     expect(top("high contrast")).toEqual(["contrast more"]);
     expect(top("retina")).toEqual(["dpr 2"]);
+  });
+
+  test("devices by name, kind and browser, and a size typed out", () => {
+    expect(top("iphone")).toEqual(["device iphone-18-pro"]);
+    expect(top("iphone pro max")).toEqual(["device iphone-18-pro-max"]);
+    expect(top("iphone 16 pro max")).toEqual(["device iphone-16-pro-max"]);
+    expect(top("duo open")).toEqual(["device iphone-duo-open"]);
+    expect(top("air")).toEqual(["device iphone-air"]);
+    expect(top("pixel")).toEqual(["device pixel-10"]);
+    expect(top("pixel 9 pro xl")).toEqual(["device pixel-9-pro-xl"]);
+    expect(top("pixel 10a")).toEqual(["device pixel-10a"]);
+    expect(top("ipad")).toEqual(["device ipad-mini"]);
+    expect(top("macbook")).toEqual(["device macbook-air-13"]);
+    expect(top("phone")).toEqual(["device iphone-18-pro"]);
+    expect(top("tablet", 3)).toEqual([
+      "device ipad-mini",
+      "device ipad-air-11",
+      "device ipad-pro-13",
+    ]);
+    expect(top("android")).toEqual(["device pixel-10"]);
+    expect(top("landscape")).toEqual(["device landscape"]);
+    expect(top("rotate")).toEqual(["device -"]);
+    expect(top("390x844")).toEqual(["device 390x844"]);
+    expect(top("390 × 844")).toEqual(["device 390x844"]);
   });
 
   test("one word, every knob it names a value of", () => {
@@ -85,6 +116,13 @@ describe("search", () => {
     expect(top("paris")).toEqual(["timeZone Europe/Paris"]);
   });
 
+  test("zoom by its percent, typed out too, and fit", () => {
+    expect(top("zoom 50")).toEqual(["zoom 0.5"]);
+    expect(top("zoom 125%")).toEqual(["zoom 1.25"]);
+    expect(top("zoom 80")).toEqual(["zoom 0.8"]);
+    expect(top("fit")).toEqual(["zoom fit"]);
+  });
+
   test("a bare number names no text size or dpr, the knob's name does", () => {
     expect(top("text 18")).toEqual(["text 18"]);
     expect(top("dpr 1.5")).toEqual(["dpr 1.5"]);
@@ -99,6 +137,18 @@ describe("search", () => {
 
   test("shows a bounded list", () => {
     expect(search("a", KNOBS).length).toBeLessThanOrEqual(40);
+  });
+
+  test("user agent presets by browser, system or bot", () => {
+    expect(top("ua")).toEqual(["ua -"]);
+    expect(top("user agent")).toEqual(["ua -"]);
+    expect(top("ua android")).toEqual(["ua android-chrome"]);
+    expect(top("googlebot")).toEqual(["ua googlebot"]);
+    expect(top("bot")).toEqual(["ua googlebot"]);
+    expect(top("firefox")).toEqual(["ua linux-firefox"]);
+    expect(top("ua iphone")).toEqual(["ua iphone-safari"]);
+    expect(top("ua curl/8.7.1")).toEqual(["ua curl/8.7.1"]);
+    expect(search("europe/paris", KNOBS).some((result) => result.knob.id === "ua")).toBe(false);
   });
 
   test("leaves out the knobs the browser cannot use", () => {
@@ -140,5 +190,32 @@ describe("filterOptions", () => {
     expect(filterOptions(knobOf("locale"), "pt-br").map((option) => option.value)).toEqual([
       "pt-BR",
     ]);
+    expect(filterOptions(knobOf("ua"), "curl/8.7.1").map((option) => option.value)).toEqual([
+      "curl/8.7.1",
+    ]);
+    expect(filterOptions(knobOf("ua"), "safari").map((option) => option.value)).toEqual([
+      "iphone-safari",
+      "ipad-safari",
+      "mac-safari",
+    ]);
+  });
+});
+
+describe("searchActions", () => {
+  test("finds grab by its name and its aliases", () => {
+    for (const query of ["grab", "gra", "inspect", "pick", "pick element"]) {
+      expect(searchActions(query).map((action) => action.id)).toEqual(["grab"]);
+    }
+  });
+
+  test("finds replay animations by what it does", () => {
+    for (const query of ["replay", "animations", "restart", "replay animations"]) {
+      expect(searchActions(query).map((action) => action.id)).toEqual(["replay"]);
+    }
+  });
+
+  test("finds nothing for no query or a knob", () => {
+    expect(searchActions("")).toEqual([]);
+    expect(searchActions("dark")).toEqual([]);
   });
 });

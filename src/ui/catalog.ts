@@ -1,9 +1,18 @@
+import { layoutOf, layoutOptions, platformOf } from "../engine/browserui";
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
+import { DEVICES, deviceOf, hasTouch } from "../engine/devices";
+import { frameForced } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
+import { mockOf } from "../engine/mock";
 import { DEFAULT_STATE } from "../engine/store";
 import { canonicalZone, TIME_ZONE_PRESETS } from "../engine/time";
+import { GRAB_COLOR_NAMES, GRAB_COLORS } from "../grab/colors";
+import { UA_PRESETS, uaPreset } from "../engine/ua";
+import { percent, ZOOM_MAX, ZOOM_MIN, ZOOM_PRESETS } from "../engine/zoom";
 import type {
+  BarsValue,
+  BrowserValue,
   ClockMode,
   ConnectionValue,
   ContrastValue,
@@ -11,6 +20,7 @@ import type {
   DevknobsStatePatch,
   DirValue,
   GeoErrorValue,
+  GrabColorValue,
   MotionValue,
   OnlineValue,
   SaveDataValue,
@@ -32,6 +42,7 @@ export type Category =
   | "location and time"
   | "network"
   | "viewport"
+  | "device"
   | "debug";
 
 export const CATEGORIES: readonly Category[] = [
@@ -41,11 +52,15 @@ export const CATEGORIES: readonly Category[] = [
   "location and time",
   "network",
   "viewport",
+  "device",
   "debug",
 ];
 
-/** How an editor sets the knob: on and off, a few choices, number chips, or a long list. */
-export type Control = "switch" | "segments" | "chips" | "list";
+/**
+ * How an editor sets the knob: on and off, a few choices, colors to pick
+ * from, number chips, or a long list.
+ */
+export type Control = "switch" | "segments" | "swatches" | "chips" | "list";
 
 export interface Option {
   /** What the knob is set to, as text. */
@@ -58,6 +73,10 @@ export interface Option {
   aliases?: readonly string[];
   /** Picking it opens the knob's editor too, which has more to fill in. */
   opens?: boolean;
+  /** The heading a long list shows it under. */
+  group?: string;
+  /** What a swatch is painted with, as a css background. */
+  swatch?: string;
 }
 
 /** What changes without a knob moving. */
@@ -91,12 +110,21 @@ export type KnobId =
   | "online"
   | "connection"
   | "saveData"
+  | "device"
+  | "mock"
+  | "touchPointer"
+  | "browser"
+  | "bars"
+  | "edgeToEdge"
   | "width"
   | "dpr"
+  | "zoom"
   | "frame"
   | "vision"
+  | "ua"
   | "overflow"
-  | "outlines";
+  | "outlines"
+  | "grabColor";
 
 export interface Knob {
   id: KnobId;
@@ -125,6 +153,8 @@ export interface Knob {
   extra?(): readonly Option[];
   /** False where the browser has nothing for the knob to act on. */
   available?(): boolean;
+  /** The option values the editor shows for this state, in order, where they depend on it. */
+  offers?(state: DevknobsState): readonly string[];
 }
 
 export type RowId =
@@ -141,7 +171,9 @@ export type RowId =
   | "clock"
   | "network"
   | "viewport"
-  | "debug";
+  | "ua"
+  | "debug"
+  | "grabColor";
 
 /** One line of the active list, with the knobs that read best together. */
 export interface Row {
@@ -287,6 +319,25 @@ function allZones(): readonly Option[] {
   }
   return zones;
 }
+
+/** A user agent typed out: a product and its version up front, such as `curl/8.7.1`. */
+function parseUserAgent(text: string): Option | null {
+  const trimmed = text.trim();
+  return /^[\w.!#$%&'*+^`|~-]+\/\S/.test(trimmed) ? { value: trimmed, label: trimmed } : null;
+}
+
+/** More words each user agent preset is found by. */
+const UA_ALIASES: Record<string, readonly string[]> = {
+  "iphone-safari": ["ios", "mobile"],
+  "android-chrome": ["mobile", "pixel"],
+  "ipad-safari": ["ipados", "tablet"],
+  "mac-safari": ["macos"],
+  "mac-chrome": ["macos"],
+  "windows-chrome": ["pc"],
+  "windows-edge": ["microsoft", "pc"],
+  "linux-firefox": ["gecko", "mozilla"],
+  googlebot: ["bot", "crawler", "google", "seo"],
+};
 
 function hasConnection(): boolean {
   return typeof navigator !== "undefined" && "connection" in navigator;
@@ -629,6 +680,171 @@ const SAVE_DATA: Knob = {
   available: hasConnection,
 };
 
+/** The smallest and largest frame a size typed out can ask for, in px. */
+const MIN_SIZE = 120;
+const MAX_SIZE = 8192;
+
+/** `390x844`, `390 × 844` or `390*844` as a width and a height. */
+function parseSize(text: string): Option | null {
+  const match = /^(\d+)\s*[x×*]\s*(\d+)(?:\s*px)?$/i.exec(text.trim());
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if ([width, height].some((size) => size < MIN_SIZE || size > MAX_SIZE)) return null;
+  return { value: `${width}x${height}`, label: `${width} × ${height}` };
+}
+
+const ORIENTATIONS = options("portrait", "landscape");
+
+/** The frame's size as the device knob reads it, such as `390x844` or `fullx700`. */
+function sizeValue(state: DevknobsState): string {
+  return typeof state.height === "number" ? `${state.width}x${state.height}` : "none";
+}
+
+const DEVICE: Knob = {
+  id: "device",
+  label: "device",
+  category: "device",
+  control: "list",
+  options: [
+    { value: "none", label: "none" },
+    ...DEVICES.map((device) => ({
+      value: device.id,
+      label: device.label,
+      aliases: [device.kind, ...device.ua.split("-")],
+      group: device.kind,
+    })),
+  ],
+  aliases: ["devices", "height", "orientation", "rotate"],
+  read: (state) => (state.device === "none" ? sizeValue(state) : state.device),
+  write: (value, state) => {
+    if (value === "portrait" || value === "landscape") return { orientation: value };
+    const size = /^(\d+|full)x(\d+)$/.exec(value);
+    if (size) {
+      return { width: size[1] === "full" ? "full" : Number(size[1]), height: Number(size[2]) };
+    }
+    if (value !== "none") return { device: value };
+    // None takes away what the device brought, a dpr set since too.
+    const device = deviceOf(state.device);
+    return device && state.dpr === device.dpr
+      ? { device: "none", width: "full", height: "full", dpr: "system" }
+      : { device: "none", width: "full", height: "full" };
+  },
+  reset: { device: DEFAULT_STATE.device, height: DEFAULT_STATE.height },
+  brief: (state) => {
+    const device = deviceOf(state.device);
+    return device ? `${device.label} · ${state.orientation}` : nameOf(DEVICE, sizeValue(state));
+  },
+  name: (value) => value.replace("x", " × "),
+  parse: parseSize,
+  bare: true,
+  extra: () => ORIENTATIONS,
+};
+
+/** Does the device in use have a mock to draw? */
+export function hasMock(state: DevknobsState): boolean {
+  return mockOf(state.device, state.orientation) !== null;
+}
+
+const MOCK: Knob = {
+  id: "mock",
+  label: "mock",
+  category: "device",
+  control: "switch",
+  options: OFF_ON,
+  aliases: ["mockup", "bezel", "body"],
+  // On while it is drawn, so a phone or tablet is what puts it off its default.
+  read: (state) => flag(state.mock && hasMock(state)),
+  write: (value) => ({ mock: value === "on" }),
+  reset: { mock: DEFAULT_STATE.mock },
+  // The device says enough.
+  brief: () => "",
+  offers: (state) => (hasMock(state) ? ["off", "on"] : []),
+};
+
+const TOUCH_POINTER: Knob = {
+  id: "touchPointer",
+  label: "touch pointer",
+  category: "device",
+  control: "switch",
+  options: OFF_ON,
+  aliases: ["finger", "tap", "swipe", "drag", "cursor", "touch events"],
+  // On while the device takes touch, so a phone or tablet is what puts it off its default.
+  read: (state) => flag(state.touchPointer && hasTouch(state.device)),
+  write: (value) => ({ touchPointer: value === "on" }),
+  reset: { touchPointer: DEFAULT_STATE.touchPointer },
+  brief: () => "",
+  offers: (state) => (hasTouch(state.device) ? ["off", "on"] : []),
+};
+
+/** The layout of the phone's browser in use, or off for a device without one. */
+function layoutNow(state: DevknobsState): string {
+  return layoutOf(state.device, state.browser) ?? "off";
+}
+
+const BROWSER: Knob = {
+  id: "browser",
+  label: "browser",
+  category: "device",
+  control: "segments",
+  options: [
+    { value: "compact", label: "compact", aliases: ["floating"] },
+    { value: "bottom", label: "bottom" },
+    { value: "top", label: "top" },
+    { value: "off", label: "off", aliases: ["fullscreen"] },
+  ],
+  aliases: ["safari", "chrome", "address bar", "url bar", "search bar", "toolbar", "browser ui"],
+  // The browser's own default while it is drawn, so a phone is what puts it off its default.
+  read: layoutNow,
+  write: (value) => ({ browser: value as BrowserValue }),
+  reset: { browser: DEFAULT_STATE.browser },
+  // The browser's own default says nothing.
+  brief: (state) => (layoutNow(state) === layoutOptions(state.device)[0] ? "" : layoutNow(state)),
+  offers: (state) => layoutOptions(state.device),
+};
+
+/** Are the browser's bars drawn, so they can be minimized? */
+function barsShown(state: DevknobsState): boolean {
+  return layoutNow(state) !== "off";
+}
+
+const BARS: Knob = {
+  id: "bars",
+  label: "bars",
+  category: "device",
+  control: "segments",
+  options: [
+    { value: "auto", label: "auto", aliases: ["scroll", "follow"] },
+    { value: "expanded", label: "expanded" },
+    { value: "minimized", label: "minimized", aliases: ["scrolled", "collapsed"] },
+  ],
+  aliases: ["browser bars", "minimize", "collapse"],
+  read: (state) => (barsShown(state) ? state.bars : "auto"),
+  write: (value) => ({ bars: value as BarsValue }),
+  reset: { bars: DEFAULT_STATE.bars },
+  offers: (state) => (barsShown(state) ? ["auto", "expanded", "minimized"] : []),
+};
+
+/** Is Safari drawn, so its page can run under its bars? */
+function safariShown(state: DevknobsState): boolean {
+  return platformOf(state.device) === "safari" && barsShown(state);
+}
+
+const EDGE_TO_EDGE: Knob = {
+  id: "edgeToEdge",
+  label: "edge to edge",
+  category: "device",
+  control: "switch",
+  options: OFF_ON,
+  aliases: ["edge", "under bars", "true height", "full height"],
+  // On while Safari is drawn, so an iPhone is what puts it off its default.
+  read: (state) => flag(state.edgeToEdge && safariShown(state)),
+  write: (value) => ({ edgeToEdge: value === "on" }),
+  reset: { edgeToEdge: DEFAULT_STATE.edgeToEdge },
+  brief: () => "",
+  offers: (state) => (safariShown(state) ? ["off", "on"] : []),
+};
+
 const WIDTH: Knob = {
   id: "width",
   label: "width",
@@ -644,9 +860,11 @@ const WIDTH: Knob = {
   read: (state) => String(state.width),
   write: (value) => ({ width: value === "full" ? "full" : Number(value) }),
   reset: { width: DEFAULT_STATE.width },
+  // With a height too, the device knob says the size.
+  brief: (state) => (typeof state.height === "number" ? "" : String(state.width)),
   parse: (text) => {
     const match = /^(\d+)(?:\s*px)?$/i.exec(text.trim());
-    return match ? numberIn(match[1] ?? "", 120, 8192) : null;
+    return match ? numberIn(match[1] ?? "", MIN_SIZE, MAX_SIZE) : null;
   },
   bare: true,
 };
@@ -666,8 +884,40 @@ const DPR: Knob = {
   read: (state) => String(state.dpr),
   write: (value) => ({ dpr: value === "system" ? "system" : Number(value) }),
   reset: { dpr: DEFAULT_STATE.dpr },
-  brief: (state) => `dpr ${state.dpr}`,
+  // A device says its own.
+  brief: (state) => (deviceOf(state.device)?.dpr === state.dpr ? "" : `dpr ${state.dpr}`),
   parse: (text) => numberIn(text, 0.25, 5),
+};
+
+/** `80` or `80%` as a zoom, in reason. */
+function parseZoom(text: string): Option | null {
+  const match = /^(\d+(?:\.\d+)?)\s*%?$/.exec(text.trim());
+  const scale = Number(match?.[1]) / 100;
+  if (!match || !(scale >= ZOOM_MIN && scale <= ZOOM_MAX)) return null;
+  return { value: String(scale), label: percent(scale) };
+}
+
+const ZOOM: Knob = {
+  id: "zoom",
+  label: "zoom",
+  category: "viewport",
+  // Segments, not chips: six presets wrap as chips at the panel's width.
+  control: "segments",
+  options: [
+    { value: "fit", label: "fit", aliases: ["window"] },
+    ...ZOOM_PRESETS.map((scale) => ({
+      value: String(scale),
+      label: String(Math.round(scale * 100)),
+      long: percent(scale),
+    })),
+  ],
+  aliases: ["scale", "magnify", "magnification"],
+  read: (state) => String(state.zoom),
+  write: (value) => ({ zoom: value === "fit" ? "fit" : Number(value) }),
+  reset: { zoom: DEFAULT_STATE.zoom },
+  brief: (state) => percent(Number(state.zoom)),
+  name: (value) => percent(Number(value)),
+  parse: parseZoom,
 };
 
 const FRAME: Knob = {
@@ -680,7 +930,7 @@ const FRAME: Knob = {
   read: (state) => flag(state.frame),
   write: (value) => ({ frame: value === "on" }),
   reset: { frame: DEFAULT_STATE.frame },
-  brief: () => "frame",
+  brief: (state) => (frameForced(state) ? "" : "frame"),
 };
 
 const VISION: Knob = {
@@ -704,6 +954,34 @@ const VISION: Knob = {
   read: (state) => state.vision,
   write: (value) => ({ vision: value as VisionValue }),
   reset: { vision: DEFAULT_STATE.vision },
+};
+
+const UA: Knob = {
+  id: "ua",
+  label: "user agent",
+  category: "device",
+  control: "list",
+  options: [
+    { value: "system", label: "system" },
+    ...UA_PRESETS.map((preset) => ({
+      value: preset.id,
+      label: preset.label.toLowerCase(),
+      aliases: UA_ALIASES[preset.id] ?? [],
+    })),
+    { value: "custom", label: "custom", opens: true },
+  ],
+  aliases: ["ua", "useragent", "browser"],
+  read: (state) => state.ua.preset,
+  write: (value, state) => {
+    if (value === "system" || uaPreset(value)) return { ua: { preset: value } };
+    if (value !== "custom") return { ua: { preset: "custom", custom: value } };
+    // Custom starts from the user agent in use, so it can be edited from there.
+    const real = typeof navigator === "undefined" ? "" : navigator.userAgent;
+    const custom = uaPreset(state.ua.preset)?.userAgent || state.ua.custom || real;
+    return { ua: { preset: "custom", custom } };
+  },
+  reset: { ua: { preset: DEFAULT_STATE.ua.preset } },
+  parse: parseUserAgent,
 };
 
 const OVERFLOW: Knob = {
@@ -732,6 +1010,37 @@ const OUTLINES: Knob = {
   brief: () => "outlines",
 };
 
+/** Half blue and half green: the two colors grab picks from on its own. */
+const AUTO_SWATCH = [
+  "linear-gradient(135deg",
+  `${GRAB_COLORS.blue.srgb} 50%`,
+  `${GRAB_COLORS.green.srgb} 50%)`,
+].join(", ");
+
+const GRAB_COLOR: Knob = {
+  id: "grabColor",
+  label: "grab color",
+  category: "debug",
+  control: "swatches",
+  options: [
+    {
+      value: "auto",
+      label: "auto",
+      aliases: ["automatic"],
+      swatch: AUTO_SWATCH,
+    },
+    ...GRAB_COLOR_NAMES.map((name) => ({
+      value: name,
+      label: name,
+      swatch: GRAB_COLORS[name].srgb,
+    })),
+  ],
+  aliases: ["highlight", "overlay"],
+  read: (state) => state.grabColor,
+  write: (value) => ({ grabColor: value as GrabColorValue }),
+  reset: { grabColor: DEFAULT_STATE.grabColor },
+};
+
 /**
  * Every knob, in the order search breaks ties by, the most asked for first:
  * `reduce` is motion before it is transparency. The browse list keeps this
@@ -758,12 +1067,21 @@ export const KNOBS: readonly Knob[] = [
   ONLINE,
   CONNECTION,
   SAVE_DATA,
+  DEVICE,
+  MOCK,
+  TOUCH_POINTER,
+  BROWSER,
+  BARS,
+  EDGE_TO_EDGE,
   WIDTH,
   DPR,
+  ZOOM,
   FRAME,
   VISION,
+  UA,
   OVERFLOW,
   OUTLINES,
+  GRAB_COLOR,
 ];
 
 export const ROWS: readonly Row[] = [
@@ -779,8 +1097,26 @@ export const ROWS: readonly Row[] = [
   { id: "timeZone", label: "time zone", knobs: ["timeZone"] },
   { id: "clock", label: "clock", knobs: ["clock", "clockMode", "clockSpeed", "header"] },
   { id: "network", label: "network", knobs: ["online", "connection", "saveData"] },
-  { id: "viewport", label: "viewport", knobs: ["width", "dpr", "frame", "vision"] },
+  {
+    id: "viewport",
+    label: "viewport",
+    knobs: [
+      "device",
+      "mock",
+      "touchPointer",
+      "browser",
+      "bars",
+      "edgeToEdge",
+      "width",
+      "dpr",
+      "zoom",
+      "frame",
+      "vision",
+    ],
+  },
+  { id: "ua", label: "user agent", knobs: ["ua"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },
+  { id: "grabColor", label: "grab color", knobs: ["grabColor"] },
 ];
 
 export function knobOf(id: KnobId): Knob {
@@ -854,6 +1190,31 @@ export function combine(patches: readonly DevknobsStatePatch[]): DevknobsStatePa
 export function resetPatch(row: Row): DevknobsStatePatch {
   return combine(row.knobs.map((id) => knobOf(id).reset));
 }
+
+/** Something the panel does rather than a knob it sets. */
+export interface Action {
+  id: "grab" | "replay";
+  label: string;
+  /** What a search result says after the name. */
+  long: string;
+  /** More words search finds the action by. */
+  aliases: readonly string[];
+}
+
+export const ACTIONS: readonly Action[] = [
+  {
+    id: "grab",
+    label: "grab",
+    long: "pick an element to copy",
+    aliases: ["inspect", "pick", "element", "component", "select", "agent"],
+  },
+  {
+    id: "replay",
+    label: "replay animations",
+    long: "restart every animation from the start",
+    aliases: ["restart", "animation", "rerun"],
+  },
+];
 
 /** The browse list: every knob the browser can use, by category. */
 export function browse(): { category: Category; knobs: Knob[] }[] {

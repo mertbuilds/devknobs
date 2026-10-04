@@ -1,4 +1,4 @@
-import { availableKnobs, type Knob, type Option } from "./catalog";
+import { ACTIONS, type Action, availableKnobs, type Knob, type Option } from "./catalog";
 
 export interface Result {
   knob: Knob;
@@ -136,6 +136,16 @@ export function search(query: string, knobs: readonly Knob[] = availableKnobs())
     if (!best.has(key)) best.set(key, result);
   }
   return Array.from(best.values()).slice(0, LIMIT);
+}
+
+/** The actions a query finds, by name or alias, every word of it landing. */
+export function searchActions(query: string, actions: readonly Action[] = ACTIONS): Action[] {
+  const tokens = tokenize(query);
+  if (tokens.length === 0) return [];
+  return actions.filter((action) => {
+    const pool = [action.label, ...action.aliases].flatMap(words);
+    return tokens.every((token) => tokenScore(token, pool) > 0);
+  });
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
+import { hasTouch } from "./devices";
 import {
   framed,
   isDevknobsFrame,
@@ -17,11 +18,15 @@ import * as outlines from "./outlines";
 import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
 import { replay as replayAnimations } from "./replay";
+import * as scrollbars from "./scrollbars";
 import * as spacing from "./spacing";
 import * as speed from "./speed";
-import { clear, DEFAULT_STATE, load, merge, save } from "./store";
+import { DEFAULT_STATE, load, merge, resetState, save } from "./store";
 import * as text from "./text";
 import * as time from "./time";
+import * as touch from "./touch";
+import * as touchPointer from "./touchpointer";
+import * as ua from "./ua";
 import * as width from "./width";
 
 export interface EngineOptions {
@@ -57,12 +62,20 @@ export function applyState(next: DevknobsState): void {
   state = inFrame ? framed(next) : next;
   // In a frame that gets the scheme natively, the rewrite and the patch step aside.
   const scheme = inFrame && nativeScheme(state.scheme) ? "system" : state.scheme;
+  // The frame is the device's screen, so its touch screen goes there.
+  const touchScreen = inFrame && hasTouch(state.device);
   media.apply({
     scheme,
     motion: state.motion,
     contrast: state.contrast,
     transparency: state.transparency,
+    touch: touchScreen,
   });
+  // A ua preset reports `maxTouchPoints` for its own browser, so the touch
+  // screen only does while the ua knob has none.
+  touch.apply({ on: touchScreen, points: ua.uaPreset(state.ua.preset) === undefined });
+  touchPointer.apply(touchScreen && state.touchPointer);
+  scrollbars.apply(touchScreen);
   speed.apply(state.speed);
   locale.apply(state.locale);
   pseudo.apply(state.pseudo);
@@ -72,6 +85,7 @@ export function applyState(next: DevknobsState): void {
   network.apply(state.network);
   text.apply(state.text);
   spacing.apply(state.spacing);
+  ua.apply(state.ua);
   width.apply(state);
   // While the frame is up, the copy inside it looks at the page at that width.
   overflow.apply(state.overflow && !needsFrame(state));
@@ -86,10 +100,12 @@ export function setState(patch: DevknobsStatePatch): DevknobsState {
   return state;
 }
 
-/** Put every knob back to system and forget the stored state. */
+/**
+ * Put every knob back to system and unpin every row. The panel keeps its
+ * place and stays open or closed, across a reload too.
+ */
 export function reset(): void {
-  applyState({ ...DEFAULT_STATE, panel: state.panel });
-  if (persist) clear();
+  applyState(resetState(state));
 }
 
 /** Inside the frame, take the knobs and replays the page above sends down. */
@@ -115,6 +131,8 @@ export function start(options: EngineOptions = {}): void {
   if (inFrame) window.addEventListener("message", onMessage);
   // A page that will not load in the frame offers this way out.
   width.onExit(() => setState(UNFRAMED));
+  // The letterbox zooms the frame from its own control, the wheel and the keys.
+  width.onZoom((zoom) => setState({ zoom }));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));
   if (!inFrame) return;
   relay(overflow.overflowCount());
@@ -131,7 +149,11 @@ export function stop(): void {
   stopRelay = null;
   inFrame = false;
   width.onExit(null);
+  width.onZoom(null);
   media.destroy();
+  touch.reset();
+  touchPointer.reset();
+  scrollbars.reset();
   speed.reset();
   locale.reset();
   pseudo.reset();
@@ -141,6 +163,7 @@ export function stop(): void {
   network.reset();
   text.reset();
   spacing.reset();
+  ua.reset();
   width.reset();
   overflow.reset();
   outlines.reset();
