@@ -6,8 +6,10 @@ import { ensureStyle, removeStyle } from "./style";
  * a round touch cursor, touch events and `pointerType: "touch"` from the
  * mouse, no hover, a drag that scrolls and flings, and a press that stays put
  * as a tap. It runs in the page the device lives in, the frame's copy while
- * the frame is up. A press on devknobs itself, a range slider or editable
- * text is left to the browser, and grab pauses it while it picks.
+ * the frame is up. A press on devknobs itself, a range slider, editable text,
+ * a scrollbar or with a button other than the main one is left to the
+ * browser, its moves and `pointerType` with it, until the button is up, and
+ * grab pauses it while it picks.
  */
 
 /** How far a press moves before it is a drag and no longer a tap, in css px. */
@@ -55,8 +57,8 @@ const CROSSING = new Set([
   "mouseleave",
 ]);
 
-/** The mouse events a touch screen makes after a tap, for pages that only read those. */
-const COMPAT = new Set(["mousedown", "mousemove", "mouseup"]);
+/** The mouse events a touch screen makes after a tap, in its order, for pages that only read those. */
+const COMPAT = new Set(["mousemove", "mousedown", "mouseup"]);
 
 /** Every event listened for, on the window in capture. */
 const EVENTS = [
@@ -254,6 +256,8 @@ interface Gesture {
 
 let active = false;
 let paused = false;
+/** A press left to the browser is down. */
+let native = false;
 let host: HTMLElement | null = null;
 let dot: HTMLElement | null = null;
 let gesture: Gesture | null = null;
@@ -266,7 +270,7 @@ function touchable(): boolean {
   return typeof Touch === "function" && typeof TouchEvent === "function";
 }
 
-function rawPointer(event: Event): boolean {
+function rawPointer(event: Event): event is PointerEvent {
   return (
     event.isTrusted &&
     typeof PointerEvent === "function" &&
@@ -369,6 +373,34 @@ function sendTouch(
   }
   current.target.dispatchEvent(touchEvent);
   return touchEvent.defaultPrevented;
+}
+
+/**
+ * The mouse events a touch screen sends once a tap is up, after `touchend`.
+ * The browser's own ones are held back while the gesture is under way.
+ */
+function sendCompatMouse(current: Gesture, event: MouseEvent): void {
+  for (const type of COMPAT) {
+    current.target.dispatchEvent(
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        detail: type === "mousemove" ? 0 : 1,
+        button: 0,
+        buttons: type === "mousedown" ? 1 : 0,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        screenX: event.screenX,
+        screenY: event.screenY,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      }),
+    );
+  }
 }
 
 /** A scroll begins: the page's pointer stream for this finger ends, as on a touch screen. */
@@ -537,11 +569,15 @@ function patchPointer(event: PointerEvent): void {
 }
 
 function onPointerDown(event: PointerEvent): void {
-  if (event.button !== 0) return;
   stopFling();
   finish();
   const target = event.composedPath()[0];
-  if (!(target instanceof Element) || isNative(target) || onScrollbar(target, event)) return;
+  native =
+    event.button !== 0 ||
+    !(target instanceof Element) ||
+    isNative(target) ||
+    onScrollbar(target, event);
+  if (native || !(target instanceof Element)) return;
   const current: Gesture = {
     id: nextId++,
     pointerId: event.pointerId,
@@ -621,22 +657,27 @@ function onEvent(event: Event): void {
   const type = event.type;
   const devknobs = fromDevknobs(event);
   if (rawPointer(event)) {
-    const pointer = event as PointerEvent;
     if (devknobs) {
       hideDot();
       return;
     }
-    if (type === "pointerout" && pointer.relatedTarget === null) hideDot();
-    else if (type !== "pointerleave" && type !== "pointerout") showDot(pointer);
+    if (type === "pointerout" && event.relatedTarget === null) hideDot();
+    else if (type !== "pointerleave" && type !== "pointerout") showDot(event);
     if (type === "pointerdown") pressDot(true);
     else if (type === "pointerup" || type === "pointercancel") pressDot(false);
-    patchPointer(pointer);
-    if (type === "pointerdown") onPointerDown(pointer);
-    else if (type === "pointermove") onPointerMove(pointer);
-    else if (type === "pointerup") onPointerUp(pointer);
-    else if (type === "pointercancel") cancel(pointer);
+    if (type === "pointerdown") onPointerDown(event);
+    // The button went up where the page could not see it.
+    else if (type === "pointermove" && event.buttons === 0) native = false;
+    if (native) {
+      if (type === "pointerup" || type === "pointercancel") native = false;
+      return;
+    }
+    patchPointer(event);
+    if (type === "pointermove") onPointerMove(event);
+    else if (type === "pointerup") onPointerUp(event);
+    else if (type === "pointercancel") cancel(event);
   }
-  if (devknobs || !event.isTrusted) return;
+  if (devknobs || !event.isTrusted || native) return;
   const current = gesture;
   if (type === "click") {
     if (current?.ended && (current.dragged || current.quiet)) {
@@ -659,10 +700,16 @@ function onEvent(event: Event): void {
     block(event);
     return;
   }
-  if (COMPAT.has(type) && current && (current.quiet || current.scroller)) block(event);
+  // A touch screen sends its mouse events after the finger is up, and only for a tap.
+  if (!COMPAT.has(type) || !current) return;
+  block(event);
+  // The browser's own mouseup follows pointerup, and none comes where the page prevented pointerdown.
+  const tap = current.ended && !current.dragged && !current.quiet;
+  if (type === "mouseup" && tap && event instanceof MouseEvent) sendCompatMouse(current, event);
 }
 
 function onBlur(): void {
+  native = false;
   finish();
   hideDot();
   pressDot(false);
