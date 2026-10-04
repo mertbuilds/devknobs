@@ -333,7 +333,16 @@ platform (`iphone`, `pixel`, `galaxy`, `ipad`, `macbook`, `phone`, `tablet`,
 
 | device | css px | dpr | touch |
 | --- | --- | --- | --- |
+| iPhone 18 Pro | 402 × 874 | 3 | yes |
+| iPhone 18 Pro Max | 440 × 956 | 3 | yes |
+| iPhone Duo (closed) | 466 × 678 | 3 | yes |
+| iPhone Duo (open) | 669 × 951 | 3 | yes |
+| iPhone Air | 420 × 912 | 3 | yes |
+| iPhone 17 | 402 × 874 | 3 | yes |
+| iPhone 17 Pro | 402 × 874 | 3 | yes |
+| iPhone 17 Pro Max | 440 × 956 | 3 | yes |
 | iPhone 16 | 393 × 852 | 3 | yes |
+| iPhone 16 Plus | 430 × 932 | 3 | yes |
 | iPhone 16 Pro | 402 × 874 | 3 | yes |
 | iPhone 16 Pro Max | 440 × 956 | 3 | yes |
 | iPhone SE | 375 × 667 | 2 | yes |
@@ -366,6 +375,15 @@ tall forehead and chin and home button. it turns with the frame, is fitted
 and zoomed with it, and never takes a pointer. the viewport stays the device's
 size. the mock switch in the device editor turns it off. laptops and desktops
 have none.
+
+every iPhone but the SE wears Apple's own product bezel instead, an image
+from Apple Design Resources at its true size, 3 image px per css px with its
+screen opening exactly on the frame, so no model is ever stretched onto
+another. it loads from `dist/bezels` the first time the device is shown with
+the mock on, the drawn mock standing in its place until then, and the drawn
+mock stays where an image does not load. the images are Apple's and not under
+this project's license, see THIRD_PARTY_NOTICES.md: delete `assets/bezels`
+and every iPhone draws its own mock again.
 
 a phone shows the page in its browser, drawn in the screen around the frame:
 Safari's status bar and Liquid Glass bars on an iPhone, and Android's status

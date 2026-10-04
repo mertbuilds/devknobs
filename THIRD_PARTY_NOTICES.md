@@ -1,6 +1,6 @@
 # third party notices
 
-devknobs ships, or adapts code from, the projects below. each is under the MIT license, reproduced here.
+devknobs ships, or adapts code from, the projects below. each is under the MIT license, reproduced here. the iPhone bezel images at the end are not.
 
 ## bippy
 
@@ -69,3 +69,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Apple product bezels
+
+the images in `assets/bezels`, copied to `dist/bezels` by the build, are Apple's product bezels for the iPhone 16, 16 Plus, 16 Pro, 16 Pro Max, 17, 17 Pro, 17 Pro Max, Air, 18 Pro, 18 Pro Max and Duo, from Apple Design Resources, converted to WebP by `scripts/bezels.sh` at their own size.
+
+- https://developer.apple.com/design/resources/#product-bezels
+- https://devimages-cdn.apple.com/design/resources/download/Bezel-iPhone-16.dmg
+- https://devimages-cdn.apple.com/design/resources/download/Bezel-iPhone-17.dmg
+- https://devimages-cdn.apple.com/design/resources/download/Bezel-iPhone-18.dmg
+- https://devimages-cdn.apple.com/design/resources/download/Bezel-iPhone-Duo.dmg
+
+copyright Apple Inc. they are NOT covered by this project's MIT license, and Apple's own terms apply to them: the Apple Design Resources License for the 17, 18 and Duo packages and the App Store Marketing Artwork License Agreement for the 16 package.
+
+to remove them, delete the `assets/bezels` folder and build. nothing else names a file in it but `src/engine/bezels.ts`, and without it every iPhone draws its own svg mock, as it does wherever an image does not load.
