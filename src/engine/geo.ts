@@ -1,4 +1,5 @@
 import type { GeoErrorValue, GeoValue } from "../types";
+import { realNow } from "./clock";
 
 export interface GeoPreset {
   id: string;
@@ -198,7 +199,10 @@ let failure: GeoErrorValue = "none";
 let applied = "";
 /** The last position handed out, which `maximumAge` may hand out again. */
 let cached: GeolocationPosition | null = null;
-/** The trip the route preset is on: its points, its pace in m/s, and since when. */
+/**
+ * The trip the route preset is on: its points, its pace in m/s, and since when
+ * in real time, so the clock knob leaves the pace alone.
+ */
 let trip: { points: RoutePoint[]; speed: number; start: number } | null = null;
 let ticker: ReturnType<typeof setInterval> | null = null;
 const watches = new Map<number, Request>();
@@ -220,7 +224,7 @@ function currentPosition(): GeolocationPosition {
   let heading: number | null = null;
   let speed: number | null = null;
   if (trip) {
-    const at = alongRoute(trip.points, (trip.speed * (Date.now() - trip.start)) / 1000);
+    const at = alongRoute(trip.points, (trip.speed * (realNow() - trip.start)) / 1000);
     ({ lat, lng } = at);
     speed = trip.speed;
     // The spec's heading for a device standing still.
@@ -413,7 +417,7 @@ export function apply(value: GeoValue): void {
       ? {
           points: parseRoute(value.route),
           speed: Math.max(0, value.speed) / 3.6,
-          start: Date.now(),
+          start: realNow(),
         }
       : null;
   playRoute();
