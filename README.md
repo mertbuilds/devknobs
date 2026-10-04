@@ -1,8 +1,8 @@
 # devknobs
 
 a dev-only panel for flipping browser preferences from inside the page. one
-script tag and the knobs are there. no css to add, no code to change. one
-runtime dependency, bippy, which only loads when you grab.
+script tag and the knobs are there. no css to add, no code to change. zero
+runtime dependencies.
 
 ## install
 

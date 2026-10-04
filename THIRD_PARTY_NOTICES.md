@@ -4,7 +4,7 @@ devknobs ships, or adapts code from, the projects below. each is under the MIT l
 
 ## bippy
 
-https://github.com/aidenybai/bippy, a runtime dependency, bundled into the grab chunk and the global builds. `src/grab/fiber.ts` adapts a few of its fiber helpers.
+https://github.com/aidenybai/bippy, bundled into the grab chunk and the global builds, so it is no dependency of the package. `src/grab/fiber.ts` adapts a few of its fiber helpers.
 
 ```
 Copyright 2024-present Aiden Bai
