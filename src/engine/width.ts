@@ -1,4 +1,9 @@
-import type { DevknobsState, DprValue, WidthValue } from "../types";
+import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
+import { bezelMock, bezelUrl, loadBezel } from "./bezels";
+import { BARS_CSS, type BrowserLayer, createBrowser } from "./browserdraw";
+import { barsOf, layoutOf, viewportOf } from "./browserui";
+import { deviceOf } from "./devices";
+import { type Fit, fit, hasStrip, label, origin, STRIP, STRIP_TOP } from "./fit";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -7,17 +12,50 @@ import {
   post,
   readMessage,
   UNFRAMED,
+  type ZoomAction,
 } from "./frame";
+import { drawMat, MAT_CSS } from "./mat";
+import { type Mock, mockOf, placeIn, type Rect } from "./mock";
+import { corners, drawMock, MOCK_CSS } from "./mockdraw";
+import * as reload from "./reload";
 import { ensureStyle, removeStyle } from "./style";
+import { cover, uncover } from "./underneath";
 import { visionFilter } from "./vision";
+import { anchorScroll, percent, type Point, stepZoom, wheelZoom, ZOOM_PRESETS } from "./zoom";
+
+export { type Fit, fit, label, origin, STRIP } from "./fit";
 
 const NAME = "width";
 
 /** What the frame takes from the knobs. */
-export type ViewportValue = FrameKnobs & Pick<DevknobsState, "scheme">;
+export type ViewportValue = FrameKnobs &
+  Pick<
+    DevknobsState,
+    "scheme" | "device" | "orientation" | "mock" | "browser" | "bars" | "edgeToEdge" | "zoom"
+  > & {
+    panel: Pick<PanelValue, "open">;
+  };
 
 /** One under the panel host, so the panel stays on top of the frame. */
 const Z_INDEX = 2147483645;
+
+/** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
+const ZOOM_SETTLE = 200;
+
+/**
+ * How far black runs past the screen's edge under a picture of the body, in
+ * css px of the screen. The picture's opening and the screen share an edge,
+ * and where it falls between device pixels both are drawn part way, so the
+ * mat would show through as a light line. The rim of the body there is black.
+ */
+const UNDER = 2;
+
+/** The pixels a wheel line stands for, where a wheel counts in lines. */
+const WHEEL_LINE = 20;
+
+/** The chevron of the zoom control, as its own arrow is styled away. */
+const CHEVRON =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M.5.5 3 3.5 5.5.5' fill='none' stroke='%23fff' stroke-opacity='.7'/%3E%3C/svg%3E";
 
 /**
  * Everything an app on this origin does unframed, pointer lock, presentation
@@ -40,8 +78,18 @@ const SANDBOX = [
 ].join(" ");
 
 /**
+ * The blue of the cutting mat the frame lies on, a little lighter up top and
+ * deeper toward the edges, and in P3 where the screen has it.
+ */
+const MAT = "radial-gradient(140% 100% at 50% 0%, rgb(20, 70, 152), rgb(12, 48, 114) 60%, rgb(7, 31, 80))";
+const MAT_P3 =
+  "radial-gradient(140% 100% at 50% 0%, color(display-p3 0.1 0.27 0.61), color(display-p3 0.06 0.19 0.46) 60%, color(display-p3 0.035 0.12 0.32))";
+
+/**
  * The letterbox around the frame. It lives in a shadow root like the panel,
- * so page css cannot reach it. One mid gray reads as chrome in light and dark.
+ * so page css cannot reach it. A blue cutting mat reads as chrome in light and
+ * dark, under a white page and a near black mock alike. Its grid and rulers
+ * stay put from the top left as the frame is fitted or zoomed.
  */
 const CSS = `
 .viewport {
@@ -53,34 +101,70 @@ const CSS = `
   flex-direction: column;
   overflow: hidden;
   direction: ltr;
-  background: #6e6e69;
+  background: ${MAT};
 }
 .size {
+  position: relative;
   flex: none;
-  align-self: center;
+  box-sizing: border-box;
   /* A set height, so the room the frame is fitted to never waits on the text. */
-  height: 16px;
-  padding: 4px 0;
+  height: ${STRIP}px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: ${STRIP_TOP}px 8px 0;
   font: 11px/16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.8);
   user-select: none;
   -webkit-user-select: none;
 }
+.size[hidden] { display: none; }
+.zoom {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  height: 18px;
+  margin: 0;
+  padding: 0 16px 0 6px;
+  font: inherit;
+  color: inherit;
+  color-scheme: dark;
+  background: url("${CHEVRON}") no-repeat right 5px center;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.zoom:focus { outline: none; }
+.zoom:hover, .zoom:focus-visible { color: #fff; border-color: rgba(255, 255, 255, 0.7); }
 .stage {
+  position: relative;
   flex: 1 1 0;
   min-height: 0;
-  position: relative;
-  overflow: hidden;
+  display: flex;
+  overflow: auto;
 }
-/* Scales the frame down to fit. A transform keeps the device pixel ratio
-   inside, where zoom would change it, and hit testing follows it into the
-   frame, so clicks land where they are drawn. */
+/* As big as the frame is drawn, margins and all, so a bigger one scrolls both
+   ways. Auto margins center a smaller one and drop to nothing on a bigger
+   one, so every edge of it scrolls into view. */
+.drawing {
+  flex: none;
+  position: relative;
+  margin: auto;
+}
+/* Scales the frame to fit, or by the zoom. A transform keeps the device pixel
+   ratio inside, where zoom would change it, and hit testing follows it into
+   the frame, so clicks land where they are drawn. */
 .screen {
   position: absolute;
   top: 0;
   left: 0;
   transform-origin: 0 0;
 }
+.glass { position: relative; }
+/* Where a phone's browser leaves the page in its screen. */
+.page.placed { position: absolute; }
 iframe {
   display: block;
   border: 0;
@@ -98,7 +182,7 @@ iframe {
   gap: 8px;
   font: 12px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: rgba(255, 255, 255, 0.85);
-  background: #6e6e69;
+  background: ${MAT};
 }
 .blocked[hidden] { display: none; }
 .blocked button {
@@ -114,18 +198,65 @@ iframe {
   cursor: pointer;
 }
 .blocked button:hover { color: #fff; border-color: #fff; }
-`;
+@media (color-gamut: p3) {
+  .viewport, .blocked { background: ${MAT_P3}; }
+}
+${MAT_CSS}
+${MOCK_CSS}
+${BARS_CSS}`;
 
 let host: HTMLElement | null = null;
+/** The mat around the frame, readout strip included, which the frame is fitted to. */
+let letterbox: HTMLElement | null = null;
+/** The mat's grid and rulers, drawn for the letterbox's size. */
+let mat: SVGSVGElement | null = null;
+/** The size, line and readout the mat was last drawn for. */
+let matKey = "";
+/** Under the readout strip, and scrolls a frame drawn bigger than it. */
 let stage: HTMLElement | null = null;
+let drawing: HTMLElement | null = null;
 let screen: HTMLElement | null = null;
+/** Holds the frame, and clips it to the screen's corners under a mock. */
+let glass: HTMLElement | null = null;
+/** Holds the frame where a phone's browser leaves the page. */
+let pageBox: HTMLElement | null = null;
+/** A phone's browser bars around the frame. */
+let browser: BrowserLayer | null = null;
+/** The device's body drawn around the frame, while it has one. */
+let mockDrawing: SVGSVGElement | null = null;
+/** The device and the way it is held that the mock was last drawn for. */
+let mockKey = "";
 let frame: HTMLIFrameElement | null = null;
 let readout: HTMLElement | null = null;
+/** What the readout says, before its zoom control. */
+let caption: HTMLElement | null = null;
+let picker: HTMLSelectElement | null = null;
+/** The zoom control's options as they were last drawn. */
+let pickerKey = "";
+/** Where the frame went the last time it was drawn. */
+let drawn: Fit | null = null;
+/** A zoom from the wheel that is not in the store yet. */
+let held: number | null = null;
+/** The wait for the wheel to rest. */
+let settling = 0;
+/** Puts a zoom in the store. The engine hands it in. */
+let zoomTo: ((zoom: ZoomValue) => void) | null = null;
 /** Says so when the page will not load in a frame. */
 let notice: HTMLElement | null = null;
 /** Turns every knob that keeps the frame up off. The engine hands it in. */
 let exit: (() => void) | null = null;
-let current: ViewportValue = { ...UNFRAMED, scheme: "system" };
+let current: ViewportValue = {
+  ...UNFRAMED,
+  scheme: "system",
+  device: "none",
+  orientation: "portrait",
+  mock: true,
+  browser: "auto",
+  bars: "auto",
+  edgeToEdge: true,
+  zoom: "fit",
+  panel: { open: false },
+};
 /** The frame's page has loaded, so what it reports can be trusted. */
 let loaded = false;
 /** Where the frame was last seen on this origin. */
@@ -137,84 +268,9 @@ let pageTitle: string | null = null;
 let written = "";
 /** Where the page underneath was scrolled to, which hiding it loses. */
 let scroll = { x: 0, y: 0 };
-/** `showModal` as the page had it, while the page underneath gets plain dialogs. */
-let showModal: HTMLDialogElement["showModal"] | null = null;
 /** Follows the frame's title, which a router sets after the url changes. */
 let titleObserver: MutationObserver | null = null;
 let latest: DevknobsState | null = null;
-/** What a page node had before it was hidden here, so it gets exactly that back. */
-interface Hidden {
-  /** Made inert here. One the page made inert stays the page's. */
-  inert: boolean;
-  /** The inline `content-visibility` before, its priority, and whether there was a style at all. */
-  value: string;
-  priority: string;
-  styled: boolean;
-}
-
-const hidden = new Map<HTMLElement | SVGElement, Hidden>();
-/** Hides what the page adds to the body later, such as portals and toasts. */
-let bodyObserver: MutationObserver | null = null;
-
-/**
- * Take a page node out of input and out of rendering while the frame covers
- * it. It keeps running, but skips layout and paint.
- */
-function hide(node: Node): void {
-  if (!(node instanceof HTMLElement || node instanceof SVGElement)) return;
-  if (node.hasAttribute("data-devknobs") || hidden.has(node)) return;
-  const style = node.style;
-  hidden.set(node, {
-    inert: !node.hasAttribute("inert"),
-    value: style.getPropertyValue("content-visibility"),
-    priority: style.getPropertyPriority("content-visibility"),
-    styled: node.hasAttribute("style"),
-  });
-  node.setAttribute("inert", "");
-  style.setProperty("content-visibility", "hidden", "important");
-}
-
-function unhide(): void {
-  for (const [node, was] of hidden) {
-    if (was.inert) node.removeAttribute("inert");
-    if (was.value) node.style.setProperty("content-visibility", was.value, was.priority);
-    else node.style.removeProperty("content-visibility");
-    if (!was.styled && node.getAttribute("style") === "") node.removeAttribute("style");
-  }
-  hidden.clear();
-}
-
-/**
- * A modal dialog makes everything else inert, the frame and the panel too, and
- * paints over them. The page underneath gets plain dialogs instead, the ones it
- * has open already too.
- */
-function holdModals(): void {
-  if (showModal || typeof HTMLDialogElement === "undefined") return;
-  const native = HTMLDialogElement.prototype.showModal;
-  showModal = native;
-  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
-    if (this.closest("[data-devknobs]")) native.call(this);
-    else this.show();
-  };
-  let modals: HTMLDialogElement[] = [];
-  try {
-    modals = Array.from(document.querySelectorAll<HTMLDialogElement>("dialog:modal"));
-  } catch {
-    // A browser without `:modal`.
-  }
-  for (const dialog of modals) {
-    if (dialog.closest("[data-devknobs]")) continue;
-    dialog.close();
-    dialog.show();
-  }
-}
-
-function releaseModals(): void {
-  if (showModal) HTMLDialogElement.prototype.showModal = showModal;
-  showModal = null;
-}
-
 /** The window inside the frame, while there is one. */
 export function frameWindow(): Window | null {
   return frame?.contentWindow ?? null;
@@ -228,6 +284,7 @@ function share(): void {
 export function sync(state: DevknobsState): void {
   latest = state;
   share();
+  reload.knobs(state);
 }
 
 /** Where the frame is now. A frame that left the origin keeps the last place seen. */
@@ -243,6 +300,10 @@ function locate(): string {
 
 export function onExit(handler: (() => void) | null): void {
   exit = handler;
+}
+
+export function onZoom(handler: ((zoom: ZoomValue) => void) | null): void {
+  zoomTo = handler;
 }
 
 /** The page in the frame, or null once it is on another origin, or an error page. */
@@ -286,6 +347,7 @@ function mirror(): void {
   if (!doc) return;
   replaceUrl(locate());
   written = window.location.href;
+  browser?.refresh();
   if (doc.title === document.title) return;
   pageTitle ??= document.title;
   document.title = doc.title;
@@ -298,7 +360,7 @@ function mirror(): void {
  * history. Both go with the frame's window on its next load.
  */
 function watch(view: Window, doc: Document): void {
-  const navigation = (view as Window & { navigation?: EventTarget }).navigation;
+  const navigation = reload.navigationOf(view);
   if (navigation) {
     navigation.addEventListener("currententrychange", mirror);
   } else {
@@ -334,9 +396,13 @@ function onLoad(): void {
   if (view && doc) {
     watch(view, doc);
     mirror();
+    // A page the watch missed: the next one is patched still.
+    reload.land(view);
   }
+  browser?.refresh();
   checkZoom();
   share();
+  reload.settle();
 }
 
 /** A page that mounts late asks for the knobs once it listens. */
@@ -373,47 +439,6 @@ function handsSchemeDown(root: Node): boolean {
   return schemeHandover;
 }
 
-/** Where the frame goes in the room the letterbox leaves it. */
-export interface Fit {
-  /** The frame's css size, which is the viewport the page inside sees. */
-  width: number;
-  height: number;
-  /** `zoom` on the frame. The page inside gets that many more device pixels per css pixel. */
-  zoom: number;
-  /** What the frame is drawn at, 1 or less. */
-  scale: number;
-  /** `transform: scale()` on the frame's wrapper: the fit, and the zoom undone. */
-  transform: number;
-  /** Offset of the frame from the left, which centers it. */
-  left: number;
-}
-
-/**
- * Fit a frame `width` wide into `room`. One wider than the room is drawn
- * smaller, and made taller by as much, so it still fills the height. A zoom
- * keeps the frame's css size, and the wrapper takes it back out of the drawing.
- */
-export function fit(width: WidthValue, room: { width: number; height: number }, zoom = 1): Fit {
-  const size = typeof width === "number" ? width : room.width;
-  const scale = size > 0 && room.width > 0 ? Math.min(1, room.width / size) : 1;
-  return {
-    width: size,
-    height: room.height / scale,
-    zoom,
-    scale,
-    transform: scale / zoom,
-    left: Math.max(0, (room.width - size * scale) / 2),
-  };
-}
-
-/** What the letterbox says about the frame, such as `1440 at 62% · 2x`. */
-export function label(place: Fit, dpr: DprValue): string {
-  let text = String(place.width);
-  if (place.scale < 1) text += ` at ${Math.round(place.scale * 100)}%`;
-  if (typeof dpr === "number") text += ` · ${dpr}x`;
-  return text;
-}
-
 /**
  * Zoom on a frame multiplies the device pixel ratio of the page inside it
  * (csswg #9644, chromium since 2024), with the frame's css size unchanged.
@@ -441,18 +466,155 @@ function checkZoom(): void {
   resize();
 }
 
+/** The zoom control: fit and what it comes to, the presets, and a zoom of the wheel's own. */
+function showZoom(place: Fit): void {
+  if (!picker) return;
+  const zoom = current.zoom;
+  const known = zoom === "fit" || ZOOM_PRESETS.includes(zoom);
+  const scales = known ? ZOOM_PRESETS : [...ZOOM_PRESETS, zoom].sort((a, b) => a - b);
+  const options: [string, string][] = [
+    ["fit", `fit ${percent(place.fit)}`],
+    ...scales.map((scale): [string, string] => [String(scale), percent(scale)]),
+  ];
+  const key = options.join("|");
+  if (key !== pickerKey) {
+    pickerKey = key;
+    picker.replaceChildren(
+      ...options.map(([value, text]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        return option;
+      }),
+    );
+  }
+  picker.value = String(zoom);
+}
+
+/** How much of the right edge an open panel covers. Its host is as wide as the panel out. */
+function panelWidth(): number {
+  return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
+}
+
+/** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
+function showMock(mock: Mock | null, place: Fit): void {
+  if (!screen || !glass) return;
+  const href = mock?.image ? bezelUrl(mock.image.file) : null;
+  const key = mock ? `${current.device}|${current.orientation}|${mock.image?.file}|${href}` : "";
+  if (key !== mockKey) {
+    mockKey = key;
+    mockDrawing?.remove();
+    mockDrawing = mock ? drawMock(mock, place, href) : null;
+    if (mockDrawing) screen.append(mockDrawing);
+    glass.className = mock ? "glass mocked" : "glass";
+  }
+  const zoom = place.zoom;
+  glass.style.left = mock ? `${mock.inset.left * zoom}px` : "";
+  glass.style.top = mock ? `${mock.inset.top * zoom}px` : "";
+  const round = mock ? corners(mock.screenRadius).map((radius) => `${radius * zoom}px`) : [];
+  glass.style.borderRadius = round.join(" ");
+  glass.style.boxShadow = href ? `0 0 0 ${UNDER * zoom}px #000` : "";
+  if (mock && mockDrawing) {
+    mockDrawing.style.width = `${mock.width * zoom}px`;
+    mockDrawing.style.height = `${mock.height * zoom}px`;
+  }
+}
+
+/**
+ * Put the frame where the phone's browser leaves the page in the screen, and
+ * draw the browser around it, or fill the screen with the frame again.
+ */
+function showBrowser(
+  bars: ReturnType<typeof barsOf>,
+  page: Rect | null,
+  place: Fit,
+  follow: boolean,
+): void {
+  if (!glass || !pageBox || !browser) return;
+  const zoom = place.zoom;
+  const box = pageBox;
+  const sizeFrame = () => {
+    if (!frame) return;
+    frame.style.width = `${page?.width ?? place.width}px`;
+    frame.style.height = `${page?.height ?? place.height}px`;
+    box.className = page ? "page placed" : "page";
+    box.style.left = page ? `${page.x * zoom}px` : "";
+    box.style.top = page ? `${page.y * zoom}px` : "";
+  };
+  glass.style.width = page ? `${place.width * zoom}px` : "";
+  glass.style.height = page ? `${place.height * zoom}px` : "";
+  browser.show({ bars, page, size: place, zoom, follow, sizeFrame });
+  browser.refresh();
+}
+
+/**
+ * Draw the mat for the letterbox's size, its lines one device pixel thin, and
+ * its top ruler unnumbered under the readout.
+ */
+function showMat(size: { width: number; height: number }): void {
+  if (!letterbox || !readout || !caption || !picker) return;
+  const hair = Math.max(0.5, 1 / (window.devicePixelRatio || 1));
+  const avoid = readout.hidden
+    ? undefined
+    : { from: caption.offsetLeft - 8, to: picker.offsetLeft + picker.offsetWidth + 8 };
+  const key = `${size.width}|${size.height}|${hair}|${avoid?.from}|${avoid?.to}`;
+  if (key === matKey) return;
+  matKey = key;
+  const next = drawMat(size, hair, avoid);
+  if (mat) mat.replaceWith(next);
+  else letterbox.prepend(next);
+  mat = next;
+}
+
+/**
+ * The body around the frame: the maker's bezel image where the device has
+ * one, and the drawn mock where it has none or the image does not load. While
+ * the image loads the drawn mock stands in its room, so the frame never moves
+ * as it comes in.
+ */
+function bodyOf(value: ViewportValue): Mock | null {
+  if (!value.mock) return null;
+  const drawn = mockOf(value.device, value.orientation);
+  const bezel = bezelMock(value.device, value.orientation);
+  if (!bezel?.image) return drawn;
+  const state = loadBezel(bezel.image.file, resize);
+  if (state === "ready") return bezel;
+  return state === "loading" && drawn ? placeIn(drawn, bezel) : drawn;
+}
+
 function resize(): void {
-  if (!frame || !stage || !screen || !readout) return;
-  // At full width the frame is the window, and there is nothing to read out.
-  // This goes first, as it changes the room the frame has.
-  readout.hidden = typeof current.width !== "number";
-  const room = { width: stage.clientWidth, height: stage.clientHeight };
-  const place = fit(current.width, room, zoomFor(current.dpr));
-  readout.textContent = label(place, zoomWorks ? current.dpr : "system");
-  frame.style.width = `${place.width}px`;
-  frame.style.height = `${place.height}px`;
+  if (!frame || !letterbox || !stage || !drawing || !screen || !readout || !caption) return;
+  readout.hidden = !hasStrip(current);
+  const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
+  const aside = current.panel.open ? panelWidth() : 0;
+  const mock = bodyOf(current);
+  const place = fit(current, size, {
+    frameZoom: zoomFor(current.dpr),
+    aside,
+    mock: mock?.inset,
+  });
+  drawn = place;
+  const device = deviceOf(current.device);
+  const layout = device ? layoutOf(device.id, current.browser) : null;
+  const auto = current.bars === "auto";
+  const min = current.bars === "minimized" || (auto && browser?.minimized() === true);
+  const edge = current.edgeToEdge;
+  const bars = device ? barsOf(device, current.orientation, layout, min, edge) : null;
+  const page = bars && device ? viewportOf(device, current.orientation, layout, min, edge) : null;
+  const knobs = { ...current, dpr: zoomWorks ? current.dpr : "system" };
+  caption.textContent = label(place, knobs, page ?? place);
+  showZoom(place);
+  showMat(size);
+  // A fitted frame never scrolls, so no rounding can bring a scrollbar.
+  stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
-  screen.style.left = `${place.left}px`;
+  showBrowser(bars, page, place, auto);
+  drawing.style.width = `${place.box.width}px`;
+  drawing.style.height = `${place.box.height}px`;
+  // The wrapper starts at the mock's corner, and the frame sits in it by as much.
+  screen.style.left = `${place.left - (mock?.inset.left ?? 0) * place.scale}px`;
+  screen.style.top = `${place.top - (mock?.inset.top ?? 0) * place.scale}px`;
+  showMock(mock, place);
   screen.style.transform = place.transform === 1 ? "" : `scale(${place.transform})`;
   // Natively, the page inside gets the scheme as its real preference. System
   // leaves the frame to follow the window.
@@ -461,6 +623,69 @@ function resize(): void {
   else frame.style.removeProperty("color-scheme");
   frame.style.filter = visionFilter(current.vision);
   checkZoom();
+}
+
+/**
+ * Draw the frame at the zoom it has now, and scroll the letterbox so the point
+ * of the frame at `pointer`, in the stage's visible area, stays put.
+ */
+function rezoom(pointer: Point): void {
+  const view = stage;
+  if (!view || !drawn) {
+    resize();
+    return;
+  }
+  const room = () => ({ width: view.clientWidth, height: view.clientHeight });
+  const scrolled = { x: view.scrollLeft, y: view.scrollTop };
+  const before = { origin: origin(drawn, room()), scale: drawn.scale };
+  resize();
+  const after = { origin: origin(drawn, room()), scale: drawn.scale };
+  const to = anchorScroll(pointer, scrolled, before, after);
+  view.scrollLeft = to.x;
+  view.scrollTop = to.y;
+}
+
+/** Put a zoom in the store, which draws it. A zoom the wheel still holds gives way. */
+function setZoom(zoom: ZoomValue): void {
+  clearTimeout(settling);
+  held = null;
+  zoomTo?.(zoom);
+}
+
+/**
+ * Ctrl or meta with the wheel, and a trackpad pinch, which sends the same,
+ * zoom around the pointer. The drawing follows each event, and the store
+ * hears once the wheel rests. A plain wheel scrolls, here and in the frame.
+ */
+function onWheel(event: WheelEvent): void {
+  if ((!event.ctrlKey && !event.metaKey) || !stage || !drawn) return;
+  event.preventDefault();
+  const delta = event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_LINE;
+  const zoom = wheelZoom(drawn.scale, delta);
+  if (zoom === drawn.scale) return;
+  held = zoom;
+  current = { ...current, zoom };
+  const rect = stage.getBoundingClientRect();
+  rezoom({
+    x: Math.min(Math.max(event.clientX - rect.left, 0), stage.clientWidth),
+    y: Math.min(Math.max(event.clientY - rect.top, 0), stage.clientHeight),
+  });
+  clearTimeout(settling);
+  settling = window.setTimeout(() => setZoom(zoom), ZOOM_SETTLE);
+}
+
+function onPick(): void {
+  if (picker) setZoom(picker.value === "fit" ? "fit" : Number(picker.value));
+}
+
+/**
+ * A zoom key: a step in or out from the scale the frame is drawn at, or back
+ * to fit. False while there is no frame, so the key zooms the browser.
+ */
+export function zoomKey(action: ZoomAction): boolean {
+  if (!host || !drawn) return false;
+  setZoom(action === "zoom-fit" ? "fit" : stepZoom(drawn.scale, action === "zoom-in" ? 1 : -1));
+  return true;
 }
 
 /**
@@ -476,14 +701,24 @@ function open(): void {
   const root = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = CSS;
-  const box = document.createElement("div");
-  box.className = "viewport";
+  letterbox = document.createElement("div");
+  letterbox.className = "viewport";
   readout = document.createElement("div");
   readout.className = "size";
+  caption = document.createElement("span");
+  picker = document.createElement("select");
+  picker.className = "zoom";
+  picker.setAttribute("aria-label", "zoom");
+  picker.addEventListener("change", onPick);
+  readout.append(caption, picker);
   stage = document.createElement("div");
   stage.className = "stage";
+  drawing = document.createElement("div");
+  drawing.className = "drawing";
   screen = document.createElement("div");
   screen.className = "screen";
+  glass = document.createElement("div");
+  glass.className = "glass";
   frame = document.createElement("iframe");
   frame.setAttribute(FRAME_ATTRIBUTE, "");
   frame.name = FRAME_NAME;
@@ -497,25 +732,37 @@ function open(): void {
   loaded = false;
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
+  reload.track({ view: frameWindow, page: frameDocument, loaded: () => loaded });
   notice = createNotice();
-  screen.append(frame);
-  stage.append(screen, notice);
-  box.append(readout, stage);
-  root.append(style, box);
-  for (const child of Array.from(body.children)) hide(child);
-  holdModals();
-  bodyObserver ??= new MutationObserver((records) => {
-    for (const record of records) record.addedNodes.forEach(hide);
-  });
-  bodyObserver.observe(body, { childList: true });
+  pageBox = document.createElement("div");
+  pageBox.className = "page";
+  pageBox.append(frame);
+  glass.append(pageBox);
+  // The page's scroll minimizing or bringing back the bars resizes the frame.
+  browser = createBrowser(glass, frame, resize);
+  screen.append(glass);
+  drawing.append(screen);
+  stage.append(drawing);
+  letterbox.append(readout, stage, notice);
+  letterbox.addEventListener("wheel", onWheel, { passive: false });
+  root.append(style, letterbox);
+  cover(body);
   // Popovers paint in the top layer, over the frame, wherever they sit.
   ensureStyle(NAME).textContent =
     "html{overflow:hidden!important}:popover-open:not([data-devknobs]){display:none!important}";
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", resize);
   body.append(host);
+  // The first page takes over the blank window the frame starts with, patches
+  // and all, and it starts no sooner than this task ends, after the knobs.
+  queueMicrotask(() => {
+    const view = frameWindow();
+    if (view && !loaded) reload.arrive(view);
+  });
   // Before the frame's page starts, which is no sooner than this task ends.
   resize();
+  // The panel comes up after the frame, and is measured for the fit once it is there.
+  window.requestAnimationFrame(resize);
 }
 
 /** Take the frame away. `follow` brings the window to where the frame went. */
@@ -531,20 +778,35 @@ function close(follow: boolean): void {
   window.removeEventListener("resize", resize);
   frame?.removeEventListener("load", onLoad);
   titleObserver?.disconnect();
+  reload.untrack();
   // The window shows its own page again, so its own address and title too.
   if (!moved) replaceUrl(pageUrl);
   if (pageTitle !== null) document.title = pageTitle;
   pageTitle = null;
   host.remove();
   host = null;
+  letterbox = null;
+  mat = null;
+  matKey = "";
   stage = null;
+  drawing = null;
   screen = null;
+  glass = null;
+  pageBox = null;
+  browser?.remove();
+  browser = null;
+  mockDrawing = null;
+  mockKey = "";
   frame = null;
   notice = null;
   readout = null;
-  bodyObserver?.disconnect();
-  releaseModals();
-  unhide();
+  caption = null;
+  picker = null;
+  pickerKey = "";
+  drawn = null;
+  clearTimeout(settling);
+  held = null;
+  uncover();
   removeStyle(NAME);
   // Hidden, the page had no height to keep its scroll position in.
   if (target && target !== window.location.href) window.location.assign(target);
@@ -556,10 +818,16 @@ export function apply(value: ViewportValue): void {
     close(true);
     return;
   }
-  current = value;
-  if (host) resize();
-  else if (document.body) open();
-  else document.addEventListener("DOMContentLoaded", open, { once: true });
+  const zoom = current.zoom;
+  // A zoom the wheel holds stays until it is in the store.
+  current = held === null ? value : { ...value, zoom: held };
+  if (!host) {
+    if (document.body) open();
+    else document.addEventListener("DOMContentLoaded", open, { once: true });
+  } else if (stage && current.zoom !== zoom) {
+    // A new zoom from elsewhere keeps the middle of the letterbox where it is.
+    rezoom({ x: stage.clientWidth / 2, y: stage.clientHeight / 2 });
+  } else resize();
 }
 
 /** Take the frame away and leave the window where it is. */
