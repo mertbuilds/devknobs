@@ -1103,17 +1103,27 @@ export function createPanel(options: PanelOptions = {}): Panel {
     (firstControl(line) ?? view.main).focus();
   }
 
-  /** Do what an action says. Grab takes the focus out of the panel, to the page. */
+  /** Do what an action says. */
   function runAction(id: Action["id"]): void {
     if (id === "replay") {
       engine.replay();
       return;
     }
-    if (!grab) return;
-    leaveSearch();
-    const focused = root.activeElement;
-    if (focused instanceof HTMLElement) focused.blur();
-    grab.set(true);
+    grab?.set(true);
+  }
+
+  /**
+   * Grab, however it went on, takes the focus out of the panel, to the page,
+   * so the arrows, Enter, `c` and escape are grab's at once. Off, it leaves
+   * the focus where it is.
+   */
+  function onGrab(on: boolean): void {
+    if (on) {
+      if (browsing || searchInput.value) leaveSearch();
+      const focused = root.activeElement;
+      if (focused instanceof HTMLElement) focused.blur();
+    }
+    render();
   }
 
   /** Set a result's value, or open the editor of a knob found by name. */
@@ -1673,7 +1683,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const ticker = window.setInterval(tick, 1000);
   const unsubscribe = engine.subscribe(render);
-  const stopGrab = grab?.subscribe(render);
+  const stopGrab = grab?.subscribe(onGrab);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("pointerdown", onPointerDown, true);

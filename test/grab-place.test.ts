@@ -163,6 +163,18 @@ describe("grab's key", () => {
     expect(inSearch.defaultPrevented).toBe(true);
   });
 
+  test("the panel hears grab go on within the press, so it can hand the focus to grab", () => {
+    setWindow("");
+    control = createGrab({}, loadMode);
+    const heard: boolean[] = [];
+    control.subscribe((on) => heard.push(on));
+    const search = { tagName: "INPUT", hasAttribute: (name: string) => name === KEYS_FIELD };
+    window.dispatchEvent(shiftG(search));
+    expect(heard).toEqual([true]);
+    control.set(false);
+    expect(heard).toEqual([true, false]);
+  });
+
   test("in a field of the page, shift and g types a capital", () => {
     setWindow("");
     control = createGrab({}, loadMode);
