@@ -78,7 +78,7 @@ setState({ ua: { preset: "iphone-safari" } });
 
 | option | default | what it does |
 | --- | --- | --- |
-| `hotkey` | `d` | key that toggles the panel |
+| `hotkey` | `k` | key that toggles the panel |
 | `open` | the stored state, closed at first | start the panel open or closed |
 | `persist` | `true` | keep the knobs in `sessionStorage` |
 | `state` | none | knobs to apply on top of the stored state |
@@ -140,7 +140,7 @@ while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
 and with `0` fit it again, from the frame too, unless the focus is in a field.
 every other key goes to the page as it would without the panel. the hotkey
 toggles the panel everywhere except in a field, the search included, so in the
-search `d` is just a letter.
+search `k` is just a letter.
 
 the footer lists the keys, most used first: the hotkey for the panel, `/` for
 search, the grab key, `r` for replay animations and `⇧⌫` (`Shift Backspace`

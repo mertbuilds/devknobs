@@ -49,7 +49,7 @@ import { CSS } from "./styles";
 export { wallInput } from "./catalog";
 
 export interface PanelOptions {
-  /** Key that toggles the panel. Defaults to `d`. */
+  /** Key that toggles the panel. Defaults to `k`. */
   hotkey?: string;
   /** Grab, where it is on, to show and to turn on from the search. */
   grab?: GrabControl | null;

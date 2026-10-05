@@ -15,7 +15,7 @@ import {
 
 function key(patch: Partial<KeyLike>): KeyLike {
   return {
-    key: "d",
+    key: "k",
     altKey: false,
     ctrlKey: false,
     metaKey: false,
@@ -32,73 +32,73 @@ function element(tagName: string, isContentEditable = false): EventTarget {
 }
 
 describe("hotkeyOf", () => {
-  test("defaults to d and lower cases the rest", () => {
-    expect(hotkeyOf()).toBe("d");
-    expect(hotkeyOf("K")).toBe("k");
+  test("defaults to k and lower cases the rest", () => {
+    expect(hotkeyOf()).toBe("k");
+    expect(hotkeyOf("D")).toBe("d");
   });
 });
 
 describe("keyAction", () => {
   test("toggles on the hotkey, whatever its case", () => {
-    expect(keyAction(key({}), "d")).toBe("toggle");
-    expect(keyAction(key({ key: "D" }), "d")).toBe("toggle");
-    expect(keyAction(key({ key: "k" }), "d")).toBeNull();
+    expect(keyAction(key({}), "k")).toBe("toggle");
+    expect(keyAction(key({ key: "K" }), "k")).toBe("toggle");
+    expect(keyAction(key({ key: "d" }), "k")).toBeNull();
   });
 
   test("closes on escape, even with a modifier or in a field", () => {
-    expect(keyAction(key({ key: "Escape" }), "d")).toBe("close");
-    expect(keyAction(key({ key: "Escape", shiftKey: true }), "d")).toBe("close");
-    expect(keyAction(key({ key: "Escape", target: element("INPUT") }), "d")).toBe("close");
+    expect(keyAction(key({ key: "Escape" }), "k")).toBe("close");
+    expect(keyAction(key({ key: "Escape", shiftKey: true }), "k")).toBe("close");
+    expect(keyAction(key({ key: "Escape", target: element("INPUT") }), "k")).toBe("close");
   });
 
   test("leaves the hotkey alone with a modifier", () => {
-    expect(keyAction(key({ altKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ ctrlKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ metaKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ shiftKey: true }), "d")).toBeNull();
+    expect(keyAction(key({ altKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ ctrlKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ metaKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ shiftKey: true }), "k")).toBeNull();
   });
 
   test("replays on r, whatever the case, and resets on shift backspace or delete", () => {
-    expect(keyAction(key({ key: "r" }), "d")).toBe("replay");
-    expect(keyAction(key({ key: "R" }), "d")).toBe("replay");
-    expect(keyAction(key({ key: "Backspace", shiftKey: true }), "d")).toBe("reset");
-    expect(keyAction(key({ key: "Delete", shiftKey: true }), "d")).toBe("reset");
+    expect(keyAction(key({ key: "r" }), "k")).toBe("replay");
+    expect(keyAction(key({ key: "R" }), "k")).toBe("replay");
+    expect(keyAction(key({ key: "Backspace", shiftKey: true }), "k")).toBe("reset");
+    expect(keyAction(key({ key: "Delete", shiftKey: true }), "k")).toBe("reset");
   });
 
   test("shift r and backspace alone do nothing", () => {
-    expect(keyAction(key({ key: "R", shiftKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ key: "r", shiftKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ key: "Backspace" }), "d")).toBeNull();
-    expect(keyAction(key({ key: "Delete" }), "d")).toBeNull();
+    expect(keyAction(key({ key: "R", shiftKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ key: "r", shiftKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ key: "Backspace" }), "k")).toBeNull();
+    expect(keyAction(key({ key: "Delete" }), "k")).toBeNull();
   });
 
   test("leaves r alone with a modifier, so reload and hard reload stay the browser's", () => {
-    expect(keyAction(key({ key: "r", metaKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ key: "r", ctrlKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ key: "r", altKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ key: "R", metaKey: true, shiftKey: true }), "d")).toBeNull();
-    expect(keyAction(key({ key: "R", ctrlKey: true, shiftKey: true }), "d")).toBeNull();
+    expect(keyAction(key({ key: "r", metaKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ key: "r", ctrlKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ key: "r", altKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ key: "R", metaKey: true, shiftKey: true }), "k")).toBeNull();
+    expect(keyAction(key({ key: "R", ctrlKey: true, shiftKey: true }), "k")).toBeNull();
   });
 
   test("leaves reset alone with another modifier", () => {
     for (const modifier of ["altKey", "ctrlKey", "metaKey"] as const) {
       for (const name of ["Backspace", "Delete"]) {
-        expect(keyAction(key({ key: name, shiftKey: true, [modifier]: true }), "d")).toBeNull();
+        expect(keyAction(key({ key: name, shiftKey: true, [modifier]: true }), "k")).toBeNull();
       }
     }
   });
 
   test("leaves replay and reset alone while typing, so shift backspace deletes", () => {
-    expect(keyAction(key({ key: "r", target: element("INPUT") }), "d")).toBeNull();
+    expect(keyAction(key({ key: "r", target: element("INPUT") }), "k")).toBeNull();
     for (const tag of ["INPUT", "TEXTAREA", "SELECT"]) {
       const shifted = key({ key: "Backspace", shiftKey: true, target: element(tag) });
-      expect(keyAction(shifted, "d")).toBeNull();
+      expect(keyAction(shifted, "k")).toBeNull();
     }
-    expect(keyAction(key({ key: "r", target: element("DIV", true) }), "d")).toBeNull();
+    expect(keyAction(key({ key: "r", target: element("DIV", true) }), "k")).toBeNull();
     const editable = key({ key: "Backspace", shiftKey: true, target: element("DIV", true) });
-    expect(keyAction(editable, "d")).toBeNull();
+    expect(keyAction(editable, "k")).toBeNull();
     const inShadow = key({ key: "Backspace", shiftKey: true, composedPath: () => [element("INPUT")] });
-    expect(keyAction(inShadow, "d")).toBeNull();
+    expect(keyAction(inShadow, "k")).toBeNull();
   });
 
   test("the hotkey wins over replay where they are the same key", () => {
@@ -107,12 +107,12 @@ describe("keyAction", () => {
   });
 
   test("leaves the hotkey alone while typing", () => {
-    expect(keyAction(key({ target: element("INPUT") }), "d")).toBeNull();
-    expect(keyAction(key({ target: element("TEXTAREA") }), "d")).toBeNull();
-    expect(keyAction(key({ target: element("SELECT") }), "d")).toBeNull();
-    expect(keyAction(key({ target: element("DIV", true) }), "d")).toBeNull();
-    expect(keyAction(key({ composedPath: () => [element("INPUT")] }), "d")).toBeNull();
-    expect(keyAction(key({ target: element("DIV") }), "d")).toBe("toggle");
+    expect(keyAction(key({ target: element("INPUT") }), "k")).toBeNull();
+    expect(keyAction(key({ target: element("TEXTAREA") }), "k")).toBeNull();
+    expect(keyAction(key({ target: element("SELECT") }), "k")).toBeNull();
+    expect(keyAction(key({ target: element("DIV", true) }), "k")).toBeNull();
+    expect(keyAction(key({ composedPath: () => [element("INPUT")] }), "k")).toBeNull();
+    expect(keyAction(key({ target: element("DIV") }), "k")).toBe("toggle");
   });
 });
 
@@ -124,7 +124,7 @@ describe("isSearchKey", () => {
 
   test("leaves every other key to the page", () => {
     expect(isSearchKey(key({ key: "o" }))).toBe(false);
-    expect(isSearchKey(key({ key: "D", shiftKey: true }))).toBe(false);
+    expect(isSearchKey(key({ key: "K", shiftKey: true }))).toBe(false);
     expect(isSearchKey(key({ key: "+" }))).toBe(false);
     expect(isSearchKey(key({ key: " " }))).toBe(false);
     expect(isSearchKey(key({ key: "Enter" }))).toBe(false);
@@ -157,7 +157,7 @@ describe("zoomAction", () => {
     expect(zoomAction(key({ key: "0", shiftKey: true }))).toBeNull();
     expect(zoomAction(key({ key: "0", metaKey: true, altKey: true }))).toBeNull();
     expect(zoomAction(key({ key: "9", metaKey: true }))).toBeNull();
-    expect(zoomAction(key({ key: "d", metaKey: true }))).toBeNull();
+    expect(zoomAction(key({ key: "k", metaKey: true }))).toBeNull();
   });
 
   test("leaves them to the browser while typing, but not on a select", () => {
@@ -280,11 +280,11 @@ describe("forwardKeys", () => {
   });
 
   test("posts the panel's keys to the page above, on this origin only", () => {
-    forwardKeys("K");
-    listener?.(key({ key: "k" }));
-    listener?.(key({ key: "Escape" }));
+    forwardKeys("D");
     listener?.(key({ key: "d" }));
-    listener?.(key({ key: "k", target: element("INPUT") }));
+    listener?.(key({ key: "Escape" }));
+    listener?.(key({ key: "k" }));
+    listener?.(key({ key: "d", target: element("INPUT") }));
     listener?.(key({ key: "r" }));
     listener?.(key({ key: "Backspace", shiftKey: true }));
     listener?.(key({ key: "r", target: element("INPUT") }));

@@ -59,8 +59,8 @@ describe("chipKey", () => {
 
 describe("keyChips", () => {
   test("the hotkey, search, grab, replay and reset, most used first", () => {
-    expect(keyChips("d", "⌘C", true)).toEqual([
-      { command: "panel", key: "d", word: "panel" },
+    expect(keyChips("k", "⌘C", true)).toEqual([
+      { command: "panel", key: "k", word: "panel" },
       { command: "search", key: "/", word: "search" },
       { command: "grab", key: "⌘C", word: "grab" },
       { command: "replay", key: "r", word: "replay animations" },
@@ -69,8 +69,8 @@ describe("keyChips", () => {
   });
 
   test("the hotkey that was set, and the keys off a mac", () => {
-    expect(keyChips("k", "ctrl+C", false).map((chip) => chip.key)).toEqual([
-      "k",
+    expect(keyChips("d", "ctrl+C", false).map((chip) => chip.key)).toEqual([
+      "d",
       "/",
       "Ctrl C",
       "r",
@@ -79,7 +79,7 @@ describe("keyChips", () => {
   });
 
   test("no grab chip with no grab", () => {
-    expect(keyChips("d", null, true).map((chip) => chip.command)).toEqual([
+    expect(keyChips("k", null, true).map((chip) => chip.command)).toEqual([
       "panel",
       "search",
       "replay",

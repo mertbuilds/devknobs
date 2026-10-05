@@ -8,7 +8,7 @@ export type KeyLike = Pick<
 
 /** The key that toggles the panel, lower case like the keys it is matched to. */
 export function hotkeyOf(hotkey?: string): string {
-  return (hotkey ?? "d").toLowerCase();
+  return (hotkey ?? "k").toLowerCase();
 }
 
 /** A field that takes typing. */
