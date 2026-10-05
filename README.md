@@ -176,8 +176,9 @@ own `application/x-react-grab`.
 grab turns on with the press, and stays on until a copy, escape or `⇧G` again.
 holding the key down does not turn it off. in a field of the page `⇧G` types a
 capital and grab stays off, and in the panel's search it is grab's. a grab key
-set to a copy shortcut, such as `meta+c`, is still a copy when pressed
-quickly, so grab turns on once it is held for 100ms: 500ms while a field has
+with meta, ctrl or alt, such as `alt+shift+g` or a copy shortcut like
+`meta+c`, turns on once it is held for 100ms, and a quick press of a copy
+shortcut is still a copy. the hold is 500ms while a field has
 the focus and 700ms while text is selected, and a key that copied something
 waits for the key to repeat, or to be let go after 200ms. grab then stays on
 until a copy or escape. the search finds it too:

@@ -109,8 +109,8 @@ export function keepPlace(): void {
 }
 
 /**
- * Put every knob back to system and unpin every row. The panel keeps its
- * place and stays open or closed, across a reload too.
+ * Put every knob back to its default and list the default rows again. The
+ * panel keeps its place and stays open or closed, across a reload too.
  */
 export function reset(): void {
   applyState(resetState(state));

@@ -129,11 +129,13 @@ describe("typesInField", () => {
     });
 
     /** A page element as the event shows it, the root it sits in and that root's focus. */
-    function scene(patch: { tabindex?: string; tabIndex?: number; active?: boolean } = {}) {
+    function scene(
+      patch: { tagName?: string; tabindex?: string; tabIndex?: number; active?: boolean } = {},
+    ) {
       const root: { activeElement: unknown; body: unknown; documentElement: unknown } =
         Object.assign(new Document(), { activeElement: null, body: null, documentElement: null });
       const host = Object.assign(new HTMLElement(), {
-        tagName: "MY-FIELD",
+        tagName: patch.tagName ?? "MY-FIELD",
         isContentEditable: false,
         shadowRoot: null,
         tabIndex: patch.tabIndex ?? -1,
@@ -158,6 +160,12 @@ describe("typesInField", () => {
       const { root, host } = scene();
       root.body = host;
       expect(typesInField(key({ composedPath: () => [host] }))).toBe(false);
+    });
+
+    test("a plain element with the focus, such as a scroll box, does not", () => {
+      const { host } = scene({ tagName: "DIV" });
+      expect(typesInField(key({ composedPath: () => [host] }))).toBe(false);
+      expect(keyAction(shifted({ composedPath: () => [host] }), "k")).toBe("toggle");
     });
   });
 });

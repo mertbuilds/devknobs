@@ -32,12 +32,14 @@ function isTyping(node: EventTarget | null): boolean {
 }
 
 /**
- * An element of the page that cannot take the focus, yet has it: the focus is
- * in its closed shadow root, where a field the key reaches cannot be seen.
+ * A custom element of the page that cannot take the focus, yet has it: the
+ * focus is in its closed shadow root, where a field the key reaches cannot be
+ * seen. A plain element such as a scroll box can have the focus on its own.
  */
 function focusInClosedRoot(node: EventTarget | null): boolean {
   // Off the browser, as in a server render, there are no elements.
   if (typeof HTMLElement === "undefined" || !(node instanceof HTMLElement)) return false;
+  if (!node.tagName.includes("-")) return false;
   if (node.shadowRoot !== null || node.hasAttribute("tabindex") || node.tabIndex >= 0) return false;
   const root = node.getRootNode();
   if (root instanceof Document) {
