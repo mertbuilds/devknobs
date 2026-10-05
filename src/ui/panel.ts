@@ -36,10 +36,12 @@ import {
   highlightAt,
   hotkeyOf,
   isSearchKey,
+  KEYS_FIELD,
   keyAction,
   paletteMove,
   REPLAY_KEY,
   radioMove,
+  shiftLabel,
   zoomAction,
 } from "./keys";
 import { isListed, pinPatch, removePatch, rowText } from "./list";
@@ -49,7 +51,7 @@ import { CSS } from "./styles";
 export { wallInput } from "./catalog";
 
 export interface PanelOptions {
-  /** Key that toggles the panel. Defaults to `k`. */
+  /** The letter that with shift toggles the panel. Defaults to `k`. */
   hotkey?: string;
   /** Grab, where it is on, to show and to turn on from the search. */
   grab?: GrabControl | null;
@@ -145,17 +147,17 @@ export function chipKey(label: string): string {
 }
 
 /**
- * The keys the footer names, most used first: the hotkey, the search key, the
- * grab key where there is a grab, the replay key, and reset last.
+ * The keys the footer names, most used first: shift and the hotkey, the search
+ * key, the grab key where there is a grab, shift r for replay, and reset last.
  */
 export function keyChips(hotkey: string, grabLabel: string | null, mac: boolean): KeyChip[] {
   const chips: KeyChip[] = [
-    { command: "panel", key: hotkey, word: "panel" },
+    { command: "panel", key: shiftLabel(hotkey, mac), word: "panel" },
     { command: "search", key: "/", word: "search" },
   ];
   if (grabLabel !== null) chips.push({ command: "grab", key: chipKey(grabLabel), word: "grab" });
   chips.push(
-    { command: "replay", key: REPLAY_KEY, word: "replay animations" },
+    { command: "replay", key: shiftLabel(REPLAY_KEY, mac), word: "replay animations" },
     { command: "reset", key: mac ? "⇧⌫" : "Shift Backspace", word: "reset" },
   );
   return chips;
@@ -417,7 +419,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const wrap = el("div", "wrap");
   const handle = button("handle", "knobs");
-  handle.setAttribute("aria-label", `devknobs, press ${hotkey}`);
+  handle.setAttribute("aria-label", `devknobs, press shift ${hotkey}`);
   handle.title = "drag to move · shift-drag moves the handle";
   const panel = el("div", "panel");
 
@@ -428,6 +430,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   searchInput.placeholder = "add a knob";
   searchInput.autocomplete = "off";
   searchInput.spellcheck = false;
+  searchInput.setAttribute(KEYS_FIELD, "");
   searchInput.setAttribute("role", "combobox");
   searchInput.setAttribute("aria-label", "find a knob");
   searchInput.setAttribute("aria-autocomplete", "list");
@@ -1589,10 +1592,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   /**
-   * The hotkey toggles the panel unless the focus is in a field, the search
-   * included. While the panel is out and the focus is in no field, `/` focuses
-   * the search without typing into it. While the frame is up, the zoom keys
-   * zoom it instead of the browser. Every other key goes to the page.
+   * Shift and the hotkey toggles the panel unless the focus is in a field
+   * other than the search. While the panel is out and the focus is in no
+   * field, `/` focuses the search without typing into it. While the frame is
+   * up, the zoom keys zoom it instead of the browser. Every other key goes to
+   * the page.
    */
   function onKeydown(event: KeyboardEvent): void {
     const zoom = zoomAction(event);
@@ -1607,8 +1611,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (action === "close") escape();
     else if (action) moved = onAction(action);
     // The hotkey is not typed where it moved the focus: the search it opened
-    // the panel on, or the page field it closed the panel back to.
-    if (action === "toggle" && moved) event.preventDefault();
+    // the panel on, or the page field it closed the panel back to. In the
+    // search no key the panel took is typed.
+    const inSearch = event.composedPath()[0] === searchInput;
+    if ((action === "toggle" && moved) || (action && action !== "close" && inSearch)) {
+      event.preventDefault();
+    }
     if (action || dragging || !engine.getState().panel.open || !isSearchKey(event)) return;
     event.preventDefault();
     event.stopPropagation();

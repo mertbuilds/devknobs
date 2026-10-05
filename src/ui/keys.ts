@@ -4,12 +4,24 @@ import { type KeyAction, post, type ZoomAction } from "../engine/frame";
 export type KeyLike = Pick<
   KeyboardEvent,
   "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "target" | "composedPath"
->;
+> &
+  Partial<Pick<KeyboardEvent, "code">>;
 
-/** The key that toggles the panel, lower case like the keys it is matched to. */
+/** The letter that with shift toggles the panel, lower case like the keys it is matched to. */
 export function hotkeyOf(hotkey?: string): string {
   return (hotkey ?? "k").toLowerCase();
 }
+
+/** A shift letter as the panel shows it: `⇧K` on a Mac, `Shift K` elsewhere. */
+export function shiftLabel(letter: string, mac: boolean): string {
+  return `${mac ? "⇧" : "Shift "}${letter.toUpperCase()}`;
+}
+
+/**
+ * Marks the panel's own field where the shift letters are the panel's keys
+ * and not text. Its search is one: it finds in lower case anyway.
+ */
+export const KEYS_FIELD = "data-devknobs-keys";
 
 /** A field that takes typing. */
 function isTyping(node: EventTarget | null): boolean {
@@ -23,26 +35,48 @@ function isEditable(node: EventTarget | null): boolean {
   return isTyping(node) || (node as HTMLElement | null)?.tagName === "SELECT";
 }
 
-/** The key that replays the page's animations. */
+/**
+ * Whether a key goes into a field: one of the page's, or one of the panel's
+ * other than those marked with `KEYS_FIELD`.
+ */
+export function typesInField(event: Pick<KeyLike, "target" | "composedPath">): boolean {
+  const target = event.composedPath?.()[0] ?? event.target;
+  if (!isEditable(target)) return false;
+  return (target as HTMLElement | null)?.hasAttribute?.(KEYS_FIELD) !== true;
+}
+
+/**
+ * Shift and the letter with no other modifier. Caps lock turns the letter
+ * back to lower case, so either case is the letter, and on a layout whose
+ * letters are not latin the key in the letter's place is.
+ */
+export function isShiftLetter(event: KeyLike, letter: string): boolean {
+  if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+  const key = event.key.toLowerCase();
+  if (key === letter) return true;
+  return !/^[a-z]$/.test(key) && event.code === `Key${letter.toUpperCase()}`;
+}
+
+/** The letter that with shift replays the page's animations. */
 export const REPLAY_KEY = "r";
 
 /** The keys that with shift reset every knob, delete the same as backspace. */
 const RESET_KEYS = new Set(["Backspace", "Delete"]);
 
 /**
- * What a keydown asks of the panel, if anything. Typing in a field never asks.
- * `r` replays the animations, which the hotkey wins over, and shift backspace
- * resets.
+ * What a keydown asks of the panel, if anything. Shift and the hotkey toggles
+ * it, shift r replays the animations, which the hotkey wins over, and shift
+ * backspace resets. Typing in a field never asks, except for the shift
+ * letters in a field marked with `KEYS_FIELD`, where backspace still deletes.
  */
 export function keyAction(event: KeyLike, hotkey: string): KeyAction | null {
   if (event.key === "Escape") return "close";
-  if (event.altKey || event.ctrlKey || event.metaKey) return null;
+  if (event.altKey || event.ctrlKey || event.metaKey || !event.shiftKey) return null;
   const target = event.composedPath?.()[0] ?? event.target;
-  if (isEditable(target)) return null;
-  const key = event.key.toLowerCase();
-  if (event.shiftKey) return RESET_KEYS.has(event.key) ? "reset" : null;
-  if (key === hotkey) return "toggle";
-  return key === REPLAY_KEY ? "replay" : null;
+  if (RESET_KEYS.has(event.key)) return isEditable(target) ? null : "reset";
+  if (typesInField(event)) return null;
+  if (isShiftLetter(event, hotkey)) return "toggle";
+  return isShiftLetter(event, REPLAY_KEY) ? "replay" : null;
 }
 
 /**

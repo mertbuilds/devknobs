@@ -72,26 +72,26 @@ const MODIFIERS: Record<string, "meta" | "ctrl" | "shift" | "alt"> = {
   opt: "alt",
 };
 
-/** Meta and c on a Mac, ctrl and c elsewhere. */
-export function defaultGrabKey(mac: boolean): GrabKey {
-  return { meta: mac, ctrl: !mac, shift: false, alt: false, key: "c" };
+/** Shift and g. */
+export function defaultGrabKey(): GrabKey {
+  return { meta: false, ctrl: false, shift: true, alt: false, key: "g" };
 }
 
 /**
  * Read a key such as `alt+shift+g`. One that names no key, or more than one,
  * is the default.
  */
-export function parseGrabKey(spec: string | undefined, mac: boolean): GrabKey {
-  if (!spec?.trim()) return defaultGrabKey(mac);
+export function parseGrabKey(spec: string | undefined): GrabKey {
+  if (!spec?.trim()) return defaultGrabKey();
   const parsed: GrabKey = { meta: false, ctrl: false, shift: false, alt: false, key: "" };
   for (const raw of spec.split("+")) {
     const part = raw.trim().toLowerCase();
     const modifier = MODIFIERS[part];
     if (modifier) parsed[modifier] = true;
     else if (part && !parsed.key) parsed.key = part;
-    else return defaultGrabKey(mac);
+    else return defaultGrabKey();
   }
-  return parsed.key ? parsed : defaultGrabKey(mac);
+  return parsed.key ? parsed : defaultGrabKey();
 }
 
 function keyMatches(event: GrabKeyLike, key: string): boolean {
@@ -123,7 +123,7 @@ export function releasesGrabKey(event: GrabKeyLike, key: GrabKey): boolean {
   );
 }
 
-/** What the grab key reads as in the panel: `⌘C` on a Mac, `ctrl+C` elsewhere. */
+/** What the grab key reads as in the panel: `⇧G` on a Mac, `shift+G` elsewhere. */
 export function grabKeyLabel(key: GrabKey, mac: boolean): string {
   const letter = key.key.length === 1 ? key.key.toUpperCase() : key.key;
   if (mac) {

@@ -3,8 +3,10 @@ import * as engine from "../engine";
 import { isDevknobsFrame, needsFrame, post, readMessage } from "../engine/frame";
 import { isMac } from "../engine/ua";
 import { frameWindow } from "../engine/width";
+import { typesInField } from "../ui/keys";
 import {
   grabKeyLabel,
+  HOLD,
   type Hold,
   type HoldEvent,
   holdDuration,
@@ -17,7 +19,7 @@ import type { Mode, ModeOptions } from "./mode";
 import { type GrabPlace, grabStep } from "./place";
 
 export interface GrabControlOptions {
-  /** The key held to grab, such as `alt+shift+g`. Defaults to meta or ctrl with c. */
+  /** The key held to grab, such as `alt+shift+g`. Defaults to `shift+g`. */
   key?: string;
 }
 
@@ -25,7 +27,7 @@ export interface GrabControlOptions {
 export type LoadMode = () => Promise<{ startMode: (options: ModeOptions) => Mode }>;
 
 export interface GrabControl {
-  /** The grab key as the panel shows it, such as `⌘C`. */
+  /** The grab key as the panel shows it, such as `⇧G`. */
   readonly label: string;
   isOn(): boolean;
   /** Turn grab on or off, in the frame while it is up. */
@@ -91,7 +93,12 @@ export function createGrab(
   loadMode: LoadMode = () => import("./index"),
 ): GrabControl {
   const mac = isMac();
-  const key = parseGrabKey(options.key, mac);
+  const key = parseGrabKey(options.key);
+  /**
+   * A key with no modifier but shift types, so it is a field's, and the
+   * panel's search aside, never grab's there. It copies nothing either.
+   */
+  const types = !key.meta && !key.ctrl && !key.alt;
   const inFrame = isDevknobsFrame();
   const listeners = new Set<(on: boolean) => void>();
   /** Where grab runs. Only `move` changes it. */
@@ -164,6 +171,9 @@ export function createGrab(
   }
 
   function onKeydown(event: KeyboardEvent): void {
+    const grabKey = isGrabKey(event, key) && !(types && typesInField(event));
+    // Where it is grab's, a key that types is not typed, held or repeating.
+    if (grabKey && types) event.preventDefault();
     if (mode) {
       mode.keydown(event);
       return;
@@ -177,13 +187,14 @@ export function createGrab(
       }
       return;
     }
-    if (isGrabKey(event, key)) {
+    if (grabKey) {
       if (event.repeat) {
         step({ type: "repeat" });
         return;
       }
       if (hold) return;
-      const duration = holdDuration(holdScene());
+      // Only a key that may be a copy waits longer in a field or on a selection.
+      const duration = types ? HOLD : holdDuration(holdScene());
       step({ type: "down", at: Date.now(), duration });
       clearTimeout(holdTimer);
       holdTimer = window.setTimeout(() => step({ type: "timer" }), duration);

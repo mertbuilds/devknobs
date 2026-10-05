@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { FRAME_NAME } from "../src/engine/frame";
 import { createGrab, type GrabControl, type LoadMode } from "../src/grab/control";
 import { grabStep } from "../src/grab/place";
+import { KEYS_FIELD } from "../src/ui/keys";
 
 describe("grabStep", () => {
   test("asked on, grab runs here, or in the frame while it is up", () => {
@@ -125,6 +126,44 @@ describe("grab's control", () => {
     control.set(false);
     await settle();
     expect(modes).toEqual([]);
+  });
+});
+
+/** Shift and g pressed in `target`, the deepest node the event came through. */
+function shiftG(target: unknown): Event {
+  return Object.assign(new Event("keydown", { cancelable: true }), {
+    key: "G",
+    code: "KeyG",
+    shiftKey: true,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    repeat: false,
+    composedPath: () => [target],
+  });
+}
+
+describe("grab's key", () => {
+  test("shift and g is grab's off a field and in the panel's search, and not typed", () => {
+    setWindow("");
+    control = createGrab({}, loadMode);
+    const page = shiftG({ tagName: "DIV", isContentEditable: false });
+    window.dispatchEvent(page);
+    expect(page.defaultPrevented).toBe(true);
+    const search = { tagName: "INPUT", hasAttribute: (name: string) => name === KEYS_FIELD };
+    const inSearch = shiftG(search);
+    window.dispatchEvent(inSearch);
+    expect(inSearch.defaultPrevented).toBe(true);
+  });
+
+  test("in a field of the page, shift and g types a capital", () => {
+    setWindow("");
+    control = createGrab({}, loadMode);
+    for (const tagName of ["INPUT", "TEXTAREA", "SELECT"]) {
+      const event = shiftG({ tagName, hasAttribute: () => false });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
   });
 });
 

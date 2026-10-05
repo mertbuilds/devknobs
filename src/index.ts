@@ -54,13 +54,13 @@ export type { EngineOptions } from "./engine";
 export type { GrabEntry, GrabFrame, GrabOptions, GrabPayload, ResolvedSource } from "./grab/types";
 
 export interface MountOptions extends engine.EngineOptions {
-  /** Key that toggles the panel. Defaults to `k`. */
+  /** The letter that with shift toggles the panel. Defaults to `k`. */
   hotkey?: string;
   /** Start the panel open or closed. Defaults to the stored state, closed at first. */
   open?: boolean;
   /** Hold a key to grab elements for an agent. Defaults to true. */
   grab?: boolean;
-  /** The key held to grab, such as `alt+shift+g`. Defaults to meta or ctrl with c. */
+  /** The key held to grab, such as `alt+shift+g`. Defaults to `shift+g`. */
   grabKey?: string;
   /**
    * The color grab draws its boxes in. Defaults to the stored one, `auto` at

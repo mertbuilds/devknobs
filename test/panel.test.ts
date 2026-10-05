@@ -49,6 +49,7 @@ describe("chipKey", () => {
 
   test("names off a mac are spaced and capped", () => {
     expect(chipKey("ctrl+C")).toBe("Ctrl C");
+    expect(chipKey("shift+G")).toBe("Shift G");
     expect(chipKey("alt+shift+G")).toBe("Alt Shift G");
   });
 
@@ -59,21 +60,28 @@ describe("chipKey", () => {
 
 describe("keyChips", () => {
   test("the hotkey, search, grab, replay and reset, most used first", () => {
-    expect(keyChips("k", "⌘C", true)).toEqual([
-      { command: "panel", key: "k", word: "panel" },
+    expect(keyChips("k", "⇧G", true)).toEqual([
+      { command: "panel", key: "⇧K", word: "panel" },
       { command: "search", key: "/", word: "search" },
-      { command: "grab", key: "⌘C", word: "grab" },
-      { command: "replay", key: "r", word: "replay animations" },
+      { command: "grab", key: "⇧G", word: "grab" },
+      { command: "replay", key: "⇧R", word: "replay animations" },
       { command: "reset", key: "⇧⌫", word: "reset" },
     ]);
   });
 
   test("the hotkey that was set, and the keys off a mac", () => {
+    expect(keyChips("k", "shift+G", false).map((chip) => chip.key)).toEqual([
+      "Shift K",
+      "/",
+      "Shift G",
+      "Shift R",
+      "Shift Backspace",
+    ]);
     expect(keyChips("d", "ctrl+C", false).map((chip) => chip.key)).toEqual([
-      "d",
+      "Shift D",
       "/",
       "Ctrl C",
-      "r",
+      "Shift R",
       "Shift Backspace",
     ]);
   });

@@ -6,10 +6,14 @@ import {
   highlightAt,
   hotkeyOf,
   isSearchKey,
+  isShiftLetter,
+  KEYS_FIELD,
   keyAction,
   type KeyLike,
   paletteMove,
   radioMove,
+  shiftLabel,
+  typesInField,
   zoomAction,
 } from "../src/ui/keys";
 
@@ -27,8 +31,14 @@ function key(patch: Partial<KeyLike>): KeyLike {
 }
 
 /** Just enough of an element for the editable check. */
-function element(tagName: string, isContentEditable = false): EventTarget {
-  return { tagName, isContentEditable } as unknown as EventTarget;
+function element(tagName: string, isContentEditable = false, keys = false): EventTarget {
+  const hasAttribute = (name: string) => keys && name === KEYS_FIELD;
+  return { tagName, isContentEditable, hasAttribute } as unknown as EventTarget;
+}
+
+/** Shift and a key, as the browser sends it with caps lock off. */
+function shifted(patch: Partial<KeyLike>): KeyLike {
+  return key({ key: "K", shiftKey: true, ...patch });
 }
 
 describe("hotkeyOf", () => {
@@ -38,11 +48,60 @@ describe("hotkeyOf", () => {
   });
 });
 
+describe("shiftLabel", () => {
+  test("reads as the reset chip does, on a Mac and elsewhere", () => {
+    expect(shiftLabel("k", true)).toBe("⇧K");
+    expect(shiftLabel("r", false)).toBe("Shift R");
+  });
+});
+
+describe("isShiftLetter", () => {
+  test("takes shift and the letter, in either case for caps lock", () => {
+    expect(isShiftLetter(shifted({}), "k")).toBe(true);
+    expect(isShiftLetter(shifted({ key: "k" }), "k")).toBe(true);
+    expect(isShiftLetter(shifted({ key: "D" }), "k")).toBe(false);
+  });
+
+  test("takes the letter's place on a layout that is not latin", () => {
+    expect(isShiftLetter(shifted({ key: "Л", code: "KeyK" }), "k")).toBe(true);
+    expect(isShiftLetter(shifted({ key: "D", code: "KeyK" }), "k")).toBe(false);
+  });
+
+  test("needs shift and no other modifier", () => {
+    expect(isShiftLetter(key({ key: "k" }), "k")).toBe(false);
+    for (const modifier of ["altKey", "ctrlKey", "metaKey"] as const) {
+      expect(isShiftLetter(shifted({ [modifier]: true }), "k")).toBe(false);
+    }
+  });
+});
+
+describe("typesInField", () => {
+  test("a field of the page, or of the panel unmarked, takes the key", () => {
+    expect(typesInField(key({ target: element("INPUT") }))).toBe(true);
+    expect(typesInField(key({ target: element("SELECT") }))).toBe(true);
+    expect(typesInField(key({ composedPath: () => [element("TEXTAREA")] }))).toBe(true);
+    expect(typesInField(key({ target: element("DIV", true) }))).toBe(true);
+  });
+
+  test("the panel's search and anything not a field do not", () => {
+    expect(typesInField(key({ composedPath: () => [element("INPUT", false, true)] }))).toBe(false);
+    expect(typesInField(key({ target: element("DIV") }))).toBe(false);
+    expect(typesInField(key({}))).toBe(false);
+  });
+});
+
 describe("keyAction", () => {
-  test("toggles on the hotkey, whatever its case", () => {
-    expect(keyAction(key({}), "k")).toBe("toggle");
-    expect(keyAction(key({ key: "K" }), "k")).toBe("toggle");
-    expect(keyAction(key({ key: "d" }), "k")).toBeNull();
+  test("toggles on shift and the hotkey, caps lock or not", () => {
+    expect(keyAction(shifted({}), "k")).toBe("toggle");
+    expect(keyAction(shifted({ key: "k" }), "k")).toBe("toggle");
+    expect(keyAction(shifted({ key: "D" }), "k")).toBeNull();
+    expect(keyAction(shifted({ key: "D" }), "d")).toBe("toggle");
+  });
+
+  test("leaves the bare hotkey and the bare r alone", () => {
+    expect(keyAction(key({ key: "k" }), "k")).toBeNull();
+    expect(keyAction(key({ key: "K" }), "k")).toBeNull();
+    expect(keyAction(key({ key: "r" }), "k")).toBeNull();
   });
 
   test("closes on escape, even with a modifier or in a field", () => {
@@ -51,33 +110,29 @@ describe("keyAction", () => {
     expect(keyAction(key({ key: "Escape", target: element("INPUT") }), "k")).toBe("close");
   });
 
-  test("leaves the hotkey alone with a modifier", () => {
-    expect(keyAction(key({ altKey: true }), "k")).toBeNull();
-    expect(keyAction(key({ ctrlKey: true }), "k")).toBeNull();
-    expect(keyAction(key({ metaKey: true }), "k")).toBeNull();
-    expect(keyAction(key({ shiftKey: true }), "k")).toBeNull();
+  test("leaves the hotkey alone with another modifier", () => {
+    expect(keyAction(shifted({ altKey: true }), "k")).toBeNull();
+    expect(keyAction(shifted({ ctrlKey: true }), "k")).toBeNull();
+    expect(keyAction(shifted({ metaKey: true }), "k")).toBeNull();
   });
 
-  test("replays on r, whatever the case, and resets on shift backspace or delete", () => {
-    expect(keyAction(key({ key: "r" }), "k")).toBe("replay");
-    expect(keyAction(key({ key: "R" }), "k")).toBe("replay");
+  test("replays on shift r, caps lock or not, and resets on shift backspace or delete", () => {
+    expect(keyAction(shifted({ key: "R" }), "k")).toBe("replay");
+    expect(keyAction(shifted({ key: "r" }), "k")).toBe("replay");
     expect(keyAction(key({ key: "Backspace", shiftKey: true }), "k")).toBe("reset");
     expect(keyAction(key({ key: "Delete", shiftKey: true }), "k")).toBe("reset");
   });
 
-  test("shift r and backspace alone do nothing", () => {
-    expect(keyAction(key({ key: "R", shiftKey: true }), "k")).toBeNull();
-    expect(keyAction(key({ key: "r", shiftKey: true }), "k")).toBeNull();
+  test("backspace alone does nothing", () => {
     expect(keyAction(key({ key: "Backspace" }), "k")).toBeNull();
     expect(keyAction(key({ key: "Delete" }), "k")).toBeNull();
   });
 
-  test("leaves r alone with a modifier, so reload and hard reload stay the browser's", () => {
+  test("leaves shift r alone with another modifier, so hard reload stays the browser's", () => {
+    expect(keyAction(shifted({ key: "R", metaKey: true }), "k")).toBeNull();
+    expect(keyAction(shifted({ key: "R", ctrlKey: true }), "k")).toBeNull();
+    expect(keyAction(shifted({ key: "R", altKey: true }), "k")).toBeNull();
     expect(keyAction(key({ key: "r", metaKey: true }), "k")).toBeNull();
-    expect(keyAction(key({ key: "r", ctrlKey: true }), "k")).toBeNull();
-    expect(keyAction(key({ key: "r", altKey: true }), "k")).toBeNull();
-    expect(keyAction(key({ key: "R", metaKey: true, shiftKey: true }), "k")).toBeNull();
-    expect(keyAction(key({ key: "R", ctrlKey: true, shiftKey: true }), "k")).toBeNull();
   });
 
   test("leaves reset alone with another modifier", () => {
@@ -88,31 +143,31 @@ describe("keyAction", () => {
     }
   });
 
-  test("leaves replay and reset alone while typing, so shift backspace deletes", () => {
-    expect(keyAction(key({ key: "r", target: element("INPUT") }), "k")).toBeNull();
+  test("leaves the keys to a field of the page, so shift types a capital", () => {
     for (const tag of ["INPUT", "TEXTAREA", "SELECT"]) {
-      const shifted = key({ key: "Backspace", shiftKey: true, target: element(tag) });
-      expect(keyAction(shifted, "k")).toBeNull();
+      expect(keyAction(shifted({ target: element(tag) }), "k")).toBeNull();
+      expect(keyAction(shifted({ key: "R", target: element(tag) }), "k")).toBeNull();
+      const reset = key({ key: "Backspace", shiftKey: true, target: element(tag) });
+      expect(keyAction(reset, "k")).toBeNull();
     }
-    expect(keyAction(key({ key: "r", target: element("DIV", true) }), "k")).toBeNull();
-    const editable = key({ key: "Backspace", shiftKey: true, target: element("DIV", true) });
-    expect(keyAction(editable, "k")).toBeNull();
-    const inShadow = key({ key: "Backspace", shiftKey: true, composedPath: () => [element("INPUT")] });
-    expect(keyAction(inShadow, "k")).toBeNull();
+    expect(keyAction(shifted({ target: element("DIV", true) }), "k")).toBeNull();
+    expect(keyAction(shifted({ composedPath: () => [element("INPUT")] }), "k")).toBeNull();
+    expect(keyAction(shifted({ target: element("DIV") }), "k")).toBe("toggle");
+  });
+
+  test("takes the shift letters in the panel's search, where backspace still deletes", () => {
+    const search = () => [element("INPUT", false, true)];
+    expect(keyAction(shifted({ composedPath: search }), "k")).toBe("toggle");
+    expect(keyAction(shifted({ key: "R", composedPath: search }), "k")).toBe("replay");
+    expect(keyAction(key({ key: "k", composedPath: search }), "k")).toBeNull();
+    expect(keyAction(key({ key: "r", composedPath: search }), "k")).toBeNull();
+    const reset = key({ key: "Backspace", shiftKey: true, composedPath: search });
+    expect(keyAction(reset, "k")).toBeNull();
   });
 
   test("the hotkey wins over replay where they are the same key", () => {
-    expect(keyAction(key({ key: "r" }), "r")).toBe("toggle");
+    expect(keyAction(shifted({ key: "R" }), "r")).toBe("toggle");
     expect(keyAction(key({ key: "Backspace", shiftKey: true }), "r")).toBe("reset");
-  });
-
-  test("leaves the hotkey alone while typing", () => {
-    expect(keyAction(key({ target: element("INPUT") }), "k")).toBeNull();
-    expect(keyAction(key({ target: element("TEXTAREA") }), "k")).toBeNull();
-    expect(keyAction(key({ target: element("SELECT") }), "k")).toBeNull();
-    expect(keyAction(key({ target: element("DIV", true) }), "k")).toBeNull();
-    expect(keyAction(key({ composedPath: () => [element("INPUT")] }), "k")).toBeNull();
-    expect(keyAction(key({ target: element("DIV") }), "k")).toBe("toggle");
   });
 });
 
@@ -281,15 +336,17 @@ describe("forwardKeys", () => {
 
   test("posts the panel's keys to the page above, on this origin only", () => {
     forwardKeys("D");
-    listener?.(key({ key: "d" }));
+    listener?.(shifted({ key: "D" }));
     listener?.(key({ key: "Escape" }));
-    listener?.(key({ key: "k" }));
-    listener?.(key({ key: "d", target: element("INPUT") }));
+    listener?.(key({ key: "d" }));
+    listener?.(shifted({ key: "K" }));
+    listener?.(shifted({ key: "D", target: element("INPUT") }));
+    listener?.(shifted({ key: "R" }));
     listener?.(key({ key: "r" }));
     listener?.(key({ key: "Backspace", shiftKey: true }));
-    listener?.(key({ key: "r", target: element("INPUT") }));
+    listener?.(shifted({ key: "R", target: element("INPUT") }));
     listener?.(key({ key: "Backspace", shiftKey: true, target: element("TEXTAREA") }));
-    listener?.(key({ key: "r", metaKey: true }));
+    listener?.(shifted({ key: "R", metaKey: true }));
     expect(posted).toEqual([
       [{ source: "devknobs", type: "key", action: "toggle" }, "/"],
       [{ source: "devknobs", type: "key", action: "close" }, "/"],

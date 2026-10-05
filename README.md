@@ -78,22 +78,22 @@ setState({ ua: { preset: "iphone-safari" } });
 
 | option | default | what it does |
 | --- | --- | --- |
-| `hotkey` | `k` | key that toggles the panel |
+| `hotkey` | `k` | letter that with shift toggles the panel |
 | `open` | the stored state, closed at first | start the panel open or closed |
 | `persist` | `true` | keep the knobs in `sessionStorage` |
 | `state` | none | knobs to apply on top of the stored state |
 | `grab` | `true` | hold a key to grab elements, see grab below |
-| `grabKey` | `meta+c` on a Mac, `ctrl+c` elsewhere | the key to hold, such as `alt+shift+g` |
+| `grabKey` | `shift+g` | the key to hold, such as `alt+shift+g` |
 | `grabColor` | the stored one, `auto` at first | the color of grab's boxes: `auto`, `blue`, `green`, `pink`, `orange`, `purple` or `cyan` |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 
 the panel starts closed, as a handle on the right edge of the window. click it
-or press the hotkey to open it, and it stays open across reloads. opening it
-puts the focus in its search, so a knob's name can be typed at once, and
-closing it gives the focus back to what had it before. a panel that comes back
-open after a reload leaves the focus on the page.
+or press shift and the hotkey (`⇧K`) to open it, and it stays open across
+reloads. opening it puts the focus in its search, so a knob's name can be typed
+at once, and closing it gives the focus back to what had it before. a panel
+that comes back open after a reload leaves the focus on the page.
 
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
@@ -135,17 +135,20 @@ anywhere outside the search and its results, or on the `×` at its end, leaves
 it too.
 
 while the panel is out and the focus is in no field, `/` focuses the search,
-`r` replays the page's animations and shift backspace (or shift delete) resets
+`⇧R` replays the page's animations and shift backspace (or shift delete) resets
 every knob, from the frame too.
 while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
 and with `0` fit it again, from the frame too, unless the focus is in a field.
-every other key goes to the page as it would without the panel. the hotkey
-toggles the panel everywhere except in a field, the search included, so in the
-search `k` is just a letter.
+every other key goes to the page as it would without the panel. `⇧K` toggles
+the panel everywhere except in a field of the page, where shift types a capital
+as ever. in the panel's search, which finds in lower case anyway, `⇧K`, `⇧R` and
+`⇧G` are the panel's keys and are not typed, so `⇧K` closes the panel from it,
+and a plain `k` is just a letter. the panel's other fields, a list's filter and
+the user agent and route boxes, take every letter.
 
-the footer lists the keys, most used first: the hotkey for the panel, `/` for
-search, the grab key, `r` for replay animations and `⇧⌫` (`Shift Backspace`
-off a Mac) for reset. each one is a button too, so a click does what its key does. with
+the footer lists the keys, most used first: `⇧K` for the panel, `/` for search,
+the grab key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
+`Shift R` and `Shift Backspace` off a Mac. each one is a button too, so a click does what its key does. with
 the overflow knob on, the count of overflowing boxes sits above them.
 
 the panel keeps the real color scheme and motion preference of the browser,
@@ -153,9 +156,9 @@ whatever the knobs emulate for the page.
 
 ## grab
 
-hold `⌘C` on a Mac, or `ctrl+C` elsewhere, to grab an element for a coding
-agent. hover it, click it, and its html, the components that rendered it and
-where they live are on the clipboard, one line per element:
+hold `⇧G` (`Shift G` off a Mac) to grab an element for a coding agent. hover
+it, click it, and its html, the components that rendered it and where they live
+are on the clipboard, one line per element:
 
 ```
 [<button type="button" data-testid="save">Save</button> in SaveButton (at src/App.jsx:5:5) in App (at src/App.jsx:28:7)]
@@ -165,9 +168,12 @@ paste that into the agent and it can find the code. the clipboard also carries
 the same context as json, under `application/x-devknobs-grab` and react-grab's
 own `application/x-react-grab`.
 
-a quick `⌘C` is still a copy: grab only turns on once the key is held for
-100ms, 500ms while a field has the focus and 700ms while text is selected. a
-key that copied something waits for the key to repeat, or to be let go after
+grab turns on once the key is held for 100ms, and letting go of shift or `G`
+before then turns nothing on. in a field of the page `⇧G` types a capital and
+grab stays off, and in the panel's search it is grab's. a grab key set to a
+copy shortcut, such as `meta+c`, is still a copy when pressed quickly: it waits
+500ms while a field has the focus and 700ms while text is selected, and a key
+that copied something waits for the key to repeat, or to be let go after
 200ms. grab then stays on until a copy or escape. the search finds it too:
 `grab`, `inspect` or `pick`, and while it is on the panel shows a grab row with
 an `×` to stop.
@@ -227,6 +233,7 @@ both by Aiden Bai and MIT, see
 
 devknobs covers it: the same hold to grab, the same line format, the same
 clipboard type. remove the `react-grab` script or package, and mount devknobs.
+pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
 
 ## early script
 
@@ -291,7 +298,7 @@ reports to it from its first render.
 | overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count in its debug row and footer. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
 | outlines | on, off | injects one style rule that outlines every element |
 | grab color | auto, blue, green, pink, orange, purple, cyan | the color of grab's boxes and glow, wider on a p3 screen. auto is blue, and green on an element with blue behind it, so the box shows. a picked color stays whatever the page. the frame's grab follows |
-| replay animations | action, `r` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
+| replay animations | action, `⇧R` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.
