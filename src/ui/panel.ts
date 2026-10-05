@@ -44,7 +44,17 @@ import {
   shiftLabel,
   zoomAction,
 } from "./keys";
-import { isListed, pinPatch, removePatch, rowText } from "./list";
+import {
+  GRAB_ROW,
+  isGrabListed,
+  isListed,
+  isReset,
+  pinPatch,
+  removePatch,
+  rowOrder,
+  rowText,
+  unpinPatch,
+} from "./list";
 import { filterOptions, type Result, resultText, search, searchActions } from "./search";
 import { CSS } from "./styles";
 
@@ -401,8 +411,10 @@ function center(node: HTMLElement, box: HTMLElement): void {
  * panel cannot style the page.
  *
  * The panel lists the knobs that are off their default or were set from it,
- * one row each, and a row opens into an editor. Everything else is a search away: the field at
- * the top finds knobs and values, and with nothing typed lists every knob.
+ * one row each, and a row opens into an editor. A fresh panel lists the
+ * default rows, grab's switch among them where there is a grab. Everything
+ * else is a search away: the field at the top finds knobs and values, and
+ * with nothing typed lists every knob.
  */
 export function createPanel(options: PanelOptions = {}): Panel {
   const hotkey = hotkeyOf(options.hotkey);
@@ -897,7 +909,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
     line.append(main, clear);
     const editor = el("div", "editor");
     box.append(line, editor);
-    rows.append(box);
     main.addEventListener("click", () => openEditor(openRow === row.id ? null : row.id));
     clear.addEventListener("click", () => {
       if (openRow === row.id) openRow = null;
@@ -906,18 +917,35 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return { row, box, main, value, clear, editor, updates: buildEditor(row, editor) };
   });
 
-  /** Shown while grab is on, with the way out of it. */
+  /** Grab's switch, listed while grab is on or pinned. Its `×` turns grab off too. */
   const grabRow = el("div", "row");
   const grabLine = el("div", "line");
-  const grabMain = el("div", "main");
-  grabMain.append(el("span", "row-label", "grab"), el("span", "row-value", "pick an element"));
+  const grabMain = button("main", "");
+  grabMain.setAttribute("role", "switch");
+  grabMain.setAttribute("aria-label", "grab");
+  const grabSwitch = el("span", "switch");
+  const grabValue = el("span", "row-value");
+  grabValue.append(grabSwitch);
+  grabMain.append(el("span", "row-label", "grab"), grabValue);
+  grabMain.addEventListener("click", () => {
+    if (grab?.isOn()) grab.set(false);
+    else runAction("grab");
+  });
   const grabClear = button("clear", "×");
-  grabClear.setAttribute("aria-label", "stop grabbing");
-  grabClear.addEventListener("click", () => grab?.set(false));
+  grabClear.setAttribute("aria-label", "remove grab");
+  grabClear.addEventListener("click", () => {
+    grab?.set(false);
+    engine.setState(unpinPatch(engine.getState(), GRAB_ROW));
+  });
   grabLine.append(grabMain, grabClear);
   grabRow.append(grabLine);
   grabRow.hidden = true;
-  rows.prepend(grabRow);
+
+  /** The default rows stand first, in their order, and the rest as the catalog has them. */
+  for (const id of rowOrder()) {
+    const box = id === GRAB_ROW ? grabRow : views.find((view) => view.row.id === id)?.box;
+    if (box) rows.append(box);
+  }
 
   function viewOf(id: RowId): RowView | undefined {
     return views.find((view) => view.row.id === id);
@@ -972,10 +1000,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return { node, pick };
   }
 
+  /** Grab picked from the search lists its row, as a knob's value does. */
+  function pickAction(id: Action["id"]): void {
+    if (id === "grab") engine.setState(pinPatch(engine.getState(), GRAB_ROW, {}));
+    runAction(id);
+  }
+
   function actionEntry(id: number, action: Action): Entry {
     return entry(
       id,
-      () => runAction(action.id),
+      () => pickAction(action.id),
       el("span", "entry-knob", action.label),
       el("span", "entry-value", action.long),
     );
@@ -1113,12 +1147,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     const live = liveOf(state);
-    let anyListed = false;
     let anyShown = false;
     for (const view of views) {
       const listed = isListed(view.row, state);
       const expanded = openRow === view.row.id;
-      anyListed ||= listed;
       anyShown ||= listed || expanded;
       view.box.hidden = !listed && !expanded;
       view.box.classList.toggle("open", expanded);
@@ -1129,13 +1161,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
       view.editor.hidden = !expanded;
       if (expanded) for (const update of view.updates) update(state);
     }
-    grabRow.hidden = !grab?.isOn();
+    const grabbing = grab?.isOn() ?? false;
+    grabRow.hidden = !isGrabListed(state, grab !== null, grabbing);
+    grabSwitch.classList.toggle("on", grabbing);
+    grabMain.setAttribute("aria-checked", grabbing ? "true" : "false");
     anyShown ||= !grabRow.hidden;
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
     viewOf("debug")?.value.classList.toggle("hot", hot);
     empty.hidden = anyShown;
     const resetHint = hints.get("reset");
-    if (resetHint) resetHint.disabled = !anyListed;
+    if (resetHint) resetHint.disabled = isReset(state);
     badge.textContent = overflowBadge(state.overflow, live.overflow);
     badge.hidden = badge.textContent === "";
     badge.classList.toggle("hot", hot);
@@ -1336,7 +1371,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     });
   }
 
-  /** Every knob back to its default, the list emptied and the search left. */
+  /** Every knob back to its default, the default rows listed and the search left. */
   function resetAll(): void {
     openRow = null;
     searchInput.value = "";

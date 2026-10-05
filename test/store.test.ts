@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  DEFAULT_PINNED,
   DEFAULT_STATE,
   keepPlace,
   load,
@@ -223,6 +224,14 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ panel: { pinned: ["text"] } })).panel.pinned).toEqual(["text"]);
   });
 
+  test("lists the default rows in a fresh session, and keeps a stored list as it is", () => {
+    expect(DEFAULT_PINNED).toEqual(["viewport", "scheme", "grab", "text", "locale"]);
+    expect(parse(null).panel.pinned).toEqual([...DEFAULT_PINNED]);
+    expect(parse(JSON.stringify({ scheme: "dark" })).panel.pinned).toEqual([...DEFAULT_PINNED]);
+    expect(parse(JSON.stringify({ panel: { pinned: [] } })).panel.pinned).toEqual([]);
+    expect(parse(JSON.stringify({ panel: { pinned: ["grab"] } })).panel.pinned).toEqual(["grab"]);
+  });
+
   test("follows geo for the time zone when the session predates the knob", () => {
     const old = parse(JSON.stringify({ geo: { preset: "custom", timeZone: "Asia/Tokyo" } }));
     expect(old.timeZone).toBe("geo");
@@ -309,6 +318,7 @@ describe("the place kept across sessions", () => {
       side: "right",
       y: 40,
       top: 24,
+      pinned: [],
     });
     // A session from before sides has a place, but takes the side kept.
     expect(parse(JSON.stringify({ panel: { y: 40 } }), kept).panel).toMatchObject({
@@ -331,7 +341,7 @@ describe("the place kept across sessions", () => {
     });
     const state = parse(null, junk);
     expect(state.panel.open).toBe(false);
-    expect(state.panel.pinned).toEqual([]);
+    expect(state.panel.pinned).toEqual([...DEFAULT_PINNED]);
     expect(state.scheme).toBe("system");
     expect(state.panel.edge).toBe("bottom");
     expect(state.panel.tab).toBe("top");

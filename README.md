@@ -115,13 +115,18 @@ bottom when the window resizes.
 
 ## the panel
 
-the panel lists only the knobs that are off their default, one row each, with
+the panel lists the knobs that are off their default, one row each, with
 related knobs together: device, width, device pixel ratio, zoom, frame and
 vision are one viewport row, the clock with its mode, speed and server header
 is another.
+a fresh session starts with five rows at their defaults, in this order: the
+viewport row with the device, scheme, grab, text and locale. they stand at the
+top, and any other row below them in the catalog's order.
 click a row to open its editor, and `×` puts that row back to its default.
 a row set from the panel stays in the list, back at its default too, until its
-`×` takes it off or reset clears the list.
+`×` takes it off. a default row's `×` takes it off for the session too, and
+reset all puts every knob back to its default and the five rows back in the
+list. with every row taken off the panel says nothing emulated.
 
 the field at the top finds knobs and values. type `dark`, `390`, `+2d`, `tr`,
 `tokyo`, `rtl`, `pause` or `offline` and enter sets the first result and shows
@@ -176,8 +181,11 @@ quickly, so grab turns on once it is held for 100ms: 500ms while a field has
 the focus and 700ms while text is selected, and a key that copied something
 waits for the key to repeat, or to be let go after 200ms. grab then stays on
 until a copy or escape. the search finds it too:
-`grab`, `inspect` or `pick`, and while it is on the panel shows a grab row with
-an `×` to stop.
+`grab`, `inspect` or `pick`, and lists its row. the grab row is a switch that
+shows whether grab is on and turns it on or off, and its `×` turns grab off
+and takes the row off the list. it is listed while grab is on, and from the
+start as one of the default rows. with `grab: false` there is no grab row.
+grab itself is never kept: a reload starts with it off.
 
 while it is on:
 

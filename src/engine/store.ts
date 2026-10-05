@@ -36,6 +36,12 @@ export const PLACE_KEY = "devknobs:place";
 /** What of the panel outlives the session: its side and where it sits on it. */
 export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">;
 
+/**
+ * The rows a fresh panel lists, in the order they stand: the viewport row,
+ * which holds the device, the scheme, grab, the text size and the locale.
+ */
+export const DEFAULT_PINNED: readonly string[] = ["viewport", "scheme", "grab", "text", "locale"];
+
 export const DEFAULT_STATE: DevknobsState = {
   scheme: "system",
   motion: "system",
@@ -77,7 +83,15 @@ export const DEFAULT_STATE: DevknobsState = {
   outlines: false,
   grabColor: "auto",
   // Closed, the handle alone, until the user opens it.
-  panel: { open: false, side: "right", y: 16, top: 16, edge: "none", tab: "none", pinned: [] },
+  panel: {
+    open: false,
+    side: "right",
+    y: 16,
+    top: 16,
+    edge: "none",
+    tab: "none",
+    pinned: [...DEFAULT_PINNED],
+  },
 };
 
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
@@ -271,18 +285,20 @@ export function parse(json: string | null | undefined, place?: string | null): D
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),
       ...placeOf(panel, home),
-      // One stored before rows stayed listed has none pinned.
-      pinned: strings(panel.pinned),
+      // A stored panel keeps its list as it is, an empty one too, and one stored
+      // before rows stayed listed has none pinned. With no panel stored, a
+      // fresh session, the default rows are listed.
+      pinned: state.panel === undefined ? [...DEFAULT_PINNED] : strings(panel.pinned),
     },
   };
 }
 
 /**
- * What reset all leaves: every knob at its default and no row pinned, with
- * the panel where it is.
+ * What reset all leaves: every knob at its default and the default rows
+ * listed, with the panel where it is.
  */
 export function resetState(state: DevknobsState): DevknobsState {
-  return { ...DEFAULT_STATE, panel: { ...state.panel, pinned: [] } };
+  return { ...DEFAULT_STATE, panel: { ...state.panel, pinned: [...DEFAULT_PINNED] } };
 }
 
 /**

@@ -250,6 +250,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 /* A row kept in the list with its knobs back at their defaults. */
 .row-value.idle { color: var(--faint); }
 .row-value.hot { color: var(--hot); }
+/* Grab's row shows its switch where a row shows its value. */
+.row-value .switch { display: inline-block; vertical-align: middle; }
 .clear {
   flex: none;
   width: 22px;
