@@ -89,13 +89,19 @@ setState({ ua: { preset: "iphone-safari" } });
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 
-the panel starts closed, as a handle on the edge of the window. click it or
-press the hotkey to open it, and it stays open across reloads.
+the panel starts closed, as a handle on the right edge of the window. click it
+or press the hotkey to open it, and it stays open across reloads.
 
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
 panel. with the panel closed, a drag moves the handle, and the panel opens
 beside it where it left it.
+
+the handle follows the pointer sideways too. let go past the middle of the
+window, or fling it toward the other edge, and the panel moves to the left or
+the right edge; anywhere else it glides back to its own. its side and where it
+sits on it are also kept in `localStorage` under `devknobs:place`, so a new tab
+starts with the panel where you last put it.
 
 within 24px of an edge, the panel snaps flush with the top or the bottom of the
 window, and the handle with the top or the bottom corner of the panel, or of the

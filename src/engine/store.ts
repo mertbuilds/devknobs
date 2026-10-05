@@ -13,8 +13,10 @@ import type {
   MotionValue,
   OnlineValue,
   OrientationValue,
+  PanelValue,
   SaveDataValue,
   SchemeValue,
+  SideValue,
   TransparencyValue,
   VisionValue,
 } from "../types";
@@ -24,6 +26,15 @@ import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
 import { clampZoom } from "./zoom";
 
 export const STORAGE_KEY = "devknobs";
+
+/**
+ * Where the panel's place is kept beside the session, in `localStorage`, so
+ * a new tab or session starts with the panel where it was last put.
+ */
+export const PLACE_KEY = "devknobs:place";
+
+/** What of the panel outlives the session: its side and where it sits on it. */
+export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">;
 
 export const DEFAULT_STATE: DevknobsState = {
   scheme: "system",
@@ -66,7 +77,7 @@ export const DEFAULT_STATE: DevknobsState = {
   outlines: false,
   grabColor: "auto",
   // Closed, the handle alone, until the user opens it.
-  panel: { open: false, y: 16, top: 16, edge: "none", tab: "none", pinned: [] },
+  panel: { open: false, side: "right", y: 16, top: 16, edge: "none", tab: "none", pinned: [] },
 };
 
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
@@ -83,6 +94,7 @@ const BARS: BarsValue[] = ["auto", "expanded", "minimized"];
 const BROWSERS: BrowserValue[] = ["auto", "compact", "bottom", "top", "off"];
 const ORIENTATIONS: OrientationValue[] = ["portrait", "landscape"];
 const EDGES: EdgeValue[] = ["top", "bottom", "none"];
+const SIDES: SideValue[] = ["left", "right"];
 const VISIONS: VisionValue[] = [
   "none",
   "protanopia",
@@ -140,24 +152,55 @@ function strings(value: unknown): string[] {
   return Array.from(new Set(value.filter((item): item is string => typeof item === "string")));
 }
 
-/** Read a stored state, falling back to the defaults field by field. */
-export function parse(json: string | null | undefined): DevknobsState {
-  if (!json) return { ...DEFAULT_STATE };
-  let raw: unknown;
+/** Stored json as a value, or null where there is none or it does not read. */
+function read(json: string | null | undefined): unknown {
+  if (!json) return null;
   try {
-    raw = JSON.parse(json);
+    return JSON.parse(json);
   } catch {
-    return { ...DEFAULT_STATE };
+    return null;
   }
-  if (typeof raw !== "object" || raw === null) return { ...DEFAULT_STATE };
-  const state = raw as Record<string, unknown>;
+}
+
+/**
+ * The place fields of a stored panel, each one that is not valid taken from
+ * `fallback`. One stored before the panel had a top of its own only has `y`,
+ * and one stored before it had sides lives on the right, unless `fallback`
+ * says otherwise.
+ */
+function placeOf(value: unknown, fallback: PanelPlace): PanelPlace {
+  const panel = record(value);
+  return {
+    side: oneOf(panel.side, SIDES, fallback.side),
+    y: num(panel.y, fallback.y),
+    top: num(panel.top, num(panel.y, fallback.top)),
+    // One stored before the panel stuck to edges sticks to none, until the
+    // panel next lays itself out and finds the edges it sits flush with.
+    edge: oneOf(panel.edge, EDGES, fallback.edge),
+    tab: oneOf(panel.tab, EDGES, fallback.tab),
+  };
+}
+
+/** The place of a state's panel, as `PLACE_KEY` keeps it. */
+export function placeText(state: DevknobsState): string {
+  const { side, y, top, edge, tab } = state.panel;
+  return JSON.stringify({ side, y, top, edge, tab });
+}
+
+/**
+ * Read a stored state, falling back to the defaults field by field. The
+ * panel's place falls back to `place`, the one kept across sessions, before
+ * the defaults, so the session's own place wins where it has one.
+ */
+export function parse(json: string | null | undefined, place?: string | null): DevknobsState {
+  const home = placeOf(read(place), DEFAULT_STATE.panel);
+  const state = record(read(json));
   const locale = record(state.locale);
   const geo = record(state.geo);
   const clock = record(state.clock);
   const network = record(state.network);
   const ua = record(state.ua);
   const panel = record(state.panel);
-  const panelY = num(panel.y, DEFAULT_STATE.panel.y);
   const device = text(state.device, DEFAULT_STATE.device);
   const zoom = numberOr(state.zoom, "fit", DEFAULT_STATE.zoom);
   return {
@@ -227,13 +270,7 @@ export function parse(json: string | null | undefined): DevknobsState {
     grabColor: oneOf(state.grabColor, GRAB_COLORS, DEFAULT_STATE.grabColor),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),
-      y: panelY,
-      // A session stored before the panel had a place of its own only has `y`.
-      top: num(panel.top, panelY),
-      // One stored before the panel stuck to edges sticks to none, until the
-      // panel next lays itself out and finds the edges it sits flush with.
-      edge: oneOf(panel.edge, EDGES, DEFAULT_STATE.panel.edge),
-      tab: oneOf(panel.tab, EDGES, DEFAULT_STATE.panel.tab),
+      ...placeOf(panel, home),
       // One stored before rows stayed listed has none pinned.
       pinned: strings(panel.pinned),
     },
@@ -267,26 +304,48 @@ export function merge(state: DevknobsState, patch: DevknobsStatePatch): Devknobs
   });
 }
 
-function storage(): Storage | null {
+function storage(kind: "session" | "local"): Storage | null {
   try {
-    return window.sessionStorage;
+    return kind === "session" ? window.sessionStorage : window.localStorage;
   } catch {
     return null;
   }
 }
 
-export function load(): DevknobsState {
+/** Either storage's value under a key, or null where it cannot be read. */
+function item(kind: "session" | "local", key: string): string | null {
   try {
-    return parse(storage()?.getItem(STORAGE_KEY));
+    return storage(kind)?.getItem(key) ?? null;
   } catch {
-    return { ...DEFAULT_STATE };
+    return null;
   }
+}
+
+/**
+ * The place last read or written, so the place kept across sessions is only
+ * written when this session moves the panel, and a session that merely loads
+ * leaves the one another tab put there alone.
+ */
+let keptPlace = "";
+
+export function load(): DevknobsState {
+  const state = parse(item("session", STORAGE_KEY), item("local", PLACE_KEY));
+  keptPlace = placeText(state);
+  return state;
 }
 
 export function save(state: DevknobsState): void {
   try {
-    storage()?.setItem(STORAGE_KEY, JSON.stringify(state));
+    storage("session")?.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
     // Private mode, disabled storage: knobs still work, they just do not stick.
+  }
+  const place = placeText(state);
+  if (place === keptPlace) return;
+  keptPlace = place;
+  try {
+    storage("local")?.setItem(PLACE_KEY, place);
+  } catch {
+    // The same: the panel just starts on the right in a new session.
   }
 }

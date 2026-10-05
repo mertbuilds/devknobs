@@ -12,6 +12,7 @@ import type {
   DevknobsStatePatch,
   EdgeValue,
   PanelValue,
+  SideValue,
 } from "../types";
 import {
   ACTIONS,
@@ -81,6 +82,18 @@ interface Entry {
 /** Pointer travel that turns a click on the handle into a drag. */
 const DRAG_SLOP = 4;
 
+/** How far back the pointer's speed is read from when a drag ends, in ms. */
+export const FLING_SPAN = 100;
+
+/** Speed across, in px per ms, that throws the panel to the other side. */
+export const FLING = 0.5;
+
+/** How many times faster than up or down a fling must go across to count as one. */
+export const FLING_LEAN = 1.5;
+
+/** Travel across, in px, a drag needs before it can be flung, so a hurried click never is. */
+const FLING_TRAVEL = 16;
+
 /** Space the panel keeps between itself and the top or bottom of the viewport. */
 export const PANEL_GAP = 8;
 
@@ -96,9 +109,10 @@ const CUSTOM_DEBOUNCE = 200;
  * The host's own style. It is as wide and as tall as an open panel whatever
  * the panel is doing, so it never takes a pointer: the stylesheet hands that
  * back to the handle and to a panel that is out, and every other pixel of the
- * box belongs to the page underneath.
+ * box belongs to the page underneath. The side it lives on anchors it to the
+ * left or the right edge.
  */
-export const HOST_STYLE = "position:fixed;right:0;top:0;z-index:2147483646;pointer-events:none";
+export const HOST_STYLE = "position:fixed;top:0;z-index:2147483646;pointer-events:none";
 
 /**
  * What the footer says about the overflow knob, such as `2 overflowing`.
@@ -251,6 +265,57 @@ export function dragTo(
   if (open) return settle({ ...from, y: to, tab: "none" }, room);
   const y = snap(to, PANEL_GAP, room.view - PANEL_GAP - room.handle);
   return settle({ y, top: y - offset, edge: "none", tab: "none" }, room);
+}
+
+/** Where the pointer was at a moment of a drag, in px and ms. */
+export interface Sample {
+  t: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * The pointer's speed in px per ms, over the samples of the `FLING_SPAN`
+ * before `at`, so one jittery event does not make a fling and a pointer that
+ * stopped before it let go has none.
+ */
+export function velocity(samples: Sample[], at: number): { x: number; y: number } {
+  const recent = samples.filter((sample) => sample.t >= at - FLING_SPAN && sample.t <= at);
+  const first = recent[0];
+  const last = recent[recent.length - 1];
+  if (!first || !last || last.t <= first.t) return { x: 0, y: 0 };
+  const time = last.t - first.t;
+  return { x: (last.x - first.x) / time, y: (last.y - first.y) / time };
+}
+
+/**
+ * The side a dragged panel lands on, from the side it left, the middle of
+ * what was dragged across a window `width` wide, and the pointer's speed. A
+ * fling toward the other side lands it there wherever it is. Past the middle
+ * of the window it lands there too, unless it was flung back home. A fling
+ * goes mostly across, so a fast drag up or down never changes sides.
+ */
+export function landSide(
+  side: SideValue,
+  x: number,
+  width: number,
+  vx: number,
+  vy: number,
+): SideValue {
+  const other = side === "right" ? "left" : "right";
+  // Speed toward the other side, less than zero toward home.
+  const toward = side === "right" ? -vx : vx;
+  const across = Math.abs(vx) >= FLING && Math.abs(vx) > FLING_LEAN * Math.abs(vy);
+  const past = side === "right" ? x < width / 2 : x > width / 2;
+  if (across && toward > 0) return other;
+  if (across && toward < 0) return side;
+  return past ? other : side;
+}
+
+/** A computed `translate`, such as `-120px 4px` or `none`, as px. */
+export function translateOf(value: string): { x: number; y: number } {
+  const [x = 0, y = 0] = value === "none" ? [] : value.split(" ").map((part) => parseFloat(part));
+  return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 };
 }
 
 /** What the clock note says: the time the page reads, or that it reads the real one. */
@@ -1095,19 +1160,45 @@ export function createPanel(options: PanelOptions = {}): Panel {
     };
   }
 
-  /** Where the panel last showed. */
+  /** Where the panel last showed, and whether it showed the last time it was placed. */
   let shownTop = engine.getState().panel.top;
+  let shownOpen = engine.getState().panel.open;
 
   /**
-   * Put the handle and the panel where a place says. `tab` tells the
-   * stylesheet which corner of the panel the handle covers, if any, open or
-   * closed, so that corner stays square for as long as the panel shows, the
-   * slide back and a toggle halfway through it included. Closed, the panel
-   * stays where it last showed, so it slides out from its own spot whatever
-   * the handle does, and takes the place it has by then when it opens.
+   * Make a change to the wrapper show at once, with no transition. A slide
+   * that was running stops where the change puts it.
    */
-  function placePanel(at: Place, open: boolean): void {
-    if (open) shownTop = at.top;
+  function jump(change: () => void): void {
+    const was = wrap.style.transitionProperty;
+    wrap.style.transitionProperty = "none";
+    change();
+    // Read the style back, so the change is in before the transitions return.
+    wrap.getBoundingClientRect();
+    wrap.style.transitionProperty = was;
+  }
+
+  /**
+   * Put the handle and the panel where a place says, on the side it says.
+   * `tab` tells the stylesheet which corner of the panel the handle covers,
+   * if any, open or closed, so that corner stays square for as long as the
+   * panel shows, the slide back and a toggle halfway through it included.
+   * Closed, the panel stays where it last showed, so it slides out from its
+   * own spot whatever the handle does, and takes the place it has by then
+   * when it opens. The layout that closes it still moves it, as closing
+   * leaves the search and the panel shows a last time at its new height.
+   * The closed slide points the other way on the other side, so a change of
+   * side jumps there rather than sweep across the window.
+   */
+  function placePanel(at: Place, open: boolean, side: SideValue): void {
+    if (open || shownOpen) shownTop = at.top;
+    shownOpen = open;
+    if (wrap.dataset.side !== side) {
+      jump(() => {
+        wrap.dataset.side = side;
+        host.style.left = side === "left" ? "0" : "";
+        host.style.right = side === "right" ? "0" : "";
+      });
+    }
     wrap.dataset.tab = open ? at.tab : cornerAt(at.y, shownTop, measure());
     host.style.top = `${at.y}px`;
     panel.style.marginTop = `${shownTop - at.y}px`;
@@ -1124,7 +1215,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const stored = engine.getState().panel;
     const room = measure();
     const next = room.handle > 0 ? settle(stored, room) : stored;
-    placePanel(next, stored.open);
+    placePanel(next, stored.open, stored.side);
     const moved =
       next.y !== stored.y ||
       next.top !== stored.top ||
@@ -1216,41 +1307,87 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   let dragging = false;
   let dragged = false;
+  /** The pointer that drags. Another one pressed meanwhile is left alone. */
+  let pointer = -1;
   let startPointer = 0;
   let lastPointer = 0;
+  let startX = 0;
+  let lastX = 0;
   /** What the drag moves, where things sat when it took that over, and where they sit now. */
   let moving: "panel" | "handle" | null = null;
   let dragFrom: Place = engine.getState().panel;
   let dragAt: Place = dragFrom;
   /** Where the pointer would put what the drag moves, with no edge pulling it. */
   let loose = 0;
+  /**
+   * How far the drag carries what shows across, off its side, and down, which
+   * is more than nothing only where it took over a glide that had not ended.
+   */
+  let across = 0;
+  let down = 0;
+  /** Where the pointer went lately, for its speed as it lets go. */
+  let samples: Sample[] = [];
+
+  /** The box of what shows: the handle, and the panel with it while it is open. */
+  function shownBox(open: boolean): { left: number; top: number; width: number } {
+    const tab = handle.getBoundingClientRect();
+    if (!open) return { left: tab.left, top: tab.top, width: tab.width };
+    const box = panel.getBoundingClientRect();
+    const left = Math.min(tab.left, box.left);
+    return { left, top: Math.min(tab.top, box.top), width: Math.max(tab.right, box.right) - left };
+  }
+
+  /** The window's width less a scrollbar, the room the host is fixed in. */
+  function viewWidth(): number {
+    return document.documentElement.clientWidth || window.innerWidth;
+  }
+
+  function sample(event: PointerEvent): void {
+    samples = samples.filter((at) => at.t >= event.timeStamp - FLING_SPAN);
+    samples.push({ t: event.timeStamp, x: event.clientX, y: event.clientY });
+  }
 
   // A mouse press must not focus the handle: a key held mid-drag (shift) would
   // otherwise turn that focus into a visible ring. Keyboard focus is unaffected.
   handle.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
   handle.addEventListener("pointerdown", (event: PointerEvent) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || dragging) return;
     const { y, top, edge, tab } = engine.getState().panel;
     dragging = true;
     dragged = false;
+    pointer = event.pointerId;
     startPointer = event.clientY;
     lastPointer = event.clientY;
+    startX = event.clientX;
+    lastX = event.clientX;
+    samples = [];
+    sample(event);
     moving = null;
     dragAt = { y, top, edge, tab };
     handle.setPointerCapture(event.pointerId);
   });
 
   handle.addEventListener("pointermove", (event: PointerEvent) => {
-    if (!dragging) return;
+    if (!dragging || event.pointerId !== pointer) return;
     // Every move goes by its own step, so the slop is never paid back as a
     // jump and shift can take over halfway through without one either.
     const step = event.clientY - lastPointer;
+    const stepX = event.clientX - lastX;
     lastPointer = event.clientY;
-    if (!dragged && Math.abs(event.clientY - startPointer) < DRAG_SLOP) return;
+    lastX = event.clientX;
+    sample(event);
+    const travel = Math.hypot(event.clientX - startX, event.clientY - startPointer);
+    if (!dragged && travel < DRAG_SLOP) return;
+    if (!dragged) {
+      // A glide still running stops where it shows, and the drag carries it on
+      // from there, one to one with the pointer. An open or close slide runs on.
+      ({ x: across, y: down } = translateOf(getComputedStyle(wrap).translate));
+      wrap.style.transitionProperty = "transform";
+    }
     dragged = true;
     // The panel and the handle move as one, and shift lets the handle go
     // alone, halfway through a drag too, from where it shows.
-    const { open } = engine.getState().panel;
+    const { open, side } = engine.getState().panel;
     const target = dragTarget(event.shiftKey, open);
     wrap.dataset.drag = target;
     if (target !== moving) {
@@ -1261,15 +1398,66 @@ export function createPanel(options: PanelOptions = {}): Panel {
     loose += step;
     // Not through the store: a pointermove is no reason to re-apply every knob.
     dragAt = dragTo(target, open, loose, dragFrom, measure());
-    placePanel(dragAt, open);
+    placePanel(dragAt, open, side);
+    // Across, what shows follows the pointer as far as the window goes. A
+    // shift drag slides the handle along the panel and nowhere else.
+    if (target === "panel" || !open) {
+      const box = shownBox(open);
+      const home = box.left - across;
+      across = between(across + stepX, -home, viewWidth() - box.width - home);
+    }
+    wrap.style.translate = `${across}px ${down}px`;
   });
 
-  function endDrag(event: PointerEvent, keep: boolean): void {
+  /**
+   * Put the panel down at a place, or back at its own with null, and glide it
+   * there from where it shows: the place goes in, side and all, what shows is
+   * measured there, moved back by the difference, and let go, so it slides
+   * the rest of the way. The side swaps first, so the glide starts from what
+   * shows under the pointer.
+   */
+  function land(next: DevknobsStatePatch["panel"] | null): void {
+    const { open } = engine.getState().panel;
+    const from = shownBox(open);
+    wrap.style.transitionProperty = "transform";
+    wrap.style.translate = "";
+    if (next) engine.setState({ panel: next });
+    else render();
+    const to = shownBox(open);
+    const x = from.left - to.left;
+    const y = from.top - to.top;
+    if (x !== 0 || y !== 0) {
+      wrap.style.translate = `${x}px ${y}px`;
+      wrap.getBoundingClientRect();
+    }
+    wrap.style.transitionProperty = "";
+    wrap.style.translate = "";
+  }
+
+  /**
+   * End a drag. One the pointer let go of lands on the side `landSide` picks
+   * for where it was let go and how fast it went, at the place it was
+   * dragged to. One cut short goes back where it came from. A shift drag of
+   * an open panel only slid the handle along it, so it keeps its side.
+   */
+  function endDrag(event: PointerEvent | null): void {
     if (!dragging) return;
     dragging = false;
     wrap.dataset.drag = "false";
-    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-    if (keep && dragged) engine.setState({ panel: dragAt });
+    if (handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
+    if (dragged && event) {
+      sample(event);
+      const { open, side } = engine.getState().panel;
+      const box = shownBox(open);
+      const speed = velocity(samples, event.timeStamp);
+      const flung = Math.abs(event.clientX - startX) >= FLING_TRAVEL ? speed.x : 0;
+      const middle = box.left + box.width / 2;
+      const slid = open && moving === "handle";
+      land({
+        ...dragAt,
+        side: slid ? side : landSide(side, middle, viewWidth(), flung, speed.y),
+      });
+    } else if (dragged) land(null);
     else render();
     // A pointer press leaves focus on the handle, and the next keypress (the
     // hotkey, say) would then promote it to :focus-visible. Keyboard users
@@ -1277,11 +1465,21 @@ export function createPanel(options: PanelOptions = {}): Panel {
     handle.blur();
   }
 
-  handle.addEventListener("pointerup", (event: PointerEvent) => endDrag(event, true));
-  handle.addEventListener("pointercancel", (event: PointerEvent) => {
-    dragged = false;
-    endDrag(event, false);
+  handle.addEventListener("pointerup", (event: PointerEvent) => {
+    if (event.pointerId === pointer) endDrag(event);
   });
+  handle.addEventListener("pointercancel", (event: PointerEvent) => {
+    if (event.pointerId !== pointer) return;
+    endDrag(null);
+    // No click follows a cancel, so there is none to swallow.
+    dragged = false;
+  });
+  // The browser can take the pointer away, and a window that lost the focus
+  // may never hear it come up. Either way the panel goes back to its place.
+  handle.addEventListener("lostpointercapture", () => endDrag(null));
+  function onBlur(): void {
+    endDrag(null);
+  }
 
   // The drag that just ended still sends a click. Swallow that one.
   handle.addEventListener("click", () => {
@@ -1378,6 +1576,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   window.addEventListener("pointercancel", onPointerUp, true);
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", layout);
+  window.addEventListener("blur", onBlur);
   // The panel also grows and shrinks between renders, as a list filters or a
   // text box is resized, and lays itself out again each time.
   const resizes = new ResizeObserver(() => layout());
@@ -1405,6 +1604,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       window.removeEventListener("pointercancel", onPointerUp, true);
       window.removeEventListener("message", onMessage);
       window.removeEventListener("resize", layout);
+      window.removeEventListener("blur", onBlur);
       resizes.disconnect();
       document.removeEventListener("DOMContentLoaded", attach);
       host.remove();

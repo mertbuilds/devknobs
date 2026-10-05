@@ -15,6 +15,10 @@
  * space between them. The panel is 13 with 1 of border and 4 of padding, so
  * the search, rows and results are 8; an open row pads its editor by 4, so
  * controls are 4, and what sits 2 inside a control is 2.
+ *
+ * The panel lives on the right edge of the window, and `data-side="left"` on
+ * the wrapper mirrors it onto the left: the handle on the panel's other side,
+ * the borders, the radii and the slide.
  */
 export const CSS = `
 .wrap {
@@ -43,7 +47,9 @@ export const CSS = `
   color: var(--fg);
   -webkit-font-smoothing: antialiased;
   transform: translateX(239px);
-  transition: transform 150ms ease-out;
+  /* The open and close slide is the transform. A drag moves the wrapper by
+     translate, one to one, and lets it glide to its place from there. */
+  transition: transform 150ms ease-out, translate 220ms ease-out;
 }
 @media (prefers-color-scheme: dark) {
   .wrap {
@@ -58,6 +64,7 @@ export const CSS = `
     --hot: #ff6369;
   }
 }
+.wrap[data-side="left"] { flex-direction: row-reverse; transform: translateX(-239px); }
 .wrap[data-open="true"] { transform: translateX(0); }
 @media (prefers-reduced-motion: reduce) {
   .wrap, .wrap *, .wrap *::before, .wrap *::after {
@@ -90,7 +97,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   flex: none;
   box-sizing: border-box;
   /* Sits a pixel over the panel and above it, so the handle's own background
-     hides the panel's left border and the two read as one outline. */
+     hides the panel's border on that side and the two read as one outline. */
   position: relative;
   z-index: 1;
   width: 22px;
@@ -118,6 +125,13 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .handle:focus-visible { outline-offset: 2px; }
 .wrap[data-drag="panel"] .handle { cursor: grabbing; }
 .wrap[data-drag="handle"] .handle { cursor: ns-resize; }
+.wrap[data-side="left"] .handle {
+  margin-right: 0;
+  margin-left: -1px;
+  border-right: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+}
 
 .panel {
   flex: none;
@@ -135,9 +149,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-right: 0;
   border-radius: 13px 0 0 13px;
   /* Closed, the wrapper slides out only as far as the handle's width, and the
-     handle overlaps the panel by a pixel, so the panel's left border would
-     stay on the window's edge as a line the panel's height. It hides once
-     the slide is over. */
+     handle overlaps the panel by a pixel, so the panel's border by the handle
+     would stay on the window's edge as a line the panel's height. It hides
+     once the slide is over. */
   visibility: hidden;
   transition: visibility 0s linear 150ms;
 }
@@ -152,8 +166,15 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    the tab alone, not by data-open: the open flag flips the moment a close
    starts, while the panel shows until the slide is over. A panel the handle
    meets in the middle keeps both radii. */
+.wrap[data-side="left"] .panel {
+  border-right: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 13px 13px 0;
+}
 .wrap[data-tab="top"] .panel { border-top-left-radius: 0; }
 .wrap[data-tab="bottom"] .panel { border-bottom-left-radius: 0; }
+.wrap[data-side="left"][data-tab="top"] .panel { border-top-right-radius: 0; }
+.wrap[data-side="left"][data-tab="bottom"] .panel { border-bottom-right-radius: 0; }
 
 .head {
   flex: none;

@@ -37,6 +37,7 @@ export type {
   PanelValue,
   SaveDataValue,
   SchemeValue,
+  SideValue,
   SpeedValue,
   TextValue,
   TimeZoneValue,

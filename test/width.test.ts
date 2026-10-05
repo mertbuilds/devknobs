@@ -154,6 +154,17 @@ describe("fit", () => {
     expect(place.width * place.scale + 2 * place.left).toBeCloseTo(1200 - PANEL);
   });
 
+  test("fits a frame a panel on the left would cover into the room right of it", () => {
+    const right = fit(DESKTOP, BOX, { aside: PANEL });
+    const left = fit(DESKTOP, BOX, { aside: PANEL, side: "left" });
+    expect(left).toEqual({ ...right, left: right.left + PANEL });
+    expect(left.box.width - (left.left + left.width * left.scale)).toBeCloseTo(right.left);
+    expect(fit(PHONE, BOX, { aside: PANEL, side: "left" })).toEqual(fit(PHONE, BOX));
+    expect(fit({ ...DESKTOP, zoom: 1 }, BOX, { aside: PANEL, side: "left" })).toEqual(
+      fit({ ...DESKTOP, zoom: 1 }, BOX, { aside: PANEL }),
+    );
+  });
+
   test("leaves a frame clear of the panel where it is, a zoom too", () => {
     expect(fit(PHONE, BOX, { aside: PANEL })).toEqual(fit(PHONE, BOX));
     expect(fit({ ...DESKTOP, zoom: 1 }, BOX, { aside: PANEL }).box.width).toBe(1968);
@@ -431,7 +442,7 @@ const KNOBS = {
   bars: "auto",
   edgeToEdge: true,
   zoom: "fit",
-  panel: { open: false },
+  panel: { open: false, side: "right" },
 } as const;
 const VIEWPORT = { ...KNOBS, width: 390 } as const;
 const NATIVE_SHOW_MODAL = FakeDialog.prototype.showModal;

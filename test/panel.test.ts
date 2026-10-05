@@ -5,15 +5,22 @@ import {
   cornerAt,
   dragTarget,
   dragTo,
+  FLING,
+  FLING_LEAN,
+  FLING_SPAN,
   HOST_STYLE,
   keyChips,
+  landSide,
   overflowBadge,
   PANEL_GAP,
   type Place,
   type Room,
+  type Sample,
   SNAP,
   settle,
   snap,
+  translateOf,
+  velocity,
   wallInput,
 } from "../src/ui/panel";
 import { CSS } from "../src/ui/styles";
@@ -276,6 +283,102 @@ describe("settle", () => {
   });
 });
 
+describe("landSide", () => {
+  const WIDTH = 1000;
+
+  test("goes back to its side short of the middle, and with no speed", () => {
+    expect(landSide("right", 600, WIDTH, 0, 0)).toBe("right");
+    expect(landSide("left", 400, WIDTH, 0, 0)).toBe("left");
+    expect(landSide("right", 990, WIDTH, 0, 0)).toBe("right");
+  });
+
+  test("lands on the other side past the middle", () => {
+    expect(landSide("right", 400, WIDTH, 0, 0)).toBe("left");
+    expect(landSide("left", 600, WIDTH, 0, 0)).toBe("right");
+    expect(landSide("right", 10, WIDTH, 0, 0)).toBe("left");
+  });
+
+  test("the middle itself is not past it", () => {
+    expect(landSide("right", 500, WIDTH, 0, 0)).toBe("right");
+    expect(landSide("left", 500, WIDTH, 0, 0)).toBe("left");
+  });
+
+  test("a fling toward the other side lands there short of the middle", () => {
+    expect(landSide("right", 900, WIDTH, -FLING, 0)).toBe("left");
+    expect(landSide("left", 100, WIDTH, FLING, 0)).toBe("right");
+    expect(landSide("right", 990, WIDTH, -3, 1)).toBe("left");
+  });
+
+  test("a fling back home keeps the side past the middle", () => {
+    expect(landSide("right", 300, WIDTH, FLING, 0)).toBe("right");
+    expect(landSide("left", 700, WIDTH, -FLING, 0)).toBe("left");
+  });
+
+  test("a fling toward the side it is on changes nothing short of the middle", () => {
+    expect(landSide("right", 900, WIDTH, 2, 0)).toBe("right");
+    expect(landSide("left", 100, WIDTH, -2, 0)).toBe("left");
+  });
+
+  test("too slow to be a fling, the middle decides", () => {
+    const slow = FLING * 0.9;
+    expect(landSide("right", 900, WIDTH, -slow, 0)).toBe("right");
+    expect(landSide("right", 300, WIDTH, slow, 0)).toBe("left");
+  });
+
+  test("a fast drag up or down never changes sides, and never holds one back", () => {
+    expect(landSide("right", 900, WIDTH, -1, 3)).toBe("right");
+    expect(landSide("left", 100, WIDTH, 1, -3)).toBe("left");
+    // A diagonal that does not lean across enough is no fling either way.
+    expect(landSide("right", 900, WIDTH, -FLING_LEAN, 1)).toBe("right");
+    expect(landSide("right", 300, WIDTH, FLING_LEAN, 1)).toBe("left");
+    expect(landSide("right", 900, WIDTH, -FLING_LEAN * 1.1, 1)).toBe("left");
+  });
+});
+
+describe("velocity", () => {
+  const at = (t: number, x: number, y = 0): Sample => ({ t, x, y });
+
+  test("reads the speed over the span before the release", () => {
+    const samples = [at(0, 0), at(50, 100, 10), at(100, 200, 20)];
+    expect(velocity(samples, 100)).toEqual({ x: 2, y: 0.2 });
+  });
+
+  test("leaves out what is older than the span", () => {
+    const samples = [at(0, 1000), at(200, 0), at(250, -50), at(300, -100)];
+    expect(velocity(samples, 300)).toEqual({ x: -1, y: 0 });
+    expect(FLING_SPAN).toBe(100);
+  });
+
+  test("goes by the whole span, so one jittery last step is no fling", () => {
+    const samples = [at(0, 0), at(16, 2), at(32, 4), at(48, 6), at(64, 8), at(65, 12)];
+    expect(velocity(samples, 65).x).toBeCloseTo(12 / 65);
+  });
+
+  test("has none for a pointer that stopped before it let go", () => {
+    const samples = [at(0, 0), at(50, 300), at(250, 300)];
+    expect(velocity(samples, 250)).toEqual({ x: 0, y: 0 });
+  });
+
+  test("has none with one sample, or none in time", () => {
+    expect(velocity([], 0)).toEqual({ x: 0, y: 0 });
+    expect(velocity([at(10, 50)], 10)).toEqual({ x: 0, y: 0 });
+    expect(velocity([at(10, 0), at(10, 50)], 10)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("translateOf", () => {
+  test("reads a computed translate", () => {
+    expect(translateOf("none")).toEqual({ x: 0, y: 0 });
+    expect(translateOf("-120px")).toEqual({ x: -120, y: 0 });
+    expect(translateOf("-120.5px 4px")).toEqual({ x: -120.5, y: 4 });
+  });
+
+  test("reads anything else as no translate", () => {
+    expect(translateOf("")).toEqual({ x: 0, y: 0 });
+    expect(translateOf("auto")).toEqual({ x: 0, y: 0 });
+  });
+});
+
 describe("wallInput", () => {
   afterEach(() => {
     reset();
@@ -324,6 +427,10 @@ describe("pointer events", () => {
     expect(HOST_STYLE).toContain("pointer-events:none");
   });
 
+  test("the host is anchored by its side, not by its style", () => {
+    expect(HOST_STYLE).not.toMatch(/left|right/);
+  });
+
   test("the wrapper takes none, past its own all: initial", () => {
     expect(body(".wrap")).toMatch(/pointer-events:\s*none/);
   });
@@ -346,5 +453,61 @@ describe("closed panel", () => {
     expect(body('.wrap[data-tab="bottom"] .panel')).toMatch(/border-bottom-left-radius:\s*0/);
     const radii = rules(CSS).filter((rule) => /border-(top|bottom)-left-radius/.test(rule.body));
     for (const rule of radii) expect(rule.selector).not.toContain("data-open");
+  });
+});
+
+describe("the left side", () => {
+  test("mirrors the slide, and the handle sits on the panel's right", () => {
+    expect(body(".wrap")).toMatch(/transform:\s*translateX\(239px\)/);
+    expect(body('.wrap[data-side="left"]')).toMatch(/transform:\s*translateX\(-239px\)/);
+    expect(body('.wrap[data-side="left"]')).toMatch(/flex-direction:\s*row-reverse/);
+    const order = rules(CSS).map((rule) => rule.selector);
+    // Open on either side wins over the closed slide, as it comes after.
+    expect(order.indexOf('.wrap[data-open="true"]')).toBeGreaterThan(
+      order.indexOf('.wrap[data-side="left"]'),
+    );
+  });
+
+  test("mirrors the handle's overlap, border and radii", () => {
+    const handle = body('.wrap[data-side="left"] .handle');
+    expect(body(".handle")).toMatch(/margin-right:\s*-1px/);
+    expect(handle).toMatch(/margin-left:\s*-1px/);
+    expect(handle).toMatch(/margin-right:\s*0/);
+    expect(handle).toMatch(/border-left:\s*0/);
+    expect(handle).toMatch(/border-radius:\s*0 8px 8px 0/);
+  });
+
+  test("mirrors the panel's border and radii", () => {
+    const panel = body('.wrap[data-side="left"] .panel');
+    expect(body(".panel")).toMatch(/border-radius:\s*13px 0 0 13px/);
+    expect(panel).toMatch(/border-left:\s*0/);
+    expect(panel).toMatch(/border-radius:\s*0 13px 13px 0/);
+  });
+
+  test("keeps the corner under the handle square, by the tab alone", () => {
+    expect(body('.wrap[data-side="left"][data-tab="top"] .panel')).toMatch(
+      /border-top-right-radius:\s*0/,
+    );
+    expect(body('.wrap[data-side="left"][data-tab="bottom"] .panel')).toMatch(
+      /border-bottom-right-radius:\s*0/,
+    );
+    const radii = rules(CSS).filter((rule) => /border-(top|bottom)-right-radius/.test(rule.body));
+    expect(radii.length).toBe(2);
+    for (const rule of radii) expect(rule.selector).not.toContain("data-open");
+  });
+
+  test("takes a pointer nowhere the right side does not", () => {
+    expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+  });
+});
+
+describe("the glide", () => {
+  test("is the translate, apart from the open and close slide", () => {
+    expect(body(".wrap")).toMatch(/transition:\s*transform 150ms ease-out, translate 220ms ease-out/);
+  });
+
+  test("stops with reduced motion, as every transition does", () => {
+    const reduced = CSS.slice(CSS.indexOf("prefers-reduced-motion"));
+    expect(reduced).toMatch(/\.wrap, [^{]*\{\s*transition:\s*none !important/);
   });
 });

@@ -33,7 +33,7 @@ export type ViewportValue = FrameKnobs &
     DevknobsState,
     "scheme" | "device" | "orientation" | "mock" | "browser" | "bars" | "edgeToEdge" | "zoom"
   > & {
-    panel: Pick<PanelValue, "open">;
+    panel: Pick<PanelValue, "open" | "side">;
   };
 
 /** One under the panel host, so the panel stays on top of the frame. */
@@ -255,7 +255,7 @@ let current: ViewportValue = {
   bars: "auto",
   edgeToEdge: true,
   zoom: "fit",
-  panel: { open: false },
+  panel: { open: false, side: "right" },
 };
 /** The frame's page has loaded, so what it reports can be trusted. */
 let loaded = false;
@@ -491,7 +491,7 @@ function showZoom(place: Fit): void {
   picker.value = String(zoom);
 }
 
-/** How much of the right edge an open panel covers. Its host is as wide as the panel out. */
+/** How much of its edge an open panel covers. Its host is as wide as the panel out. */
 function panelWidth(): number {
   return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
 }
@@ -591,6 +591,7 @@ function resize(): void {
   const place = fit(current, size, {
     frameZoom: zoomFor(current.dpr),
     aside,
+    side: current.panel.side,
     mock: mock?.inset,
   });
   drawn = place;

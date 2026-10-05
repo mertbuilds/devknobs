@@ -145,8 +145,13 @@ export interface UaValue {
 /** An edge a box sits flush with and follows when sizes change, or `none`. */
 export type EdgeValue = "top" | "bottom" | "none";
 
+/** The edge of the window the panel lives on. */
+export type SideValue = "left" | "right";
+
 export interface PanelValue {
   open: boolean;
+  /** The edge of the window the panel and its handle live on. */
+  side: SideValue;
   /** Handle offset from the top of the viewport, in px. */
   y: number;
   /** Panel offset from the top of the viewport, in px. */

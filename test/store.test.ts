@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_STATE, merge, parse } from "../src/engine/store";
+import { DEFAULT_STATE, merge, parse, placeText } from "../src/engine/store";
 import { ZOOM_MAX, ZOOM_MIN } from "../src/engine/zoom";
 import type { ClockValue, DevknobsState } from "../src/types";
 
@@ -46,6 +46,7 @@ describe("parse", () => {
         grabColor: "teal",
         panel: {
           open: false,
+          side: "up",
           y: 40,
           top: 24,
           edge: "bottom",
@@ -88,6 +89,7 @@ describe("parse", () => {
       grabColor: "auto",
       panel: {
         open: false,
+        side: "right",
         y: 40,
         top: 24,
         edge: "bottom",
@@ -177,6 +179,7 @@ describe("parse", () => {
   test("puts the panel where the handle is when the session predates its top", () => {
     expect(parse(JSON.stringify({ panel: { y: 200 } })).panel).toEqual({
       open: DEFAULT_STATE.panel.open,
+      side: "right",
       y: 200,
       top: 200,
       edge: "none",
@@ -192,6 +195,15 @@ describe("parse", () => {
     const stored = parse(JSON.stringify({ panel: { edge: "top", tab: "bottom" } })).panel;
     expect(stored.edge).toBe("top");
     expect(stored.tab).toBe("bottom");
+  });
+
+  test("keeps the panel on the side stored, and on the right where the session predates sides", () => {
+    expect(DEFAULT_STATE.panel.side).toBe("right");
+    expect(parse(JSON.stringify({ panel: { y: 40 } })).panel.side).toBe("right");
+    expect(parse(JSON.stringify({ panel: { side: "top" } })).panel.side).toBe("right");
+    expect(parse(JSON.stringify({ panel: { side: 1 } })).panel.side).toBe("right");
+    expect(parse(JSON.stringify({ panel: { side: "left" } })).panel.side).toBe("left");
+    expect(parse(JSON.stringify({ panel: { side: "right" } })).panel.side).toBe("right");
   });
 
   test("pins no row when the session predates pinned rows or stored junk", () => {
@@ -261,6 +273,85 @@ describe("parse", () => {
       zoom: 1.5,
     };
     expect(parse(JSON.stringify(state))).toEqual(state);
+  });
+});
+
+describe("the place kept across sessions", () => {
+  const kept = JSON.stringify({ side: "left", y: 300, top: 240, edge: "none", tab: "none" });
+
+  test("places the panel of a session that stored none", () => {
+    for (const session of [null, "", "not json", "{}", JSON.stringify({ scheme: "dark" })]) {
+      expect(parse(session, kept).panel).toEqual({
+        ...DEFAULT_STATE.panel,
+        side: "left",
+        y: 300,
+        top: 240,
+      });
+    }
+    expect(parse(JSON.stringify({ scheme: "dark" }), kept).scheme).toBe("dark");
+  });
+
+  test("gives way to the session's own place, field by field", () => {
+    const session = JSON.stringify({ panel: { open: true, side: "right", y: 40, top: 24 } });
+    expect(parse(session, kept).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      open: true,
+      side: "right",
+      y: 40,
+      top: 24,
+    });
+    // A session from before sides has a place, but takes the side kept.
+    expect(parse(JSON.stringify({ panel: { y: 40 } }), kept).panel).toMatchObject({
+      side: "left",
+      y: 40,
+      top: 40,
+    });
+  });
+
+  test("brings back no more than the place: never open, pins or knobs", () => {
+    const junk = JSON.stringify({
+      side: "left",
+      y: 300,
+      top: 240,
+      edge: "bottom",
+      tab: "top",
+      open: true,
+      pinned: ["scheme"],
+      scheme: "dark",
+    });
+    const state = parse(null, junk);
+    expect(state.panel.open).toBe(false);
+    expect(state.panel.pinned).toEqual([]);
+    expect(state.scheme).toBe("system");
+    expect(state.panel.edge).toBe("bottom");
+    expect(state.panel.tab).toBe("top");
+  });
+
+  test("reads a kept place as strictly as a session, falling back to the defaults", () => {
+    const place = (json: string) => parse(null, json).panel;
+    for (const json of ["", "not json", "null", "[]", "3", JSON.stringify("left")]) {
+      expect(place(json)).toEqual(DEFAULT_STATE.panel);
+    }
+    const bad = JSON.stringify({ side: "up", y: "1", top: null, edge: "middle", tab: 2 });
+    expect(place(bad)).toEqual(DEFAULT_STATE.panel);
+    expect(place(JSON.stringify({ y: 200 }))).toMatchObject({ y: 200, top: 200, side: "right" });
+    expect(place(JSON.stringify({ y: Number.NaN }))).toEqual(DEFAULT_STATE.panel);
+  });
+
+  test("writes the place alone, the way it reads back", () => {
+    const state = merge(DEFAULT_STATE, {
+      scheme: "dark",
+      panel: { open: true, side: "left", y: 120, top: 80, edge: "bottom", pinned: ["scheme"] },
+    });
+    const text = placeText(state);
+    expect(JSON.parse(text)).toEqual({ side: "left", y: 120, top: 80, edge: "bottom", tab: "none" });
+    expect(parse(null, text).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      side: "left",
+      y: 120,
+      top: 80,
+      edge: "bottom",
+    });
   });
 });
 
