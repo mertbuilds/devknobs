@@ -90,7 +90,10 @@ state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 
 the panel starts closed, as a handle on the right edge of the window. click it
-or press the hotkey to open it, and it stays open across reloads.
+or press the hotkey to open it, and it stays open across reloads. opening it
+puts the focus in its search, so a knob's name can be typed at once, and
+closing it gives the focus back to what had it before. a panel that comes back
+open after a reload leaves the focus on the page.
 
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
@@ -125,8 +128,10 @@ its row. a value typed out in full works too: `500` for a width, `3d` for the
 clock, `pt-BR`, `Europe/Paris`, or `36.9, 30.7` for a position. a knob's name
 opens its editor, and with nothing typed the list shows every knob by
 category. arrows move through the results. escape leaves the search, query and
-all, then closes an open editor, and then the panel. a click anywhere outside
-the search and its results, or on the `×` at its end, leaves it too.
+all, then closes an open editor, and then the panel. right after the panel
+opens, with nothing typed and no editor open, escape closes it at once. a click
+anywhere outside the search and its results, or on the `×` at its end, leaves
+it too.
 
 while the panel is out and the focus is in no field, `/` focuses the search,
 `r` replays the page's animations and shift backspace (or shift delete) resets

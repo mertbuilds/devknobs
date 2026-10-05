@@ -1224,19 +1224,42 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (moved) engine.setState({ panel: next });
   }
 
+  /** What had the focus on the page when the panel opened. */
+  let focusBefore: Element | null = null;
+  /** The search takes the focus as the panel opens, and lists nothing until it is used. */
+  let quiet = false;
+
+  /**
+   * Open or close the panel. Opened, it shows by the time the store has
+   * rendered, and the search takes the focus so a knob's name can be typed at
+   * once. Closed, it keeps no focus, so the next keys go to the page, to what
+   * had them before it opened when that is still there.
+   */
   function toggle(open?: boolean): void {
-    const next = open ?? !engine.getState().panel.open;
-    // A closed panel keeps no focus, so the next keys go to the page.
+    const was = engine.getState().panel.open;
+    const next = open ?? !was;
     if (!next) {
       browsing = false;
       searchInput.value = "";
       const focused = root.activeElement;
-      if (focused instanceof HTMLElement) focused.blur();
-    }
+      if (focused instanceof HTMLElement) {
+        focused.blur();
+        const back = focusBefore;
+        if (back instanceof HTMLElement && back !== document.body && back.isConnected) {
+          back.focus({ preventScroll: true });
+        }
+      }
+      focusBefore = null;
+    } else if (!was) focusBefore = document.activeElement;
     engine.setState({ panel: { open: next } });
+    if (!next || was) return;
+    quiet = true;
+    searchInput.focus({ preventScroll: true });
+    quiet = false;
   }
 
   searchInput.addEventListener("focus", () => {
+    if (quiet) return;
     browsing = true;
     render();
   });
@@ -1515,8 +1538,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const filter =
       focused instanceof HTMLInputElement && focused.classList.contains("filter") ? focused : null;
     const view = openRow ? viewOf(openRow) : undefined;
+    // The search the panel opened with has nothing to leave until it is used.
     const step = escapeStep({
-      search: focused === searchInput || browsing || searchInput.value !== "",
+      search: browsing || searchInput.value !== "",
       filter: filter !== null && filter.value !== "",
       editor: focused !== null && view !== undefined,
     });
@@ -1547,6 +1571,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (action === "reset" && !dragging && engine.getState().panel.open) event.preventDefault();
     if (action === "close") escape();
     else if (action) onAction(action);
+    // The hotkey that opened the panel is not typed into the search it focused.
+    if (action === "toggle" && engine.getState().panel.open) event.preventDefault();
     if (action || dragging || !engine.getState().panel.open || !isSearchKey(event)) return;
     event.preventDefault();
     event.stopPropagation();
