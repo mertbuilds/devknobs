@@ -148,10 +148,12 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   visibility: visible;
   transition-delay: 0s;
 }
-/* The handle covers one of these corners while the panel is out, so square
-   that one off. A panel the handle meets in the middle keeps both radii. */
-.wrap[data-open="true"][data-tab="top"] .panel { border-top-left-radius: 0; }
-.wrap[data-open="true"][data-tab="bottom"] .panel { border-bottom-left-radius: 0; }
+/* The handle covers one of these corners, so square that one off. It goes by
+   the tab alone, not by data-open: the open flag flips the moment a close
+   starts, while the panel shows until the slide is over. A panel the handle
+   meets in the middle keeps both radii. */
+.wrap[data-tab="top"] .panel { border-top-left-radius: 0; }
+.wrap[data-tab="bottom"] .panel { border-bottom-left-radius: 0; }
 
 .head {
   flex: none;

@@ -220,6 +220,15 @@ export function settle(place: Place, room: Room): Place {
 }
 
 /**
+ * The corner of a panel whose top is at `top` that a handle at `y` covers, if
+ * any. A closed panel stays where it last showed while its handle may move
+ * on, so this is what tells the two apart while the slide back still shows it.
+ */
+export function cornerAt(y: number, top: number, room: Room): EdgeValue {
+  return edgeOf(y, top, top + room.panel - room.handle, "none");
+}
+
+/**
  * Where a drag lands, from where it started and where the pointer would put
  * what it moves with no edge pulling: the panel's top for a plain drag, the
  * handle's top for a shift drag or a closed panel's. A plain drag carries the
@@ -1091,16 +1100,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   /**
    * Put the handle and the panel where a place says. `tab` tells the
-   * stylesheet which corner of the panel the handle covers, if any. Closed,
-   * the panel stays where it last showed, so it slides out from its own spot
-   * whatever the handle does, and takes the place it has by then when it opens.
+   * stylesheet which corner of the panel the handle covers, if any, open or
+   * closed, so that corner stays square for as long as the panel shows, the
+   * slide back and a toggle halfway through it included. Closed, the panel
+   * stays where it last showed, so it slides out from its own spot whatever
+   * the handle does, and takes the place it has by then when it opens.
    */
   function placePanel(at: Place, open: boolean): void {
+    if (open) shownTop = at.top;
+    wrap.dataset.tab = open ? at.tab : cornerAt(at.y, shownTop, measure());
     host.style.top = `${at.y}px`;
-    if (open) {
-      shownTop = at.top;
-      wrap.dataset.tab = at.tab;
-    }
     panel.style.marginTop = `${shownTop - at.y}px`;
   }
 

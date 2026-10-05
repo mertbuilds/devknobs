@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { apply, reset } from "../src/engine/time";
 import {
   chipKey,
+  cornerAt,
   dragTarget,
   dragTo,
   HOST_STYLE,
@@ -197,6 +198,27 @@ describe("a closed panel's drag", () => {
   });
 });
 
+describe("cornerAt", () => {
+  const low = 100 + ROOM.panel - ROOM.handle;
+
+  test("names the corner a handle flush with the panel covers", () => {
+    expect(cornerAt(100, 100, ROOM)).toBe("top");
+    expect(cornerAt(low, 100, ROOM)).toBe("bottom");
+  });
+
+  test("says none for a handle between the corners, or one dragged off a closed panel", () => {
+    expect(cornerAt(140, 100, ROOM)).toBe("none");
+    expect(cornerAt(400, 100, ROOM)).toBe("none");
+  });
+
+  test("agrees with what a layout says", () => {
+    for (const place of [at(300, 300), at(LAST, LAST, "bottom"), at(140, 100), at(8, 8, "top")]) {
+      const laid = settle(place, ROOM);
+      expect(cornerAt(laid.y, laid.top, ROOM)).toBe(laid.tab);
+    }
+  });
+});
+
 describe("settle", () => {
   test("a panel at the window's bottom grows upward, and a handle at its top rides up", () => {
     const grown = settle(at(LAST, LAST, "bottom", "top"), { ...ROOM, panel: 400 });
@@ -317,5 +339,12 @@ describe("closed panel", () => {
     expect(body(".panel")).toMatch(/transition:\s*visibility 0s linear 150ms/);
     expect(body('.wrap[data-open="true"] .panel')).toMatch(/visibility:\s*visible/);
     expect(body('.wrap[data-open="true"] .panel')).toMatch(/transition-delay:\s*0s/);
+  });
+
+  test("keeps the corner under the handle square while it slides back", () => {
+    expect(body('.wrap[data-tab="top"] .panel')).toMatch(/border-top-left-radius:\s*0/);
+    expect(body('.wrap[data-tab="bottom"] .panel')).toMatch(/border-bottom-left-radius:\s*0/);
+    const radii = rules(CSS).filter((rule) => /border-(top|bottom)-left-radius/.test(rule.body));
+    for (const rule of radii) expect(rule.selector).not.toContain("data-open");
   });
 });
