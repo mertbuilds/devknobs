@@ -1233,16 +1233,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
    * Open or close the panel. Opened, it shows by the time the store has
    * rendered, and the search takes the focus so a knob's name can be typed at
    * once. Closed, it keeps no focus, so the next keys go to the page, to what
-   * had them before it opened when that is still there.
+   * had them before it opened when that is still there. Says whether the
+   * focus moved, so the key that did it is not typed where the focus went.
    */
-  function toggle(open?: boolean): void {
+  function toggle(open?: boolean): boolean {
     const was = engine.getState().panel.open;
     const next = open ?? !was;
+    let moved = false;
     if (!next) {
       browsing = false;
       searchInput.value = "";
       const focused = root.activeElement;
       if (focused instanceof HTMLElement) {
+        moved = true;
         focused.blur();
         const back = focusBefore;
         if (back instanceof HTMLElement && back !== document.body && back.isConnected) {
@@ -1250,12 +1253,29 @@ export function createPanel(options: PanelOptions = {}): Panel {
         }
       }
       focusBefore = null;
-    } else if (!was) focusBefore = document.activeElement;
+    } else if (!was) {
+      // The focus inside a shadow root, the handle's included, as the host takes none.
+      let at = document.activeElement;
+      while (at?.shadowRoot?.activeElement) at = at.shadowRoot.activeElement;
+      focusBefore = at;
+    }
     engine.setState({ panel: { open: next } });
-    if (!next || was) return;
+    if (!next || was) return moved;
     quiet = true;
     searchInput.focus({ preventScroll: true });
     quiet = false;
+    return true;
+  }
+
+  /**
+   * Focus the search and list the knobs. A search the panel opened with
+   * already has the focus, and lists them from here.
+   */
+  function startBrowsing(): void {
+    searchInput.focus();
+    if (browsing) return;
+    browsing = true;
+    render();
   }
 
   searchInput.addEventListener("focus", () => {
@@ -1269,6 +1289,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (root.activeElement === searchInput || pressing) return;
     leaveSearch();
   });
+  // A click on the header lands here too.
+  searchInput.addEventListener("click", startBrowsing);
   searchInput.addEventListener("input", () => {
     browsing = true;
     body.scrollTop = 0;
@@ -1320,7 +1342,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   function runCommand(command: Command): void {
     if (command === "panel") toggle(false);
-    else if (command === "search") searchInput.focus();
+    else if (command === "search") startBrowsing();
     else if (command === "grab") runAction("grab");
     else if (command === "replay") engine.replay();
     else resetAll();
@@ -1480,6 +1502,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
         ...dragAt,
         side: slid ? side : landSide(side, middle, viewWidth(), flung, speed.y),
       });
+      // Only a move the user makes is kept for new tabs.
+      engine.keepPlace();
     } else if (dragged) land(null);
     else render();
     // A pointer press leaves focus on the handle, and the next keypress (the
@@ -1498,10 +1522,18 @@ export function createPanel(options: PanelOptions = {}): Panel {
     dragged = false;
   });
   // The browser can take the pointer away, and a window that lost the focus
-  // may never hear it come up. Either way the panel goes back to its place.
-  handle.addEventListener("lostpointercapture", () => endDrag(null));
-  function onBlur(): void {
+  // may never hear it come up. Either way the panel goes back to its place,
+  // and the next click on the handle toggles it. The capture a pointerup lets
+  // go of finds the drag already ended, and its click is still swallowed.
+  handle.addEventListener("lostpointercapture", (event: PointerEvent) => {
+    if (!dragging || event.pointerId !== pointer) return;
     endDrag(null);
+    dragged = false;
+  });
+  function onBlur(): void {
+    if (!dragging) return;
+    endDrag(null);
+    dragged = false;
   }
 
   // The drag that just ended still sends a click. Swallow that one.
@@ -1513,19 +1545,21 @@ export function createPanel(options: PanelOptions = {}): Panel {
     toggle();
   });
 
-  function onAction(action: KeyAction): void {
+  /** Run a key's action. Says whether the panel moved the focus for the toggle. */
+  function onAction(action: KeyAction): boolean {
     if (action === "zoom-in" || action === "zoom-out" || action === "zoom-fit") {
       zoomKey(action);
-      return;
+      return false;
     }
     // A drag owns the handle until the pointer is up, hotkey and escape too.
-    if (dragging) return;
-    if (action === "toggle") toggle();
-    else if (!engine.getState().panel.open) return;
-    else if (action === "replay") runCommand("replay");
+    if (dragging) return false;
+    if (action === "toggle") return toggle();
+    if (!engine.getState().panel.open) return false;
+    if (action === "replay") runCommand("replay");
     else if (action === "reset") runCommand("reset");
-    else if (action === "search") searchInput.focus();
+    else if (action === "search") startBrowsing();
     else toggle(false);
+    return false;
   }
 
   /**
@@ -1569,10 +1603,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
     const action = keyAction(event, hotkey);
     if (action === "reset" && !dragging && engine.getState().panel.open) event.preventDefault();
+    let moved = false;
     if (action === "close") escape();
-    else if (action) onAction(action);
-    // The hotkey that opened the panel is not typed into the search it focused.
-    if (action === "toggle" && engine.getState().panel.open) event.preventDefault();
+    else if (action) moved = onAction(action);
+    // The hotkey is not typed where it moved the focus: the search it opened
+    // the panel on, or the page field it closed the panel back to.
+    if (action === "toggle" && moved) event.preventDefault();
     if (action || dragging || !engine.getState().panel.open || !isSearchKey(event)) return;
     event.preventDefault();
     event.stopPropagation();

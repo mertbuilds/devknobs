@@ -1,5 +1,15 @@
-import { describe, expect, test } from "bun:test";
-import { DEFAULT_STATE, merge, parse, placeText } from "../src/engine/store";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  DEFAULT_STATE,
+  keepPlace,
+  load,
+  merge,
+  PLACE_KEY,
+  parse,
+  placeText,
+  STORAGE_KEY,
+  save,
+} from "../src/engine/store";
 import { ZOOM_MAX, ZOOM_MIN } from "../src/engine/zoom";
 import type { ClockValue, DevknobsState } from "../src/types";
 
@@ -351,6 +361,57 @@ describe("the place kept across sessions", () => {
       y: 120,
       top: 80,
       edge: "bottom",
+    });
+  });
+});
+
+/** A window with both storages, each a map the test can look into. */
+function stubStorage(): { session: Map<string, string>; local: Map<string, string> } {
+  const session = new Map<string, string>();
+  const local = new Map<string, string>();
+  const storageFor = (map: Map<string, string>) =>
+    ({
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        map.set(key, value);
+      },
+    }) as Storage;
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { sessionStorage: storageFor(session), localStorage: storageFor(local) },
+  });
+  return { session, local };
+}
+
+describe("the kept place", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "window");
+  });
+
+  test("a save never writes it, whatever the panel does", () => {
+    const { session, local } = stubStorage();
+    const kept = { side: "left", y: 40, top: 40, edge: "none", tab: "none" };
+    local.set(PLACE_KEY, JSON.stringify(kept));
+    const state = load();
+    save(merge(state, { panel: { side: "right", y: 300, top: 280, edge: "bottom" } }));
+    expect(session.has(STORAGE_KEY)).toBe(true);
+    expect(JSON.parse(local.get(PLACE_KEY) ?? "")).toEqual(kept);
+  });
+
+  test("keeping it writes the place that reads back", () => {
+    const { local } = stubStorage();
+    const state = merge(DEFAULT_STATE, {
+      panel: { side: "left", y: 120, top: 80, edge: "bottom", tab: "top" },
+    });
+    keepPlace(state);
+    expect(local.get(PLACE_KEY)).toBe(placeText(state));
+    expect(parse(null, local.get(PLACE_KEY)).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      side: "left",
+      y: 120,
+      top: 80,
+      edge: "bottom",
+      tab: "top",
     });
   });
 });

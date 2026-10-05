@@ -21,7 +21,7 @@ import { replay as replayAnimations } from "./replay";
 import * as scrollbars from "./scrollbars";
 import * as spacing from "./spacing";
 import * as speed from "./speed";
-import { DEFAULT_STATE, load, merge, resetState, save } from "./store";
+import { DEFAULT_STATE, keepPlace as keepPlaceOf, load, merge, resetState, save } from "./store";
 import * as text from "./text";
 import * as time from "./time";
 import * as touch from "./touch";
@@ -98,6 +98,14 @@ export function applyState(next: DevknobsState): void {
 export function setState(patch: DevknobsStatePatch): DevknobsState {
   applyState(merge(state, patch));
   return state;
+}
+
+/**
+ * Keep the panel's place for new tabs and sessions, as the user just put it.
+ * Like a save, never from the copy in the width knob's frame.
+ */
+export function keepPlace(): void {
+  if (persist) keepPlaceOf(state);
 }
 
 /**

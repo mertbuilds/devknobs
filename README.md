@@ -102,9 +102,10 @@ beside it where it left it.
 
 the handle follows the pointer sideways too. let go past the middle of the
 window, or fling it toward the other edge, and the panel moves to the left or
-the right edge; anywhere else it glides back to its own. its side and where it
-sits on it are also kept in `localStorage` under `devknobs:place`, so a new tab
-starts with the panel where you last put it.
+the right edge; anywhere else it glides back to its own. each time you let go of
+it, its side and where it sits on it are also kept in `localStorage` under
+`devknobs:place`, so a new tab starts with the panel where you last put it. a
+tab you did not drag in never writes it.
 
 within 24px of an edge, the panel snaps flush with the top or the bottom of the
 window, and the handle with the top or the bottom corner of the panel, or of the

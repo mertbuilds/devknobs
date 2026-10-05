@@ -29,7 +29,7 @@ export const STORAGE_KEY = "devknobs";
 
 /**
  * Where the panel's place is kept beside the session, in `localStorage`, so
- * a new tab or session starts with the panel where it was last put.
+ * a new tab or session starts with the panel where the user last put it.
  */
 export const PLACE_KEY = "devknobs:place";
 
@@ -321,17 +321,8 @@ function item(kind: "session" | "local", key: string): string | null {
   }
 }
 
-/**
- * The place last read or written, so the place kept across sessions is only
- * written when this session moves the panel, and a session that merely loads
- * leaves the one another tab put there alone.
- */
-let keptPlace = "";
-
 export function load(): DevknobsState {
-  const state = parse(item("session", STORAGE_KEY), item("local", PLACE_KEY));
-  keptPlace = placeText(state);
-  return state;
+  return parse(item("session", STORAGE_KEY), item("local", PLACE_KEY));
 }
 
 export function save(state: DevknobsState): void {
@@ -340,11 +331,16 @@ export function save(state: DevknobsState): void {
   } catch {
     // Private mode, disabled storage: knobs still work, they just do not stick.
   }
-  const place = placeText(state);
-  if (place === keptPlace) return;
-  keptPlace = place;
+}
+
+/**
+ * Keep the panel's place across sessions. Only a move the user makes writes
+ * it, so a tab that merely lays the panel out again leaves the place another
+ * tab put there alone.
+ */
+export function keepPlace(state: DevknobsState): void {
   try {
-    storage("local")?.setItem(PLACE_KEY, place);
+    storage("local")?.setItem(PLACE_KEY, placeText(state));
   } catch {
     // The same: the panel just starts on the right in a new session.
   }
