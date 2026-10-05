@@ -53,7 +53,10 @@ const loadMode: LoadMode = async () => ({
     const mode = { stopped: false, exit: options.onExit };
     modes.push(mode);
     return {
-      keydown: () => {},
+      // As the real mode does, it keeps a held grab key from being typed.
+      keydown: (event) => {
+        if (event.repeat && options.heldKey(event)) event.preventDefault();
+      },
       stop: () => {
         mode.stopped = true;
       },
@@ -130,7 +133,7 @@ describe("grab's control", () => {
 });
 
 /** Shift and g pressed in `target`, the deepest node the event came through. */
-function shiftG(target: unknown): Event {
+function shiftG(target: unknown, patch: Partial<KeyboardEvent> = {}): Event {
   return Object.assign(new Event("keydown", { cancelable: true }), {
     key: "G",
     code: "KeyG",
@@ -140,14 +143,18 @@ function shiftG(target: unknown): Event {
     metaKey: false,
     repeat: false,
     composedPath: () => [target],
+    ...patch,
   });
 }
+
+/** Off a field of the page. */
+const PAGE = { tagName: "DIV", isContentEditable: false };
 
 describe("grab's key", () => {
   test("shift and g is grab's off a field and in the panel's search, and not typed", () => {
     setWindow("");
     control = createGrab({}, loadMode);
-    const page = shiftG({ tagName: "DIV", isContentEditable: false });
+    const page = shiftG(PAGE);
     window.dispatchEvent(page);
     expect(page.defaultPrevented).toBe(true);
     const search = { tagName: "INPUT", hasAttribute: (name: string) => name === KEYS_FIELD };
@@ -163,6 +170,80 @@ describe("grab's key", () => {
       const event = shiftG({ tagName, hasAttribute: () => false });
       window.dispatchEvent(event);
       expect(event.defaultPrevented).toBe(false);
+    }
+    expect(control.isOn()).toBe(false);
+  });
+
+  test("a press turns grab on at once, and a second press off", async () => {
+    setWindow("");
+    control = createGrab({}, loadMode);
+    window.dispatchEvent(shiftG(PAGE));
+    expect(control.isOn()).toBe(true);
+    await settle();
+    expect(modes).toHaveLength(1);
+    window.dispatchEvent(shiftG(PAGE));
+    expect(control.isOn()).toBe(false);
+    expect(modes.map((mode) => mode.stopped)).toEqual([true]);
+  });
+
+  test("the key held down repeats without turning grab off, or on again", async () => {
+    setWindow("");
+    control = createGrab({}, loadMode);
+    window.dispatchEvent(shiftG(PAGE));
+    await settle();
+    const repeat = shiftG(PAGE, { repeat: true });
+    window.dispatchEvent(repeat);
+    expect(repeat.defaultPrevented).toBe(true);
+    expect(control.isOn()).toBe(true);
+    window.dispatchEvent(shiftG(PAGE));
+    window.dispatchEvent(shiftG(PAGE, { repeat: true }));
+    expect(control.isOn()).toBe(false);
+  });
+
+  test("a second press while grab loads cancels it", async () => {
+    setWindow("");
+    control = createGrab({}, loadMode);
+    window.dispatchEvent(shiftG(PAGE));
+    window.dispatchEvent(shiftG(PAGE));
+    await settle();
+    expect(control.isOn()).toBe(false);
+    expect(modes).toEqual([]);
+  });
+
+  test("shift on its own leaves grab on", async () => {
+    setWindow("");
+    control = createGrab({}, loadMode);
+    window.dispatchEvent(shiftG(PAGE));
+    await settle();
+    window.dispatchEvent(shiftG(PAGE, { key: "Shift", code: "ShiftLeft" }));
+    expect(control.isOn()).toBe(true);
+  });
+
+  test("a g still held once shift is let go is not typed while grab is on", async () => {
+    setWindow("");
+    control = createGrab({}, loadMode);
+    window.dispatchEvent(shiftG(PAGE));
+    await settle();
+    const held = shiftG(PAGE, { key: "g", shiftKey: false, repeat: true });
+    window.dispatchEvent(held);
+    expect(held.defaultPrevented).toBe(true);
+    expect(control.isOn()).toBe(true);
+  });
+
+  test("a key that copies still waits for a hold", () => {
+    setWindow("");
+    const names = ["HTMLElement", "HTMLInputElement", "HTMLTextAreaElement"] as const;
+    for (const name of names) {
+      Object.defineProperty(globalThis, name, { configurable: true, value: class {} });
+    }
+    try {
+      control = createGrab({ key: "meta+c" }, loadMode);
+      const press = shiftG(PAGE, { key: "c", code: "KeyC", shiftKey: false, metaKey: true });
+      window.dispatchEvent(press);
+      expect(press.defaultPrevented).toBe(false);
+      expect(control.isOn()).toBe(false);
+    } finally {
+      for (const name of names) Reflect.deleteProperty(globalThis, name);
     }
   });
 });

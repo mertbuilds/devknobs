@@ -5,7 +5,7 @@ export type KeyLike = Pick<
   KeyboardEvent,
   "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "target" | "composedPath"
 > &
-  Partial<Pick<KeyboardEvent, "code">>;
+  Partial<Pick<KeyboardEvent, "code" | "isComposing">>;
 
 /** The letter that with shift toggles the panel, lower case like the keys it is matched to. */
 export function hotkeyOf(hotkey?: string): string {
@@ -31,8 +31,30 @@ function isTyping(node: EventTarget | null): boolean {
   return element?.isContentEditable === true;
 }
 
+/**
+ * An element of the page that cannot take the focus, yet has it: the focus is
+ * in its closed shadow root, where a field the key reaches cannot be seen.
+ */
+function focusInClosedRoot(node: EventTarget | null): boolean {
+  // Off the browser, as in a server render, there are no elements.
+  if (typeof HTMLElement === "undefined" || !(node instanceof HTMLElement)) return false;
+  if (node.shadowRoot !== null || node.hasAttribute("tabindex") || node.tabIndex >= 0) return false;
+  const root = node.getRootNode();
+  if (root instanceof Document) {
+    // With nothing focused the body is the active element.
+    if (node === root.body || node === root.documentElement) return false;
+  } else if (!(root instanceof ShadowRoot)) {
+    return false;
+  }
+  return root.activeElement === node;
+}
+
 function isEditable(node: EventTarget | null): boolean {
-  return isTyping(node) || (node as HTMLElement | null)?.tagName === "SELECT";
+  return (
+    isTyping(node) ||
+    (node as HTMLElement | null)?.tagName === "SELECT" ||
+    focusInClosedRoot(node)
+  );
 }
 
 /**
@@ -46,15 +68,24 @@ export function typesInField(event: Pick<KeyLike, "target" | "composedPath">): b
 }
 
 /**
- * Shift and the letter with no other modifier. Caps lock turns the letter
- * back to lower case, so either case is the letter, and on a layout whose
- * letters are not latin the key in the letter's place is.
+ * A key that types the letter `a` to `z`, in either case for caps lock, or on
+ * a layout whose letters are not latin the key in the letter's place. A latin
+ * letter elsewhere, a dead key or a keystroke an IME takes is not the letter.
  */
-export function isShiftLetter(event: KeyLike, letter: string): boolean {
-  if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+export function letterMatches(event: { key: string; code?: string }, letter: string): boolean {
   const key = event.key.toLowerCase();
   if (key === letter) return true;
-  return !/^[a-z]$/.test(key) && event.code === `Key${letter.toUpperCase()}`;
+  return (
+    [...key].length === 1 &&
+    !/\p{Script=Latin}/u.test(key) &&
+    event.code === `Key${letter.toUpperCase()}`
+  );
+}
+
+/** Shift and the letter with no other modifier, never while an IME composes. */
+export function isShiftLetter(event: KeyLike, letter: string): boolean {
+  if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
+  return event.isComposing !== true && letterMatches(event, letter);
 }
 
 /** The letter that with shift replays the page's animations. */

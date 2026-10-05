@@ -82,8 +82,8 @@ setState({ ua: { preset: "iphone-safari" } });
 | `open` | the stored state, closed at first | start the panel open or closed |
 | `persist` | `true` | keep the knobs in `sessionStorage` |
 | `state` | none | knobs to apply on top of the stored state |
-| `grab` | `true` | hold a key to grab elements, see grab below |
-| `grabKey` | `shift+g` | the key to hold, such as `alt+shift+g` |
+| `grab` | `true` | press a key to grab elements, see grab below |
+| `grabKey` | `shift+g` | the key that grabs, such as `alt+shift+g` |
 | `grabColor` | the stored one, `auto` at first | the color of grab's boxes: `auto`, `blue`, `green`, `pink`, `orange`, `purple` or `cyan` |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
@@ -156,7 +156,7 @@ whatever the knobs emulate for the page.
 
 ## grab
 
-hold `⇧G` (`Shift G` off a Mac) to grab an element for a coding agent. hover
+press `⇧G` (`Shift G` off a Mac) to grab an element for a coding agent. hover
 it, click it, and its html, the components that rendered it and where they live
 are on the clipboard, one line per element:
 
@@ -168,13 +168,14 @@ paste that into the agent and it can find the code. the clipboard also carries
 the same context as json, under `application/x-devknobs-grab` and react-grab's
 own `application/x-react-grab`.
 
-grab turns on once the key is held for 100ms, and letting go of shift or `G`
-before then turns nothing on. in a field of the page `⇧G` types a capital and
-grab stays off, and in the panel's search it is grab's. a grab key set to a
-copy shortcut, such as `meta+c`, is still a copy when pressed quickly: it waits
-500ms while a field has the focus and 700ms while text is selected, and a key
-that copied something waits for the key to repeat, or to be let go after
-200ms. grab then stays on until a copy or escape. the search finds it too:
+grab turns on with the press, and stays on until a copy, escape or `⇧G` again.
+holding the key down does not turn it off. in a field of the page `⇧G` types a
+capital and grab stays off, and in the panel's search it is grab's. a grab key
+set to a copy shortcut, such as `meta+c`, is still a copy when pressed
+quickly, so grab turns on once it is held for 100ms: 500ms while a field has
+the focus and 700ms while text is selected, and a key that copied something
+waits for the key to repeat, or to be let go after 200ms. grab then stays on
+until a copy or escape. the search finds it too:
 `grab`, `inspect` or `pick`, and while it is on the panel shows a grab row with
 an `×` to stop.
 
@@ -231,7 +232,7 @@ both by Aiden Bai and MIT, see
 
 ### migrating from react-grab
 
-devknobs covers it: the same hold to grab, the same line format, the same
+devknobs covers it: the same grab, the same line format, the same
 clipboard type. remove the `react-grab` script or package, and mount devknobs.
 pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
 

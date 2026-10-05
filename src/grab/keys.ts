@@ -1,12 +1,14 @@
 // adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
+import { letterMatches } from "../ui/keys";
 
 /** The parts of a key event that decide whether it is the grab key. */
 export type GrabKeyLike = Pick<
   KeyboardEvent,
   "key" | "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
->;
+> &
+  Partial<Pick<KeyboardEvent, "isComposing">>;
 
-/** The keys that start a grab when held, with only these modifiers down. */
+/** The keys that start a grab, with only these modifiers down. */
 export interface GrabKey {
   meta: boolean;
   ctrl: boolean;
@@ -16,7 +18,7 @@ export interface GrabKey {
   key: string;
 }
 
-/** How long the grab key is held before grab turns on, in ms. */
+/** How long a grab key that copies is held before grab turns on, in ms. */
 export const HOLD = 100;
 
 /** Longer while a field has the focus, where the key is likely a copy. */
@@ -94,16 +96,21 @@ export function parseGrabKey(spec: string | undefined): GrabKey {
   return parsed.key ? parsed : defaultGrabKey();
 }
 
-function keyMatches(event: GrabKeyLike, key: string): boolean {
+/** The key alone, whatever modifiers are down. */
+export function keyMatches(event: GrabKeyLike, key: string): boolean {
   if (key === "c") return isCLike(event.key, event.code);
+  if (/^[a-z]$/.test(key)) {
+    // Option on a Mac types another character, a latin one too, in the letter's place.
+    return letterMatches(event, key) || (event.altKey && event.code === `Key${key.toUpperCase()}`);
+  }
   if (event.key.toLowerCase() === key) return true;
-  if (/^[a-z]$/.test(key)) return event.code === `Key${key.toUpperCase()}`;
   return /^[0-9]$/.test(key) && event.code === `Digit${key}`;
 }
 
-/** The grab key with exactly its own modifiers down. */
+/** The grab key with exactly its own modifiers down, never while an IME composes. */
 export function isGrabKey(event: GrabKeyLike, key: GrabKey): boolean {
   return (
+    event.isComposing !== true &&
     event.metaKey === key.meta &&
     event.ctrlKey === key.ctrl &&
     event.shiftKey === key.shift &&

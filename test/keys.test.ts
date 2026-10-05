@@ -10,6 +10,7 @@ import {
   KEYS_FIELD,
   keyAction,
   type KeyLike,
+  letterMatches,
   paletteMove,
   radioMove,
   shiftLabel,
@@ -67,11 +68,36 @@ describe("isShiftLetter", () => {
     expect(isShiftLetter(shifted({ key: "D", code: "KeyK" }), "k")).toBe(false);
   });
 
+  test("leaves a key that types another latin letter, a dead key or an IME's to the page", () => {
+    // Colemak types e in k's place, Turkish F types ü in g's.
+    expect(isShiftLetter(shifted({ key: "E", code: "KeyK" }), "k")).toBe(false);
+    expect(isShiftLetter(shifted({ key: "Ü", code: "KeyK" }), "k")).toBe(false);
+    expect(isShiftLetter(shifted({ key: "Process", code: "KeyK" }), "k")).toBe(false);
+    expect(isShiftLetter(shifted({ key: "Dead", code: "KeyK" }), "k")).toBe(false);
+    expect(isShiftLetter(shifted({ isComposing: true }), "k")).toBe(false);
+  });
+
   test("needs shift and no other modifier", () => {
     expect(isShiftLetter(key({ key: "k" }), "k")).toBe(false);
     for (const modifier of ["altKey", "ctrlKey", "metaKey"] as const) {
       expect(isShiftLetter(shifted({ [modifier]: true }), "k")).toBe(false);
     }
+  });
+});
+
+describe("letterMatches", () => {
+  test("takes the letter, or a letter that is not latin in its place", () => {
+    expect(letterMatches({ key: "G", code: "KeyT" }, "g")).toBe(true);
+    expect(letterMatches({ key: "п", code: "KeyG" }, "g")).toBe(true);
+    expect(letterMatches({ key: "Σ", code: "KeyS" }, "s")).toBe(true);
+  });
+
+  test("leaves a latin letter in another place, a dead key and an IME's key", () => {
+    expect(letterMatches({ key: "d", code: "KeyG" }, "g")).toBe(false);
+    expect(letterMatches({ key: "i", code: "KeyG" }, "g")).toBe(false);
+    expect(letterMatches({ key: "ü", code: "KeyG" }, "g")).toBe(false);
+    expect(letterMatches({ key: "Process", code: "KeyG" }, "g")).toBe(false);
+    expect(letterMatches({ key: "Dead", code: "KeyG" }, "g")).toBe(false);
   });
 });
 
@@ -87,6 +113,52 @@ describe("typesInField", () => {
     expect(typesInField(key({ composedPath: () => [element("INPUT", false, true)] }))).toBe(false);
     expect(typesInField(key({ target: element("DIV") }))).toBe(false);
     expect(typesInField(key({}))).toBe(false);
+  });
+
+  describe("with the focus in a closed shadow root", () => {
+    const names = ["HTMLElement", "Document", "ShadowRoot"] as const;
+
+    beforeEach(() => {
+      for (const name of names) {
+        Object.defineProperty(globalThis, name, { configurable: true, value: class {} });
+      }
+    });
+
+    afterEach(() => {
+      for (const name of names) Reflect.deleteProperty(globalThis, name);
+    });
+
+    /** A page element as the event shows it, the root it sits in and that root's focus. */
+    function scene(patch: { tabindex?: string; tabIndex?: number; active?: boolean } = {}) {
+      const root: { activeElement: unknown; body: unknown; documentElement: unknown } =
+        Object.assign(new Document(), { activeElement: null, body: null, documentElement: null });
+      const host = Object.assign(new HTMLElement(), {
+        tagName: "MY-FIELD",
+        isContentEditable: false,
+        shadowRoot: null,
+        tabIndex: patch.tabIndex ?? -1,
+        hasAttribute: (name: string) => name === "tabindex" && patch.tabindex !== undefined,
+        getRootNode: () => root,
+      });
+      if (patch.active !== false) root.activeElement = host;
+      return { root, host };
+    }
+
+    test("an element that cannot take the focus yet has it hides a field", () => {
+      const { host } = scene();
+      expect(typesInField(key({ composedPath: () => [host] }))).toBe(true);
+      expect(keyAction(shifted({ composedPath: () => [host] }), "k")).toBeNull();
+    });
+
+    test("one that takes the focus, does not have it, or is the body does not", () => {
+      for (const patch of [{ tabIndex: 0 }, { tabindex: "-1" }, { active: false }]) {
+        const { host } = scene(patch);
+        expect(typesInField(key({ composedPath: () => [host] }))).toBe(false);
+      }
+      const { root, host } = scene();
+      root.body = host;
+      expect(typesInField(key({ composedPath: () => [host] }))).toBe(false);
+    });
   });
 });
 

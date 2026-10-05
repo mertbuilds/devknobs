@@ -58,9 +58,9 @@ export interface MountOptions extends engine.EngineOptions {
   hotkey?: string;
   /** Start the panel open or closed. Defaults to the stored state, closed at first. */
   open?: boolean;
-  /** Hold a key to grab elements for an agent. Defaults to true. */
+  /** Press a key to grab elements for an agent. Defaults to true. */
   grab?: boolean;
-  /** The key held to grab, such as `alt+shift+g`. Defaults to `shift+g`. */
+  /** The key that grabs, such as `alt+shift+g`. Defaults to `shift+g`. */
   grabKey?: string;
   /**
    * The color grab draws its boxes in. Defaults to the stored one, `auto` at

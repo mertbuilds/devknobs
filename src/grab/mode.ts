@@ -36,6 +36,8 @@ export interface ModeOptions {
   pointer?: { x: number; y: number } | null;
   /** The scheme the layer takes, where the page's own cannot be trusted. */
   scheme?: "light" | "dark";
+  /** The grab key's own key, whatever modifiers are down. */
+  heldKey: (event: KeyboardEvent) => boolean;
   /** Grab ended from inside: a copy, or escape. */
   onExit(): void;
 }
@@ -194,8 +196,8 @@ export function startMode(options: ModeOptions): Mode {
       return;
     }
     if (event.repeat) {
-      // The grab key, still held from turning grab on.
-      if (isCLike(event.key, event.code)) event.preventDefault();
+      // The grab key, still held from turning grab on, its modifiers let go or not.
+      if (options.heldKey(event)) event.preventDefault();
       return;
     }
     if (event.key !== "Enter" && !isCLike(event.key, event.code)) return;

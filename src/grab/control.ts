@@ -6,12 +6,12 @@ import { frameWindow } from "../engine/width";
 import { typesInField } from "../ui/keys";
 import {
   grabKeyLabel,
-  HOLD,
   type Hold,
   type HoldEvent,
   holdDuration,
   holdStep,
   isGrabKey,
+  keyMatches,
   parseGrabKey,
   releasesGrabKey,
 } from "./keys";
@@ -19,7 +19,7 @@ import type { Mode, ModeOptions } from "./mode";
 import { type GrabPlace, grabStep } from "./place";
 
 export interface GrabControlOptions {
-  /** The key held to grab, such as `alt+shift+g`. Defaults to `shift+g`. */
+  /** The key that grabs, such as `alt+shift+g`. Defaults to `shift+g`. */
   key?: string;
 }
 
@@ -82,7 +82,7 @@ function systemScheme(): "light" | "dark" {
 }
 
 /**
- * Grab's switch, in every bundle: the held key that turns it on, the panel's
+ * Grab's switch, in every bundle: the key that turns it on, the panel's
  * view of it, and the way into the width knob's frame. Grab has to run in the
  * page that owns React, so while the frame is up, the page above hands grab
  * to the frame and only shows it as on. The overlay and the context load the
@@ -96,7 +96,8 @@ export function createGrab(
   const key = parseGrabKey(options.key);
   /**
    * A key with no modifier but shift types, so it is a field's, and the
-   * panel's search aside, never grab's there. It copies nothing either.
+   * panel's search aside, never grab's there. It copies nothing either, so
+   * a press turns grab on, and off again, with no hold.
    */
   const types = !key.meta && !key.ctrl && !key.alt;
   const inFrame = isDevknobsFrame();
@@ -123,6 +124,7 @@ export function createGrab(
       mode = startMode({
         pointer,
         scheme,
+        heldKey: (event) => keyMatches(event, key.key),
         onExit: () => {
           mode = null;
           move("off");
@@ -172,8 +174,13 @@ export function createGrab(
 
   function onKeydown(event: KeyboardEvent): void {
     const grabKey = isGrabKey(event, key) && !(types && typesInField(event));
-    // Where it is grab's, a key that types is not typed, held or repeating.
-    if (grabKey && types) event.preventDefault();
+    if (grabKey && types) {
+      // Where it is grab's, a key that types is not typed. A press turns grab
+      // on, or off while it is on or loading, and a repeat does nothing.
+      event.preventDefault();
+      if (!event.repeat) set(place === "off");
+      return;
+    }
     if (mode) {
       mode.keydown(event);
       return;
@@ -193,8 +200,8 @@ export function createGrab(
         return;
       }
       if (hold) return;
-      // Only a key that may be a copy waits longer in a field or on a selection.
-      const duration = types ? HOLD : holdDuration(holdScene());
+      // The key may be a copy, so it waits longer in a field or on a selection.
+      const duration = holdDuration(holdScene());
       step({ type: "down", at: Date.now(), duration });
       clearTimeout(holdTimer);
       holdTimer = window.setTimeout(() => step({ type: "timer" }), duration);

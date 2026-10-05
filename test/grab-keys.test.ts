@@ -12,6 +12,7 @@ import {
   holdStep,
   isCLike,
   isGrabKey,
+  keyMatches,
   parseGrabKey,
   releasesGrabKey,
 } from "../src/grab/keys";
@@ -85,6 +86,15 @@ describe("isGrabKey", () => {
     expect(isGrabKey(key({ ...shiftG, key: "П" }), defaultGrabKey())).toBe(true);
   });
 
+  test("leaves a key that types another latin letter in g's place, or an IME's", () => {
+    const shiftG = { shiftKey: true, code: "KeyG" };
+    // Colemak types d there, Dvorak i and Turkish F ü.
+    for (const typed of ["D", "I", "Ü", "Process", "Dead"]) {
+      expect(isGrabKey(key({ ...shiftG, key: typed }), defaultGrabKey())).toBe(false);
+    }
+    expect(isGrabKey(key({ ...shiftG, key: "G", isComposing: true }), defaultGrabKey())).toBe(false);
+  });
+
   test("leaves g alone without shift, or with another modifier", () => {
     const g = { key: "g", code: "KeyG" };
     expect(isGrabKey(key(g), defaultGrabKey())).toBe(false);
@@ -116,6 +126,18 @@ describe("isGrabKey", () => {
     // Option types a symbol on a Mac, and the code still says g.
     expect(isGrabKey(key({ ...press, key: "˝", code: "KeyG" }), custom)).toBe(true);
     expect(isGrabKey(key({ altKey: true, key: "g", code: "KeyG" }), custom)).toBe(false);
+    // Option types a latin letter in s's place.
+    const altS = key({ altKey: true, key: "ß", code: "KeyS" });
+    expect(isGrabKey(altS, parseGrabKey("alt+s"))).toBe(true);
+  });
+});
+
+describe("keyMatches", () => {
+  test("takes the key whatever modifiers are down", () => {
+    expect(keyMatches(key({ key: "g", code: "KeyG" }), "g")).toBe(true);
+    expect(keyMatches(key({ key: "G", code: "KeyG", shiftKey: true }), "g")).toBe(true);
+    expect(keyMatches(key({ key: "h", code: "KeyH" }), "g")).toBe(false);
+    expect(keyMatches(key({ key: "с", code: "KeyS", metaKey: true }), "c")).toBe(true);
   });
 });
 
