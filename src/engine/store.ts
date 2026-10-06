@@ -10,6 +10,7 @@ import type {
   EdgeValue,
   GeoErrorValue,
   GrabColorValue,
+  MatColorValue,
   MotionValue,
   OnlineValue,
   OrientationValue,
@@ -90,6 +91,7 @@ export const DEFAULT_STATE: DevknobsState = {
   frame: false,
   dpr: "system",
   zoom: "fit",
+  mat: "blue",
   vision: "none",
   ua: { preset: "system", custom: "" },
   overflow: false,
@@ -130,6 +132,8 @@ const VISIONS: VisionValue[] = [
   "achromatopsia",
   "blur",
 ];
+
+const MAT_COLORS: MatColorValue[] = ["blue", "green", "magenta", "purple", "red", "graphite"];
 
 const GRAB_COLORS: GrabColorValue[] = [
   "auto",
@@ -290,6 +294,8 @@ export function parse(json: string | null | undefined, place?: string | null): D
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     // A session stored before the zoom knob fits the frame, as it did then.
     zoom: zoom === "fit" ? zoom : clampZoom(zoom),
+    // A session stored before the mat had colors lies on the blue one.
+    mat: oneOf(state.mat, MAT_COLORS, DEFAULT_STATE.mat),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
     ua: {
       preset: text(ua.preset, DEFAULT_STATE.ua.preset),

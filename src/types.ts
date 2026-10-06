@@ -132,6 +132,9 @@ export type VisionValue =
  */
 export type GrabColorValue = "auto" | "blue" | "green" | "pink" | "orange" | "purple" | "cyan";
 
+/** The color of the cutting mat the frame lies on. */
+export type MatColorValue = "blue" | "green" | "magenta" | "purple" | "red" | "graphite";
+
 export interface UaValue {
   /**
    * A preset id such as `iphone-safari`, `custom` to use the custom string, or
@@ -211,6 +214,7 @@ export interface DevknobsState {
   frame: boolean;
   dpr: DprValue;
   zoom: ZoomValue;
+  mat: MatColorValue;
   vision: VisionValue;
   ua: UaValue;
   /** Mark the boxes that stick out of the viewport sideways. */

@@ -42,8 +42,6 @@ import {
   clearSnapshot,
   dropEarly,
   earlyHost,
-  MAT,
-  MAT_P3,
   readSnapshot,
   snapshotKey,
   writeSnapshot,
@@ -63,7 +61,15 @@ const NAME = "width";
 export type ViewportValue = FrameKnobs &
   Pick<
     DevknobsState,
-    "scheme" | "device" | "orientation" | "mock" | "browser" | "bars" | "edgeToEdge" | "zoom"
+    | "scheme"
+    | "device"
+    | "orientation"
+    | "mock"
+    | "browser"
+    | "bars"
+    | "edgeToEdge"
+    | "zoom"
+    | "mat"
   > & {
     panel: Pick<PanelValue, "open" | "side">;
   };
@@ -117,7 +123,7 @@ const EARLY_FRAMES = 60;
 
 /**
  * The letterbox around the frame. It lives in a shadow root like the panel,
- * so page css cannot reach it. A blue cutting mat reads as chrome in light and
+ * so page css cannot reach it. A dark cutting mat reads as chrome in light and
  * dark, under a white page and a near black mock alike. Its grid and rulers
  * stay put from the top left as the frame is fitted or zoomed.
  */
@@ -138,7 +144,7 @@ const CSS = `
   position: absolute;
   inset: 0;
 }
-.back { background: ${MAT}; }
+.back { background: var(--mat); }
 /* The screen of a page that is loading, blank in the page's color. */
 .screenblank {
   position: absolute;
@@ -224,7 +230,7 @@ iframe {
   gap: 8px;
   font: 12px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: rgba(255, 255, 255, 0.85);
-  background: ${MAT};
+  background: var(--mat);
 }
 .blocked[hidden] { display: none; }
 .blocked button {
@@ -241,7 +247,7 @@ iframe {
 }
 .blocked button:hover { color: #fff; border-color: #fff; }
 @media (color-gamut: p3) {
-  .back, .blocked { background: ${MAT_P3}; }
+  .back, .blocked { background: var(--mat-p3); }
 }
 ${MAT_CSS}
 ${MOCK_CSS}
@@ -303,6 +309,7 @@ let current: ViewportValue = {
   bars: "auto",
   edgeToEdge: true,
   zoom: "fit",
+  mat: "blue",
   panel: { open: false, side: "right" },
 };
 /** The frame's page has loaded, so what it reports can be trusted. */
@@ -669,6 +676,7 @@ function resize(): void {
   // The window has its own page back: the frame stays as it was until it goes.
   if (released) return;
   readout.hidden = !hasStrip(current);
+  letterbox.setAttribute("data-mat", current.mat);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
   const aside = current.panel.open ? panelWidth() : 0;
   const mock = bodyOf(current);
