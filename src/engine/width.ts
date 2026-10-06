@@ -588,6 +588,7 @@ function turnScene(): TurnScene | null {
     unit: screen,
     letterbox,
     glass,
+    frame: page,
     cover: turnCover,
     base: drawn.transform,
     background: () => (browser?.look() ?? readLook(page)).background,

@@ -24,12 +24,12 @@ export const MORPH_TIME = {
   in: 180,
   /** A device turns a quarter, to be held the other way. */
   turn: 400,
-  /** The page comes back on the screen of a device that turned or folded, laid out the other way. */
-  uncover: 150,
+  /** The page on the screen of a device that turned or folded sharpens, laid out the other way. */
+  uncover: 200,
   /** A foldable folds open or shut, a half turn of its hinge. */
   fold: 480,
-  /** The page goes under a cover in its own color before a foldable folds. */
-  foldCover: 90,
+  /** The page on a foldable's screen blurs before it folds. */
+  foldCover: 120,
   wait: 1200,
 } as const;
 
@@ -220,8 +220,8 @@ export function turnedPose(from: Rect, to: Rect, angle: number): Pose {
 }
 
 /**
- * How far into a turn the page on the screen starts to go under a cover in
- * its own color, so it is laid out the other way unseen, 0 to 1.
+ * How far into a turn the page on the screen starts to blur, so it is laid
+ * out the other way unseen, 0 to 1.
  */
 export const TURN_COVER = 0.6;
 

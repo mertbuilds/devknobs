@@ -25,6 +25,13 @@ const DEPTH = 4.5;
 /** How much darker each side of the turning half goes as it stands up off the screen. */
 export const FOLD_SHADE = { inner: 0.5, outer: 0.35 } as const;
 
+/**
+ * How the page on the screens blurs while a foldable folds, as it does on the
+ * phone: its radius in the screen's css px, and how much more colorful and
+ * brighter it goes.
+ */
+export const FOLD_BLUR = { radius: 24, saturate: 0.3, brightness: 0.05 } as const;
+
 /** Over how many degrees of a fold from shut the half that stays comes out from under the folded body. */
 const REST_IN = 30;
 
@@ -147,13 +154,30 @@ export function foldAt(from: number, to: number, elapsed: number): number {
 }
 
 /**
- * How far the cover is over the page `elapsed` ms into covering it from
- * `from` before a fold, 0 to 1. A cover part of the way over takes as much
- * less time.
+ * How far the page is blurred `elapsed` ms into blurring it from `from`
+ * before a fold, 0 to 1. A page part of the way there takes as much less time.
  */
-export function foldCoverAt(from: number, elapsed: number): number {
+export function foldBlurAt(from: number, elapsed: number): number {
   const time = MORPH_TIME.foldCover * (1 - from);
   return time > 0 ? lerp(from, 1, ease(FADE_CURVE, elapsed / time)) : 1;
+}
+
+/** How far the page is blurred `elapsed` ms into sharpening from `from`, laid out at its new size, 0 to 1. */
+export function unblurAt(from: number, elapsed: number): number {
+  return elapsed < MORPH_TIME.uncover ? lerp(from, 0, ease(FADE_CURVE, elapsed / MORPH_TIME.uncover)) : 0;
+}
+
+/**
+ * The page blurred `share` of the way, as a css filter for a layer whose px
+ * are `scale` css px of the screen, so it blurs as much at any fit. A little
+ * brighter and more colorful too, as frosted glass. None at rest.
+ */
+export function blurOf(share: number, scale = 1): string {
+  if (share <= 0) return "";
+  const blur = num(FOLD_BLUR.radius * scale * share);
+  const saturate = num(1 + FOLD_BLUR.saturate * share);
+  const brightness = num(1 + FOLD_BLUR.brightness * share);
+  return `blur(${blur}px) saturate(${saturate}) brightness(${brightness})`;
 }
 
 /** One side of the turning half as it stands: its transform, and how bright it is drawn. */

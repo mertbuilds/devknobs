@@ -885,20 +885,22 @@ describe("the frame over the page", () => {
       for (let now = 0; now <= MORPH_TIME.turn + 40; now += 40) {
         for (const callback of frames.splice(0)) callback(now);
         seen.push(String(Reflect.get(unit?.style ?? {}, "transform")));
-        covers.push(Number(Reflect.get(cover?.style ?? {}, "opacity") || 0));
+        const blur = /blur\(([\d.]+)px\)/.exec(String(Reflect.get(cover?.style ?? {}, "backdropFilter") ?? ""));
+        covers.push(Number(blur?.[1] ?? 0));
         if (now < MORPH_TIME.turn) {
           // Held the old way all through the turn, in view, the mat whole behind it.
           expect(Reflect.get(frame.style, "width")).toBe("402px");
           expect(Reflect.get(back?.style ?? {}, "clipPath") || "").toBe("");
         }
       }
-      // The page goes under its cover in the turn's last part, and is laid out the other way under it.
+      // The page blurs in the turn's last part, and is laid out the other way blurred.
       expect(covers[1]).toBe(0);
-      expect(covers.at(-1)).toBe(1);
+      expect(covers.at(-1)).toBe(24);
       for (let now = 0; now <= MORPH_TIME.uncover + 160; now += 40) {
         for (const callback of frames.splice(0)) callback(MORPH_TIME.turn + 80 + now);
       }
       expect(Reflect.get(cover ?? {}, "hidden")).toBe(true);
+      expect(Reflect.get(cover?.style ?? {}, "backdropFilter")).toBe("");
       expect(seen[1]).toMatch(/rotate\(-\d+(\.\d+)?deg\)/);
       // Once there, it is drawn held across, its own transform no more than its scale.
       expect(Number.parseFloat(Reflect.get(frame.style, "width"))).toBeGreaterThan(700);

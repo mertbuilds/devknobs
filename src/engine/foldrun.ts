@@ -1,8 +1,10 @@
 import { bezelUrl } from "./bezels";
 import {
   angleOf,
+  blurOf,
+  FOLD_BLUR,
   foldAt,
-  foldCoverAt,
+  foldBlurAt,
   foldFrame,
   type FoldLayout,
   foldLayout,
@@ -12,17 +14,18 @@ import {
 } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners, drawMock, UNDER } from "./mockdraw";
-import { coverShare, coverTo, type TurnScene, uncover } from "./turnrun";
+import { pictureOf, shootPage } from "./pageshot";
+import { coverShare, coverTo, type TurnScene, uncover, zoomOf } from "./turnrun";
 import type { ViewportValue } from "./width";
 
 /**
- * Folds a foldable open or shut in view. The page goes under a cover in its
- * own color, a copy of each body with its screen blank in that color stands
- * in for the device on a layer over the mat, and the half that turns turns
- * about the hinge as fold.ts lays it out. The device is drawn the way it ends
- * up in the same frame as the fold's last, and the cover comes off the page
- * laid out there. What it needs of the frame comes in a `FoldScene`, so it
- * holds no node of its own.
+ * Folds a foldable open or shut in view, as the phone does. The page on the
+ * screen blurs under a cover, a copy of each body with a rough picture of the
+ * page blurred as much on its screen stands in for the device on a layer
+ * over the mat, and the half that turns turns about the hinge as fold.ts lays
+ * it out. The device is drawn the way it ends up in the same frame as the
+ * fold's last, and the page laid out there sharpens. What it needs of the
+ * frame comes in a `FoldScene`, so it holds no node of its own.
  */
 
 /** What a foldable folding asks of the frame, as it starts. */
@@ -61,7 +64,11 @@ interface Going {
   frame: number;
   /** Counts the loops started, so a frame of one cut short draws nothing. */
   loop: number;
-  /** Null while the page goes under its cover, before the fold stands in for the device. */
+  /** A picture of the page as the fold started, or null where it is out of reach. */
+  shot: HTMLCanvasElement | null;
+  /** How many of the cover's px are a css px of the screen, which its blur is measured in. */
+  blur: number;
+  /** Null while the page blurs, before the fold stands in for the device. */
   parts: Layer | null;
   draw: (value: ViewportValue) => void;
 }
@@ -89,8 +96,11 @@ function div(className: string): HTMLElement {
   return node;
 }
 
-/** A side's body around its screen, blank in `color`, in the screen's css px, as the frame draws it. */
-function faceOf(side: Face, color: string): HTMLElement {
+/**
+ * A side's body around its screen, in the screen's css px, as the frame draws
+ * it. On its screen is `shot` stretched to it and blurred, or `color` alone.
+ */
+function faceOf(side: Face, color: string, shot: HTMLCanvasElement | null): HTMLElement {
   const { body, size, href } = side;
   const face = div("face");
   face.style.width = `${body?.width ?? size.width}px`;
@@ -103,6 +113,19 @@ function faceOf(side: Face, color: string): HTMLElement {
   blank.style.background = color;
   if (body) blank.style.borderRadius = corners(body.screenRadius).map((r) => `${r}px`).join(" ");
   if (href) blank.style.boxShadow = `0 0 0 ${UNDER}px #000`;
+  // Drawn past the screen's edges, so its blur keeps the page's color right to them.
+  const margin = 3 * FOLD_BLUR.radius;
+  const picture = shot ? pictureOf(shot, size, margin) : null;
+  if (picture) {
+    blank.style.overflow = "hidden";
+    picture.style.position = "absolute";
+    picture.style.left = `${-margin}px`;
+    picture.style.top = `${-margin}px`;
+    picture.style.width = `${size.width + 2 * margin}px`;
+    picture.style.height = `${size.height + 2 * margin}px`;
+    picture.style.filter = blurOf(1);
+    blank.append(picture);
+  }
   face.append(blank);
   if (body) {
     const drawing = drawMock(body, size, href);
@@ -115,16 +138,16 @@ function faceOf(side: Face, color: string): HTMLElement {
 
 /** Put the fold over the mat in the device's place, and hide the device under it. */
 function build(going: Going): Layer {
-  const { scene, layout, open, closed } = going;
-  const color = scene.cover.style.background;
+  const { scene, layout, open, closed, shot } = going;
+  const color = scene.background();
   const layer = div("fold");
   const place = div("");
-  const rest = faceOf(open, color);
+  const rest = faceOf(open, color, shot);
   rest.style.clipPath = layout.clips.rest;
-  const inner = faceOf(open, color);
+  const inner = faceOf(open, color, shot);
   inner.style.clipPath = layout.clips.inner;
   inner.style.transformOrigin = layout.origins.inner;
-  const outer = faceOf(closed, color);
+  const outer = faceOf(closed, color, shot);
   outer.style.left = `${layout.shut.x}px`;
   outer.style.top = `${layout.shut.y}px`;
   outer.style.transformOrigin = layout.origins.outer;
@@ -155,7 +178,7 @@ function show(going: Going): void {
 
 /**
  * The fold is over: the device is drawn the way the knobs say, the layer goes
- * in the same frame, and the cover comes off the page, at once unless `lift`.
+ * in the same frame, and the page sharpens, at once unless `lift`.
  */
 function land(lift: boolean): void {
   const last = fold;
@@ -198,9 +221,8 @@ function swing(going: Going): void {
 }
 
 /**
- * Put the page under its cover, from as far over as it is, then let the fold
- * stand in for the device and turn. Turned back before then, the page comes
- * out from under it again.
+ * Blur the page, from as far as it is blurred, then let the fold stand in for
+ * the device and turn. Turned back before then, the page sharpens again.
  */
 function cover(going: Going): void {
   const live = loop(going);
@@ -213,8 +235,8 @@ function cover(going: Going): void {
   const step = (now: number) => {
     if (!live()) return;
     begin ??= now;
-    const share = foldCoverAt(from, now - begin);
-    coverTo(going.scene.cover, share);
+    const share = foldBlurAt(from, now - begin);
+    coverTo(going.scene.cover, share, going.blur);
     if (share < 1) {
       going.frame = window.requestAnimationFrame(step);
       return;
@@ -258,9 +280,10 @@ export function foldDevice(
   const closed = opening ? now : next;
   const open = opening ? next : now;
   const across = (opening ? value : from).orientation === "landscape";
-  scene.cover.style.background = scene.background();
+  scene.cover.style.background = "";
   // Over the bars too, which are laid out for the other screen as well.
   scene.glass.append(scene.cover);
+  const shot = shootPage(scene.frame, scene.glass, now.size, scene.background());
   fold = {
     scene,
     layout: foldLayout(closed, open, across),
@@ -270,6 +293,8 @@ export function foldDevice(
     target: angleOf(value.posture),
     frame: 0,
     loop: 0,
+    shot,
+    blur: zoomOf(scene),
     parts: null,
     draw,
   };
@@ -281,12 +306,12 @@ export function holdFold(value: ViewportValue): void {
   folded = value;
 }
 
-/** Land a fold where it goes, at once, the page uncovered. */
+/** Land a fold where it goes, at once, the page sharp. */
 export function finishFold(): void {
   land(false);
 }
 
-/** Stop a fold where it is, and show the device as it was drawn, uncovered. */
+/** Stop a fold where it is, and show the device as it was drawn, the page sharp. */
 export function stopFold(): void {
   const last = fold;
   fold = null;

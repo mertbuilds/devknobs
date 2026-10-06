@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
   angleOf,
+  blurOf,
+  FOLD_BLUR,
   FOLD_CURVE,
   foldAt,
-  foldCoverAt,
+  foldBlurAt,
   foldFrame,
   foldLayout,
   type FoldSide,
   foldTime,
+  unblurAt,
 } from "../src/engine/fold";
 import { mockOf } from "../src/engine/mock";
 import { ease, MORPH_TIME } from "../src/engine/morph";
@@ -156,11 +159,62 @@ describe("timing", () => {
     expect(foldAt(180, 0, MORPH_TIME.fold * 0.75)).toBeLessThan(18);
   });
 
-  test("covers the page before a fold, from as far over as it is", () => {
-    expect(foldCoverAt(0, 0)).toBe(0);
-    expect(foldCoverAt(0, MORPH_TIME.foldCover)).toBe(1);
-    expect(foldCoverAt(0.5, MORPH_TIME.foldCover / 2)).toBe(1);
-    expect(foldCoverAt(1, 0)).toBe(1);
-    expect(foldCoverAt(0, MORPH_TIME.foldCover / 2)).toBeGreaterThan(0.5);
+  test("blurs the page quickly before a fold, from as far as it is blurred", () => {
+    expect(foldBlurAt(0, 0)).toBe(0);
+    expect(foldBlurAt(0, MORPH_TIME.foldCover)).toBe(1);
+    expect(foldBlurAt(0.5, MORPH_TIME.foldCover / 2)).toBe(1);
+    expect(foldBlurAt(1, 0)).toBe(1);
+    expect(foldBlurAt(0, MORPH_TIME.foldCover / 2)).toBeGreaterThan(0.5);
+    expect(MORPH_TIME.foldCover).toBeGreaterThanOrEqual(90);
+    expect(MORPH_TIME.foldCover).toBeLessThanOrEqual(120);
+  });
+
+  test("sharpens the page once laid out, over 200 ms, and lands sharp", () => {
+    expect(MORPH_TIME.uncover).toBe(200);
+    expect(unblurAt(1, 0)).toBe(1);
+    expect(unblurAt(1, MORPH_TIME.uncover / 2)).toBeLessThan(0.5);
+    expect(unblurAt(0.4, MORPH_TIME.uncover / 2)).toBeLessThan(0.2);
+    expect(unblurAt(1, MORPH_TIME.uncover)).toBe(0);
+    expect(unblurAt(1, 10000)).toBe(0);
+    let last = 1;
+    for (let elapsed = 0; elapsed <= MORPH_TIME.uncover; elapsed += 16) {
+      const share = unblurAt(1, elapsed);
+      expect(share).toBeLessThanOrEqual(last);
+      last = share;
+    }
+  });
+});
+
+describe("blurOf", () => {
+  test("blurs hard all the way, a little brighter and more colorful", () => {
+    expect(FOLD_BLUR.radius).toBeGreaterThanOrEqual(20);
+    expect(FOLD_BLUR.radius).toBeLessThanOrEqual(30);
+    expect(blurOf(1)).toBe(`blur(${FOLD_BLUR.radius}px) saturate(1.3) brightness(1.05)`);
+    expect(blurOf(0.5)).toBe(`blur(${FOLD_BLUR.radius / 2}px) saturate(1.15) brightness(1.02)`);
+  });
+
+  test("scales the radius with the px of the layer it is drawn on", () => {
+    expect(blurOf(1, 1.5)).toStartWith(`blur(${FOLD_BLUR.radius * 1.5}px)`);
+    expect(blurOf(1, 0.5)).toStartWith(`blur(${FOLD_BLUR.radius / 2}px)`);
+  });
+
+  test("is no filter at all at rest, so nothing is left on the page", () => {
+    expect(blurOf(0)).toBe("");
+    expect(blurOf(0, 3)).toBe("");
+    expect(blurOf(unblurAt(1, MORPH_TIME.uncover), 1.5)).toBe("");
+    expect(blurOf(-0.1)).toBe("");
+  });
+
+  test("blurs in, holds, then sharpens to nothing, over a whole fold", () => {
+    const radius = (filter: string) => Number(/blur\(([\d.]+)px\)/.exec(filter)?.[1] ?? 0);
+    const seen: number[] = [];
+    for (let now = 0; now <= MORPH_TIME.foldCover; now += 16) seen.push(radius(blurOf(foldBlurAt(0, now), 1)));
+    seen.push(radius(blurOf(foldBlurAt(0, MORPH_TIME.foldCover), 1)));
+    expect(seen[0]).toBe(0);
+    expect(seen.at(-1)).toBe(FOLD_BLUR.radius);
+    for (let now = 0; now <= MORPH_TIME.uncover; now += 16) seen.push(radius(blurOf(unblurAt(1, now), 1)));
+    seen.push(radius(blurOf(unblurAt(1, MORPH_TIME.uncover), 1)));
+    expect(Math.max(...seen)).toBe(FOLD_BLUR.radius);
+    expect(seen.at(-1)).toBe(0);
   });
 });
