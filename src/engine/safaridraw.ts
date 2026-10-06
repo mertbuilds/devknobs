@@ -69,6 +69,10 @@ export const SAFARI_CSS = `
   stroke-linejoin: round;
 }
 .safari .glyph .solid { fill: currentColor; stroke: none; }
+/* Reload and stop are a shade lighter than the other glyphs and thinner, as measured. */
+.safari .glyph .reload { stroke-width: 1.6; }
+.safari .glyph .stop { stroke-width: 1.82; }
+.safari.light .glyph .reload, .safari.light .glyph .stop { stroke: #191919; }
 .safari .glyph.off { color: #babac7; }
 .safari.dark .glyph.off { color: #58585b; }
 .safari .domain {
@@ -184,8 +188,11 @@ const GLYPHS: Record<Glyph, () => Shapes> = {
     path("M-5.4 5.2H-7.4A3.2 3.2 0 0 1 -10.6 2V-7.2A3.2 3.2 0 0 1 -7.4 -10.4H2.2A3.2 3.2 0 0 1 5.4 -7.2V-5.2"),
     svgNode("rect", { x: -5.4, y: -5.2, width: 16, height: 15.6, rx: 3.2 }),
   ],
-  // 15 x 18, a circle open at the top right, its arrow going round
-  reload: () => [path("M0 -5.1A6.6 6.6 0 1 0 5.06 -2.74"), path("M-2.6 -8.1L0.4 -5.1L-2.6 -2.1")],
+  // 14.9 x 17.6, a circle from 3 o'clock round to just past 12, a right angle arrow at its end
+  reload: () => [
+    path("M6.66 0.92A6.59 6.59 0 1 1 2.93 -5.02", "reload"),
+    path("M-0.15 -8.89L3.26 -5.33L-0.16 -1.93", "reload"),
+  ],
   // 15.5 x 18, a page over two lines
   page: () => [
     svgNode("rect", { x: -6.8, y: -8.1, width: 13.6, height: 8.6, rx: 2.4 }),
@@ -200,9 +207,9 @@ const GLYPHS: Record<Glyph, () => Shapes> = {
   menu: () => [],
 };
 
-/** Safari's stop, 11 x 11, in reload's place while a page loads. */
+/** Safari's stop, 13.4 x 13.4, in reload's place while a page loads. */
 function stopGlyph(): Shapes {
-  return [path("M-5.5 -5.5L5.5 5.5M5.5 -5.5L-5.5 5.5")];
+  return [path("M-5.66 -5.54L5.88 6M5.88 -5.54L-5.66 6", "stop")];
 }
 
 /** A ring sector `from` to `to` px out of the corner, `angle` degrees each side of up. */
