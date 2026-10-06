@@ -116,12 +116,16 @@ bottom when the window resizes.
 ## the panel
 
 the panel lists the knobs that are off their default, one row each, with
-related knobs together: device, width, device pixel ratio, zoom, frame and
-vision are one viewport row, the clock with its mode, speed and server header
-is another.
+related knobs together: the device row holds the device, its mock, touch
+pointer, browser, bars, edge to edge and user agent, the viewport row the
+width, device pixel ratio, zoom and frame, and the time row the clock with its
+mode, speed, time zone and server header. the rows stand by group: look
+(scheme, contrast, transparency, vision, text), motion, locale, location,
+time, network, device, viewport and debug.
 a fresh session starts with four rows at their defaults, in this order: the
-viewport row with the device, scheme, text and locale. they stand at the
-top, and any other row below them in the catalog's order.
+device, scheme, text and locale. they stand at the top, and any other row
+below them in the catalog's order. the `×` of the device row takes the size
+and device pixel ratio the device brought along with it.
 click a row to open its editor, and `×` puts that row back to its default.
 a row set from the panel stays in the list, back at its default too, until its
 `×` takes it off. a default row's `×` takes it off for the session too, and

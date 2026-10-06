@@ -37,10 +37,23 @@ export const PLACE_KEY = "devknobs:place";
 export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">;
 
 /**
- * The rows a fresh panel lists, in the order they stand: the viewport row,
- * which holds the device, the scheme, the text size and the locale.
+ * The rows a fresh panel lists, in the order they stand: the device, the
+ * scheme, the text size and the locale.
  */
-export const DEFAULT_PINNED: readonly string[] = ["viewport", "scheme", "text", "locale"];
+export const DEFAULT_PINNED: readonly string[] = ["device", "scheme", "text", "locale"];
+
+/**
+ * Rows an older version had, by the row their knobs live in now. The old
+ * viewport row keeps its id: its width, dpr, zoom and frame are the viewport
+ * row still, and its device shows in the device row while one is set.
+ */
+const MOVED_ROWS = new Map([
+  ["speed", "motion"],
+  ["pseudo", "locale"],
+  ["timeZone", "clock"],
+  ["ua", "device"],
+  ["grabColor", "debug"],
+]);
 
 export const DEFAULT_STATE: DevknobsState = {
   scheme: "system",
@@ -160,10 +173,14 @@ function rate(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-/** The strings of a list, each once. Anything but a list reads as an empty one. */
-function strings(value: unknown): string[] {
+/**
+ * The row ids of a stored list, a moved row under its row of today, each
+ * once. Anything but a list reads as an empty one.
+ */
+function rowIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.filter((item): item is string => typeof item === "string")));
+  const ids = value.filter((item): item is string => typeof item === "string");
+  return Array.from(new Set(ids.map((id) => MOVED_ROWS.get(id) ?? id)));
 }
 
 /** Stored json as a value, or null where there is none or it does not read. */
@@ -288,7 +305,7 @@ export function parse(json: string | null | undefined, place?: string | null): D
       // A stored panel keeps its list as it is, an empty one too, and one stored
       // before rows stayed listed has none pinned. With no panel stored, a
       // fresh session, the default rows are listed.
-      pinned: state.panel === undefined ? [...DEFAULT_PINNED] : strings(panel.pinned),
+      pinned: state.panel === undefined ? [...DEFAULT_PINNED] : rowIds(panel.pinned),
     },
   };
 }

@@ -27,22 +27,22 @@ function listed(state: DevknobsState): RowId[] {
 describe("pinned rows", () => {
   test("the default rows are listed at the defaults", () => {
     expect(DEFAULT_STATE.panel.pinned).toEqual([...DEFAULT_PINNED]);
-    expect(listed(DEFAULT_STATE)).toEqual(["scheme", "text", "locale", "viewport"]);
+    expect(listed(DEFAULT_STATE)).toEqual(["scheme", "text", "locale", "device"]);
     expect(rowText(row("text"), DEFAULT_STATE, LIVE)).toBe("system");
-    expect(rowText(row("viewport"), DEFAULT_STATE, LIVE)).toBe("none");
+    expect(rowText(row("device"), DEFAULT_STATE, LIVE)).toBe("none");
     expect(listed(BARE)).toEqual([]);
   });
 
   test("the default rows stand first, in their order, and the rest in the catalog's", () => {
     const order = rowOrder();
-    expect(order.slice(0, 4)).toEqual(["viewport", "scheme", "text", "locale"]);
+    expect(order.slice(0, 4)).toEqual(["device", "scheme", "text", "locale"]);
     const rest = ROWS.map((entry) => entry.id).filter((id) => !DEFAULT_PINNED.includes(id));
     expect(order.slice(4)).toEqual(rest);
   });
 
   test("a default row's × takes it off, and the rest stay", () => {
     const removed = merge(DEFAULT_STATE, removePatch(DEFAULT_STATE, row("scheme")));
-    expect(removed.panel.pinned).toEqual(["viewport", "text", "locale"]);
+    expect(removed.panel.pinned).toEqual(["device", "text", "locale"]);
   });
 
   test("a row set from the panel is pinned once", () => {
@@ -81,19 +81,19 @@ describe("pinned rows", () => {
     expect(listed(removed)).toEqual(["locale"]);
   });
 
-  test("the viewport's × takes a device and the user agent it brought", () => {
-    const phone = use(BARE, "viewport", { device: "iphone-16-pro" });
-    expect(listed(phone)).toEqual(["viewport", "ua"]);
-    expect(rowText(row("ua"), phone, LIVE)).toBe("iphone safari");
-    const removed = merge(phone, removePatch(phone, row("viewport")));
-    expect(removed).toMatchObject({ device: "none", width: "full", height: "full" });
+  test("the device's × takes a device and the size, dpr and user agent it brought", () => {
+    const phone = use(BARE, "device", { device: "iphone-16-pro" });
+    expect(listed(phone)).toEqual(["device", "viewport"]);
+    expect(rowText(row("device"), phone, LIVE)).toBe("iPhone 16 Pro · portrait");
+    const removed = merge(phone, removePatch(phone, row("device")));
+    expect(removed).toMatchObject({ device: "none", width: "full", height: "full", dpr: "system" });
     expect(removed.ua.preset).toBe("system");
     expect(listed(removed)).toEqual([]);
   });
 
   test("the × takes a row at its default off too", () => {
-    const back = use(use(BARE, "pseudo", { pseudo: true }), "pseudo", { pseudo: false });
-    expect(listed(merge(back, removePatch(back, row("pseudo"))))).toEqual([]);
+    const back = use(use(BARE, "locale", { pseudo: true }), "locale", { pseudo: false });
+    expect(listed(merge(back, removePatch(back, row("locale"))))).toEqual([]);
   });
 
   test("reset all clears every knob, lists the default rows again, and keeps the panel's place", () => {
@@ -101,7 +101,7 @@ describe("pinned rows", () => {
     const place = { side: "left", y: 120, top: 80, edge: "bottom", tab: "none" } as const;
     const moved = merge(busy, { panel: { open: true, ...place } });
     const reset = resetState(moved);
-    expect(listed(reset)).toEqual(["scheme", "text", "locale", "viewport"]);
+    expect(listed(reset)).toEqual(["scheme", "text", "locale", "device"]);
     expect(reset.scheme).toBe("system");
     expect(reset.panel).toEqual({ open: true, ...place, pinned: [...DEFAULT_PINNED] });
     expect(resetState(BARE).panel.pinned).toEqual([...DEFAULT_PINNED]);
@@ -111,7 +111,7 @@ describe("pinned rows", () => {
     expect(isReset(DEFAULT_STATE)).toBe(true);
     expect(isReset(BARE)).toBe(false);
     expect(isReset(use(DEFAULT_STATE, "scheme", { scheme: "dark" }))).toBe(false);
-    expect(isReset(use(DEFAULT_STATE, "pseudo", { pseudo: false }))).toBe(false);
+    expect(isReset(use(DEFAULT_STATE, "motion", { speed: 1 }))).toBe(false);
     expect(isReset(merge(DEFAULT_STATE, { width: 390 }))).toBe(false);
   });
 

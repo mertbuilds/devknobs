@@ -225,11 +225,28 @@ describe("parse", () => {
   });
 
   test("lists the default rows in a fresh session, and keeps a stored list as it is", () => {
-    expect(DEFAULT_PINNED).toEqual(["viewport", "scheme", "text", "locale"]);
+    expect(DEFAULT_PINNED).toEqual(["device", "scheme", "text", "locale"]);
     expect(parse(null).panel.pinned).toEqual([...DEFAULT_PINNED]);
     expect(parse(JSON.stringify({ scheme: "dark" })).panel.pinned).toEqual([...DEFAULT_PINNED]);
     expect(parse(JSON.stringify({ panel: { pinned: [] } })).panel.pinned).toEqual([]);
     expect(parse(JSON.stringify({ panel: { pinned: ["grab"] } })).panel.pinned).toEqual(["grab"]);
+  });
+
+  test("lists a row an older version had as the row its knobs live in now", () => {
+    const pinned = ["speed", "pseudo", "timeZone", "ua", "grabColor", "viewport"];
+    expect(parse(JSON.stringify({ panel: { pinned } })).panel.pinned).toEqual([
+      "motion",
+      "locale",
+      "clock",
+      "device",
+      "debug",
+      "viewport",
+    ]);
+    const twice = ["motion", "speed", "locale", "pseudo"];
+    expect(parse(JSON.stringify({ panel: { pinned: twice } })).panel.pinned).toEqual([
+      "motion",
+      "locale",
+    ]);
   });
 
   test("follows geo for the time zone when the session predates the knob", () => {

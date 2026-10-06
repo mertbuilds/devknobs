@@ -41,8 +41,8 @@ export type Category =
   | "language"
   | "location and time"
   | "network"
-  | "viewport"
   | "device"
+  | "viewport"
   | "debug";
 
 export const CATEGORIES: readonly Category[] = [
@@ -51,8 +51,8 @@ export const CATEGORIES: readonly Category[] = [
   "language",
   "location and time",
   "network",
-  "viewport",
   "device",
+  "viewport",
   "debug",
 ];
 
@@ -161,19 +161,16 @@ export type RowId =
   | "scheme"
   | "contrast"
   | "transparency"
+  | "vision"
   | "text"
   | "motion"
-  | "speed"
   | "locale"
-  | "pseudo"
   | "location"
-  | "timeZone"
   | "clock"
   | "network"
+  | "device"
   | "viewport"
-  | "ua"
-  | "debug"
-  | "grabColor";
+  | "debug";
 
 /** One line of the active list, with the knobs that read best together. */
 export interface Row {
@@ -730,7 +727,13 @@ const DEVICE: Knob = {
       ? { device: "none", width: "full", height: "full", dpr: "system" }
       : { device: "none", width: "full", height: "full" };
   },
-  reset: { device: DEFAULT_STATE.device, height: DEFAULT_STATE.height },
+  // Back to no device, without the size and dpr the device brought.
+  reset: {
+    device: DEFAULT_STATE.device,
+    width: DEFAULT_STATE.width,
+    height: DEFAULT_STATE.height,
+    dpr: DEFAULT_STATE.dpr,
+  },
   brief: (state) => {
     const device = deviceOf(state.device);
     return device ? `${device.label} · ${state.orientation}` : nameOf(DEVICE, sizeValue(state));
@@ -936,7 +939,7 @@ const FRAME: Knob = {
 const VISION: Knob = {
   id: "vision",
   label: "vision",
-  category: "viewport",
+  category: "look",
   control: "list",
   options: [
     { value: "none", label: "none" },
@@ -981,6 +984,9 @@ const UA: Knob = {
     return { ua: { preset: "custom", custom } };
   },
   reset: { ua: { preset: DEFAULT_STATE.ua.preset } },
+  // A device says its own.
+  brief: (state) =>
+    deviceOf(state.device)?.ua === state.ua.preset ? "" : nameOf(UA, state.ua.preset),
   parse: parseUserAgent,
 };
 
@@ -1088,35 +1094,24 @@ export const ROWS: readonly Row[] = [
   { id: "scheme", label: "scheme", knobs: ["scheme"] },
   { id: "contrast", label: "contrast", knobs: ["contrast"] },
   { id: "transparency", label: "transparency", knobs: ["transparency"] },
+  { id: "vision", label: "vision", knobs: ["vision"] },
   { id: "text", label: "text", knobs: ["text", "spacing"] },
-  { id: "motion", label: "motion", knobs: ["motion"] },
-  { id: "speed", label: "speed", knobs: ["speed"] },
-  { id: "locale", label: "locale", knobs: ["locale", "direction"] },
-  { id: "pseudo", label: "pseudo", knobs: ["pseudo"] },
+  { id: "motion", label: "motion", knobs: ["motion", "speed"] },
+  { id: "locale", label: "locale", knobs: ["locale", "direction", "pseudo"] },
   { id: "location", label: "location", knobs: ["geo", "geoError"] },
-  { id: "timeZone", label: "time zone", knobs: ["timeZone"] },
-  { id: "clock", label: "clock", knobs: ["clock", "clockMode", "clockSpeed", "header"] },
+  {
+    id: "clock",
+    label: "time",
+    knobs: ["clock", "clockMode", "clockSpeed", "timeZone", "header"],
+  },
   { id: "network", label: "network", knobs: ["online", "connection", "saveData"] },
   {
-    id: "viewport",
-    label: "viewport",
-    knobs: [
-      "device",
-      "mock",
-      "touchPointer",
-      "browser",
-      "bars",
-      "edgeToEdge",
-      "width",
-      "dpr",
-      "zoom",
-      "frame",
-      "vision",
-    ],
+    id: "device",
+    label: "device",
+    knobs: ["device", "mock", "touchPointer", "browser", "bars", "edgeToEdge", "ua"],
   },
-  { id: "ua", label: "user agent", knobs: ["ua"] },
-  { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },
-  { id: "grabColor", label: "grab color", knobs: ["grabColor"] },
+  { id: "viewport", label: "viewport", knobs: ["width", "dpr", "zoom", "frame"] },
+  { id: "debug", label: "debug", knobs: ["overflow", "outlines", "grabColor"] },
 ];
 
 export function knobOf(id: KnobId): Knob {

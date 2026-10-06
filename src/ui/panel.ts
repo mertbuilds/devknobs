@@ -847,11 +847,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
       const value = toNumber(input.value);
       return value > 0 ? value : "full";
     };
-    const commitSize = () => commit("viewport", { width: size(width), height: size(height) });
+    const commitSize = () => commit("device", { width: size(width), height: size(height) });
     for (const input of [width, height]) input.addEventListener("input", () => queue(commitSize));
     rotate.addEventListener("click", () => {
       const turned = engine.getState().orientation === "portrait" ? "landscape" : "portrait";
-      commit("viewport", { orientation: turned });
+      commit("device", { orientation: turned });
     });
     return [
       box,
@@ -880,7 +880,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     custom.placeholder = "custom user agent";
     custom.spellcheck = false;
     custom.setAttribute("aria-label", "custom user agent");
-    const commitCustom = () => commit("ua", { ua: { preset: "custom", custom: custom.value } });
+    const commitCustom = () => commit("device", { ua: { preset: "custom", custom: custom.value } });
     custom.addEventListener("input", () => queue(commitCustom));
     return [custom, (state) => fill(custom, userAgentOf(state.ua))];
   }
