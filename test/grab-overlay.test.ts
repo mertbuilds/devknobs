@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type BoxParts,
   boxParts,
   boxRadius,
   labelPlace,
@@ -116,6 +117,35 @@ describe("snap", () => {
   });
 });
 
+/** The pieces of the box that are stretched. */
+const STRETCHED = ["top", "bottom", "left", "right", "middle", "west", "east"] as const;
+
+/** A length in device pixels, whole where it was a hair off one. */
+function device(px: number, ratio: number): number {
+  const value = px * ratio;
+  return Math.abs(value - Math.round(value)) < 1e-6 ? Math.round(value) : value;
+}
+
+/** Every piece of a box in device pixels from the box's corner: left, top, right and bottom. */
+function deviceRects(parts: BoxParts, ratio: number): [number, number, number, number][] {
+  const rect = (transform: string): [number, number, number, number] => {
+    const [x = 0, y = 0, across, down] = (transform.match(/-?[\d.]+(?:e-?\d+)?/g) ?? []).map(Number);
+    const left = device(x, ratio);
+    const top = device(y, ratio);
+    return [
+      left,
+      top,
+      left + (across ?? device(parts.corner.width, ratio)),
+      top + (down ?? device(parts.corner.height, ratio)),
+    ];
+  };
+  return [
+    rect("translate(0px, 0px)"),
+    ...(["top right", "bottom left", "bottom right"] as const).map((piece) => rect(parts.pieces[piece])),
+    ...STRETCHED.map((piece) => rect(parts.pieces[piece])),
+  ];
+}
+
 describe("boxParts", () => {
   test("puts the box and its far corners where the shape is", () => {
     const parts = boxParts([20, 40, 200, 100, 8], 8, 1);
@@ -142,15 +172,52 @@ describe("boxParts", () => {
     expect(parts.at).toBe("translate(20.5px, 40.5px)");
     // The right side is at 120.5 and the bottom at 91, as the element's own are.
     expect(parts.pieces["bottom right"]).toBe("translate(96px, 46.5px)");
-    expect(parts.pieces.top).toBe("translate(4px, 0px) scale(92, 1)");
+    expect(parts.pieces.top).toBe("translate(4px, 0px) scale(184, 2)");
   });
 
   test("draws a line a whole device pixel wide, and at least one", () => {
-    expect(boxParts([0, 0, 100, 100, 4], 4, 2).pieces.left).toBe("translate(0px, 4px) scale(1, 92)");
-    expect(boxParts([0, 0, 90, 90, 6], 6, 1.5).pieces.left).toBe(
-      `translate(0px, 6px) scale(${1 / 1.5}, 78)`,
-    );
-    expect(boxParts([0, 0, 100, 100, 4], 4, 0.5).pieces.left).toBe("translate(0px, 4px) scale(2, 92)");
+    expect(boxParts([0, 0, 100, 100, 4], 4, 2).pieces.left).toBe("translate(0px, 4px) scale(2, 184)");
+    expect(boxParts([0, 0, 90, 90, 6], 6, 1.5).pieces.left).toBe("translate(0px, 6px) scale(1, 117)");
+    expect(boxParts([0, 0, 100, 100, 4], 4, 0.5).pieces.left).toBe("translate(0px, 4px) scale(1, 46)");
+  });
+
+  test("stretches one device pixel, by whole device pixels", () => {
+    expect(boxParts([0, 0, 100, 100, 4], 4, 1).unit).toBe(1);
+    expect(boxParts([0, 0, 100, 100, 4], 4, 2).unit).toBe(0.5);
+    for (const ratio of [1.25, 1.5, 2.2]) {
+      const parts = boxParts([20.3, 40.6, 100.2, 50.3, 6], 6, ratio);
+      expect(parts.unit).toBe(1 / ratio);
+      for (const piece of STRETCHED) {
+        const [across = "", down = ""] = /scale\((.+), (.+)\)/.exec(parts.pieces[piece])?.slice(1) ?? [];
+        expect(across).toMatch(/^\d+$/);
+        expect(down).toMatch(/^\d+$/);
+      }
+    }
+  });
+
+  test("the pieces meet with no gap and none over another, where a px is no whole device pixel", () => {
+    for (const ratio of [1.25, 1.5, 2.2]) {
+      const shape = [20.3, 40.6, 100.2, 50.3, 6];
+      const rects = deviceRects(boxParts(shape, 6, ratio), ratio);
+      const wide = Math.round((snap(20.3 + 100.2, ratio) - snap(20.3, ratio)) * ratio);
+      const tall = Math.round((snap(40.6 + 50.3, ratio) - snap(40.6, ratio)) * ratio);
+      let area = 0;
+      for (const [index, [left, top, right, bottom]] of rects.entries()) {
+        for (const side of [left, top, right, bottom]) expect(Number.isInteger(side)).toBe(true);
+        expect(left).toBeGreaterThanOrEqual(0);
+        expect(top).toBeGreaterThanOrEqual(0);
+        expect(right).toBeLessThanOrEqual(wide);
+        expect(bottom).toBeLessThanOrEqual(tall);
+        area += (right - left) * (bottom - top);
+        for (const [otherLeft, otherTop, otherRight, otherBottom] of rects.slice(index + 1)) {
+          const apart =
+            right <= otherLeft || otherRight <= left || bottom <= otherTop || otherBottom <= top;
+          expect(apart).toBe(true);
+        }
+      }
+      // Inside the box, none over another, and as much as the box in all: every pixel once.
+      expect(area).toBe(wide * tall);
+    }
   });
 
   test("takes the radius it is given, not the shape's own", () => {

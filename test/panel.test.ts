@@ -453,7 +453,11 @@ describe("closed panel", () => {
     expect(body(".panel")).toMatch(/visibility:\s*hidden/);
     expect(body(".panel")).toMatch(/transition:\s*visibility 0s linear 150ms/);
     expect(body('.wrap[data-open="true"] .panel')).toMatch(/visibility:\s*visible/);
-    expect(body('.wrap[data-open="true"] .panel')).toMatch(/transition-delay:\s*0s/);
+    expect(body('.wrap[data-open="true"] .panel')).toMatch(/transition-delay:\s*0s,/);
+    // Off the edge too, where the border's own delay is dropped.
+    expect(body('.wrap[data-float="true"][data-open="false"] .panel')).toMatch(
+      /transition-delay:\s*150ms, 0s, 0s, 0s, 0s, 0s/,
+    );
   });
 
   test("keeps the corner under the handle square while it slides back", () => {
@@ -481,14 +485,16 @@ describe("the left side", () => {
     expect(body(".handle")).toMatch(/margin-right:\s*-1px/);
     expect(handle).toMatch(/margin-left:\s*-1px/);
     expect(handle).toMatch(/margin-right:\s*0/);
-    expect(handle).toMatch(/border-left-color:\s*var\(--edge-line\)/);
+    expect(handle).toMatch(/border-right:\s*1px solid var\(--line\)/);
+    expect(handle).toMatch(/border-left:\s*0 solid var\(--edge-line\)/);
     expect(handle).toMatch(/border-radius:\s*var\(--edge\) 8px 8px var\(--edge\)/);
   });
 
   test("mirrors the panel's border and radii", () => {
     const panel = body('.wrap[data-side="left"] .panel');
     expect(body(".panel")).toMatch(/border-radius:\s*13px var\(--edge\) var\(--edge\) 13px/);
-    expect(panel).toMatch(/border-left-color:\s*var\(--edge-line\)/);
+    expect(panel).toMatch(/border-right:\s*1px solid var\(--line\)/);
+    expect(panel).toMatch(/border-left:\s*0 solid var\(--edge-line\)/);
     expect(panel).toMatch(/border-radius:\s*var\(--edge\) 13px 13px var\(--edge\)/);
   });
 
@@ -510,25 +516,71 @@ describe("the left side", () => {
 });
 
 describe("the edge side", () => {
-  test("is flush on the edge: no line and no radius", () => {
+  test("is flush on the edge: no border and no radius", () => {
     expect(body(".wrap")).toMatch(/--edge:\s*0px/);
     expect(body(".wrap")).toMatch(/--edge-line:\s*transparent/);
-    expect(body(".panel")).toMatch(/border-right-color:\s*var\(--edge-line\)/);
-    expect(body(".handle")).toMatch(/border-right-color:\s*var\(--edge-line\)/);
-  });
-
-  test("keeps the box one size, the padding paying for the border", () => {
-    expect(body(".panel")).toMatch(/padding:\s*4px 3px 4px 4px/);
-    expect(body('.wrap[data-side="left"] .panel')).toMatch(/padding:\s*4px 4px 4px 3px/);
-    for (const rule of rules(CSS)) expect(rule.body).not.toMatch(/border-(left|right):\s*0/);
+    expect(body(".panel")).toMatch(/border-right:\s*0 solid var\(--edge-line\)/);
+    expect(body(".handle")).toMatch(/border-right:\s*0 solid var\(--edge-line\)/);
+    // A clear border with a width would cut the ends of the lines it meets.
+    expect(body(".panel")).toMatch(/padding:\s*4px;/);
+    expect(body(".handle")).not.toMatch(/padding/);
+    expect(body('.wrap[data-side="left"] .panel')).not.toMatch(/padding:/);
+    expect(body('.wrap[data-side="left"] .handle')).not.toMatch(/padding/);
   });
 
   test("is drawn as a free side while the panel floats, and the handle's while it is closed", () => {
     expect(body('.wrap[data-float="true"] .panel')).toMatch(/--edge:\s*13px/);
     expect(body('.wrap[data-float="true"] .panel')).toMatch(/--edge-line:\s*var\(--line\)/);
+    expect(body('.wrap[data-float="true"] .panel')).toMatch(/border-right-width:\s*1px/);
+    expect(body('.wrap[data-float="true"][data-side="left"] .panel')).toMatch(
+      /border-left-width:\s*1px/,
+    );
     const handle = body('.wrap[data-float="true"][data-open="false"] .handle');
     expect(handle).toMatch(/--edge:\s*8px/);
     expect(handle).toMatch(/--edge-line:\s*var\(--line\)/);
+    expect(handle).toMatch(/border-right-width:\s*1px/);
+    expect(body('.wrap[data-float="true"][data-open="false"][data-side="left"] .handle')).toMatch(
+      /border-left-width:\s*1px/,
+    );
+  });
+
+  test("keeps the box one size off the edge, the padding paying for the border", () => {
+    expect(body('.wrap[data-float="true"] .panel')).toMatch(/padding-right:\s*3px/);
+    expect(body('.wrap[data-float="true"][data-side="left"] .panel')).toMatch(
+      /padding:\s*4px 4px 4px 3px/,
+    );
+    // The handle's width is set, so its padding only keeps the label in the middle.
+    expect(body('.wrap[data-float="true"][data-open="false"] .handle')).toMatch(
+      /padding-left:\s*1px/,
+    );
+    expect(body('.wrap[data-float="true"][data-open="false"][data-side="left"] .handle')).toMatch(
+      /padding:\s*0 1px 0 0/,
+    );
+  });
+
+  test("takes its border at once, and drops it when the color has eased out", () => {
+    const late = (edge: string, pad: string) =>
+      new RegExp(`border-${edge}-width 0s linear 220ms,\\s*padding-${pad} 0s linear 220ms`);
+    expect(body(".panel")).toMatch(late("right", "right"));
+    expect(body('.wrap[data-open="false"] .handle')).toMatch(late("right", "left"));
+    expect(body('.wrap[data-side="left"] .panel')).toMatch(
+      /border-left-color,\s*border-left-width, padding-left;/,
+    );
+    expect(body('.wrap[data-open="false"][data-side="left"] .handle')).toMatch(
+      /border-left-color,\s*border-left-width, padding-right;/,
+    );
+    expect(body('.wrap[data-open="true"] .panel')).toMatch(
+      /transition-delay:\s*0s, 0s, 0s, 0s, 220ms, 220ms/,
+    );
+    expect(body('.wrap[data-float="true"] .panel')).toMatch(/transition-delay:\s*0s;/);
+    expect(body('.wrap[data-float="true"][data-open="false"] .handle')).toMatch(
+      /transition-delay:\s*0s;/,
+    );
+    // The float rule comes after the open one, so its delay is the one that counts.
+    const order = rules(CSS).map((rule) => rule.selector);
+    expect(order.indexOf('.wrap[data-float="true"] .panel')).toBeGreaterThan(
+      order.indexOf('.wrap[data-open="true"] .panel'),
+    );
   });
 
   test("the left side's radii come after the right side's tab corners", () => {

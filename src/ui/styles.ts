@@ -20,10 +20,12 @@
  * the wrapper mirrors it onto the left: the handle on the panel's other side,
  * the borders, the radii and the slide.
  *
- * The side on the window's edge has a border too, a clear one with no radius,
- * and the padding there gives it its pixel, so the box is one size whatever
- * shows. A drag that carries the panel off its edge sets `data-float`, which
- * draws that side like the others, and it eases back flush with the glide.
+ * The side on the window's edge has no border and no radius. A drag that
+ * carries the panel off its edge sets `data-float`, which draws that side like
+ * the others, and the padding there gives the border its pixel, so the box is
+ * one size whatever shows. It eases back flush with the glide, and the border
+ * goes only once it is clear: a clear border with a width still cuts the ends
+ * of the lines it meets.
  */
 export const CSS = `
 .wrap {
@@ -113,14 +115,13 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   align-items: center;
   justify-content: center;
   margin-right: -1px;
-  padding: 0 0 0 1px;
   letter-spacing: 0.06em;
   text-align: center;
   writing-mode: vertical-rl;
   color: var(--faint);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-right-color: var(--edge-line);
+  border-right: 0 solid var(--edge-line);
   border-radius: 8px var(--edge) var(--edge) 8px;
   /* The one thing a closed panel shows, so the one thing it can be clicked on. */
   pointer-events: auto;
@@ -136,21 +137,34 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .wrap[data-side="left"] .handle {
   margin-right: 0;
   margin-left: -1px;
-  padding: 0 1px 0 0;
-  border-right-color: var(--line);
-  border-left-color: var(--edge-line);
+  border-right: 1px solid var(--line);
+  border-left: 0 solid var(--edge-line);
   border-radius: var(--edge) 8px 8px var(--edge);
 }
 /* A closed panel shows the handle alone, so off the edge the handle is what
-   floats. Open, its edge side is the panel's and stays as it is. */
+   floats. Open, its edge side is the panel's and stays as it is. The border
+   there comes at once and goes when its color has eased out, and the padding
+   on the other side keeps the label in the middle. */
 .wrap[data-open="false"] .handle {
   transition: border-top-right-radius 220ms ease-out, border-bottom-right-radius 220ms ease-out,
-    border-right-color 220ms ease-out;
+    border-right-color 220ms ease-out, border-right-width 0s linear 220ms,
+    padding-left 0s linear 220ms;
 }
 .wrap[data-open="false"][data-side="left"] .handle {
-  transition-property: border-top-left-radius, border-bottom-left-radius, border-left-color;
+  transition-property: border-top-left-radius, border-bottom-left-radius, border-left-color,
+    border-left-width, padding-right;
 }
-.wrap[data-float="true"][data-open="false"] .handle { --edge: 8px; --edge-line: var(--line); }
+.wrap[data-float="true"][data-open="false"] .handle {
+  --edge: 8px;
+  --edge-line: var(--line);
+  padding-left: 1px;
+  border-right-width: 1px;
+  transition-delay: 0s;
+}
+.wrap[data-float="true"][data-open="false"][data-side="left"] .handle {
+  padding: 0 1px 0 0;
+  border-left-width: 1px;
+}
 
 .panel {
   flex: none;
@@ -162,25 +176,27 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
      no taller than a list is worth. What is past it scrolls inside. */
   max-height: min(560px, calc(100vh - 16px));
   max-height: min(560px, calc(100dvh - 16px));
-  padding: 4px 3px 4px 4px;
+  padding: 4px;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-right-color: var(--edge-line);
+  border-right: 0 solid var(--edge-line);
   border-radius: 13px var(--edge) var(--edge) 13px;
   /* Closed, the wrapper slides out only as far as the handle's width, and the
      handle overlaps the panel by a pixel, so the panel's border by the handle
      would stay on the window's edge as a line the panel's height. It hides
-     once the slide is over. */
+     once the slide is over. The edge side's border and the padding that pays
+     for it go once its color has eased out. */
   visibility: hidden;
   transition: visibility 0s linear 150ms, border-top-right-radius 220ms ease-out,
-    border-bottom-right-radius 220ms ease-out, border-right-color 220ms ease-out;
+    border-bottom-right-radius 220ms ease-out, border-right-color 220ms ease-out,
+    border-right-width 0s linear 220ms, padding-right 0s linear 220ms;
 }
 /* Only a panel that is out catches anything. The attribute flips the moment
    the close starts, so the slide back leaves nothing hit-testable behind. */
 .wrap[data-open="true"] .panel {
   pointer-events: auto;
   visibility: visible;
-  transition-delay: 0s;
+  transition-delay: 0s, 0s, 0s, 0s, 220ms, 220ms;
 }
 /* The handle covers one of these corners, so square that one off. It goes by
    the tab alone, not by data-open: the open flag flips the moment a close
@@ -190,16 +206,28 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .wrap[data-tab="top"] .panel { border-top-left-radius: 0; }
 .wrap[data-tab="bottom"] .panel { border-bottom-left-radius: 0; }
 .wrap[data-side="left"] .panel {
-  padding: 4px 4px 4px 3px;
-  border-right-color: var(--line);
-  border-left-color: var(--edge-line);
+  border-right: 1px solid var(--line);
+  border-left: 0 solid var(--edge-line);
   border-radius: var(--edge) 13px 13px var(--edge);
   transition-property: visibility, border-top-left-radius, border-bottom-left-radius,
-    border-left-color;
+    border-left-color, border-left-width, padding-left;
 }
 .wrap[data-side="left"][data-tab="top"] .panel { border-top-right-radius: 0; }
 .wrap[data-side="left"][data-tab="bottom"] .panel { border-bottom-right-radius: 0; }
-.wrap[data-float="true"] .panel { --edge: 13px; --edge-line: var(--line); }
+/* Off the edge the border comes at once. A panel that closes there still
+   hides only once its slide is over. */
+.wrap[data-float="true"] .panel {
+  --edge: 13px;
+  --edge-line: var(--line);
+  padding-right: 3px;
+  border-right-width: 1px;
+  transition-delay: 0s;
+}
+.wrap[data-float="true"][data-side="left"] .panel {
+  padding: 4px 4px 4px 3px;
+  border-left-width: 1px;
+}
+.wrap[data-float="true"][data-open="false"] .panel { transition-delay: 150ms, 0s, 0s, 0s, 0s, 0s; }
 
 .head {
   flex: none;

@@ -87,8 +87,8 @@ ${colorRules("p3")}
   will-change: transform;
 }
 .fills > .part, .lines > .part {
-  width: 1px;
-  height: 1px;
+  width: var(--unit);
+  height: var(--unit);
   background-color: currentColor;
 }
 .box {
@@ -257,9 +257,13 @@ const FILLS = ["middle", "west", "east"] as const;
 /** A piece of the box that is moved, and stretched where it is not a corner. */
 export type Piece = (typeof CORNERS | typeof LINES | typeof FILLS)[number];
 
-/** What the box is drawn with: where it is, the size of its corners, and each piece's transform. */
+/**
+ * What the box is drawn with: where it is, the px in a device pixel, the size
+ * of its corners, and each piece's transform.
+ */
 export interface BoxParts {
   at: string;
+  unit: number;
   corner: { width: number; height: number; radius: number };
   pieces: Record<Piece, string>;
 }
@@ -281,10 +285,12 @@ function onPixels(shape: readonly number[], ratio: number): [number, number, num
  * The box in pieces that only ever take a transform, so a glide is laid out
  * and painted by nobody: a corner in each corner, a line along each side, and
  * the fill between them in three. The corners keep their size and only move.
- * The lines and the fills are one px of one color, stretched. No two pieces
- * overlap, and every side is on a whole device pixel, so they meet with no
- * seam. The radius is not the shape's own, which is on its way: each new one
- * paints the corners again, so the box takes its element's at once.
+ * The lines and the fills are one device pixel of one color, stretched by
+ * whole ones: the browser puts a box on device pixels before it scales it, so
+ * one px stretched leaves gaps where a px is not a whole number of them. No
+ * two pieces overlap, and every side is on a whole device pixel, so they meet
+ * with no seam. The radius is not the shape's own, which is on its way: each
+ * new one paints the corners again, so the box takes its element's at once.
  */
 export function boxParts(shape: readonly number[], radius: number, ratio: number): BoxParts {
   const [x, y, wide, tall] = onPixels(shape, ratio);
@@ -301,10 +307,12 @@ export function boxParts(shape: readonly number[], radius: number, ratio: number
   const acrossBy = width - 2 * cornerWidth;
   const downBy = height - 2 * cornerHeight;
   const sideBy = cornerWidth - line;
+  const whole = (length: number) => Math.round(length * ratio);
   const part = (left: number, top: number, across: number, down: number) =>
-    `translate(${left}px, ${top}px) scale(${across}, ${down})`;
+    `translate(${left}px, ${top}px) scale(${whole(across)}, ${whole(down)})`;
   return {
     at: `translate(${x}px, ${y}px)`,
+    unit: 1 / ratio,
     corner: { width: cornerWidth, height: cornerHeight, radius: round },
     pieces: {
       "top right": `translate(${right}px, 0px)`,
@@ -546,6 +554,7 @@ export function createOverlay(): Overlay {
 
   function drawBox(parts: BoxParts): void {
     write(glide, "transform", parts.at);
+    write(box, "--unit", `${parts.unit}px`);
     write(box, "--corner-width", `${parts.corner.width}px`);
     write(box, "--corner-height", `${parts.corner.height}px`);
     write(box, "--corner-radius", `${parts.corner.radius}px`);
