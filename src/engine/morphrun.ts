@@ -5,10 +5,9 @@ import {
   type Curve,
   ease,
   FADE_CURVE,
+  holeAt,
   holePath,
   lerp,
-  lerpRect,
-  MAT_CURVE,
   MORPH_TIME,
   plan,
   type Run,
@@ -48,13 +47,10 @@ export interface Scene {
   teardown(): void;
 }
 
-/** A part of a device change in flight, which knows where it stands when cut short. */
+/** A part of a device change in flight. */
 interface Flight {
-  animations: Animation[];
-  time: number;
-  curve: Curve;
-  /** Show the part `share` of its way along, and keep it there. */
-  hold(share: number): void;
+  /** Stop where it got to, and keep it there. */
+  stop(): void;
 }
 
 /** A device change on its way. */
@@ -124,7 +120,7 @@ export function openVeiled(scene: Scene, share: number): void {
  */
 function tween(
   nodes: HTMLElement[],
-  property: "opacity" | "clipPath",
+  property: "opacity",
   from: string,
   to: string,
   time: number,
@@ -139,7 +135,13 @@ function tween(
       easing: bezier(curve),
     }),
   );
-  const flight: Flight = { animations, time, curve, hold };
+  const flight: Flight = {
+    stop() {
+      const elapsed = animations[0]?.currentTime;
+      hold(ease(curve, typeof elapsed === "number" ? elapsed / time : 0));
+      for (const animation of animations) animation.cancel();
+    },
+  };
   flights.push(flight);
   return Promise.all(animations.map((animation) => animation.finished)).then(
     () => {
@@ -160,16 +162,48 @@ function fade(scene: Scene, part: "veil" | "content", to: number, time: number):
   });
 }
 
+/**
+ * Move the mat's opening a frame at a time, each frame a clip path of its own.
+ * Handed to the browser as an animation, Chrome has been seen to draw the clip
+ * path off the main thread at the wrong scale, the opening at half its place
+ * on a 2x screen, and to keep it there while the frame's page holds the main
+ * thread.
+ */
 function moveHole(scene: Scene, to: Rect, time: number): Promise<void> {
   const node = scene.back;
   const from = seen.hole;
-  seen.hole = to;
   clipped = true;
-  const span = sameRect(from, to) ? 0 : time;
-  return tween([node], "clipPath", holePath(from), holePath(to), span, MAT_CURVE, (share) => {
-    const rect = lerpRect(from, to, share);
+  const place = (rect: Rect) => {
     seen.hole = rect;
     node.style.clipPath = holePath(rect);
+  };
+  if (time <= 0 || sameRect(from, to)) {
+    place(to);
+    return Promise.resolve();
+  }
+  place(from);
+  return new Promise((resolve) => {
+    let frame = 0;
+    let begin: number | null = null;
+    const done = () => {
+      flights = flights.filter((other) => other !== flight);
+      resolve();
+    };
+    const flight: Flight = {
+      stop() {
+        window.cancelAnimationFrame(frame);
+        done();
+      },
+    };
+    const step = (now: number) => {
+      begin ??= now;
+      const elapsed = now - begin;
+      place(holeAt(from, to, elapsed, time));
+      if (elapsed >= time) done();
+      else frame = window.requestAnimationFrame(step);
+    };
+    flights.push(flight);
+    frame = window.requestAnimationFrame(step);
   });
 }
 
@@ -251,12 +285,7 @@ export function start(scene: Scene, target: "open" | "closed"): void {
 export function halt(): void {
   run?.cancel();
   run = null;
-  for (const flight of flights) {
-    const elapsed = flight.animations[0]?.currentTime;
-    const share = typeof elapsed === "number" ? elapsed / flight.time : 0;
-    flight.hold(ease(flight.curve, share));
-    for (const animation of flight.animations) animation.cancel();
-  }
+  for (const flight of [...flights]) flight.stop();
   flights = [];
   if (waiting) window.cancelAnimationFrame(waiting);
   waiting = 0;

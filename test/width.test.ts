@@ -3,6 +3,7 @@ import { DEVICES, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
+import { ease, holePath, lerpRect, MAT_CURVE, MORPH_TIME, windowRect } from "../src/engine/morph";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import {
   apply,
@@ -392,7 +393,11 @@ class FakeElement extends EventTarget {
   }
 
   /** An animation that runs until it is cancelled. */
-  animate(): { finished: Promise<void>; currentTime: number; cancel: () => void } {
+  animate(_keyframes?: Keyframe[]): {
+    finished: Promise<void>;
+    currentTime: number;
+    cancel: () => void;
+  } {
     return { finished: new Promise(() => {}), currentTime: 0, cancel: () => {} };
   }
 
@@ -751,6 +756,70 @@ describe("the frame over the page", () => {
     apply({ ...phone, mat: "green" });
     expect(letterbox?.getAttribute("data-mat")).toBe("green");
     expect(back && Reflect.get(back.style, "clipPath")).toBe(opening);
+  });
+
+  test("moves the mat's opening a frame at a time onto a fitted screen, and back off it", async () => {
+    apply(KNOBS);
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+    const frames: FrameRequestCallback[] = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    const keyframes: Keyframe[][] = [];
+    const animate = FakeElement.prototype.animate;
+    FakeElement.prototype.animate = (frames: Keyframe[]) => {
+      keyframes.push(frames);
+      return { finished: Promise.resolve(), currentTime: 0, cancel: () => {} };
+    };
+    // The drawn browser's loading line asks what moves it as the frame goes.
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+    // The letterbox sits off the window's corner, and the phone's screen is drawn fitted, at 85%.
+    const box = { left: 10, top: 20, width: 1500, height: 850 };
+    const screen = { x: 579, y: 69, width: 342, height: 744 };
+    const whole = windowRect(box);
+    const create = document.createElement;
+    Reflect.set(document, "createElement", (tag: string) => {
+      const element = new FakeElement(tag.toUpperCase());
+      Object.assign(element, { clientWidth: box.width, clientHeight: box.height });
+      const glass = { ...screen, left: box.left + screen.x, top: box.top + screen.y };
+      element.getBoundingClientRect = () =>
+        Reflect.get(element, "className") === "glass" ? glass : box;
+      return element;
+    });
+    /** Run the frames asked for, 40 ms apart, `rounds` times, and say where the opening was. */
+    const play = async (rounds: number) => {
+      const seen: string[] = [];
+      for (let now = 0; now < rounds * 40; now += 40) {
+        await Bun.sleep(0);
+        for (const frame of frames.splice(0)) frame(now);
+        seen.push(String(Reflect.get(back?.style ?? {}, "clipPath")));
+      }
+      return seen;
+    };
+    const along = ease(MAT_CURVE, 40 / MORPH_TIME.mat);
+    let back: FakeElement | undefined;
+    try {
+      apply({ ...KNOBS, mock: false, device: "iphone-16-pro", width: 402, height: 874 });
+      back = everything().find((element) => Reflect.get(element, "className") === "back");
+      const picked = await play(20);
+      expect(picked).toContain(holePath(whole));
+      expect(picked).toContain(holePath(lerpRect(whole, screen, along)));
+      expect(picked.at(-1)).toBe(holePath(screen));
+      apply(KNOBS);
+      const removed = await play(20);
+      expect(removed[0]).toBe(holePath(screen));
+      expect(removed).toContain(holePath(lerpRect(screen, whole, along)));
+      expect(removed.at(-1)).toBe(holePath(whole));
+      expect(keyframes.length).toBeGreaterThan(0);
+      expect(keyframes.flat().some((frame) => "clipPath" in frame)).toBe(false);
+    } finally {
+      Reflect.set(document, "createElement", create);
+      FakeElement.prototype.animate = animate;
+      Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+    }
   });
 
   test("offers fit, the presets and a zoom of the wheel's own, and stores a pick", () => {

@@ -65,6 +65,11 @@ export function lerpRect(from: Rect, to: Rect, share: number): Rect {
   };
 }
 
+/** Where the mat's opening is `elapsed` ms into a move of `time` ms from one rect to the next. */
+export function holeAt(from: Rect, to: Rect, elapsed: number, time: number): Rect {
+  return lerpRect(from, to, time > 0 ? ease(MAT_CURVE, elapsed / time) : 1);
+}
+
 /** Do two rects cover the same pixels, near enough? */
 export function sameRect(a: Rect, b: Rect): boolean {
   return (

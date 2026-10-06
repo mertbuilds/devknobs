@@ -3,6 +3,7 @@ import { UNFRAMED } from "../src/engine/frame";
 import {
   ease,
   FADE_CURVE,
+  holeAt,
   holePath,
   lerpRect,
   MAT_CURVE,
@@ -61,6 +62,19 @@ describe("the mat's opening", () => {
       width: 1202,
       height: 802,
     });
+  });
+
+  test("moves from one rect to the next on the mat's curve, and stays at the end", () => {
+    const from = windowRect({ width: 1500, height: 800 });
+    const to = { x: 579, y: 69, width: 342, height: 744 };
+    expect(holeAt(from, to, 0, MORPH_TIME.mat)).toEqual(from);
+    const early = holeAt(from, to, MORPH_TIME.mat / 4, MORPH_TIME.mat);
+    expect(early).toEqual(lerpRect(from, to, ease(MAT_CURVE, 0.25)));
+    expect(early.x).toBeGreaterThan(from.x);
+    expect(early.x).toBeLessThan(to.x);
+    expect(sameRect(holeAt(from, to, MORPH_TIME.mat, MORPH_TIME.mat), to)).toBe(true);
+    expect(sameRect(holeAt(from, to, MORPH_TIME.mat * 3, MORPH_TIME.mat), to)).toBe(true);
+    expect(holeAt(from, to, 0, 0)).toEqual(to);
   });
 
   test("cuts the opening out of the whole box, with as many points every time", () => {
