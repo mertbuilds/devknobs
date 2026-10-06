@@ -459,7 +459,7 @@ describe("closed panel", () => {
   test("keeps the corner under the handle square while it slides back", () => {
     expect(body('.wrap[data-tab="top"] .panel')).toMatch(/border-top-left-radius:\s*0/);
     expect(body('.wrap[data-tab="bottom"] .panel')).toMatch(/border-bottom-left-radius:\s*0/);
-    const radii = rules(CSS).filter((rule) => /border-(top|bottom)-left-radius/.test(rule.body));
+    const radii = rules(CSS).filter((rule) => /border-(top|bottom)-left-radius:/.test(rule.body));
     for (const rule of radii) expect(rule.selector).not.toContain("data-open");
   });
 });
@@ -481,15 +481,15 @@ describe("the left side", () => {
     expect(body(".handle")).toMatch(/margin-right:\s*-1px/);
     expect(handle).toMatch(/margin-left:\s*-1px/);
     expect(handle).toMatch(/margin-right:\s*0/);
-    expect(handle).toMatch(/border-left:\s*0/);
-    expect(handle).toMatch(/border-radius:\s*0 8px 8px 0/);
+    expect(handle).toMatch(/border-left-color:\s*var\(--edge-line\)/);
+    expect(handle).toMatch(/border-radius:\s*var\(--edge\) 8px 8px var\(--edge\)/);
   });
 
   test("mirrors the panel's border and radii", () => {
     const panel = body('.wrap[data-side="left"] .panel');
-    expect(body(".panel")).toMatch(/border-radius:\s*13px 0 0 13px/);
-    expect(panel).toMatch(/border-left:\s*0/);
-    expect(panel).toMatch(/border-radius:\s*0 13px 13px 0/);
+    expect(body(".panel")).toMatch(/border-radius:\s*13px var\(--edge\) var\(--edge\) 13px/);
+    expect(panel).toMatch(/border-left-color:\s*var\(--edge-line\)/);
+    expect(panel).toMatch(/border-radius:\s*var\(--edge\) 13px 13px var\(--edge\)/);
   });
 
   test("keeps the corner under the handle square, by the tab alone", () => {
@@ -499,13 +499,43 @@ describe("the left side", () => {
     expect(body('.wrap[data-side="left"][data-tab="bottom"] .panel')).toMatch(
       /border-bottom-right-radius:\s*0/,
     );
-    const radii = rules(CSS).filter((rule) => /border-(top|bottom)-right-radius/.test(rule.body));
+    const radii = rules(CSS).filter((rule) => /border-(top|bottom)-right-radius:/.test(rule.body));
     expect(radii.length).toBe(2);
     for (const rule of radii) expect(rule.selector).not.toContain("data-open");
   });
 
   test("takes a pointer nowhere the right side does not", () => {
     expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+  });
+});
+
+describe("the edge side", () => {
+  test("is flush on the edge: no line and no radius", () => {
+    expect(body(".wrap")).toMatch(/--edge:\s*0px/);
+    expect(body(".wrap")).toMatch(/--edge-line:\s*transparent/);
+    expect(body(".panel")).toMatch(/border-right-color:\s*var\(--edge-line\)/);
+    expect(body(".handle")).toMatch(/border-right-color:\s*var\(--edge-line\)/);
+  });
+
+  test("keeps the box one size, the padding paying for the border", () => {
+    expect(body(".panel")).toMatch(/padding:\s*4px 3px 4px 4px/);
+    expect(body('.wrap[data-side="left"] .panel')).toMatch(/padding:\s*4px 4px 4px 3px/);
+    for (const rule of rules(CSS)) expect(rule.body).not.toMatch(/border-(left|right):\s*0/);
+  });
+
+  test("is drawn as a free side while the panel floats, and the handle's while it is closed", () => {
+    expect(body('.wrap[data-float="true"] .panel')).toMatch(/--edge:\s*13px/);
+    expect(body('.wrap[data-float="true"] .panel')).toMatch(/--edge-line:\s*var\(--line\)/);
+    const handle = body('.wrap[data-float="true"][data-open="false"] .handle');
+    expect(handle).toMatch(/--edge:\s*8px/);
+    expect(handle).toMatch(/--edge-line:\s*var\(--line\)/);
+  });
+
+  test("the left side's radii come after the right side's tab corners", () => {
+    const order = rules(CSS).map((rule) => rule.selector);
+    expect(order.indexOf('.wrap[data-side="left"] .panel')).toBeGreaterThan(
+      order.indexOf('.wrap[data-tab="bottom"] .panel'),
+    );
   });
 });
 

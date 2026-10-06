@@ -1500,6 +1500,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       across = between(across + stepX, -home, viewWidth() - box.width - home);
     }
     wrap.style.translate = `${across}px ${down}px`;
+    // Off its edge, the side that was against the window is drawn as a free one.
+    wrap.dataset.float = across !== 0 ? "true" : "false";
   });
 
   /**
@@ -1537,6 +1539,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (!dragging) return;
     dragging = false;
     wrap.dataset.drag = "false";
+    wrap.dataset.float = "false";
     if (handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
     if (dragged && event) {
       sample(event);

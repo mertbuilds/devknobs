@@ -19,6 +19,11 @@
  * The panel lives on the right edge of the window, and `data-side="left"` on
  * the wrapper mirrors it onto the left: the handle on the panel's other side,
  * the borders, the radii and the slide.
+ *
+ * The side on the window's edge has a border too, a clear one with no radius,
+ * and the padding there gives it its pixel, so the box is one size whatever
+ * shows. A drag that carries the panel off its edge sets `data-float`, which
+ * draws that side like the others, and it eases back flush with the glide.
  */
 export const CSS = `
 .wrap {
@@ -38,6 +43,8 @@ export const CSS = `
   --raised: #ffffff;
   --lift: 0 1px 2px rgb(0 0 0 / 0.1);
   --hot: #e5484d;
+  --edge: 0px;
+  --edge-line: transparent;
   display: flex;
   align-items: flex-start;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -106,14 +113,15 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   align-items: center;
   justify-content: center;
   margin-right: -1px;
+  padding: 0 0 0 1px;
   letter-spacing: 0.06em;
   text-align: center;
   writing-mode: vertical-rl;
   color: var(--faint);
   background: var(--bg);
   border: 1px solid var(--line);
-  border-right: 0;
-  border-radius: 8px 0 0 8px;
+  border-right-color: var(--edge-line);
+  border-radius: 8px var(--edge) var(--edge) 8px;
   /* The one thing a closed panel shows, so the one thing it can be clicked on. */
   pointer-events: auto;
   cursor: grab;
@@ -128,10 +136,21 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .wrap[data-side="left"] .handle {
   margin-right: 0;
   margin-left: -1px;
-  border-right: 1px solid var(--line);
-  border-left: 0;
-  border-radius: 0 8px 8px 0;
+  padding: 0 1px 0 0;
+  border-right-color: var(--line);
+  border-left-color: var(--edge-line);
+  border-radius: var(--edge) 8px 8px var(--edge);
 }
+/* A closed panel shows the handle alone, so off the edge the handle is what
+   floats. Open, its edge side is the panel's and stays as it is. */
+.wrap[data-open="false"] .handle {
+  transition: border-top-right-radius 220ms ease-out, border-bottom-right-radius 220ms ease-out,
+    border-right-color 220ms ease-out;
+}
+.wrap[data-open="false"][data-side="left"] .handle {
+  transition-property: border-top-left-radius, border-bottom-left-radius, border-left-color;
+}
+.wrap[data-float="true"][data-open="false"] .handle { --edge: 8px; --edge-line: var(--line); }
 
 .panel {
   flex: none;
@@ -143,17 +162,18 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
      no taller than a list is worth. What is past it scrolls inside. */
   max-height: min(560px, calc(100vh - 16px));
   max-height: min(560px, calc(100dvh - 16px));
-  padding: 4px;
+  padding: 4px 3px 4px 4px;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-right: 0;
-  border-radius: 13px 0 0 13px;
+  border-right-color: var(--edge-line);
+  border-radius: 13px var(--edge) var(--edge) 13px;
   /* Closed, the wrapper slides out only as far as the handle's width, and the
      handle overlaps the panel by a pixel, so the panel's border by the handle
      would stay on the window's edge as a line the panel's height. It hides
      once the slide is over. */
   visibility: hidden;
-  transition: visibility 0s linear 150ms;
+  transition: visibility 0s linear 150ms, border-top-right-radius 220ms ease-out,
+    border-bottom-right-radius 220ms ease-out, border-right-color 220ms ease-out;
 }
 /* Only a panel that is out catches anything. The attribute flips the moment
    the close starts, so the slide back leaves nothing hit-testable behind. */
@@ -165,16 +185,21 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 /* The handle covers one of these corners, so square that one off. It goes by
    the tab alone, not by data-open: the open flag flips the moment a close
    starts, while the panel shows until the slide is over. A panel the handle
-   meets in the middle keeps both radii. */
-.wrap[data-side="left"] .panel {
-  border-right: 1px solid var(--line);
-  border-left: 0;
-  border-radius: 0 13px 13px 0;
-}
+   meets in the middle keeps both radii. The left side's own radii come after
+   the right side's corners here, so those never square its edge side. */
 .wrap[data-tab="top"] .panel { border-top-left-radius: 0; }
 .wrap[data-tab="bottom"] .panel { border-bottom-left-radius: 0; }
+.wrap[data-side="left"] .panel {
+  padding: 4px 4px 4px 3px;
+  border-right-color: var(--line);
+  border-left-color: var(--edge-line);
+  border-radius: var(--edge) 13px 13px var(--edge);
+  transition-property: visibility, border-top-left-radius, border-bottom-left-radius,
+    border-left-color;
+}
 .wrap[data-side="left"][data-tab="top"] .panel { border-top-right-radius: 0; }
 .wrap[data-side="left"][data-tab="bottom"] .panel { border-bottom-right-radius: 0; }
+.wrap[data-float="true"] .panel { --edge: 13px; --edge-line: var(--line); }
 
 .head {
   flex: none;
