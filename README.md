@@ -288,6 +288,16 @@ leaves the scheme to the browser, as the full script does. it also puts a
 React devtools hook in place for grab, when the page has none, so React
 reports to it from its first render.
 
+when the stored knobs put the page in a frame, the early script also hides
+the page under the frame's mat from the first paint, so a reload never shows
+it full width while devknobs loads. the frame as the last page left it (the
+mat, the case and the phone's browser, its screen blank in the page's color)
+is kept in `sessionStorage` as the page unloads, and put back as it was, when
+the device, the way it is held and the window's size are the same. otherwise
+the bare mat stands in. the full script takes it over without a jump, and the
+screen shows the page loading as Safari does a reload. without devknobs after
+3 seconds, the page shows again.
+
 ## knobs
 
 | knob | values | how it is emulated |

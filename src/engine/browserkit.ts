@@ -91,6 +91,8 @@ export interface Painted {
   root: HTMLElement;
   /** Show the bars expanded or minimized, for the page as it looks now. */
   apply(minimized: boolean, look: Look): void;
+  /** Show a page loading, or done loading, with no movement when `still`. */
+  loading?(on: boolean, still: boolean): void;
 }
 
 /**

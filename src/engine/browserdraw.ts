@@ -165,6 +165,13 @@ export interface BrowserLayer {
   refresh(): void;
   /** Has the page's scroll minimized the bars? */
   minimized(): boolean;
+  /**
+   * Show the page loading, as Safari shows a reload, or done. While it loads
+   * the bars keep what they showed, or `seed`, over the blank page.
+   */
+  loading(on: boolean, seed: Look | null): void;
+  /** What the bars show for the page now. */
+  look(): Look | null;
   remove(): void;
 }
 
@@ -179,11 +186,13 @@ function same(a: Rect | null, b: Rect | null): boolean {
  * The bars over the frame in `glass`, which fills with the page's background
  * around the frame, as Safari and Chrome tint the screen around their bars.
  * The page's scroll moves `minimized()`, and `onChange` hears when it does.
+ * `onReload` hears the reload button before the page reloads.
  */
 export function createBrowser(
   glass: HTMLElement,
   frame: HTMLIFrameElement,
   onChange: () => void,
+  onReload: () => void = () => {},
 ): BrowserLayer {
   const layer = el("div", "browser");
   layer.setAttribute("aria-hidden", "true");
@@ -201,6 +210,9 @@ export function createBrowser(
   let watched: Document | null = null;
   let href = "";
   let motion: BarsMotion = BARS_START;
+  /** A page is loading, and the bars keep the look they had. */
+  let busy = false;
+  const still = () => baseMatchMedia("(prefers-reduced-motion: reduce)").matches;
   const step = (event: BarsEvent) => {
     const before = motion.minimized;
     motion = barsStep(motion, event);
@@ -214,7 +226,10 @@ export function createBrowser(
   const actions: Actions = {
     back: () => frame.contentWindow?.history.back(),
     forward: () => frame.contentWindow?.history.forward(),
-    reload: () => frame.contentWindow?.location.reload(),
+    reload: () => {
+      onReload();
+      frame.contentWindow?.location.reload();
+    },
     expand: () => step({ type: "tap" }),
   };
   /**
@@ -237,8 +252,7 @@ export function createBrowser(
       step({ type: "resize", time: performance.now() });
       const end = doc.documentElement.scrollHeight - page.innerHeight;
       if (room < had || page.scrollY <= 1 || page.scrollY < end - (room - had) - 1) return;
-      const still = baseMatchMedia("(prefers-reduced-motion: reduce)").matches;
-      page.scrollTo({ top: end, behavior: still ? "instant" : "smooth" });
+      page.scrollTo({ top: end, behavior: still() ? "instant" : "smooth" });
     } catch {
       // Another origin: no page there to give room.
     }
@@ -292,7 +306,7 @@ export function createBrowser(
     const { platform, layout, screen, orientation, edge } = bars;
     const base = JSON.stringify([platform, layout, screen, orientation, edge, view.follow]);
     const fresh = base !== built || !painted;
-    const instant = fresh || baseMatchMedia("(prefers-reduced-motion: reduce)").matches;
+    const instant = fresh || still();
     if (fresh) {
       const other = barsOf(screen, orientation, layout, !bars.minimized, edge);
       const full = bars.minimized ? other : bars;
@@ -302,6 +316,7 @@ export function createBrowser(
       painted = BUILDERS[bars.platform](full, mini, look, shown);
       layer.replaceChildren(painted.root);
       built = base;
+      if (busy) painted.loading?.(true, true);
     }
     // A first drawing, or reduced motion, takes the state without a transition.
     if (instant) layer.setAttribute("data-instant", "");
@@ -333,7 +348,7 @@ export function createBrowser(
     } catch {
       query = null;
     }
-    look = readLook(frame);
+    if (!busy || !look) look = readLook(frame);
     draw();
   };
   return {
@@ -351,7 +366,7 @@ export function createBrowser(
       const again = view.bars
         ? read
         : () => {
-            look = readLook(frame);
+            if (!busy || !look) look = readLook(frame);
             back();
           };
       again();
@@ -360,6 +375,16 @@ export function createBrowser(
       later = window.setTimeout(again, RESTYLE);
     },
     minimized: () => motion.minimized,
+    loading(on, seed) {
+      busy = on;
+      if (seed) {
+        look = seed;
+        draw();
+      }
+      painted?.loading?.(on, still());
+      if (!on) this.refresh();
+    },
+    look: () => look,
     remove() {
       clearTimeout(later);
       clearTimeout(shrinking);

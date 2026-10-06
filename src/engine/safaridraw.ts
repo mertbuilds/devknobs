@@ -132,7 +132,32 @@ export const SAFARI_CSS = `
 .safari[data-state="min"] .side *, .safari[data-state="min"] .full * { pointer-events: none; }
 .safari[data-state="min"] .surface.tap { pointer-events: auto; cursor: pointer; }
 .browser[data-instant] * { transition: none !important; }
+/* A page loading: a blue line along the bottom of the address, as wide as the load has come. */
+.safari .progress {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  transform-origin: 0 50%;
+  background: #007aff;
+  pointer-events: none;
+}
+.safari.dark .progress { background: #0a84ff; }
 `;
+
+/**
+ * How the progress line goes, as Safari's does: a quick start, a long creep
+ * that never reaches the end, then the rest of the way and a fade once the
+ * page is in, in ms. Still, it stands at a share of the way instead.
+ */
+const PROGRESS = {
+  start: 0.25,
+  most: 0.9,
+  creep: 8000,
+  finish: 200,
+  fade: 250,
+  still: 0.3,
+} as const;
 
 function path(d: string, className?: string): SVGPathElement {
   return svgNode("path", className ? { d, class: className } : { d });
@@ -174,6 +199,11 @@ const GLYPHS: Record<Glyph, () => Shapes> = {
   switcher: () => [],
   menu: () => [],
 };
+
+/** Safari's stop, 11 x 11, in reload's place while a page loads. */
+function stopGlyph(): Shapes {
+  return [path("M-5.5 -5.5L5.5 5.5M5.5 -5.5L-5.5 5.5")];
+}
 
 /** A ring sector `from` to `to` px out of the corner, `angle` degrees each side of up. */
 function fan(from: number, to: number, angle: number): string {
@@ -368,6 +398,11 @@ export function buildSafari(full: Bars, mini: Bars, look: Look, actions: Actions
     }
     root.append(surface);
   }
+  const progress = el("div", "progress");
+  progress.hidden = true;
+  surface?.append(progress);
+  /** Each load, so a finish that a new load cut short leaves the line alone. */
+  let loads = 0;
   // Everything else leaves as a side capsule, toward the surface, or up when turned across.
   for (const shape of full.shapes) {
     if (shape === main || shape.kind === "field") continue;
@@ -414,6 +449,55 @@ export function buildSafari(full: Bars, mini: Bars, look: Look, actions: Actions
         const scale = minimized ? SAFARI_TEXT.pill / SAFARI_TEXT.field : 1;
         domain.style.transform = `translate(-50%, -50%) scale(${scale})`;
       }
+    },
+    loading(on, still) {
+      const load = ++loads;
+      for (const { node, glyph } of glyphs) {
+        if (glyph === "reload") node.replaceChildren(...(on ? stopGlyph() : GLYPHS.reload()));
+      }
+      const moving = !still && typeof progress.animate === "function";
+      // Where the line has come to, before what moves it stops.
+      const now = moving && !progress.hidden ? getComputedStyle(progress).transform : "none";
+      for (const animation of moving ? progress.getAnimations() : []) animation.cancel();
+      progress.style.opacity = "";
+      if (on) {
+        progress.hidden = false;
+        progress.style.transform = `scaleX(${moving ? PROGRESS.most : PROGRESS.still})`;
+        if (!moving) return;
+        progress.animate(
+          [
+            { transform: "scaleX(0)" },
+            { transform: `scaleX(${PROGRESS.start})`, offset: 0.06 },
+            { transform: `scaleX(${PROGRESS.most})` },
+          ],
+          { duration: PROGRESS.creep, easing: "cubic-bezier(0.1, 0.7, 0.3, 1)" },
+        );
+        return;
+      }
+      if (progress.hidden) return;
+      if (!moving) {
+        progress.hidden = true;
+        return;
+      }
+      progress.style.transform = "scaleX(1)";
+      progress.animate([{ transform: now === "none" ? "scaleX(0)" : now }, { transform: "scaleX(1)" }], {
+        duration: PROGRESS.finish,
+        easing: "ease-out",
+      });
+      const fade = progress.animate([{ opacity: 1 }, { opacity: 0 }], {
+        delay: PROGRESS.finish,
+        duration: PROGRESS.fade,
+        easing: "ease-out",
+        fill: "forwards",
+      });
+      fade.finished.then(
+        () => {
+          if (load !== loads) return;
+          progress.hidden = true;
+          fade.cancel();
+        },
+        () => {},
+      );
     },
   };
 }
