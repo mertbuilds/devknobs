@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { along, exit, numbers, SPAN, ticks, vertex } from "../src/engine/mat";
+import { parseColor } from "../src/engine/color";
+import {
+  along,
+  exit,
+  MAT_COLOR_NAMES,
+  MAT_COLORS,
+  MAT_CSS,
+  matGradient,
+  numbers,
+  SPAN,
+  ticks,
+  vertex,
+} from "../src/engine/mat";
 
 describe("ticks", () => {
   test("has one every cell, longer on the major lines and longest on the spans", () => {
@@ -88,5 +100,38 @@ describe("angle guides", () => {
     const up = along(origin, 90, 240, 3);
     expect(up.x).toBeCloseTo(-3, 9);
     expect(up.y).toBeCloseTo(360, 9);
+  });
+});
+
+describe("mat colors", () => {
+  test("offers blue first, as it always was, then the others", () => {
+    expect(MAT_COLOR_NAMES).toEqual(["blue", "green", "magenta", "purple", "red", "graphite"]);
+    expect(Object.keys(MAT_COLORS).sort()).toEqual([...MAT_COLOR_NAMES].sort());
+    expect(matGradient(MAT_COLORS.blue.srgb)).toBe(
+      "radial-gradient(140% 100% at 50% 0%, rgb(20, 70, 152), rgb(12, 48, 114) 60%, rgb(7, 31, 80))",
+    );
+    expect(MAT_COLORS.blue.line).toBe("rgb(170, 205, 255)");
+  });
+
+  test("each is dark under light lines, lighter up top, and has its stops in P3 too", () => {
+    for (const name of MAT_COLOR_NAMES) {
+      const paint = MAT_COLORS[name];
+      const stops = paint.srgb.map((stop) => parseColor(stop));
+      const line = parseColor(paint.line);
+      if (!line || stops.some((stop) => !stop)) throw new Error(`${name} does not parse`);
+      const sum = (color: { red: number; green: number; blue: number } | null) =>
+        color ? color.red + color.green + color.blue : 0;
+      expect(sum(stops[0])).toBeGreaterThan(sum(stops[1]));
+      expect(sum(stops[1])).toBeGreaterThan(sum(stops[2]));
+      expect(sum(line)).toBeGreaterThan(2 * sum(stops[0]));
+      for (const stop of paint.p3) expect(stop).toStartWith("color(display-p3 ");
+    }
+  });
+
+  test("set as variables on the element that names the color", () => {
+    for (const name of MAT_COLOR_NAMES) {
+      expect(MAT_CSS).toContain(`[data-mat="${name}"] { --mat: ${matGradient(MAT_COLORS[name].srgb)};`);
+    }
+    expect(MAT_CSS).toContain("fill: var(--mat-line);");
   });
 });

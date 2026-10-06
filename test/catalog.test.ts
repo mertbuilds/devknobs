@@ -59,6 +59,7 @@ const BUSY = state({
   height: 844,
   frame: true,
   dpr: 2,
+  mat: "green",
   vision: "deuteranopia",
   ua: { preset: "iphone-safari" },
   overflow: true,
@@ -494,6 +495,38 @@ describe("grab color", () => {
     expect(says("debug", { grabColor: "pink" })).toBe("pink");
     expect(says("debug", { grabColor: "blue" })).toBe("blue");
     expect(says("debug", { grabColor: "auto" })).toBe("");
+  });
+});
+
+describe("mat", () => {
+  const knob = knobOf("mat");
+
+  test("sits in the viewport row after the frame, with a swatch for each color", () => {
+    expect(row("viewport").knobs).toEqual(["width", "dpr", "zoom", "frame", "mat"]);
+    expect(knob.control).toBe("swatches");
+    expect(knob.options.map((option) => option.value)).toEqual([
+      "blue",
+      "green",
+      "magenta",
+      "purple",
+      "red",
+      "graphite",
+    ]);
+    for (const option of knob.options) expect(option.swatch).toStartWith("radial-gradient(");
+  });
+
+  test("reads and writes the state, and goes back to blue", () => {
+    expect(knob.read(DEFAULT_STATE)).toBe("blue");
+    const green = merge(DEFAULT_STATE, knob.write("green", DEFAULT_STATE));
+    expect(green.mat).toBe("green");
+    expect(merge(green, knob.write("teal", green)).mat).toBe("blue");
+    expect(merge(green, knob.reset).mat).toBe("blue");
+  });
+
+  test("says the color in its row only off blue", () => {
+    expect(says("viewport", { mat: "blue" })).toBe("");
+    expect(says("viewport", { mat: "green" })).toBe("green");
+    expect(says("viewport", { width: 390, mat: "graphite" })).toBe("390 · graphite");
   });
 });
 

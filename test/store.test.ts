@@ -11,6 +11,7 @@ import {
   STORAGE_KEY,
   save,
 } from "../src/engine/store";
+import { MAT_COLOR_NAMES } from "../src/engine/mat";
 import { ZOOM_MAX, ZOOM_MIN } from "../src/engine/zoom";
 import type { ClockValue, DevknobsState } from "../src/types";
 
@@ -50,6 +51,7 @@ describe("parse", () => {
         frame: true,
         dpr: 2,
         zoom: "huge",
+        mat: "teal",
         vision: "tritanopia",
         ua: { preset: "iphone-safari", custom: 3 },
         overflow: true,
@@ -93,6 +95,7 @@ describe("parse", () => {
       frame: true,
       dpr: 2,
       zoom: "fit",
+      mat: "blue",
       vision: "tritanopia",
       ua: { preset: "iphone-safari", custom: "" },
       overflow: true,
@@ -117,6 +120,16 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ grabColor: 3 })).grabColor).toBe("auto");
     for (const color of ["auto", "blue", "green", "pink", "orange", "purple", "cyan"] as const) {
       expect(parse(JSON.stringify({ grabColor: color })).grabColor).toBe(color);
+    }
+  });
+
+  test("lays a session stored before the mat had colors on the blue one, and keeps one stored", () => {
+    expect(DEFAULT_STATE.mat).toBe("blue");
+    expect(parse(JSON.stringify({ scheme: "dark" })).mat).toBe("blue");
+    expect(parse(JSON.stringify({ mat: "pink" })).mat).toBe("blue");
+    expect(parse(JSON.stringify({ mat: 3 })).mat).toBe("blue");
+    for (const color of MAT_COLOR_NAMES) {
+      expect(parse(JSON.stringify({ mat: color })).mat).toBe(color);
     }
   });
 

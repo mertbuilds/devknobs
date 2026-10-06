@@ -4,6 +4,7 @@ import { DEVICES, deviceOf, hasTouch } from "../engine/devices";
 import { frameForced } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
+import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../engine/mat";
 import { mockOf } from "../engine/mock";
 import { DEFAULT_STATE } from "../engine/store";
 import { canonicalZone, TIME_ZONE_PRESETS } from "../engine/time";
@@ -120,6 +121,7 @@ export type KnobId =
   | "dpr"
   | "zoom"
   | "frame"
+  | "mat"
   | "vision"
   | "ua"
   | "overflow"
@@ -947,6 +949,29 @@ const FRAME: Knob = {
   brief: (state) => (frameForced(state) ? "" : "frame"),
 };
 
+/** More words search finds each mat color by. */
+const MAT_ALIASES: Partial<Record<string, readonly string[]>> = {
+  green: ["classic"],
+  graphite: ["black", "gray", "grey", "dark"],
+};
+
+const MAT: Knob = {
+  id: "mat",
+  label: "mat",
+  category: "viewport",
+  control: "swatches",
+  options: MAT_COLOR_NAMES.map((name) => ({
+    value: name,
+    label: name,
+    aliases: MAT_ALIASES[name],
+    swatch: matGradient(MAT_COLORS[name].srgb),
+  })),
+  aliases: ["background", "cutting mat", "mat color", "letterbox"],
+  read: (state) => state.mat,
+  write: (value) => ({ mat: MAT_COLOR_NAMES.find((name) => name === value) ?? DEFAULT_STATE.mat }),
+  reset: { mat: DEFAULT_STATE.mat },
+};
+
 const VISION: Knob = {
   id: "vision",
   label: "vision",
@@ -1094,6 +1119,7 @@ export const KNOBS: readonly Knob[] = [
   DPR,
   ZOOM,
   FRAME,
+  MAT,
   VISION,
   UA,
   OVERFLOW,
@@ -1121,7 +1147,7 @@ export const ROWS: readonly Row[] = [
     label: "device",
     knobs: ["device", "mock", "touchPointer", "browser", "bars", "edgeToEdge", "ua"],
   },
-  { id: "viewport", label: "viewport", knobs: ["width", "dpr", "zoom", "frame"] },
+  { id: "viewport", label: "viewport", knobs: ["width", "dpr", "zoom", "frame", "mat"] },
   { id: "debug", label: "debug", knobs: ["overflow", "outlines", "grabColor"] },
 ];
 

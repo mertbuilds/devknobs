@@ -442,6 +442,7 @@ const KNOBS = {
   bars: "auto",
   edgeToEdge: true,
   zoom: "fit",
+  mat: "blue",
   panel: { open: false, side: "right" },
 } as const;
 const VIEWPORT = { ...KNOBS, width: 390 } as const;
@@ -688,6 +689,18 @@ describe("the frame over the page", () => {
     expect(Reflect.get(frameElement().style, "height")).toBe("700px");
     const readout = everything().find((element) => Reflect.get(element, "className") === "size");
     expect(readout && Reflect.get(readout, "hidden")).toBe(false);
+  });
+
+  test("lies on the mat color picked, and takes a new one in place", () => {
+    apply(VIEWPORT);
+    const letterbox = everything().find(
+      (element) => Reflect.get(element, "className") === "viewport",
+    );
+    const frame = frameElement();
+    expect(letterbox?.getAttribute("data-mat")).toBe("blue");
+    apply({ ...VIEWPORT, mat: "green" });
+    expect(letterbox?.getAttribute("data-mat")).toBe("green");
+    expect(frameElement()).toBe(frame);
   });
 
   test("offers fit, the presets and a zoom of the wheel's own, and stores a pick", () => {

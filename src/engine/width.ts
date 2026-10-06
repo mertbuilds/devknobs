@@ -31,7 +31,15 @@ const NAME = "width";
 export type ViewportValue = FrameKnobs &
   Pick<
     DevknobsState,
-    "scheme" | "device" | "orientation" | "mock" | "browser" | "bars" | "edgeToEdge" | "zoom"
+    | "scheme"
+    | "device"
+    | "orientation"
+    | "mock"
+    | "browser"
+    | "bars"
+    | "edgeToEdge"
+    | "zoom"
+    | "mat"
   > & {
     panel: Pick<PanelValue, "open" | "side">;
   };
@@ -78,16 +86,8 @@ const SANDBOX = [
 ].join(" ");
 
 /**
- * The blue of the cutting mat the frame lies on, a little lighter up top and
- * deeper toward the edges, and in P3 where the screen has it.
- */
-const MAT = "radial-gradient(140% 100% at 50% 0%, rgb(20, 70, 152), rgb(12, 48, 114) 60%, rgb(7, 31, 80))";
-const MAT_P3 =
-  "radial-gradient(140% 100% at 50% 0%, color(display-p3 0.1 0.27 0.61), color(display-p3 0.06 0.19 0.46) 60%, color(display-p3 0.035 0.12 0.32))";
-
-/**
  * The letterbox around the frame. It lives in a shadow root like the panel,
- * so page css cannot reach it. A blue cutting mat reads as chrome in light and
+ * so page css cannot reach it. A dark cutting mat reads as chrome in light and
  * dark, under a white page and a near black mock alike. Its grid and rulers
  * stay put from the top left as the frame is fitted or zoomed.
  */
@@ -101,7 +101,7 @@ const CSS = `
   flex-direction: column;
   overflow: hidden;
   direction: ltr;
-  background: ${MAT};
+  background: var(--mat);
 }
 .size {
   position: relative;
@@ -182,7 +182,7 @@ iframe {
   gap: 8px;
   font: 12px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   color: rgba(255, 255, 255, 0.85);
-  background: ${MAT};
+  background: var(--mat);
 }
 .blocked[hidden] { display: none; }
 .blocked button {
@@ -199,7 +199,7 @@ iframe {
 }
 .blocked button:hover { color: #fff; border-color: #fff; }
 @media (color-gamut: p3) {
-  .viewport, .blocked { background: ${MAT_P3}; }
+  .viewport, .blocked { background: var(--mat-p3); }
 }
 ${MAT_CSS}
 ${MOCK_CSS}
@@ -255,6 +255,7 @@ let current: ViewportValue = {
   bars: "auto",
   edgeToEdge: true,
   zoom: "fit",
+  mat: "blue",
   panel: { open: false, side: "right" },
 };
 /** The frame's page has loaded, so what it reports can be trusted. */
@@ -585,6 +586,7 @@ function bodyOf(value: ViewportValue): Mock | null {
 function resize(): void {
   if (!frame || !letterbox || !stage || !drawing || !screen || !readout || !caption) return;
   readout.hidden = !hasStrip(current);
+  letterbox.setAttribute("data-mat", current.mat);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
   const aside = current.panel.open ? panelWidth() : 0;
   const mock = bodyOf(current);
