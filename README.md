@@ -129,7 +129,9 @@ of the list. the `×` of the device row takes the size and device pixel ratio
 the device brought along with it. that size and ratio are the device row's, so
 the viewport row lists only for a value set on it, and its `×` leaves the
 device as it is, its own pixel ratio included.
-click a row to open its editor, and `×` puts that row back to its default.
+click a row to open its editor in place under it, pushing the rows below it
+down, and click it again to close it. one editor is open at a time. `×` puts
+that row back to its default.
 a knob named the same as its row shows no label of its own under the row's
 title. a row set from the panel stays in the list, back at its default too,
 until its `×` takes it off. a default row's `×` takes it off for the session
@@ -143,10 +145,10 @@ focused, the up and down arrows move the row a place. the order is kept with
 the rest of the session.
 
 the rows stay on top. the add knob button under them opens a field in its
-place that finds knobs and values, and the results show between the rows and
-the field, each scrolling in its own room. type `dark`, `390`, `+2d`, `tr`,
-`tokyo`, `rtl`, `pause` or `offline` and enter sets the first result and shows
-its row. a value typed out in full works too: `500` for a width, `3d` for the
+place that finds knobs and values, and the results show under the field, the
+rows and the results each scrolling in its own room. type `dark`, `390`,
+`+2d`, `tr`, `tokyo`, `rtl`, `pause` or `offline` and enter sets the first
+result and shows its row. a value typed out in full works too: `500` for a width, `3d` for the
 clock, `pt-BR`, `Europe/Paris`, or `36.9, 30.7` for a position. a knob's name
 opens its editor, and with nothing typed the list shows every knob by
 category. arrows move through the results. a value or knob picked adds its row

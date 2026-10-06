@@ -84,6 +84,8 @@ interface RowView {
   main: HTMLButtonElement;
   value: HTMLElement;
   clear: HTMLButtonElement;
+  /** Folds the editor away under the row's line, and out to its height. */
+  fold: HTMLElement;
   editor: HTMLElement;
   updates: Update[];
 }
@@ -96,6 +98,9 @@ interface Entry {
 
 /** Pointer travel that turns a click on the handle into a drag. */
 const DRAG_SLOP = 4;
+
+/** How long a row's editor takes to fold out, in ms, as the stylesheet sets it. */
+const FOLD = 180;
 
 /** The space between two rows, in px, as the stylesheet sets it. */
 const ROW_GAP = 1;
@@ -488,7 +493,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const head = el("label", "head");
   const searchInput = document.createElement("input");
   searchInput.className = "search";
-  searchInput.placeholder = "add a knob";
+  searchInput.placeholder = "search knobs";
   searchInput.autocomplete = "off";
   searchInput.spellcheck = false;
   searchInput.setAttribute(KEYS_FIELD, "");
@@ -503,7 +508,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   closeSearch.tabIndex = -1;
   closeSearch.setAttribute("aria-label", "close the search");
   head.append(searchInput, closeSearch);
-  // Where the search opens, under the rows.
+  // Where the search opens, under the rows, with its results under it.
   const add = button("add", "");
   add.append(icon("plus"), "add knob");
 
@@ -517,7 +522,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   // Says where a row moved to, for assistive tech.
   const said = el("div", "said");
   said.setAttribute("aria-live", "polite");
-  body.append(rows, empty, results, add, head, said);
+  body.append(rows, empty, add, head, results, said);
 
   const foot = el("div", "foot");
   const badge = el("span", "badge");
@@ -971,8 +976,21 @@ export function createPanel(options: PanelOptions = {}): Panel {
     clear.append(icon("x"));
     clear.setAttribute("aria-label", `reset ${row.label}`);
     line.append(grip, main, clear);
+    const fold = el("div", "fold");
     const editor = el("div", "editor");
-    box.append(line, editor);
+    editor.hidden = true;
+    fold.inert = true;
+    fold.append(editor);
+    box.append(line, fold);
+    // A folded editor leaves the layout once it is out of sight, and an open
+    // one is in view once it is all out, however late its frames came.
+    for (const type of ["transitionend", "transitioncancel"] as const) {
+      fold.addEventListener(type, (event: TransitionEvent) => {
+        if (event.target !== fold) return;
+        if (openRow !== row.id) editor.hidden = true;
+        else if (type === "transitionend") reveal(box, rows);
+      });
+    }
     main.addEventListener("click", () => openEditor(openRow === row.id ? null : row.id));
     clear.addEventListener("click", () => {
       if (openRow === row.id) openRow = null;
@@ -995,7 +1013,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       event.preventDefault();
       moveRow(row.id, event.key === "ArrowUp" ? -1 : 1);
     });
-    return { row, box, grip, main, value, clear, editor, updates: buildEditor(row, editor) };
+    return { row, box, grip, main, value, clear, fold, editor, updates: buildEditor(row, editor) };
   });
 
   /** Stand the rows in the order the state lists them, moving nothing that is in place. */
@@ -1061,8 +1079,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   /**
    * Put the dragged row under the pointer, held inside the list, and move the
-   * rows it passed out of its way. A scroll of the rows meanwhile counts as
-   * travel, so the row stays under the pointer.
+   * rows it passed out of its way. It passes a row once its leading edge is
+   * past that row's middle, so an open row, tall with its editor, passes the
+   * short ones as readily as they pass it. A scroll of the rows meanwhile
+   * counts as travel, so the row stays under the pointer.
    */
   function placeReorder(): void {
     const at = reorder;
@@ -1073,11 +1093,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const end = (at.tops[last] ?? 0) + (at.heights[last] ?? 0);
     const travel = at.y - at.startY + rows.scrollTop - at.startScroll;
     const shift = between(travel, (at.tops[0] ?? 0) - top, end - top - height);
-    const middle = top + height / 2 + shift;
-    at.to = at.boxes.filter(
-      (box, index) =>
-        index !== at.from && (at.tops[index] ?? 0) + (at.heights[index] ?? 0) / 2 < middle,
-    ).length;
+    at.to = at.boxes.filter((box, index) => {
+      const edge = index < at.from ? top + shift : top + height + shift;
+      return index !== at.from && (at.tops[index] ?? 0) + (at.heights[index] ?? 0) / 2 < edge;
+    }).length;
     const step = height + ROW_GAP;
     at.boxes.forEach((box, index) => {
       let y = 0;
@@ -1144,17 +1163,62 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return views.find((view) => view.row.id === id);
   }
 
-  /** Open one row's editor, closing any other, or close them all with null. */
+  /** The frame that keeps an opening row in view, while its editor folds out. */
+  let following = 0;
+
+  /**
+   * Keep a row in view as its editor folds out: all of it where it fits, else
+   * its line at the top. Rows above it stay where they are while it fits.
+   */
+  function follow(view: RowView): void {
+    cancelAnimationFrame(following);
+    const until = performance.now() + FOLD;
+    const step = (time: number) => {
+      if (openRow !== view.row.id) return;
+      reveal(view.box, rows);
+      if (time < until) following = requestAnimationFrame(step);
+    };
+    reveal(view.box, rows);
+    following = requestAnimationFrame(step);
+  }
+
+  /**
+   * Open one row's editor in place under its line, closing any other, or
+   * close them all with null. The focus in an editor that closes goes back to
+   * its row's line.
+   */
   function openEditor(id: RowId | null): void {
+    const closing = openRow && openRow !== id ? viewOf(openRow) : undefined;
+    const focused = root.activeElement;
     openRow = id;
     render();
+    if (closing && focused && closing.fold.contains(focused)) {
+      closing.main.focus({ preventScroll: true });
+    }
     const view = id ? viewOf(id) : undefined;
     if (!view) return;
-    reveal(view.box, rows);
     // A long list opens with the value that is on in its middle.
     for (const items of Array.from(view.editor.querySelectorAll<HTMLElement>(".items"))) {
       const on = items.querySelector<HTMLElement>(".on");
       if (on) center(on, items);
+    }
+    follow(view);
+  }
+
+  /**
+   * Fold a row's editor out or away. It is laid out while it folds and while
+   * it is open, and leaves the layout once it has folded away, or at once
+   * where nothing animates. A row that was not on the page has nothing to
+   * fold out from, so it shows folded first.
+   */
+  function foldRow(view: RowView, expanded: boolean, shown: boolean): void {
+    const was = view.box.classList.contains("open");
+    if (expanded && !was && !shown) view.box.getBoundingClientRect();
+    view.box.classList.toggle("open", expanded);
+    view.fold.inert = !expanded;
+    if (expanded) view.editor.hidden = false;
+    else if (!was || view.box.hidden || getComputedStyle(view.fold).transitionDuration === "0s") {
+      view.editor.hidden = true;
     }
   }
 
@@ -1290,7 +1354,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (!view) return;
     reveal(view.box, rows);
     const line = openRow === id ? view.editor.querySelector(`[data-knob="${knob.id}"]`) : null;
-    (firstControl(line) ?? view.main).focus();
+    // The rows keep the row in view themselves, as its editor folds out.
+    (firstControl(line) ?? view.main).focus({ preventScroll: true });
   }
 
   /** Do what an action says. */
@@ -1352,14 +1417,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
       const listed = isListed(view.row, state);
       const expanded = openRow === view.row.id;
       anyShown ||= listed || expanded;
+      const shown = !view.box.hidden;
       view.box.hidden = !listed && !expanded;
-      view.box.classList.toggle("open", expanded);
+      foldRow(view, expanded, shown);
       view.main.setAttribute("aria-expanded", expanded ? "true" : "false");
       view.value.textContent = rowText(view.row, state, live);
       view.value.classList.toggle("idle", !isActive(view.row, state));
       view.clear.hidden = !listed;
       view.grip.hidden = !listed;
-      view.editor.hidden = !expanded;
       if (expanded) for (const update of view.updates) update(state);
     }
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
@@ -1924,6 +1989,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       stopGrab?.();
       stopCount();
       clearInterval(ticker);
+      cancelAnimationFrame(following);
       for (const timer of pending.values()) clearTimeout(timer);
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("pointerdown", onPointerDown, true);

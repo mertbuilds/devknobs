@@ -177,8 +177,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   flex-direction: column;
   /* All the height there is, less the gap the panel keeps top and bottom, and
      no taller than a list is worth. What is past it scrolls inside. */
-  max-height: min(560px, calc(100vh - 16px));
-  max-height: min(560px, calc(100dvh - 16px));
+  max-height: min(672px, calc(100vh - 16px));
+  max-height: min(672px, calc(100dvh - 16px));
   padding: 4px;
   background: var(--bg);
   border: 1px solid var(--line);
@@ -282,8 +282,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .main .glyph, .entry .glyph { color: var(--faint); }
 .entry .glyph { margin-right: 2px; }
 
-/* The rows on top, then the results while the search is open, then the add
-   knob button or the search. The rows and the results each scroll in their own
+/* The rows on top, then the add knob button, or the search in its place with
+   its results under it. The rows and the results each scroll in their own
    room, so the results never cover the rows. */
 .body {
   position: relative;
@@ -307,14 +307,13 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    tallest panel, and scroll past it, so the results have the rest. */
 .wrap:not([data-mode="rows"]) .rows {
   flex-shrink: 0;
-  max-height: calc(min(560px, 100vh - 16px) * 0.4);
-  max-height: calc(min(560px, 100dvh - 16px) * 0.4);
+  max-height: calc(min(672px, 100vh - 16px) * 0.4);
+  max-height: calc(min(672px, 100dvh - 16px) * 0.4);
 }
 .wrap[data-mode="rows"] .results,
 .wrap[data-mode="rows"] .head,
 .wrap:not([data-mode="rows"]) .add,
 .wrap:not([data-mode="rows"]) .body > .empty { display: none; }
-.rows:not([hidden]) ~ .results { padding-top: 4px; border-top: 1px solid var(--line); }
 .empty { padding: 4px 10px; color: var(--faint); }
 /* Heard, not seen. */
 .said {
@@ -399,7 +398,19 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .clear:hover { color: var(--fg); background: var(--track); }
 
+/* An open row's editor folds out under its line and pushes the rows below it
+   down. The fold eases between none and all of the editor's height, and clips
+   what is past it without scrolling, so a control focused while it folds out
+   never shifts the editor. */
+.fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: clip;
+  transition: grid-template-rows 180ms ease-out;
+}
+.row.open .fold { grid-template-rows: 1fr; }
 .editor {
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
