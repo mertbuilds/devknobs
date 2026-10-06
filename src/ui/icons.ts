@@ -2,8 +2,9 @@ import type { Action, RowId } from "./catalog";
 
 /**
  * The panel's icons, drawn from lucide-static 1.52.0 (ISC, see
- * THIRD_PARTY_NOTICES.md). Each is the shapes of its 24 by 24 svg as they are
- * in the package, so the package itself is no dependency.
+ * THIRD_PARTY_NOTICES.md), all but the one marked as devknobs' own. Each is the
+ * shapes of its 24 by 24 svg as they are in the package, so the package itself
+ * is no dependency.
  */
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -14,14 +15,16 @@ const p = (d: string): Shape => ["path", { d }];
 const c = (cx: string, cy: string, r: string): Shape => ["circle", { cx, cy, r }];
 
 export const ICONS = {
-  "sun-moon": [
-    p("M12 2v2"),
-    p(
-      "M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715",
-    ),
-    p("M16 12a4 4 0 0 0-4-4"),
-    p("m19 5-1.256 1.256"),
-    p("M20 12h2"),
+  /**
+   * devknobs' own drawing, not lucide's, in its style: half a sun on the left
+   * and a crescent moon on the right, centred in the box.
+   */
+  "half-sun-moon": [
+    p("M12 7a5 5 0 0 0 0 10"),
+    p("M12 3a9 9 0 0 1 0 18 12 12 0 0 0 0-18z"),
+    p("M3 12h2"),
+    p("m5.64 5.64 1.41 1.41"),
+    p("m5.64 18.36 1.41-1.41"),
   ],
   contrast: [c("12", "12", "10"), p("M12 18a6 6 0 0 0 0-12v12z")],
   blend: [c("15", "9", "7"), c("9", "15", "7")],
@@ -115,7 +118,7 @@ export type IconName = keyof typeof ICONS;
 
 /** The icon each row shows by its label, and its knobs in the search. */
 export const ROW_ICONS: Record<RowId, IconName> = {
-  scheme: "sun-moon",
+  scheme: "half-sun-moon",
   contrast: "contrast",
   transparency: "blend",
   vision: "eye",

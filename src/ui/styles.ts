@@ -270,7 +270,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   align-items: center;
   gap: 8px;
   height: 26px;
-  padding: 0 10px 0 26px;
+  padding: 0 10px 0 22px;
   color: var(--faint);
   border-radius: 8px;
   transition: background-color 120ms ease-out, color 120ms ease-out;
@@ -337,7 +337,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   top: 4px;
   left: 4px;
   z-index: 1;
-  width: 16px;
+  width: 14px;
   height: 18px;
   display: grid;
   place-items: center;
@@ -371,7 +371,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 4px 8px 4px 26px;
+  padding: 4px 8px 4px 22px;
   border-radius: 8px;
 }
 .row-label { flex: none; color: var(--faint); }

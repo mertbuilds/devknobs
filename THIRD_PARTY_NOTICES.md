@@ -72,7 +72,7 @@ SOFTWARE.
 
 ## lucide
 
-https://github.com/lucide-icons/lucide. `src/ui/icons.ts` copies the shapes of a few of its icons from lucide-static 1.52.0: sun-moon, contrast, blend, eye, type, wind, languages, map-pin, clock, wifi, smartphone, ruler, bug, square-dashed-mouse-pointer, rotate-ccw, plus, x and grip-vertical. of these, clock, plus, smartphone, type and x come from Feather, under the MIT license after the ISC one, which the lucide license lists them for.
+https://github.com/lucide-icons/lucide. `src/ui/icons.ts` copies the shapes of a few of its icons from lucide-static 1.52.0: contrast, blend, eye, type, wind, languages, map-pin, clock, wifi, smartphone, ruler, bug, square-dashed-mouse-pointer, rotate-ccw, plus, x and grip-vertical. of these, clock, plus, smartphone, type and x come from Feather, under the MIT license after the ISC one, which the lucide license lists them for.
 
 ```
 ISC License
