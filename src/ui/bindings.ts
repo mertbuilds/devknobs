@@ -6,6 +6,7 @@ import {
   isFunctionKey,
   type KeyLike,
   type Keys,
+  lowerKey,
   parseCombo,
 } from "./keys";
 
@@ -67,6 +68,14 @@ function keepable(key: string): boolean {
 }
 
 /**
+ * A combination as two bindings clash on it. Delete is backspace, as `keyIs`
+ * matches a backspace binding on either.
+ */
+function clashText(combo: Combo): string {
+  return comboText(combo.key === "delete" ? { ...combo, key: "backspace" } : combo);
+}
+
+/**
  * Why a combination cannot be a binding's, or null where it can: a key alone
  * types, so it needs a modifier unless it is a function key, the browser keeps
  * some, `/` is the search's, and no two bindings share one. `others` are the
@@ -81,10 +90,10 @@ export function comboProblem(
   if (bare(combo) && !isFunctionKey(combo.key)) return "add a modifier, alone it types";
   if (isReserved(combo)) return "the browser uses it";
   if (combo.key === "/" && !combo.meta && !combo.ctrl && !combo.alt) return "/ opens the search";
-  const text = comboText(combo);
+  const text = clashText(combo);
   for (const other of BINDINGS) {
     const taken = others[other];
-    if (other !== binding && taken && comboText(taken) === text) {
+    if (other !== binding && taken && clashText(taken) === text) {
       return `used by ${BINDING_WORDS[other]}`;
     }
   }
@@ -112,14 +121,14 @@ export function comboOf(event: KeyLike): Combo | null {
   let key: string | null = null;
   if (/^F([1-9]|1[0-2])$/.test(typed)) key = typed.toLowerCase();
   else if (typed === "Backspace" || typed === "Delete") key = typed.toLowerCase();
-  else if (/^[a-z]$/i.test(typed)) key = typed.toLowerCase();
+  else if (/^[a-z]$/.test(lowerKey(typed))) key = lowerKey(typed);
   else if (
     /^Key[A-Z]$/.test(code) &&
     (event.altKey || ([...typed].length === 1 && !/\p{Script=Latin}/u.test(typed)))
   ) {
     key = code.slice(3).toLowerCase();
   } else if (/^Digit[0-9]$/.test(code)) key = code.slice(5);
-  else if ([...typed].length === 1) key = typed.toLowerCase();
+  else if ([...typed].length === 1) key = lowerKey(typed);
   return key !== null && keepable(key) ? { ...modifiers, key } : null;
 }
 
@@ -139,6 +148,10 @@ export function recordStep(event: KeyLike, binding: Binding, others: Partial<Key
   if (event.key === "Escape" || event.key === "Tab") return { type: "cancel" };
   if (MODIFIER_KEYS.has(event.key) || event.isComposing === true || event.key === "Process") {
     return { type: "wait" };
+  }
+  // On a layout where `/` takes shift and a digit, the digit is still the search's.
+  if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    return { type: "refuse", reason: "/ opens the search" };
   }
   const combo = comboOf(event);
   if (!combo) return { type: "refuse", reason: "use a letter, digit, symbol or F1 to F12" };
@@ -176,17 +189,19 @@ export function readKeys(json: string | null | undefined): StoredKeys {
 /**
  * The keys in force: a key the user set wins over `base`, the mount options
  * or the defaults. One that another binding has as well gives way to its base.
+ * Without grab, its key is no other binding's to clash with.
  */
-export function resolveKeys(base: Keys, stored: StoredKeys): Keys {
+export function resolveKeys(base: Keys, stored: StoredKeys, grab = true): Keys {
   const keys: Keys = { ...base };
   for (const binding of BINDINGS) {
     const combo = parseCombo(stored[binding]);
     if (combo) keys[binding] = combo;
   }
-  for (const binding of BINDINGS) {
+  const live = BINDINGS.filter((binding) => grab || binding !== "grab");
+  for (const binding of live) {
     if (stored[binding] === undefined) continue;
-    const text = comboText(keys[binding]);
-    const shared = BINDINGS.some((other) => other !== binding && comboText(keys[other]) === text);
+    const text = clashText(keys[binding]);
+    const shared = live.some((other) => other !== binding && clashText(keys[other]) === text);
     if (shared) keys[binding] = base[binding];
   }
   return keys;
@@ -236,14 +251,17 @@ export interface LiveKeys {
  * document of the origin that sets them, as the page above the width knob's
  * frame does, is heard through the storage event.
  */
-export function createKeys(options: { hotkey?: string; grabKey?: string } = {}): LiveKeys {
+export function createKeys(
+  options: { hotkey?: string; grabKey?: string; grab?: boolean } = {},
+): LiveKeys {
   const base = defaultKeys(options);
+  const grab = options.grab !== false;
   let stored = loadKeys();
-  let keys = resolveKeys(base, stored);
+  let keys = resolveKeys(base, stored, grab);
   const listeners = new Set<() => void>();
 
   function changed(): void {
-    keys = resolveKeys(base, stored);
+    keys = resolveKeys(base, stored, grab);
     for (const listener of Array.from(listeners)) listener();
   }
 

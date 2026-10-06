@@ -173,6 +173,11 @@ describe("letterMatches", () => {
     expect(letterMatches({ key: "Σ", code: "KeyS" }, "s")).toBe(true);
   });
 
+  test("reads Turkish İ as i", () => {
+    expect(letterMatches({ key: "İ", code: "Quote" }, "i")).toBe(true);
+    expect(comboMatches(shifted({ key: "İ", code: "Quote" }), withShift("i"))).toBe(true);
+  });
+
   test("leaves a latin letter in another place, a dead key and an IME's key", () => {
     expect(letterMatches({ key: "d", code: "KeyG" }, "g")).toBe(false);
     expect(letterMatches({ key: "i", code: "KeyG" }, "g")).toBe(false);
@@ -558,19 +563,23 @@ describe("forwardKeys", () => {
     Reflect.deleteProperty(globalThis, "window");
   });
 
-  test("posts the panel's keys to the page above, on this origin only", () => {
+  test("posts the panel's keys up, on this origin only, and keeps them from the browser", () => {
     forwardKeys(() => hot("d"));
-    listener?.(shifted({ key: "D" }));
-    listener?.(key({ key: "Escape" }));
-    listener?.(key({ key: "d" }));
-    listener?.(shifted({ key: "K" }));
-    listener?.(shifted({ key: "D", target: element("INPUT") }));
-    listener?.(shifted({ key: "R" }));
-    listener?.(key({ key: "r" }));
-    listener?.(key({ key: "Backspace", shiftKey: true }));
-    listener?.(shifted({ key: "R", target: element("INPUT") }));
-    listener?.(key({ key: "Backspace", shiftKey: true, target: element("TEXTAREA") }));
-    listener?.(shifted({ key: "R", metaKey: true }));
+    let prevented = 0;
+    const send = (event: KeyLike) =>
+      listener?.(Object.assign(event, { preventDefault: () => prevented++ }));
+    send(shifted({ key: "D" }));
+    send(key({ key: "Escape" }));
+    send(key({ key: "d" }));
+    send(shifted({ key: "K" }));
+    send(shifted({ key: "D", target: element("INPUT") }));
+    send(shifted({ key: "R" }));
+    send(key({ key: "r" }));
+    send(key({ key: "Backspace", shiftKey: true }));
+    send(shifted({ key: "R", target: element("INPUT") }));
+    send(key({ key: "Backspace", shiftKey: true, target: element("TEXTAREA") }));
+    send(shifted({ key: "R", metaKey: true }));
+    expect(prevented).toBe(3);
     expect(posted).toEqual([
       [{ source: "devknobs", type: "key", action: "toggle" }, "/"],
       [{ source: "devknobs", type: "key", action: "close" }, "/"],
@@ -618,12 +627,13 @@ describe("forwardKeys", () => {
   test("reads the keys on each press, so a key set above takes at once", () => {
     let keys = hot("k");
     forwardKeys(() => keys);
-    listener?.(shifted({ key: "K" }));
+    const send = (event: KeyLike) => listener?.(Object.assign(event, { preventDefault() {} }));
+    send(shifted({ key: "K" }));
     const altK = parseCombo("alt+k");
     if (!altK) throw new Error("no combo");
     keys = { ...keys, panel: altK };
-    listener?.(shifted({ key: "K" }));
-    listener?.(key({ key: "˚", code: "KeyK", altKey: true }));
+    send(shifted({ key: "K" }));
+    send(key({ key: "˚", code: "KeyK", altKey: true }));
     expect(posted).toEqual([
       [{ source: "devknobs", type: "key", action: "toggle" }, "/"],
       [{ source: "devknobs", type: "key", action: "toggle" }, "/"],

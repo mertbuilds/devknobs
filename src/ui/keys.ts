@@ -177,12 +177,20 @@ export function typesInField(event: Pick<KeyLike, "target" | "composedPath">): b
 }
 
 /**
+ * A key in lower case. Turkish `İ` is `i`, where `toLowerCase` gives `i` and a
+ * dot above.
+ */
+export function lowerKey(key: string): string {
+  return key === "İ" ? "i" : key.toLowerCase();
+}
+
+/**
  * A key that types the letter `a` to `z`, in either case for caps lock, or on
  * a layout whose letters are not latin the key in the letter's place. A latin
  * letter elsewhere, a dead key or a keystroke an IME takes is not the letter.
  */
 export function letterMatches(event: { key: string; code?: string }, letter: string): boolean {
-  const key = event.key.toLowerCase();
+  const key = lowerKey(event.key);
   if (key === letter) return true;
   return (
     [...key].length === 1 &&
@@ -380,8 +388,10 @@ export function forwardKeys(
   function onKeydown(event: KeyboardEvent): void {
     const zoom = zoomAction(event);
     const search = isSearchKey(event) && open();
-    if (zoom || search) event.preventDefault();
-    const action = keyAction(event, keys()) ?? zoom ?? (search ? "search" : null);
+    const panelAction = keyAction(event, keys());
+    // A key the panel acts on is only the panel's, never the browser's too.
+    if (zoom || search || (panelAction && panelAction !== "close")) event.preventDefault();
+    const action = panelAction ?? zoom ?? (search ? "search" : null);
     if (action) post(window.parent, { source: "devknobs", type: "key", action });
   }
   window.addEventListener("keydown", onKeydown, true);

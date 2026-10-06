@@ -102,7 +102,11 @@ export function mount(options: MountOptions = {}): void {
   claim(window, unmount);
   engine.start(options);
   // The mount's keys, with the ones the user set in the panel on top.
-  const live = createKeys({ hotkey: options.hotkey, grabKey: options.grabKey });
+  const live = createKeys({
+    hotkey: options.hotkey,
+    grabKey: options.grabKey,
+    grab: options.grab !== false,
+  });
   keys = live;
   // Ahead of the panel's keys, so escape ends grab before it closes the panel.
   // A key the panel records is never grab's.

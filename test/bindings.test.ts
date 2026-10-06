@@ -109,12 +109,18 @@ describe("recording a key", () => {
   test("keeps a digit by its place, and a symbol by what it types", () => {
     expect(recorded({ key: "!", code: "Digit1", shiftKey: true })).toBe("shift+1");
     expect(recorded({ key: "?", code: "Slash", shiftKey: true })).toBe("shift+?");
-    expect(recorded({ key: "/", code: "Digit7", shiftKey: true })).toBe("shift+7");
   });
 
   test("refuses the search's key, a plus and a dead key", () => {
     expect(recorded({ key: "/", code: "Slash", shiftKey: true, ctrlKey: false })).toBe(
       "refused: / opens the search",
+    );
+    // German: shift and 7 types `/`, which the search takes before any binding.
+    expect(recorded({ key: "/", code: "Digit7", shiftKey: true })).toBe(
+      "refused: / opens the search",
+    );
+    expect(recorded({ key: "/", code: "Digit7", shiftKey: true, altKey: true })).toBe(
+      "alt+shift+7",
     );
     expect(recorded({ key: "+", code: "Equal", shiftKey: true })).toBe(
       "refused: use a letter, digit, symbol or F1 to F12",
@@ -125,6 +131,15 @@ describe("recording a key", () => {
     expect(recorded({ key: "Enter", code: "Enter", shiftKey: true })).toBe(
       "refused: use a letter, digit, symbol or F1 to F12",
     );
+  });
+
+  test("reads Turkish İ as i", () => {
+    expect(recorded({ key: "İ", code: "Quote", shiftKey: true })).toBe("shift+i");
+  });
+
+  test("refuses delete where another binding has backspace, as both match it", () => {
+    const step = recordStep(press({ key: "Delete", shiftKey: true }), "grab", defaultKeys());
+    expect(step).toEqual({ type: "refuse", reason: "used by reset" });
   });
 
   test("waits through a modifier alone or an IME, and escape or tab cancels", () => {
@@ -204,6 +219,17 @@ describe("resolveKeys", () => {
     expect(comboText(keys.grab)).toBe("shift+g");
   });
 
+  test("a set delete gives way to a backspace another binding has", () => {
+    const keys = resolveKeys(defaultKeys(), { grab: "shift+delete" });
+    expect(comboText(keys.grab)).toBe("shift+g");
+  });
+
+  test("without grab, grab's key is free for another binding", () => {
+    const keys = resolveKeys(defaultKeys(), { panel: "shift+g" }, false);
+    expect(comboText(keys.panel)).toBe("shift+g");
+    expect(comboText(resolveKeys(defaultKeys(), { panel: "shift+g" }).panel)).toBe("shift+k");
+  });
+
   test("two set keys can swap", () => {
     const keys = resolveKeys(defaultKeys(), { panel: "shift+g", grab: "shift+k" });
     expect(comboText(keys.panel)).toBe("shift+g");
@@ -262,6 +288,15 @@ describe("createKeys", () => {
     expect(comboText(keys.get().grab)).toBe("shift+g");
     expect(keys.custom("panel")).toBe(true);
     expect(keys.custom("grab")).toBe(false);
+    keys.destroy();
+  });
+
+  test("without grab, keeps grab's key set for the panel", () => {
+    stubWindow();
+    const keys = createKeys({ grab: false });
+    keys.set("panel", combo("shift+g"));
+    expect(comboText(keys.get().panel)).toBe("shift+g");
+    expect(keys.custom("panel")).toBe(true);
     keys.destroy();
   });
 

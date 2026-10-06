@@ -1563,6 +1563,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   function startRecording(binding: Binding): void {
     recording = binding;
     keys.recording = true;
+    // Grab's mode reads the keys ahead of the panel, escape and the arrows too.
+    grab?.set(false);
     renderKeys();
     keyViews.get(binding)?.set.focus({ preventScroll: true });
   }
@@ -2136,21 +2138,23 @@ export function createPanel(options: PanelOptions = {}): Panel {
     toggle();
   });
 
-  /** Run a key's action. Says whether the panel moved the focus for the toggle. */
-  function onAction(action: KeyAction): boolean {
+  /** Run a key's action. */
+  function onAction(action: KeyAction): void {
     if (action === "zoom-in" || action === "zoom-out" || action === "zoom-fit") {
       zoomKey(action);
-      return false;
+      return;
     }
     // A drag owns the handle until the pointer is up, hotkey and escape too.
-    if (dragging) return false;
-    if (action === "toggle") return toggle();
-    if (!engine.getState().panel.open) return false;
+    if (dragging) return;
+    if (action === "toggle") {
+      toggle();
+      return;
+    }
+    if (!engine.getState().panel.open) return;
     if (action === "replay") runCommand("replay");
     else if (action === "reset") runCommand("reset");
     else if (action === "search") startBrowsing();
     else toggle(false);
-    return false;
   }
 
   /**
@@ -2216,17 +2220,18 @@ export function createPanel(options: PanelOptions = {}): Panel {
       return;
     }
     const action = keyAction(event, keys.get());
-    if (action === "reset" && !dragging && engine.getState().panel.open) event.preventDefault();
-    let moved = false;
-    if (action === "close") escape();
-    else if (action) moved = onAction(action);
-    // The hotkey is not typed where it moved the focus: the search it opened
-    // the panel on, or the page field it closed the panel back to. In the
-    // search no key the panel took is typed.
+    // A key the panel acts on does only that, not the browser's own as well:
+    // the toggle unless a drag holds it, replay and reset while the panel is
+    // open. In the search no key the panel took is typed.
+    const acts =
+      action !== null &&
+      action !== "close" &&
+      !dragging &&
+      (action === "toggle" || engine.getState().panel.open);
     const inSearch = event.composedPath()[0] === searchInput;
-    if ((action === "toggle" && moved) || (action && action !== "close" && inSearch)) {
-      event.preventDefault();
-    }
+    if (acts || (action && action !== "close" && inSearch)) event.preventDefault();
+    if (action === "close") escape();
+    else if (action) onAction(action);
     if (action || dragging || reorder || !engine.getState().panel.open) return;
     const text = event.composedPath().includes(panel) ? typeAhead(event) : null;
     if (text === null && !isSearchKey(event)) return;
