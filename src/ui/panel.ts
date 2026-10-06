@@ -31,18 +31,20 @@ import {
   rowOf,
   wallInput,
 } from "./catalog";
+import { BINDING_WORDS, BINDINGS, createKeys, type LiveKeys, recordStep } from "./bindings";
 import { ACTION_ICONS, icon, ROW_ICONS } from "./icons";
 import {
+  type Binding,
+  comboLabel,
+  comboSpoken,
   escapeStep,
   highlightAt,
-  hotkeyOf,
   isSearchKey,
   KEYS_FIELD,
+  type Keys,
   keyAction,
   paletteMove,
-  REPLAY_KEY,
   radioMove,
-  shiftLabel,
   typeAhead,
   zoomAction,
 } from "./keys";
@@ -64,8 +66,11 @@ import { CSS } from "./styles";
 export { wallInput } from "./catalog";
 
 export interface PanelOptions {
-  /** The letter that with shift toggles the panel. Defaults to `k`. */
-  hotkey?: string;
+  /**
+   * The keys in force, which the panel shows and lets the user set.
+   * Defaults to the built-in ones.
+   */
+  keys?: LiveKeys;
   /** Grab, where it is on, to show and to turn on from the search. */
   grab?: GrabControl | null;
 }
@@ -174,30 +179,21 @@ export interface KeyChip {
 }
 
 /**
- * The grab key as its chip shows it. A Mac label such as `⌘C` stays as it is,
- * and `ctrl+C` reads `Ctrl C`.
+ * The keys the footer names, most used first: the panel's, the search key,
+ * the grab key where there is a grab, replay's, and reset last, each as
+ * `comboLabel` shows it.
  */
-export function chipKey(label: string): string {
-  return label
-    .replace(/\+(?=.)/g, " ")
-    .split(" ")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-/**
- * The keys the footer names, most used first: shift and the hotkey, the search
- * key, the grab key where there is a grab, shift r for replay, and reset last.
- */
-export function keyChips(hotkey: string, grabLabel: string | null, mac: boolean): KeyChip[] {
+export function keyChips(keys: Keys, grab: boolean, mac: boolean): KeyChip[] {
   const chips: KeyChip[] = [
-    { command: "panel", key: shiftLabel(hotkey, mac), word: "panel" },
+    { command: "panel", key: comboLabel(keys.panel, mac), word: BINDING_WORDS.panel },
     { command: "search", key: "/", word: "search" },
   ];
-  if (grabLabel !== null) chips.push({ command: "grab", key: chipKey(grabLabel), word: "grab" });
+  if (grab) {
+    chips.push({ command: "grab", key: comboLabel(keys.grab, mac), word: BINDING_WORDS.grab });
+  }
   chips.push(
-    { command: "replay", key: shiftLabel(REPLAY_KEY, mac), word: "replay animations" },
-    { command: "reset", key: mac ? "⇧⌫" : "Shift Backspace", word: "reset" },
+    { command: "replay", key: comboLabel(keys.replay, mac), word: BINDING_WORDS.replay },
+    { command: "reset", key: comboLabel(keys.reset, mac), word: BINDING_WORDS.reset },
   );
   return chips;
 }
@@ -472,10 +468,13 @@ function center(node: HTMLElement, box: HTMLElement): void {
  * knobs and values, and with nothing typed lists every knob.
  */
 export function createPanel(options: PanelOptions = {}): Panel {
-  const hotkey = hotkeyOf(options.hotkey);
+  const keys = options.keys ?? createKeys();
   const grab = options.grab ?? null;
+  const mac = isMac();
   /** The actions search finds: grab only where there is one. */
   const actionsHere = grab ? ACTIONS : ACTIONS.filter((action) => action.id !== "grab");
+  /** The keys the shortcuts list: grab's only where there is one. */
+  const bindingsHere = BINDINGS.filter((binding) => binding !== "grab" || grab !== null);
 
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "panel");
@@ -486,7 +485,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const wrap = el("div", "wrap");
   const handle = button("handle", "knobs");
-  handle.setAttribute("aria-label", `devknobs, press shift ${hotkey}`);
   handle.title = "drag to move · shift-drag moves the handle";
   const panel = el("div", "panel");
 
@@ -523,20 +521,50 @@ export function createPanel(options: PanelOptions = {}): Panel {
   // Says where a row moved to, for assistive tech.
   const said = el("div", "said");
   said.setAttribute("aria-live", "polite");
-  body.append(rows, empty, add, head, results, said);
+  // The shortcuts, in place of the rows: each binding's key, to set or put back.
+  const keysView = el("div", "keys");
+  keysView.setAttribute("role", "group");
+  keysView.setAttribute("aria-label", "shortcuts");
+  keysView.append(el("div", "group-label", "shortcuts"));
+  const keyViews = new Map<
+    Binding,
+    { set: HTMLButtonElement; back: HTMLButtonElement; why: HTMLElement }
+  >();
+  for (const binding of bindingsHere) {
+    const line = el("div", "key-row");
+    const set = button("key-set", "");
+    const back = button("clear", "");
+    back.append(icon("x"));
+    back.setAttribute("aria-label", `put the ${BINDING_WORDS[binding]} key back`);
+    const why = el("div", "key-why");
+    why.setAttribute("aria-live", "polite");
+    line.append(el("span", "key-word", BINDING_WORDS[binding]), set, back);
+    keysView.append(line, why);
+    keyViews.set(binding, { set, back, why });
+  }
+  body.append(rows, empty, add, head, results, keysView, said);
 
   const foot = el("div", "foot");
   const badge = el("span", "badge");
   // The legend of the keys, and the controls they press.
   const meta = el("div", "meta");
   const hints = new Map<Command, HTMLButtonElement>();
-  for (const chip of keyChips(hotkey, grab ? grab.label : null, isMac())) {
+  const hintKeys = new Map<Command, HTMLElement>();
+  for (const chip of keyChips(keys.get(), grab !== null, mac)) {
     const node = button("hint", "");
     node.dataset.command = chip.command;
-    node.append(el("kbd", "hint-key", chip.key), chip.word);
+    const key = el("kbd", "hint-key", chip.key);
+    node.append(key, chip.word);
     meta.append(node);
     hints.set(chip.command, node);
+    hintKeys.set(chip.command, key);
   }
+  // Opens the shortcuts, where the keys are set.
+  const keysToggle = button("hint keys-toggle", "");
+  keysToggle.append(icon("keyboard", 12));
+  keysToggle.setAttribute("aria-label", "set the shortcuts");
+  keysToggle.title = "set the shortcuts";
+  meta.append(keysToggle);
   foot.append(badge, meta);
 
   panel.append(body, foot);
@@ -554,6 +582,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /** What the results or the browse list show, and which one Enter picks. */
   let entries: Entry[] = [];
   let cursor = 0;
+  /** The shortcuts show in place of the rows. */
+  let editingKeys = false;
+  /** The binding waiting for its new key, and why the last key pressed was not taken. */
+  let recording: Binding | null = null;
+  let refusal = "";
 
   /** Leave an input alone while it has the caret, so typing is never cut off. */
   function fill(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -1330,7 +1363,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /** Show the active rows, the results of a query, or every knob to browse. */
   function renderBody(state: DevknobsState): void {
     const query = searchInput.value.trim();
-    const mode = query ? "results" : browsing ? "browse" : "rows";
+    const mode = editingKeys ? "keys" : query ? "results" : browsing ? "browse" : "rows";
     wrap.dataset.mode = mode;
     searchInput.setAttribute("aria-expanded", mode === "rows" ? "false" : "true");
     if (mode === "results") {
@@ -1453,7 +1486,109 @@ export function createPanel(options: PanelOptions = {}): Panel {
     badge.hidden = badge.textContent === "";
     badge.classList.toggle("hot", hot);
     renderBody(state);
+    renderKeys();
     layout();
+  }
+
+  /** Show the keys in force: on the handle, the footer and the shortcuts. */
+  function renderKeys(): void {
+    const now = keys.get();
+    handle.setAttribute("aria-label", `devknobs, press ${comboSpoken(now.panel)}`);
+    for (const chip of keyChips(now, grab !== null, mac)) {
+      const key = hintKeys.get(chip.command);
+      if (key) key.textContent = chip.key;
+    }
+    keysToggle.setAttribute("aria-pressed", editingKeys ? "true" : "false");
+    for (const [binding, view] of keyViews) {
+      const word = BINDING_WORDS[binding];
+      const on = recording === binding;
+      view.set.textContent = on ? "press keys…" : comboLabel(now[binding], mac);
+      view.set.classList.toggle("recording", on);
+      view.set.setAttribute(
+        "aria-label",
+        on ? `press the new ${word} key` : `${word}, ${comboSpoken(now[binding])}, change`,
+      );
+      view.back.hidden = !keys.custom(binding);
+      view.why.textContent = on ? refusal : "";
+      view.why.hidden = view.why.textContent === "";
+    }
+  }
+
+  /** The keys of the bindings listed, which a new key must not be one of. */
+  function keysHere(): Partial<Keys> {
+    const now = keys.get();
+    return Object.fromEntries(bindingsHere.map((binding) => [binding, now[binding]]));
+  }
+
+  /**
+   * Wait for a binding's new key. Until it comes, every key goes to the
+   * recording and to nothing else: not to the panel, grab or the page.
+   */
+  function startRecording(binding: Binding): void {
+    recording = binding;
+    refusal = "";
+    keys.recording = true;
+    renderKeys();
+    keyViews.get(binding)?.set.focus({ preventScroll: true });
+  }
+
+  function stopRecording(): void {
+    if (recording === null) return;
+    recording = null;
+    refusal = "";
+    keys.recording = false;
+    renderKeys();
+  }
+
+  /**
+   * A key pressed while a binding records. Tab moves on, and the blur that
+   * follows ends it. Every other key is swallowed: escape cancels, a key the
+   * binding can take becomes its key, and one it cannot says why.
+   */
+  function recordKey(event: KeyboardEvent, binding: Binding): void {
+    if (event.key === "Tab") {
+      stopRecording();
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const step = recordStep(event, binding, keysHere());
+    if (step.type === "cancel") stopRecording();
+    else if (step.type === "refuse") {
+      refusal = step.reason;
+      renderKeys();
+    } else if (step.type === "keep") {
+      stopRecording();
+      keys.set(binding, step.combo);
+    }
+  }
+
+  function openKeys(): void {
+    if (browsing || searchInput.value) leaveSearch();
+    editingKeys = true;
+    render();
+  }
+
+  function leaveKeys(): void {
+    stopRecording();
+    editingKeys = false;
+    render();
+  }
+
+  keysToggle.addEventListener("click", () => (editingKeys ? leaveKeys() : openKeys()));
+  for (const [binding, view] of keyViews) {
+    view.set.addEventListener("click", () => {
+      if (recording === binding) stopRecording();
+      else startRecording(binding);
+    });
+    view.set.addEventListener("blur", () => {
+      if (recording === binding) stopRecording();
+    });
+    view.back.addEventListener("click", () => {
+      stopRecording();
+      keys.set(binding, null);
+      view.set.focus({ preventScroll: true });
+    });
   }
 
   /** The clock runs between knob changes, and its readouts with it. */
@@ -1558,6 +1693,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (!next) {
       browsing = false;
       searchInput.value = "";
+      editingKeys = false;
+      stopRecording();
       const focused = root.activeElement;
       if (focused instanceof HTMLElement) {
         moved = true;
@@ -1586,6 +1723,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
    * it is open, so it is opened before it takes the focus.
    */
   function startBrowsing(text = ""): void {
+    stopRecording();
+    editingKeys = false;
     if (text) {
       searchInput.value += text;
       results.scrollTop = 0;
@@ -1860,6 +1999,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     dragged = false;
   });
   function onBlur(): void {
+    stopRecording();
     endReorder(false);
     if (!dragging) return;
     endDrag(null);
@@ -1910,6 +2050,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const step = escapeStep({
       search: browsing || searchInput.value !== "",
       filter: filter !== null && filter.value !== "",
+      keys: editingKeys,
       editor: focused !== null && view !== undefined,
     });
     if (step === "search") {
@@ -1920,6 +2061,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     } else if (step === "filter" && filter) {
       filter.value = "";
       filter.dispatchEvent(new Event("input"));
+    } else if (step === "keys") {
+      leaveKeys();
+      keysToggle.focus({ preventScroll: true });
     } else if (step === "editor" && view) {
       openEditor(null);
       view.main.focus();
@@ -1935,13 +2079,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
    * Every other key goes to the page.
    */
   function onKeydown(event: KeyboardEvent): void {
+    if (recording !== null) {
+      recordKey(event, recording);
+      return;
+    }
     const zoom = zoomAction(event);
     if (zoom && zoomKey(zoom)) {
       event.preventDefault();
       event.stopPropagation();
       return;
     }
-    const action = keyAction(event, hotkey);
+    const action = keyAction(event, keys.get());
     if (action === "reset" && !dragging && engine.getState().panel.open) event.preventDefault();
     let moved = false;
     if (action === "close") escape();
@@ -1976,6 +2124,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const ticker = window.setInterval(tick, 1000);
   const unsubscribe = engine.subscribe(render);
+  const stopKeys = keys.subscribe(renderKeys);
   const stopGrab = grab?.subscribe(onGrab);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
@@ -2001,7 +2150,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   return {
     destroy(): void {
+      stopRecording();
       unsubscribe();
+      stopKeys();
+      if (!options.keys) keys.destroy();
       stopGrab?.();
       stopCount();
       clearInterval(ticker);

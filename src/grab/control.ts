@@ -1,34 +1,37 @@
 // adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
 import * as engine from "../engine";
 import { isDevknobsFrame, needsFrame, post, readMessage } from "../engine/frame";
-import { isMac } from "../engine/ua";
 import { frameWindow } from "../engine/width";
 import { typesInField } from "../ui/keys";
 import {
-  grabKeyLabel,
+  defaultGrabKey,
+  type GrabKey,
+  grabKeyTypes,
   type Hold,
   type HoldEvent,
   holdDuration,
   holdStep,
   isGrabKey,
   keyMatches,
-  parseGrabKey,
+  pressTurnsOn,
   releasesGrabKey,
 } from "./keys";
 import type { Mode, ModeOptions } from "./mode";
 import { type GrabPlace, grabStep } from "./place";
 
 export interface GrabControlOptions {
-  /** The key that grabs, such as `alt+shift+g`. Defaults to `shift+g`. */
-  key?: string;
+  /**
+   * The key that grabs as it is now, read on each key so a new one takes at
+   * once, or null while there is none, as while the panel records a key.
+   * Defaults to shift and g.
+   */
+  key?: () => GrabKey | null;
 }
 
 /** Loads grab's mode, the overlay and the context, the first time grab turns on. */
 export type LoadMode = () => Promise<{ startMode: (options: ModeOptions) => Mode }>;
 
 export interface GrabControl {
-  /** The grab key as the panel shows it, such as `⇧G`. */
-  readonly label: string;
   isOn(): boolean;
   /** Turn grab on or off, in the frame while it is up. */
   set(on: boolean): void;
@@ -92,14 +95,7 @@ export function createGrab(
   options: GrabControlOptions = {},
   loadMode: LoadMode = () => import("./index"),
 ): GrabControl {
-  const mac = isMac();
-  const key = parseGrabKey(options.key);
-  /**
-   * A key with no modifier but shift types, so it is a field's, and the
-   * panel's search aside, never grab's there. It copies nothing either, so
-   * a press turns grab on, and off again, with no hold.
-   */
-  const types = !key.meta && !key.ctrl && !key.alt;
+  const keyNow = options.key ?? defaultGrabKey;
   const inFrame = isDevknobsFrame();
   const listeners = new Set<(on: boolean) => void>();
   /** Where grab runs. Only `move` changes it. */
@@ -124,7 +120,10 @@ export function createGrab(
       mode = startMode({
         pointer,
         scheme,
-        heldKey: (event) => keyMatches(event, key.key),
+        heldKey: (event) => {
+          const key = keyNow();
+          return key !== null && keyMatches(event, key.key);
+        },
         onExit: () => {
           mode = null;
           move("off");
@@ -173,8 +172,11 @@ export function createGrab(
   }
 
   function onKeydown(event: KeyboardEvent): void {
-    const grabKey = isGrabKey(event, key) && !(types && typesInField(event));
-    if (grabKey && types) {
+    const key = keyNow();
+    const press = key !== null && pressTurnsOn(key);
+    const grabKey =
+      key !== null && isGrabKey(event, key) && !(grabKeyTypes(key) && typesInField(event));
+    if (grabKey && press) {
       // Where it is grab's, a key that types is not typed. A press turns grab
       // on, or off while it is on or loading, and a repeat does nothing.
       event.preventDefault();
@@ -212,7 +214,8 @@ export function createGrab(
   }
 
   function onKeyup(event: KeyboardEvent): void {
-    if (hold && releasesGrabKey(event, key)) step({ type: "release", at: Date.now() });
+    const key = keyNow();
+    if (hold && key && releasesGrabKey(event, key)) step({ type: "release", at: Date.now() });
   }
 
   function onCopy(): void {
@@ -254,7 +257,6 @@ export function createGrab(
   document.addEventListener("copy", onCopy, true);
 
   return {
-    label: grabKeyLabel(key, mac),
     isOn: () => place !== "off",
     set,
     subscribe(listener) {

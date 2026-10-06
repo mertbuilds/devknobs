@@ -313,7 +313,11 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .wrap[data-mode="rows"] .results,
 .wrap[data-mode="rows"] .head,
 .wrap:not([data-mode="rows"]) .add,
-.wrap:not([data-mode="rows"]) .body > .empty { display: none; }
+.wrap:not([data-mode="rows"]) .body > .empty,
+.wrap[data-mode="keys"] .rows,
+.wrap[data-mode="keys"] .results,
+.wrap[data-mode="keys"] .head,
+.wrap:not([data-mode="keys"]) .keys { display: none; }
 .empty { padding: 4px 10px; color: var(--faint); }
 /* Heard, not seen. */
 .said {
@@ -622,6 +626,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .hint:focus-visible { outline-offset: 2px; }
 .hint:disabled { cursor: default; opacity: 0.5; }
 .hint:disabled:hover { color: inherit; }
+/* Opens the shortcuts, at the end of the last line. */
+.keys-toggle { margin-left: auto; }
+.keys-toggle[aria-pressed="true"] { color: var(--fg); }
 .hint-key {
   box-sizing: border-box;
   min-width: 14px;
@@ -633,4 +640,38 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+
+/* The shortcuts, in place of the rows: a line each, as tall as a row, with
+   its key as a button that records a new one and an x that puts it back. The
+   key sits 4 in from the line's edges, so 4 round. */
+.keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding-left: 10px;
+  border-radius: 8px;
+}
+.key-row:hover { background: var(--card); }
+.key-word { flex: 1; min-width: 0; color: var(--faint); }
+.key-set {
+  flex: none;
+  box-sizing: border-box;
+  min-width: 26px;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  transition: border-color 120ms ease-out, color 120ms ease-out;
+}
+.key-row .clear { margin: 2px 2px 2px -6px; }
+.key-set:hover { border-color: var(--faint); }
+.key-set.recording { color: var(--faint); border-color: var(--faint); }
+/* An x that is gone keeps its room, so the keys line up. */
+.key-row .clear[hidden] { display: grid !important; visibility: hidden; }
+.key-why { padding: 0 10px 4px; font-size: 10.5px; color: var(--hot); }
 `;

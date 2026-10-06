@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { apply, reset } from "../src/engine/time";
+import { resolveKeys } from "../src/ui/bindings";
+import { defaultKeys } from "../src/ui/keys";
 import {
-  chipKey,
   cornerAt,
   dragTarget,
   dragTo,
@@ -46,26 +47,9 @@ describe("overflowBadge", () => {
   });
 });
 
-describe("chipKey", () => {
-  test("a mac label stays as it is", () => {
-    expect(chipKey("⌘C")).toBe("⌘C");
-    expect(chipKey("⌥⇧G")).toBe("⌥⇧G");
-  });
-
-  test("names off a mac are spaced and capped", () => {
-    expect(chipKey("ctrl+C")).toBe("Ctrl C");
-    expect(chipKey("shift+G")).toBe("Shift G");
-    expect(chipKey("alt+shift+G")).toBe("Alt Shift G");
-  });
-
-  test("a plus that is the key stays", () => {
-    expect(chipKey("ctrl++")).toBe("Ctrl +");
-  });
-});
-
 describe("keyChips", () => {
-  test("the hotkey, search, grab, replay and reset, most used first", () => {
-    expect(keyChips("k", "⇧G", true)).toEqual([
+  test("the panel, search, grab, replay and reset, most used first", () => {
+    expect(keyChips(defaultKeys(), true, true)).toEqual([
       { command: "panel", key: "⇧K", word: "panel" },
       { command: "search", key: "/", word: "search" },
       { command: "grab", key: "⇧G", word: "grab" },
@@ -74,15 +58,16 @@ describe("keyChips", () => {
     ]);
   });
 
-  test("the hotkey that was set, and the keys off a mac", () => {
-    expect(keyChips("k", "shift+G", false).map((chip) => chip.key)).toEqual([
+  test("the keys the mount set, and the keys off a mac", () => {
+    expect(keyChips(defaultKeys(), true, false).map((chip) => chip.key)).toEqual([
       "Shift K",
       "/",
       "Shift G",
       "Shift R",
       "Shift Backspace",
     ]);
-    expect(keyChips("d", "ctrl+C", false).map((chip) => chip.key)).toEqual([
+    const mounted = defaultKeys({ hotkey: "d", grabKey: "ctrl+c" });
+    expect(keyChips(mounted, true, false).map((chip) => chip.key)).toEqual([
       "Shift D",
       "/",
       "Ctrl C",
@@ -91,8 +76,20 @@ describe("keyChips", () => {
     ]);
   });
 
+  test("the keys the user set, over the mount's", () => {
+    const keys = resolveKeys(defaultKeys({ hotkey: "d" }), { panel: "alt+k", grab: "shift+x" });
+    expect(keyChips(keys, true, true).map((chip) => chip.key)).toEqual([
+      "⌥K",
+      "/",
+      "⇧X",
+      "⇧R",
+      "⇧⌫",
+    ]);
+    expect(keyChips(keys, true, false)[0]?.key).toBe("Alt K");
+  });
+
   test("no grab chip with no grab", () => {
-    expect(keyChips("k", null, true).map((chip) => chip.command)).toEqual([
+    expect(keyChips(defaultKeys(), false, true).map((chip) => chip.command)).toEqual([
       "panel",
       "search",
       "replay",

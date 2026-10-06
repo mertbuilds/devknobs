@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { FRAME_NAME } from "../src/engine/frame";
 import { createGrab, type GrabControl, type LoadMode } from "../src/grab/control";
+import { parseGrabKey } from "../src/grab/keys";
 import { grabStep } from "../src/grab/place";
 import { KEYS_FIELD } from "../src/ui/keys";
 
@@ -249,7 +250,7 @@ describe("grab's key", () => {
       Object.defineProperty(globalThis, name, { configurable: true, value: class {} });
     }
     try {
-      control = createGrab({ key: "meta+c" }, loadMode);
+      control = createGrab({ key: () => parseGrabKey("meta+c") }, loadMode);
       const press = shiftG(PAGE, { key: "c", code: "KeyC", shiftKey: false, metaKey: true });
       window.dispatchEvent(press);
       expect(press.defaultPrevented).toBe(false);
@@ -257,6 +258,47 @@ describe("grab's key", () => {
     } finally {
       for (const name of names) Reflect.deleteProperty(globalThis, name);
     }
+  });
+});
+
+describe("a grab key set in the panel", () => {
+  test("shift and x is pressed: grab turns on at once, and the old key is a letter again", () => {
+    setWindow("");
+    control = createGrab({ key: () => parseGrabKey("shift+x") }, loadMode);
+    const old = shiftG(PAGE);
+    window.dispatchEvent(old);
+    expect(old.defaultPrevented).toBe(false);
+    expect(control.isOn()).toBe(false);
+    const press = shiftG(PAGE, { key: "X", code: "KeyX" });
+    window.dispatchEvent(press);
+    expect(press.defaultPrevented).toBe(true);
+    expect(control.isOn()).toBe(true);
+  });
+
+  test("ctrl and shift and x is held: a tap leaves grab off and the key to the page", () => {
+    setWindow("");
+    const names = ["HTMLElement", "HTMLInputElement", "HTMLTextAreaElement"] as const;
+    for (const name of names) {
+      Object.defineProperty(globalThis, name, { configurable: true, value: class {} });
+    }
+    try {
+      control = createGrab({ key: () => parseGrabKey("ctrl+shift+x") }, loadMode);
+      const press = shiftG(PAGE, { key: "X", code: "KeyX", ctrlKey: true });
+      window.dispatchEvent(press);
+      expect(press.defaultPrevented).toBe(false);
+      expect(control.isOn()).toBe(false);
+    } finally {
+      for (const name of names) Reflect.deleteProperty(globalThis, name);
+    }
+  });
+
+  test("no key while the panel records one, so the key pressed is not grab's", () => {
+    setWindow("");
+    control = createGrab({ key: () => null }, loadMode);
+    const press = shiftG(PAGE);
+    window.dispatchEvent(press);
+    expect(press.defaultPrevented).toBe(false);
+    expect(control.isOn()).toBe(false);
   });
 });
 

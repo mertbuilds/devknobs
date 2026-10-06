@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   defaultGrabKey,
   type GrabKeyLike,
-  grabKeyLabel,
+  grabKeyTypes,
   HOLD,
   HOLD_AFTER_COPY,
   HOLD_INPUT,
@@ -14,6 +14,7 @@ import {
   isGrabKey,
   keyMatches,
   parseGrabKey,
+  pressTurnsOn,
   releasesGrabKey,
 } from "../src/grab/keys";
 
@@ -159,14 +160,26 @@ describe("releasesGrabKey", () => {
   });
 });
 
-describe("grabKeyLabel", () => {
-  test("reads as the platform writes shortcuts", () => {
-    expect(grabKeyLabel(defaultGrabKey(), true)).toBe("⇧G");
-    expect(grabKeyLabel(defaultGrabKey(), false)).toBe("shift+G");
-    expect(grabKeyLabel(parseGrabKey("meta+c"), true)).toBe("⌘C");
-    expect(grabKeyLabel(parseGrabKey("ctrl+c"), false)).toBe("ctrl+C");
-    expect(grabKeyLabel(parseGrabKey("alt+shift+g"), true)).toBe("⌥⇧G");
-    expect(grabKeyLabel(parseGrabKey("alt+shift+g"), false)).toBe("alt+shift+G");
+describe("pressTurnsOn", () => {
+  test("shift alone or a function key turns grab on with a press", () => {
+    expect(pressTurnsOn(defaultGrabKey())).toBe(true);
+    expect(pressTurnsOn(parseGrabKey("shift+x"))).toBe(true);
+    expect(pressTurnsOn(parseGrabKey("f2"))).toBe(true);
+    expect(pressTurnsOn(parseGrabKey("alt+f2"))).toBe(true);
+  });
+
+  test("meta, ctrl or alt turns it on with a hold, so a tap stays the key it was", () => {
+    expect(pressTurnsOn(parseGrabKey("meta+c"))).toBe(false);
+    expect(pressTurnsOn(parseGrabKey("ctrl+shift+x"))).toBe(false);
+    expect(pressTurnsOn(parseGrabKey("alt+shift+g"))).toBe(false);
+  });
+});
+
+describe("grabKeyTypes", () => {
+  test("only a key with shift at most types, a function key never", () => {
+    expect(grabKeyTypes(parseGrabKey("shift+x"))).toBe(true);
+    expect(grabKeyTypes(parseGrabKey("f2"))).toBe(false);
+    expect(grabKeyTypes(parseGrabKey("alt+x"))).toBe(false);
   });
 });
 

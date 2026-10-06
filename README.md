@@ -78,12 +78,12 @@ setState({ ua: { preset: "iphone-safari" } });
 
 | option | default | what it does |
 | --- | --- | --- |
-| `hotkey` | `k` | letter that with shift toggles the panel |
+| `hotkey` | `k` | letter that with shift toggles the panel. a key set in the panel wins, see shortcuts |
 | `open` | the stored state, closed at first | start the panel open or closed |
 | `persist` | `true` | keep the knobs in `sessionStorage` |
 | `state` | none | knobs to apply on top of the stored state |
 | `grab` | `true` | press a key to grab elements, see grab below |
-| `grabKey` | `shift+g` | the key that grabs, such as `alt+shift+g` |
+| `grabKey` | `shift+g` | the key that grabs, such as `alt+shift+g`. a key set in the panel wins |
 | `grabColor` | the stored one, `auto` at first | the color of grab's boxes: `auto`, `blue`, `green`, `pink`, `orange`, `purple` or `cyan` |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
@@ -174,6 +174,23 @@ the footer lists the keys, most used first: `⇧K` for the panel, `/` for search
 the grab key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
 `Shift R` and `Shift Backspace` off a Mac. each one is a button too, so a click does what its key does. with
 the overflow knob on, the count of overflowing boxes sits above them.
+
+### shortcuts
+
+the panel, grab, replay and reset keys above are the defaults, and each can be
+set from the panel: the keyboard button at the end of the footer lists them,
+click one and press the new key, escape to cancel. a key needs shift, alt
+(option), ctrl or meta (⌘) with it, as a key alone types, except F1 to F12,
+which work alone too. the browser's own keys (meta or ctrl with c, v, x, z,
+a, w, r, t, q, l, n, f, p, s, h, m, a digit or the zoom keys, F5, F11, F12),
+`/` and a key another shortcut has are refused, with the reason under the
+row. a key with shift alone, like the defaults, is the panel's in its search
+and the page's in a field of the page, and so is one with alt, ctrl or meta;
+a function key works in fields too. a grab key with meta, ctrl or alt turns
+grab on with a hold, as above, and any other with a press. the keys set are
+kept in `localStorage` under `devknobs:keys`, for every tab of the origin,
+the width knob's frame included at once, and win over the `hotkey` and
+`grabKey` options. reset all leaves them; the x by a key puts that one back.
 
 the panel keeps the real color scheme and motion preference of the browser,
 whatever the knobs emulate for the page.
