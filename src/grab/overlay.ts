@@ -25,7 +25,7 @@ const SNAP = 0.5;
 /** How long the box and the label take to fade, in ms. */
 const FADE = 125;
 /** How long the box waits on its element once nothing is under the pointer, in ms. */
-const HIDE_WAIT = 100;
+export const HIDE_WAIT = 100;
 /** How often the bounds are read again, to catch the page's layout moving, in ms. */
 const SYNC_EVERY = 100;
 /** How long the toast stays, and the box with it, in ms. */
