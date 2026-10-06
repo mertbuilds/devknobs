@@ -16,11 +16,11 @@ import {
   type Screen,
   viewportOf,
 } from "../src/engine/browserui";
-import { DEVICES, deviceOf } from "../src/engine/devices";
+import { SCREENS, screenOf } from "../src/engine/devices";
 import type { OrientationValue } from "../src/types";
 
 function device(id: string): Screen {
-  const found = deviceOf(id);
+  const found = screenOf(id);
   if (!found) throw new Error(`no device ${id}`);
   return found;
 }
@@ -271,7 +271,7 @@ describe("layouts", () => {
   });
 
   test("every phone has a browser, and nothing else does", () => {
-    for (const preset of DEVICES) {
+    for (const preset of SCREENS) {
       expect(platformOf(preset.id) !== null).toBe(preset.kind === "phone");
     }
     expect(platformOf("iphone-16-pro")).toBe("safari");

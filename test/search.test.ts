@@ -67,7 +67,7 @@ describe("search", () => {
     expect(top("iphone")).toEqual(["device iphone-18-pro"]);
     expect(top("iphone pro max")).toEqual(["device iphone-18-pro-max"]);
     expect(top("iphone 16 pro max")).toEqual(["device iphone-16-pro-max"]);
-    expect(top("duo open")).toEqual(["device iphone-duo-open"]);
+    expect(top("duo")).toEqual(["device iphone-duo"]);
     expect(top("air")).toEqual(["device iphone-air"]);
     expect(top("pixel")).toEqual(["device pixel-10"]);
     expect(top("pixel 9 pro xl")).toEqual(["device pixel-9-pro-xl"]);
@@ -85,6 +85,17 @@ describe("search", () => {
     expect(top("rotate")).toEqual(["device -"]);
     expect(top("390x844")).toEqual(["device 390x844"]);
     expect(top("390 × 844")).toEqual(["device 390x844"]);
+  });
+
+  test("a foldable folded open or shut, by its posture or what folding it is called", () => {
+    expect(top("unfold")).toEqual(["device iphone-duo:open"]);
+    expect(top("fold")).toEqual(["device iphone-duo:closed"]);
+    expect(top("open")).toEqual(["device iphone-duo:open"]);
+    expect(top("closed")).toEqual(["device iphone-duo:closed"]);
+    expect(top("duo open")).toEqual(["device iphone-duo:open"]);
+    expect(top("duo closed")).toEqual(["device iphone-duo:closed"]);
+    const unfold = search("unfold", KNOBS)[0];
+    expect(unfold && resultText(unfold)).toEqual({ knob: "device", value: "iPhone Duo open" });
   });
 
   test("one word, every knob it names a value of", () => {

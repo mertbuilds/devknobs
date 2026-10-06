@@ -87,6 +87,7 @@ describe("parse", () => {
       height: "full",
       device: "none",
       orientation: "portrait",
+      posture: "closed",
       mock: true,
       touchPointer: true,
       browser: "auto",
@@ -154,6 +155,30 @@ describe("parse", () => {
     for (const id of ["iphone-16", "iphone-16-pro", "iphone-16-pro-max", "iphone-se"]) {
       expect(parse(JSON.stringify({ device: id })).device).toBe(id);
     }
+  });
+
+  test("keeps a foldable's posture, closed where it has none or one it does not know", () => {
+    const open = { width: 951, height: 669, device: "iphone-duo", orientation: "landscape", posture: "open" };
+    expect(parse(JSON.stringify(open))).toMatchObject(open);
+    expect(parse(JSON.stringify({ device: "iphone-duo" })).posture).toBe("closed");
+    expect(parse(JSON.stringify({ device: "iphone-duo", posture: "ajar" })).posture).toBe("closed");
+  });
+
+  test("brings a session from when each Duo screen was a device of its own to the Duo in that posture", () => {
+    const shut = { width: 466, height: 678, device: "iphone-duo-closed", orientation: "portrait" };
+    expect(parse(JSON.stringify(shut))).toMatchObject({
+      ...shut,
+      device: "iphone-duo",
+      posture: "closed",
+    });
+    const open = { width: 951, height: 669, device: "iphone-duo-open", orientation: "landscape" };
+    expect(parse(JSON.stringify(open))).toMatchObject({
+      ...open,
+      device: "iphone-duo",
+      posture: "open",
+    });
+    // Its size is still the Duo's, so the device stays through a merge.
+    expect(merge(parse(JSON.stringify(open)), {})).toMatchObject({ device: "iphone-duo" });
   });
 
   test("draws a mock when the session predates it, and keeps one turned off", () => {

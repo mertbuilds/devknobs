@@ -68,6 +68,35 @@ export function nativeScheme(scheme: SchemeValue): boolean {
   }
 }
 
+/**
+ * Does the browser hand a frame element's `color-scheme` to the page inside
+ * as its `prefers-color-scheme`? css color adjust says it should (csswg #7493,
+ * chrome 129, firefox 105). Asked once, of a blank probe frame that takes each
+ * scheme in turn, so a dark system cannot pass for support.
+ */
+let schemeHandover: boolean | null = null;
+
+export function handsSchemeDown(root: Node): boolean {
+  if (schemeHandover !== null) return schemeHandover;
+  if (!root.isConnected) return false;
+  const probe = document.createElement("iframe");
+  probe.style.cssText = "position:absolute;width:0;height:0;border:0;visibility:hidden";
+  root.appendChild(probe);
+  const ask = (scheme: "light" | "dark"): boolean => {
+    probe.style.colorScheme = scheme;
+    // The frame only sees the scheme once the style above it is current.
+    getComputedStyle(probe).getPropertyValue("color-scheme");
+    return probe.contentWindow?.matchMedia(`(prefers-color-scheme: ${scheme})`).matches === true;
+  };
+  try {
+    schemeHandover = ask("dark") && ask("light");
+  } catch {
+    schemeHandover = false;
+  }
+  probe.remove();
+  return schemeHandover;
+}
+
 /** The knobs that bring the frame up. */
 export type FrameKnobs = Pick<DevknobsState, "width" | "height" | "frame" | "dpr" | "vision">;
 

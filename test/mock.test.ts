@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEVICES, turn } from "../src/engine/devices";
+import { SCREENS, turn } from "../src/engine/devices";
 import { type Mock, mockOf, type Part } from "../src/engine/mock";
 
 function kinds(id: string): string[] {
@@ -18,7 +18,7 @@ function center(part: Part | undefined): { x: number; y: number } {
 
 describe("mockOf", () => {
   test("draws phones and tablets, and nothing for laptops, desktops or no device", () => {
-    for (const device of DEVICES) {
+    for (const device of SCREENS) {
       const handheld = device.kind === "phone" || device.kind === "tablet";
       expect(mockOf(device.id, "portrait") !== null).toBe(handheld);
       expect(mockOf(device.id, "landscape") !== null).toBe(handheld);
@@ -53,7 +53,7 @@ describe("mockOf", () => {
   });
 
   test("is the screen and the room around it, either way up", () => {
-    for (const device of DEVICES) {
+    for (const device of SCREENS) {
       for (const way of ["portrait", "landscape"] as const) {
         const mock = mockOf(device.id, way);
         if (!mock) continue;
@@ -247,7 +247,7 @@ describe("mockOf", () => {
   });
 
   test("hangs the buttons on the body's edge", () => {
-    for (const device of DEVICES) {
+    for (const device of SCREENS) {
       const mock = mockOf(device.id, "portrait");
       if (!mock) continue;
       const { body } = mock;

@@ -10,6 +10,14 @@ const RIM = "#2a2a2c";
 /** How much of the band shows around the front glass, in css px of the screen. */
 const BAND = 2.5;
 
+/**
+ * How far black runs past the screen's edge under a picture of the body, in
+ * css px of the screen. The picture's opening and the screen share an edge,
+ * and where it falls between device pixels both are drawn part way, so the
+ * mat would show through as a light line. The rim of the body there is black.
+ */
+export const UNDER = 2;
+
 /** A device's body over the frame, drawn by `drawMock`, in the letterbox's shadow root. */
 export const MOCK_CSS = `
 /* Clips the frame to the screen's corners in a mock, in the body's color so

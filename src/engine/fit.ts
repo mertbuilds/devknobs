@@ -1,5 +1,5 @@
-import type { DevknobsState, SideValue } from "../types";
-import { deviceOf } from "./devices";
+import type { DevknobsState, PostureValue, SideValue } from "../types";
+import { formOf } from "./devices";
 import type { Sides } from "./mock";
 import type { Point } from "./zoom";
 
@@ -125,10 +125,10 @@ export function origin(place: Fit, room: { width: number; height: number }): Poi
  */
 export function label(
   place: Fit,
-  knobs: Pick<DevknobsState, "dpr" | "height" | "device">,
+  knobs: Pick<DevknobsState, "dpr" | "height" | "device"> & { posture?: PostureValue },
   page: { width: number; height: number } = place,
 ): string {
-  const name = deviceOf(knobs.device)?.label;
+  const name = formOf(knobs.device, knobs.posture)?.label;
   let text = name ? `${name} · ${page.width}` : String(page.width);
   if (typeof knobs.height === "number") text += ` × ${page.height}`;
   if (typeof knobs.dpr === "number") text += ` · ${knobs.dpr}x`;

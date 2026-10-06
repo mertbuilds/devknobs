@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { bezelFiles, bezelUrlsModule } from "../scripts/bezelurls";
 import { BEZELS, type Bezel, bezelMock, bezelUrl, densityOf, loadBezel } from "../src/engine/bezels";
-import { DEVICES, deviceOf, turn } from "../src/engine/devices";
+import { SCREENS, screenOf, turn } from "../src/engine/devices";
 import { mockOf, placeIn } from "../src/engine/mock";
 import { fit, STRIP } from "../src/engine/width";
 
@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe("BEZELS", () => {
   test("every iPhone and every Pixel has an image, and nothing else does", () => {
-    const ids = DEVICES.filter((device) => /^(iphone|pixel)-/.test(device.id));
+    const ids = SCREENS.filter((device) => /^(iphone|pixel)-/.test(device.id));
     expect(Object.keys(BEZELS).sort()).toEqual(ids.map((device) => device.id).sort());
     expect(SHOTS).toHaveLength(21);
     expect(new Set(SHOTS.map(([, , shot]) => shot.file)).size).toBe(21);
@@ -48,7 +48,7 @@ describe("BEZELS", () => {
 
   test("each opening is its device's screen at the image's density, never stretched", () => {
     for (const [id, way, shot] of SHOTS) {
-      const device = deviceOf(id);
+      const device = screenOf(id);
       if (!device) throw new Error(`no device ${id}`);
       const screen = turn(device, way);
       const density = densityAt(id, shot);
@@ -163,7 +163,7 @@ describe("bezelMock", () => {
 
   test("is the screen and the room around it, either way up", () => {
     for (const [id] of Object.entries(BEZELS)) {
-      const device = deviceOf(id);
+      const device = screenOf(id);
       if (!device) throw new Error(`no device ${id}`);
       for (const way of ["portrait", "landscape"] as const) {
         const mock = bezelMock(id, way);
@@ -210,7 +210,7 @@ describe("bezelMock", () => {
   test("fits the whole phone, buttons and all, in the letterbox", () => {
     const letterbox = { width: 1200, height: 800 + STRIP };
     for (const [id, way] of SHOTS) {
-      const device = deviceOf(id);
+      const device = screenOf(id);
       const mock = bezelMock(id, way);
       if (!device || !mock) throw new Error(`no bezel ${id}`);
       const place = fit({ ...turn(device, way), zoom: "fit" }, letterbox, { mock: mock.inset });

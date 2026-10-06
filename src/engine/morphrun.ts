@@ -1,8 +1,6 @@
 import { baseMatchMedia } from "./matchmedia";
-import type { Rect } from "./mock";
 import {
   bezier,
-  coverAt,
   type Curve,
   ease,
   FADE_CURVE,
@@ -12,16 +10,14 @@ import {
   lerp,
   MORPH_TIME,
   plan,
-  type Pose,
-  poseAt,
-  poseOf,
-  poseTransform,
   type Run,
   type Step,
   rounded,
   sameHole,
   sequence,
 } from "./morph";
+import { stopFold } from "./foldrun";
+import { stopTurn } from "./turnrun";
 
 /**
  * Runs a device change's plan on the frame's nodes, a step at a time. What it
@@ -77,121 +73,6 @@ let waiting = 0;
 let cut = "";
 /** Keeps the opening on the screen while the case and the page come in. */
 let tracking = 0;
-
-/**
- * What a device turning moves: the element that holds the case and the
- * screen, its top left in the letterbox and the scale it is drawn at there,
- * where the screen stood as the turn started, and the cover over its page.
- */
-export interface Spin {
-  unit: HTMLElement;
-  corner: { x: number; y: number };
-  base: number;
-  start: Rect;
-  cover: HTMLElement;
-}
-
-/** A device turning on its way: how it stands now, and what draws it the way it ends up. */
-let spin: { spin: Spin; pose: Pose; frame: number; done: () => void } | null = null;
-/** The cover over the page on the screen of a device that turns, and how far over it is. */
-let cover: { node: HTMLElement; share: number; frame: number } | null = null;
-
-/** Is a device turning? */
-export function turning(): boolean {
-  return spin !== null;
-}
-
-/** What the device turning on its way moves, so a turn back starts where it is. */
-export function spinning(): Spin | null {
-  return spin?.spin ?? null;
-}
-
-/** Stand the device at `pose`. */
-function stand(turn: Spin, pose: Pose): void {
-  turn.unit.style.transform = poseTransform(turn.start, pose, turn.corner, turn.base);
-}
-
-/** Put the cover `share` of the way over the page, and stop it where it was going. */
-function coverTo(node: HTMLElement, share: number): void {
-  if (cover) window.cancelAnimationFrame(cover.frame);
-  cover = share > 0 ? { node, share, frame: 0 } : null;
-  node.style.opacity = String(share);
-  node.hidden = share <= 0;
-}
-
-/**
- * Take the cover off the page laid out the other way, once the page in the
- * frame has had two frames to lay itself out at its new size.
- */
-function uncover(): void {
-  const lifting = cover;
-  if (!lifting) return;
-  const from = lifting.share;
-  let begin: number | null = null;
-  let wait = 2;
-  const step = (now: number) => {
-    if (wait > 0) {
-      wait--;
-      lifting.frame = window.requestAnimationFrame(step);
-      return;
-    }
-    begin ??= now;
-    const elapsed = now - begin;
-    const share = coverAt(from, 0, elapsed, MORPH_TIME.uncover);
-    if (elapsed >= MORPH_TIME.uncover) {
-      coverTo(lifting.node, 0);
-      return;
-    }
-    lifting.share = share;
-    lifting.node.style.opacity = String(share);
-    lifting.frame = window.requestAnimationFrame(step);
-  };
-  lifting.frame = window.requestAnimationFrame(step);
-}
-
-/**
- * Turn the device to `to` a frame at a time, from where a turn on its way got
- * to, or from where it stands, in view all along. In its last part a cover in
- * the page's color comes over the page, `done` draws the device the way it
- * ends up, in the same frame as the turn's last, and the cover comes off the
- * page laid out the other way. A turn back to the way the page is laid out
- * takes the cover off as it goes. A quarter turn takes the whole time.
- */
-export function turnTo(turn: Spin, to: Pose, done: () => void): void {
-  const from = spin?.pose ?? poseOf(turn.start);
-  if (spin) window.cancelAnimationFrame(spin.frame);
-  const time = (MORPH_TIME.turn * Math.abs(to.angle - from.angle)) / 90;
-  const over = cover?.share ?? 0;
-  const across = to.angle === 0 ? 0 : 1;
-  coverTo(turn.cover, over);
-  const going = { spin: turn, pose: from, frame: 0, done };
-  spin = going;
-  let begin: number | null = null;
-  const step = (now: number) => {
-    begin ??= now;
-    const elapsed = now - begin;
-    going.pose = poseAt(from, to, elapsed, time);
-    stand(turn, going.pose);
-    coverTo(turn.cover, coverAt(over, across, elapsed, time));
-    if (elapsed < time) {
-      going.frame = window.requestAnimationFrame(step);
-      return;
-    }
-    spin = null;
-    done();
-    uncover();
-  };
-  going.frame = window.requestAnimationFrame(step);
-}
-
-/** Land a device turning where it goes, at once, the page uncovered. */
-export function finishTurn(): void {
-  const last = spin;
-  spin = null;
-  if (last) window.cancelAnimationFrame(last.frame);
-  if (cover) coverTo(cover.node, 0);
-  last?.done();
-}
 
 /** Is a device change on its way? */
 export function running(): boolean {
@@ -457,9 +338,8 @@ export function start(scene: Scene, target: "open" | "closed"): void {
 export function halt(): void {
   run?.cancel();
   run = null;
-  if (spin) window.cancelAnimationFrame(spin.frame);
-  spin = null;
-  if (cover) coverTo(cover.node, 0);
+  stopFold();
+  stopTurn();
   for (const flight of [...flights]) flight.stop();
   flights = [];
   if (waiting) window.cancelAnimationFrame(waiting);

@@ -22,7 +22,7 @@ import type {
   VisionValue,
 } from "../types";
 import { mergeClock } from "./clock";
-import { deviceOf, hold, settle } from "./devices";
+import { deviceOf, formParent, hold, POSTURES, settle } from "./devices";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
 import { clampZoom } from "./zoom";
 
@@ -83,6 +83,7 @@ export const DEFAULT_STATE: DevknobsState = {
   height: "full",
   device: "none",
   orientation: "portrait",
+  posture: "closed",
   mock: true,
   touchPointer: true,
   browser: "auto",
@@ -237,6 +238,9 @@ export function parse(json: string | null | undefined, place?: string | null): D
   const ua = record(state.ua);
   const panel = record(state.panel);
   const device = text(state.device, DEFAULT_STATE.device);
+  // A session stored when each of a foldable's screens was a device of its own
+  // has that foldable, standing the way the screen does.
+  const folded = formParent(device);
   const zoom = numberOr(state.zoom, "fit", DEFAULT_STATE.zoom);
   return {
     scheme: oneOf(state.scheme, SCHEMES, DEFAULT_STATE.scheme),
@@ -278,8 +282,9 @@ export function parse(json: string | null | undefined, place?: string | null): D
     spacing: bool(state.spacing, DEFAULT_STATE.spacing),
     width: numberOr(state.width, "full", DEFAULT_STATE.width),
     height: numberOr(state.height, "full", DEFAULT_STATE.height),
-    device: deviceOf(device) ? device : DEFAULT_STATE.device,
+    device: folded?.device ?? (deviceOf(device) ? device : DEFAULT_STATE.device),
     orientation: oneOf(state.orientation, ORIENTATIONS, DEFAULT_STATE.orientation),
+    posture: folded?.posture ?? oneOf(state.posture, [...POSTURES], DEFAULT_STATE.posture),
     // A session stored before the mock draws one.
     mock: bool(state.mock, DEFAULT_STATE.mock),
     // A session stored before the touch pointer has the mouse act as a finger.

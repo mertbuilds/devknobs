@@ -97,6 +97,25 @@ export const VIEWPORT_CSS = `
   transform-origin: 0 0;
 }
 .glass { position: relative; }
+/* A foldable folding: copies of its bodies stand in for it over the mat,
+   under the readout, and take no pointer. */
+.fold {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.fold > div {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.fold .face, .fold .face > div {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
 /* Where a phone's browser leaves the page in its screen. */
 .page.placed { position: absolute; }
 iframe {

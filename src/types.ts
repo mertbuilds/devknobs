@@ -95,6 +95,9 @@ export type HeightValue = number | "full";
 /** Which way the frame is held. Landscape puts its long side across. */
 export type OrientationValue = "portrait" | "landscape";
 
+/** How a foldable stands: folded shut on its cover screen, or open on its inner one. */
+export type PostureValue = "closed" | "open";
+
 /**
  * Where a phone's browser keeps its bars: `auto` for the browser's own
  * default, Safari's compact or Chrome's top, or `off` for none.
@@ -196,6 +199,8 @@ export interface DevknobsState {
    * holds a device that way.
    */
   orientation: OrientationValue;
+  /** How a device that folds stands. Folding it sets the width and height. */
+  posture: PostureValue;
   /** Draw a phone's or a tablet's body around its frame. */
   mock: boolean;
   /** On a device with a touch screen, the mouse acts as a finger inside its frame. */

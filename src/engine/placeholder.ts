@@ -53,6 +53,7 @@ export type Drawn = Pick<
   | "scheme"
   | "device"
   | "orientation"
+  | "posture"
   | "mock"
   | "browser"
   | "bars"
@@ -89,6 +90,7 @@ export function snapshotKey(knobs: Drawn, view: WindowSize): string {
     knobs.scheme,
     knobs.device,
     knobs.orientation,
+    knobs.posture,
     knobs.mock,
     knobs.browser,
     knobs.bars,

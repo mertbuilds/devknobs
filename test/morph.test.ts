@@ -6,6 +6,7 @@ import {
   ease,
   FADE_CURVE,
   fitCorners,
+  folds,
   holeAt,
   holePath,
   lerpRect,
@@ -32,7 +33,7 @@ import {
   windowRect,
 } from "../src/engine/morph";
 
-const NONE = { ...UNFRAMED, device: "none", orientation: "portrait" } as const;
+const NONE = { ...UNFRAMED, device: "none", orientation: "portrait", posture: "closed" } as const;
 const PHONE = { ...NONE, device: "iphone-18-pro", width: 402, height: 874 } as const;
 
 /** What shows with no frame, and with a frame as it stays. */
@@ -251,6 +252,22 @@ describe("what moves", () => {
     expect(shapeOf({ ...NONE, width: 390 })).toBe("frame");
     expect(shapeOf(PHONE)).toBe("iphone-18-pro|portrait");
     expect(shapeOf({ ...PHONE, orientation: "landscape" })).toBe("iphone-18-pro|landscape");
+  });
+
+  test("names a foldable by its posture too, and tells a fold from a turn", () => {
+    const duo = { ...NONE, device: "iphone-duo", width: 466, height: 678 } as const;
+    const shut = shapeOf(duo);
+    const open = shapeOf({ ...duo, posture: "open", orientation: "landscape" });
+    expect(shut).toBe("iphone-duo|portrait|closed");
+    expect(open).toBe("iphone-duo|landscape|open");
+    expect(folds(shut, open)).toBe(true);
+    expect(folds(open, shut)).toBe(true);
+    expect(turnOf(shut, open)).toBe(0);
+    // Open and held upright is a change of screen, not a fold, nor a turn.
+    expect(folds(shut, "iphone-duo|portrait|open")).toBe(false);
+    expect(turnOf(shut, "iphone-duo|portrait|open")).toBe(0);
+    expect(turnOf(shut, "iphone-duo|landscape|closed")).toBe(-90);
+    expect(folds("iphone-18-pro|portrait", "iphone-18-pro|landscape")).toBe(false);
   });
 
   test("moves for a device that comes, goes, changes or turns", () => {

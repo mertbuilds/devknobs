@@ -1,6 +1,6 @@
 import { layoutOf, layoutOptions, platformOf } from "../engine/browserui";
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
-import { DEVICES, deviceOf, hasTouch } from "../engine/devices";
+import { DEVICES, deviceOf, formId, formOf, hasTouch, POSTURES } from "../engine/devices";
 import { frameForced } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
@@ -700,6 +700,25 @@ function parseSize(text: string): Option | null {
 
 const ORIENTATIONS = options("portrait", "landscape");
 
+/** What search finds each posture by, beside its name. */
+const POSTURE_ALIASES = { closed: ["fold", "folded", "shut"], open: ["unfold", "unfolded"] } as const;
+
+/** A foldable in each of its postures, as search finds them: `iphone-duo:open` unfolds the Duo. */
+const POSTURE_OPTIONS: readonly Option[] = DEVICES.flatMap((device) =>
+  device.postures
+    ? POSTURES.map((posture) => ({
+        value: `${device.id}:${posture}`,
+        label: `${device.label} ${posture}`,
+        aliases: POSTURE_ALIASES[posture],
+      }))
+    : [],
+);
+
+/** The screen in use, a foldable's in its posture. */
+function screenNow(state: DevknobsState): string {
+  return formId(state.device, state.posture);
+}
+
 /** The frame's size as the device knob reads it, such as `390x844` or `fullx700`. */
 function sizeValue(state: DevknobsState): string {
   return typeof state.height === "number" ? `${state.width}x${state.height}` : "none";
@@ -723,13 +742,15 @@ const DEVICE: Knob = {
   read: (state) => (state.device === "none" ? sizeValue(state) : state.device),
   write: (value, state) => {
     if (value === "portrait" || value === "landscape") return { orientation: value };
+    const posture = POSTURES.find((name) => value.endsWith(`:${name}`));
+    if (posture) return { device: value.slice(0, -posture.length - 1), posture };
     const size = /^(\d+|full)x(\d+)$/.exec(value);
     if (size) {
       return { width: size[1] === "full" ? "full" : Number(size[1]), height: Number(size[2]) };
     }
     if (value !== "none") return { device: value };
     // None takes away what the device brought, a dpr set since too.
-    const device = deviceOf(state.device);
+    const device = formOf(state.device, state.posture);
     return device && state.dpr === device.dpr
       ? { device: "none", width: "full", height: "full", dpr: "system" }
       : { device: "none", width: "full", height: "full" };
@@ -740,20 +761,23 @@ const DEVICE: Knob = {
     width: DEFAULT_STATE.width,
     height: DEFAULT_STATE.height,
     dpr: DEFAULT_STATE.dpr,
+    posture: DEFAULT_STATE.posture,
   },
   brief: (state) => {
     const device = deviceOf(state.device);
-    return device ? `${device.label} · ${state.orientation}` : nameOf(DEVICE, sizeValue(state));
+    if (!device) return nameOf(DEVICE, sizeValue(state));
+    const posture = device.postures ? ` · ${state.posture}` : "";
+    return `${device.label}${posture} · ${state.orientation}`;
   },
   name: (value) => value.replace("x", " × "),
   parse: parseSize,
   bare: true,
-  extra: () => ORIENTATIONS,
+  extra: () => [...ORIENTATIONS, ...POSTURE_OPTIONS],
 };
 
 /** Does the device in use have a mock to draw? */
 export function hasMock(state: DevknobsState): boolean {
-  return mockOf(state.device, state.orientation) !== null;
+  return mockOf(screenNow(state), state.orientation) !== null;
 }
 
 const MOCK: Knob = {
@@ -789,7 +813,7 @@ const TOUCH_POINTER: Knob = {
 
 /** The layout of the phone's browser in use, or off for a device without one. */
 function layoutNow(state: DevknobsState): string {
-  return layoutOf(state.device, state.browser) ?? "off";
+  return layoutOf(screenNow(state), state.browser) ?? "off";
 }
 
 const BROWSER: Knob = {
@@ -809,8 +833,9 @@ const BROWSER: Knob = {
   write: (value) => ({ browser: value as BrowserValue }),
   reset: { browser: DEFAULT_STATE.browser },
   // The browser's own default says nothing.
-  brief: (state) => (layoutNow(state) === layoutOptions(state.device)[0] ? "" : layoutNow(state)),
-  offers: (state) => layoutOptions(state.device),
+  brief: (state) =>
+    layoutNow(state) === layoutOptions(screenNow(state))[0] ? "" : layoutNow(state),
+  offers: (state) => layoutOptions(screenNow(state)),
 };
 
 /** Are the browser's bars drawn, so they can be minimized? */
@@ -837,7 +862,7 @@ const BARS: Knob = {
 
 /** Is Safari drawn, so its page can run under its bars? */
 function safariShown(state: DevknobsState): boolean {
-  return platformOf(state.device) === "safari" && barsShown(state);
+  return platformOf(screenNow(state)) === "safari" && barsShown(state);
 }
 
 const EDGE_TO_EDGE: Knob = {
@@ -898,7 +923,7 @@ const DPR: Knob = {
   reset: { dpr: DEFAULT_STATE.dpr },
   // A device's dpr is the device row's.
   base: (state) => {
-    const device = deviceOf(state.device);
+    const device = formOf(state.device, state.posture);
     return device ? String(device.dpr) : undefined;
   },
   brief: (state) => `dpr ${state.dpr}`,
@@ -1022,7 +1047,7 @@ const UA: Knob = {
   reset: { ua: { preset: DEFAULT_STATE.ua.preset } },
   // A device says its own.
   brief: (state) =>
-    deviceOf(state.device)?.ua === state.ua.preset ? "" : nameOf(UA, state.ua.preset),
+    formOf(state.device, state.posture)?.ua === state.ua.preset ? "" : nameOf(UA, state.ua.preset),
   parse: parseUserAgent,
 };
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { DEVICES, turn } from "../src/engine/devices";
+import { SCREENS, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
@@ -90,7 +90,7 @@ describe("fit", () => {
       { width: 800, height: 600 },
       { width: 390, height: 700 },
     ];
-    for (const device of DEVICES) {
+    for (const device of SCREENS) {
       for (const way of ["portrait", "landscape"] as const) {
         const size = turn(device, way);
         for (const letterbox of windows) {
@@ -214,7 +214,7 @@ describe("fit", () => {
       { width: 800, height: 600 },
       { width: 390, height: 700 },
     ];
-    for (const device of DEVICES) {
+    for (const device of SCREENS) {
       for (const way of ["portrait", "landscape"] as const) {
         const mock = mockOf(device.id, way);
         if (!mock) continue;
@@ -381,6 +381,15 @@ class FakeElement extends EventTarget {
     this.parent = null;
   }
 
+  insertBefore(node: FakeElement, before: FakeElement | null): FakeElement {
+    node.remove();
+    node.parent = this;
+    const at = before ? this.children.indexOf(before) : -1;
+    if (at < 0) this.children.push(node);
+    else this.children.splice(at, 0, node);
+    return node;
+  }
+
   appendChild(node: FakeElement): FakeElement {
     this.append(node);
     return node;
@@ -466,6 +475,7 @@ const KNOBS = {
   scheme: "system",
   device: "none",
   orientation: "portrait",
+  posture: "closed",
   mock: true,
   browser: "auto",
   bars: "auto",
@@ -970,6 +980,149 @@ describe("the frame over the page", () => {
     apply(KNOBS);
     expect(assigned).toEqual([]);
     expect(location.href).toBe(EARLIER);
+  });
+});
+
+describe("a foldable folding", () => {
+  const DUO = { ...KNOBS, device: "iphone-duo", dpr: "system", browser: "off" } as const;
+  const SHUT = { ...DUO, posture: "closed", orientation: "portrait", width: 466, height: 678 } as const;
+  const OPEN = { ...DUO, posture: "open", orientation: "landscape", width: 951, height: 669 } as const;
+  let frames: FrameRequestCallback[] = [];
+  let reduce = true;
+
+  beforeEach(() => {
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    reduce = true;
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: reduce, media: query }));
+    frames = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+  });
+
+  const byClass = (name: string) =>
+    everything().find((element) => String(Reflect.get(element, "className")).split(" ").includes(name));
+
+  /** How the device is drawn: the frame's size, the screen's corners and place, the body. */
+  function drawnAs(): string[] {
+    const style = (name: string, key: string) => String(Reflect.get(byClass(name)?.style ?? {}, key) ?? "");
+    return [
+      style("glass", "borderRadius"),
+      style("glass", "left"),
+      style("glass", "top"),
+      style("screen", "left"),
+      style("screen", "top"),
+      style("screen", "transform"),
+      String(Reflect.get(frameElement().style, "width")),
+      String(Reflect.get(frameElement().style, "height")),
+      byClass("mock")?.getAttribute("viewBox") ?? "",
+    ];
+  }
+
+  /** Run the frames asked for, 16 ms apart, until none is asked for or `until` ms. */
+  function play(until = 2000): void {
+    for (let now = 0; now <= until && frames.length > 0; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+  }
+
+  /** How the device is drawn for `value` when it comes up that way. */
+  function shown(value: typeof SHUT | typeof OPEN): string[] {
+    apply(value);
+    const drawn = drawnAs();
+    reset();
+    return drawn;
+  }
+
+  test("folds open in view onto the open screen as it is drawn picked open, and shut onto the folded one", () => {
+    const open = shown(OPEN);
+    const shut = shown(SHUT);
+    expect(open[0]).toBe("55px 55px 55px 55px");
+    expect(shut[0]).toBe("8px 59px 59px 8px");
+    apply(SHUT);
+    expect(drawnAs()).toEqual(shut);
+    reduce = false;
+    apply(OPEN);
+    // Held folded under a cover while the copies of its bodies fold over the mat.
+    for (let now = 0; now < 300; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    const layer = byClass("fold");
+    expect(layer?.children[0]?.children).toHaveLength(3);
+    expect(Reflect.get(byClass("screen")?.style ?? {}, "visibility")).toBe("hidden");
+    expect(drawnAs()).toEqual(shut);
+    expect(Reflect.get(byClass("back")?.style ?? {}, "clipPath") || "").toBe("");
+    play();
+    expect(byClass("fold")).toBeUndefined();
+    expect(Reflect.get(byClass("screen")?.style ?? {}, "visibility")).toBe("");
+    expect(drawnAs()).toEqual(open);
+    const cover = byClass("glass")?.children.at(-1);
+    expect(Reflect.get(cover ?? {}, "hidden")).toBe(true);
+    apply(SHUT);
+    play();
+    expect(byClass("fold")).toBeUndefined();
+    expect(drawnAs()).toEqual(shut);
+  });
+
+  test("folds back from where it got to, and lands at once for a turn", () => {
+    const shut = shown(SHUT);
+    apply(SHUT);
+    reduce = false;
+    apply(OPEN);
+    for (let now = 0; now < 250; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    expect(byClass("fold")).toBeDefined();
+    apply(SHUT);
+    play();
+    expect(byClass("fold")).toBeUndefined();
+    expect(drawnAs()).toEqual(shut);
+    apply(OPEN);
+    for (let now = 0; now < 250; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    // A turn while it folds lands the fold, and turns from there.
+    apply({ ...OPEN, orientation: "portrait", width: 669, height: 951 });
+    expect(byClass("fold")).toBeUndefined();
+    expect(Reflect.get(byClass("screen")?.style ?? {}, "visibility")).toBe("");
+    expect(Reflect.get(frameElement().style, "width")).toBe("951px");
+    play();
+    expect(Reflect.get(frameElement().style, "width")).toBe("669px");
+  });
+
+  test("turns in either posture", () => {
+    apply(OPEN);
+    reduce = false;
+    apply({ ...OPEN, orientation: "portrait", width: 669, height: 951 });
+    expect(byClass("fold")).toBeUndefined();
+    play();
+    expect(Reflect.get(frameElement().style, "width")).toBe("669px");
+    apply({ ...SHUT, orientation: "landscape", width: 678, height: 466 });
+    play();
+    expect(Reflect.get(frameElement().style, "width")).toBe("678px");
+  });
+
+  test("leaves nothing behind when the frame goes mid fold, and swaps at once with less movement", () => {
+    apply(SHUT);
+    reduce = false;
+    apply(OPEN);
+    for (let now = 0; now < 250; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    reset();
+    expect(everything().some((element) => Reflect.get(element, "className") === "fold")).toBe(false);
+    reduce = true;
+    apply(SHUT);
+    apply(OPEN);
+    expect(byClass("fold")).toBeUndefined();
+    expect(Reflect.get(frameElement().style, "width")).toBe("951px");
   });
 });
 

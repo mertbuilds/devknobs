@@ -5,6 +5,7 @@ import {
   browse,
   CATEGORIES,
   combine,
+  hasMock,
   isActive,
   KNOBS,
   knobOf,
@@ -168,6 +169,26 @@ describe("summary", () => {
     expect(says("device", { device: "pixel-9", dpr: 1 })).toBe("Pixel 9 · portrait");
     expect(says("viewport", { device: "pixel-9", dpr: 1 })).toBe("dpr 1");
     expect(says("viewport", { device: "pixel-9" })).toBe("");
+  });
+
+  test("a foldable says its posture too, folds from a search pick, and its row puts it back", () => {
+    expect(says("device", { device: "iphone-duo" })).toBe("iPhone Duo · closed · portrait");
+    expect(says("device", { device: "iphone-duo", posture: "open" })).toBe(
+      "iPhone Duo · open · landscape",
+    );
+    expect(says("viewport", { device: "iphone-duo", posture: "open" })).toBe("");
+    const device = knobOf("device");
+    const shut = state({ device: "iphone-duo" });
+    expect(device.write("iphone-duo:open", shut)).toEqual({ device: "iphone-duo", posture: "open" });
+    expect(merge(shut, device.write("iphone-duo:open", shut))).toMatchObject({
+      posture: "open",
+      width: 951,
+      height: 669,
+    });
+    expect(device.read(merge(shut, { posture: "open" }))).toBe("iphone-duo");
+    expect(knobOf("browser").read(merge(shut, { posture: "open" }))).toBe("compact");
+    expect(hasMock(merge(shut, { posture: "open" }))).toBe(true);
+    expect(resetPatch(row("device"))).toMatchObject({ posture: "closed" });
   });
 
   test("the user agent a device brought says nothing, another one its name", () => {

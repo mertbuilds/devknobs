@@ -7,8 +7,9 @@ import type { Rect } from "./mock";
  * The move from one device to another: the page fades out, the corners of the
  * mat's opening round, the mat closes in from the window's edges to the new
  * screen, and the case and the page fade in. A device that turns stays in view
- * and turns as one. Everything here is pure: the plan, the curves and the
- * shapes. The frame runs it.
+ * and turns as one, and a foldable folds in view, as fold.ts lays it out.
+ * Everything here is pure: the plan, the curves and the shapes. The frame
+ * runs it.
  */
 
 /** How long each part takes, in ms, and how long the page in the frame may keep the fade in waiting. */
@@ -23,8 +24,12 @@ export const MORPH_TIME = {
   in: 180,
   /** A device turns a quarter, to be held the other way. */
   turn: 400,
-  /** The page comes back on the screen of a device that turned, laid out the other way. */
+  /** The page comes back on the screen of a device that turned or folded, laid out the other way. */
   uncover: 150,
+  /** A foldable folds open or shut, a half turn of its hinge. */
+  fold: 480,
+  /** The page goes under a cover in its own color before a foldable folds. */
+  foldCover: 90,
   wait: 1200,
 } as const;
 
@@ -274,19 +279,34 @@ export function poseTransform(
  * to the left as its mock turns, and back the other way.
  */
 export function turnOf(from: string, to: string): number {
-  const [device, held] = from.split("|");
-  const [next, now] = to.split("|");
-  if (!held || !now || device !== next || held === now) return 0;
+  const [device, held, posture] = from.split("|");
+  const [next, now, after] = to.split("|");
+  if (!held || !now || device !== next || held === now || posture !== after) return 0;
   return now === "landscape" ? -90 : 90;
 }
 
 /**
- * Which way the frame is drawn, for a move: `closed`, `frame` for one with no
- * device, or the device and the way it is held.
+ * Does going from one shape to the other fold a foldable open or shut? Its
+ * hinge stays where it is, so the screen it goes to is held the other way.
  */
-export function shapeOf(knobs: FrameKnobs & Pick<DevknobsState, "device" | "orientation">): string {
+export function folds(from: string, to: string): boolean {
+  const [device, held, posture] = from.split("|");
+  const [next, now, after] = to.split("|");
+  return Boolean(posture && after) && device === next && posture !== after && held !== now;
+}
+
+/**
+ * Which way the frame is drawn, for a move: `closed`, `frame` for one with no
+ * device, or the device and the way it is held, and a foldable's posture.
+ */
+export function shapeOf(
+  knobs: FrameKnobs & Pick<DevknobsState, "device" | "orientation" | "posture">,
+): string {
   if (!needsFrame(knobs)) return "closed";
-  return deviceOf(knobs.device) ? `${knobs.device}|${knobs.orientation}` : "frame";
+  const device = deviceOf(knobs.device);
+  if (!device) return "frame";
+  const held = `${knobs.device}|${knobs.orientation}`;
+  return device.postures ? `${held}|${knobs.posture}` : held;
 }
 
 /**

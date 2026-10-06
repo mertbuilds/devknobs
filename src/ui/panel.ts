@@ -1,5 +1,6 @@
 import * as engine from "../engine";
 import { now, realNow } from "../engine/clock";
+import { deviceOf } from "../engine/devices";
 import { frameForced, type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
@@ -938,13 +939,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
     ];
   }
 
-  /** A width and a height of the frame's own, and a turn of it. */
+  /** A width and a height of the frame's own, a turn of it, and a fold of a foldable. */
   function deviceExtra(): [HTMLElement, Update] {
     const box = el("div", "fields");
     const width = numberField("width", "viewport width in pixels");
     const height = numberField("height", "viewport height in pixels");
     const rotate = button("chip", "rotate");
-    box.append(width, el("span", "unit", "×"), height, rotate);
+    const fold = button("chip", "unfold");
+    box.append(width, el("span", "unit", "×"), height, rotate, fold);
     // An empty field is the window's own size.
     const size = (input: HTMLInputElement) => {
       const value = toNumber(input.value);
@@ -956,12 +958,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
       const turned = engine.getState().orientation === "portrait" ? "landscape" : "portrait";
       commit("device", { orientation: turned });
     });
+    fold.addEventListener("click", () => {
+      commit("device", { posture: engine.getState().posture === "open" ? "closed" : "open" });
+    });
     return [
       box,
       (state) => {
         fill(width, typeof state.width === "number" ? String(state.width) : "");
         fill(height, typeof state.height === "number" ? String(state.height) : "");
         rotate.hidden = typeof state.width !== "number" || typeof state.height !== "number";
+        fold.hidden = !deviceOf(state.device)?.postures;
+        fold.textContent = state.posture === "open" ? "fold" : "unfold";
       },
     ];
   }

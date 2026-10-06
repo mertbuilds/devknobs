@@ -1,13 +1,15 @@
 import type { DevknobsState, DprValue, MatColorValue, PanelValue, ZoomValue } from "../types";
-import { bezelMock, bezelUrl, loadBezel } from "./bezels";
+import * as address from "./address";
+import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
-import { deviceOf } from "./devices";
+import { formId, formOf } from "./devices";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
   type FrameKnobs,
+  handsSchemeDown,
   needsFrame,
   post,
   readMessage,
@@ -15,31 +17,26 @@ import {
   type ZoomAction,
 } from "./frame";
 import { drawMat } from "./mat";
-import { type Mock, mockOf, placeIn, type Rect } from "./mock";
-import { corners, drawMock } from "./mockdraw";
+import type { Mock, Rect } from "./mock";
+import { corners, drawMock, UNDER } from "./mockdraw";
 import {
-  type Hole,
-  moves,
-  poseOf,
-  readCorners,
-  shapeOf,
-  turnedPose,
-  turnOf,
-  windowRect,
-} from "./morph";
+  finishFold,
+  type FoldScene,
+  folding,
+  foldDevice as foldIn,
+  forgetFold,
+  holdFold,
+} from "./foldrun";
+import { folds, type Hole, moves, readCorners, shapeOf, turnOf, windowRect } from "./morph";
 import {
-  finishTurn,
   forget,
   halt,
   openVeiled,
   running,
   type Scene,
   snap,
-  spinning,
   start,
   still,
-  turning,
-  turnTo,
   veilShare,
 } from "./morphrun";
 import {
@@ -54,6 +51,14 @@ import {
 } from "./placeholder";
 import * as reload from "./reload";
 import { ensureStyle, removeStyle } from "./style";
+import {
+  finishTurn,
+  forgetTurn,
+  holdTurn,
+  type TurnScene,
+  turnDevice as turnIn,
+  turning,
+} from "./turnrun";
 import { cover, uncover } from "./underneath";
 import { VIEWPORT_CSS } from "./viewportcss";
 import { visionFilter } from "./vision";
@@ -70,6 +75,7 @@ export type ViewportValue = FrameKnobs &
     | "scheme"
     | "device"
     | "orientation"
+    | "posture"
     | "mock"
     | "browser"
     | "bars"
@@ -82,14 +88,6 @@ export type ViewportValue = FrameKnobs &
 
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
-
-/**
- * How far black runs past the screen's edge under a picture of the body, in
- * css px of the screen. The picture's opening and the screen share an edge,
- * and where it falls between device pixels both are drawn part way, so the
- * mat would show through as a light line. The rim of the body there is black.
- */
-const UNDER = 2;
 
 /** The pixels a wheel line stands for, where a wheel counts in lines. */
 const WHEEL_LINE = 20;
@@ -165,6 +163,7 @@ let current: ViewportValue = {
   scheme: "system",
   device: "none",
   orientation: "portrait",
+  posture: "closed",
   mock: true,
   browser: "auto",
   bars: "auto",
@@ -177,15 +176,8 @@ let current: ViewportValue = {
 let loaded = false;
 /** Where the frame was last seen on this origin. */
 let frameUrl = "";
-/** The window's own address when the frame came up, and its title once the frame's took over. */
-let pageUrl = "";
-let pageTitle: string | null = null;
-/** The address last put in the window for the frame. Another one there means the window moved. */
-let written = "";
 /** Where the page underneath was scrolled to, which hiding it loses. */
 let scroll = { x: 0, y: 0 };
-/** Follows the frame's title, which a router sets after the url changes. */
-let titleObserver: MutationObserver | null = null;
 let latest: DevknobsState | null = null;
 /** Where the frame is drawn, or on its way to, from `shapeOf`. */
 let heading = "closed";
@@ -193,8 +185,6 @@ let heading = "closed";
 let settled = false;
 /** The knobs a device change draws once the last device faded out. */
 let pending: ViewportValue | null = null;
-/** The knobs a device turning draws once it is the other way up. */
-let turned: ViewportValue | null = null;
 /** The window's own page is hidden under the frame. */
 let covered = false;
 /** The window has its own page back, and the frame is only fading off it. */
@@ -263,59 +253,6 @@ function createNotice(): HTMLElement {
   return box;
 }
 
-/** Swap the window's url without a router in the page underneath hearing of it. */
-function replaceUrl(href: string): void {
-  if (href !== window.location.href) {
-    History.prototype.replaceState.call(window.history, window.history.state, "", href);
-  }
-}
-
-/** Put where the frame is in the window's address bar and tab, so a reload lands there. */
-function mirror(): void {
-  const doc = frameDocument();
-  if (!doc) return;
-  replaceUrl(locate());
-  written = window.location.href;
-  browser?.refresh();
-  if (doc.title === document.title) return;
-  pageTitle ??= document.title;
-  document.title = doc.title;
-}
-
-/**
- * Mirror the frame's same-document navigations too. The navigation api's
- * `currententrychange` comes after every url change, `pushState` included,
- * where `navigate` comes before and skips it. Without it, wrap the frame's
- * history. Both go with the frame's window on its next load.
- */
-function watch(view: Window, doc: Document): void {
-  const navigation = reload.navigationOf(view);
-  if (navigation) {
-    navigation.addEventListener("currententrychange", mirror);
-  } else {
-    const history = view.history;
-    const push = history.pushState;
-    const replace = history.replaceState;
-    history.pushState = (...args: Parameters<History["pushState"]>) => {
-      push.apply(history, args);
-      mirror();
-    };
-    history.replaceState = (...args: Parameters<History["replaceState"]>) => {
-      replace.apply(history, args);
-      mirror();
-    };
-    view.addEventListener("popstate", mirror);
-    view.addEventListener("hashchange", mirror);
-  }
-  titleObserver ??= new MutationObserver(mirror);
-  titleObserver.disconnect();
-  titleObserver.observe(doc.head ?? doc.documentElement, {
-    childList: true,
-    subtree: true,
-    characterData: true,
-  });
-}
-
 function onLoad(): void {
   loaded = true;
   const doc = frameDocument();
@@ -323,8 +260,8 @@ function onLoad(): void {
   locate();
   const view = frameWindow();
   if (view && doc) {
-    watch(view, doc);
-    mirror();
+    address.watch(view, doc);
+    address.mirror();
     // A page the watch missed: the next one is patched still.
     reload.land(view);
   }
@@ -337,35 +274,6 @@ function onLoad(): void {
 /** A page that mounts late asks for the knobs once it listens. */
 function onMessage(event: MessageEvent): void {
   if (readMessage(event, frameWindow(), window.location.origin)?.type === "ready") share();
-}
-
-/**
- * Does the browser hand a frame element's `color-scheme` to the page inside
- * as its `prefers-color-scheme`? css color adjust says it should (csswg #7493,
- * chrome 129, firefox 105). Asked once, of a blank probe frame that takes each
- * scheme in turn, so a dark system cannot pass for support.
- */
-let schemeHandover: boolean | null = null;
-
-function handsSchemeDown(root: Node): boolean {
-  if (schemeHandover !== null) return schemeHandover;
-  if (!root.isConnected) return false;
-  const probe = document.createElement("iframe");
-  probe.style.cssText = "position:absolute;width:0;height:0;border:0;visibility:hidden";
-  root.appendChild(probe);
-  const ask = (scheme: "light" | "dark"): boolean => {
-    probe.style.colorScheme = scheme;
-    // The frame only sees the scheme once the style above it is current.
-    getComputedStyle(probe).getPropertyValue("color-scheme");
-    return probe.contentWindow?.matchMedia(`(prefers-color-scheme: ${scheme})`).matches === true;
-  };
-  try {
-    schemeHandover = ask("dark") && ask("light");
-  } catch {
-    schemeHandover = false;
-  }
-  probe.remove();
-  return schemeHandover;
 }
 
 /**
@@ -429,7 +337,8 @@ function panelWidth(): number {
 function showMock(mock: Mock | null, place: Fit): void {
   if (!screen || !glass) return;
   const href = mock?.image ? bezelUrl(mock.image.file) : null;
-  const key = mock ? `${current.device}|${current.orientation}|${mock.image?.file}|${href}` : "";
+  const id = formId(current.device, current.posture);
+  const key = mock ? `${id}|${current.orientation}|${mock.image?.file}|${href}` : "";
   if (key !== mockKey) {
     mockKey = key;
     mockDrawing?.remove();
@@ -495,32 +404,21 @@ function showMat(size: { width: number; height: number }): void {
   mat = next;
 }
 
-/**
- * The body around the frame: the maker's bezel image where the device has
- * one, and the drawn mock where it has none or the image does not load. While
- * the image loads the drawn mock stands in its room, so the frame never moves
- * as it comes in.
- */
-function bodyOf(value: ViewportValue): Mock | null {
-  if (!value.mock) return null;
-  const drawn = mockOf(value.device, value.orientation);
-  const bezel = bezelMock(value.device, value.orientation);
-  if (!bezel?.image) return drawn;
-  const state = loadBezel(bezel.image.file, resize);
-  if (state === "ready") return bezel;
-  return state === "loading" && drawn ? placeIn(drawn, bezel) : drawn;
+/** The body around the frame for `value`, which draws the frame again once its picture is in. */
+function bodyFor(value: ViewportValue): Mock | null {
+  return bodyOf(value, resize);
 }
 
 function resize(): void {
   if (!frame || !letterbox || !stage || !drawing || !screen || !readout || !caption) return;
   // The window has its own page back: the frame stays as it was until it goes.
   // A device turning is drawn the way it ends up once it is there.
-  if (released || turning()) return;
+  if (released || turning() || folding()) return;
   readout.hidden = !hasStrip(current);
   letterbox.setAttribute("data-mat", current.mat);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
   const aside = current.panel.open ? panelWidth() : 0;
-  const mock = bodyOf(current);
+  const mock = bodyFor(current);
   const place = fit(current, size, {
     frameZoom: zoomFor(current.dpr),
     aside,
@@ -528,7 +426,7 @@ function resize(): void {
     mock: mock?.inset,
   });
   drawn = place;
-  const device = deviceOf(current.device);
+  const device = formOf(current.device, current.posture);
   const layout = device ? layoutOf(device.id, current.browser) : null;
   const auto = current.bars === "auto";
   const min = current.bars === "minimized" || (auto && browser?.minimized() === true);
@@ -659,7 +557,7 @@ function screenRect(): Hole {
  */
 function screenFor(value: ViewportValue): Rect | null {
   if (!letterbox || !stage) return null;
-  const mock = bodyOf(value);
+  const mock = bodyFor(value);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
   const place = fit(value, size, {
     frameZoom: zoomFor(value.dpr),
@@ -682,38 +580,46 @@ function screenFor(value: ViewportValue): Rect | null {
   };
 }
 
+/** What a device turning moves, while there is a frame to turn. */
+function turnScene(): TurnScene | null {
+  if (!screen || !letterbox || !glass || !frame || !turnCover || !drawn) return null;
+  const page = frame;
+  return {
+    unit: screen,
+    letterbox,
+    glass,
+    cover: turnCover,
+    base: drawn.transform,
+    background: () => (browser?.look() ?? readLook(page)).background,
+    screenRect,
+  };
+}
+
 /**
  * Turn the device to be held the way `value` holds it, in view all along,
- * case and page as one, and draw it that way once it is there. A turn back
- * while it turns goes back from where it got to.
+ * case and page as one, and draw it that way once it is there.
  */
 function turnDevice(value: ViewportValue): void {
-  turned = value;
-  const done = () => {
-    const next = turned;
-    turned = null;
-    if (next) draw(next);
-  };
-  const going = spinning();
   const angle = turnOf(shapeOf(current), shapeOf(value));
-  const to = angle === 0 ? null : screenFor(value);
-  if (going) {
-    turnTo(going, to ? turnedPose(going.start, to, angle) : poseOf(going.start), done);
-    return;
-  }
-  if (!screen || !letterbox || !glass || !frame || !turnCover || !drawn || !to) {
-    done();
-    return;
-  }
-  const box = letterbox.getBoundingClientRect();
-  const unit = screen.getBoundingClientRect();
-  const start = screenRect();
-  const corner = { x: unit.left - box.left, y: unit.top - box.top };
-  turnCover.style.background = (browser?.look() ?? readLook(frame)).background;
-  // Over the bars too, which are laid out the other way as well.
-  glass.append(turnCover);
-  const turn = { unit: screen, corner, base: drawn.transform, start, cover: turnCover };
-  turnTo(turn, turnedPose(start, to, angle), done);
+  turnIn(value, angle, angle === 0 ? null : screenFor(value), turnScene(), draw);
+}
+
+/** What a foldable folding moves, while there is a frame to fold. */
+function foldScene(): FoldScene | null {
+  const scene = turnScene();
+  if (!scene || !readout) return null;
+  const strip = readout;
+  return {
+    ...scene,
+    place: (layer) => scene.letterbox.insertBefore(layer, strip),
+    body: bodyFor,
+    screenFor,
+  };
+}
+
+/** Fold the device to the posture `value` has, in view, and draw it that way once it is there. */
+function foldDevice(value: ViewportValue): void {
+  foldIn(current, value, foldScene(), draw);
 }
 
 /** Hide the window's own page under the frame, its popovers too. */
@@ -801,7 +707,8 @@ function change(target: "open" | "closed"): void {
 
 /** Keep the frame's drawing for the next page. One on its way somewhere, or scrolled, keeps none. */
 function keep(): void {
-  const away = running() || turning() || released || stage?.scrollLeft || stage?.scrollTop;
+  const moving = running() || turning() || folding();
+  const away = moving || released || stage?.scrollLeft || stage?.scrollTop;
   if (!letterbox || !frame || !picker || away) {
     clearSnapshot();
     return;
@@ -813,7 +720,8 @@ function keep(): void {
 
 /** Is the device's picture still on its way? */
 function pictureLoading(): boolean {
-  const bezel = current.mock ? bezelMock(current.device, current.orientation) : null;
+  const id = formId(current.device, current.posture);
+  const bezel = current.mock ? bezelMock(id, current.orientation) : null;
   return bezel?.image ? loadBezel(bezel.image.file, resize) === "loading" : false;
 }
 
@@ -865,10 +773,8 @@ function open(veiled: number | null, first: boolean): void {
   frame.title = "devknobs viewport";
   frame.setAttribute("sandbox", SANDBOX);
   frameUrl = window.location.href;
-  pageUrl = frameUrl;
-  written = frameUrl;
+  address.follow({ page: frameDocument, locate, refresh: () => browser?.refresh() });
   scroll = { x: window.scrollX, y: window.scrollY };
-  pageTitle = null;
   loaded = false;
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
@@ -930,20 +836,18 @@ function release(follow: boolean): string {
   released = true;
   // The window went back to another entry meanwhile. It stays there, and the
   // frame is not followed.
-  const moved = window.location.href !== written;
+  const moved = address.moved();
   const target = follow && !moved ? locate() : "";
   window.removeEventListener("message", onMessage);
   window.removeEventListener("resize", resize);
   window.removeEventListener("pagehide", keep);
   frame?.removeEventListener("load", onLoad);
-  titleObserver?.disconnect();
+  address.unwatch();
   reload.untrack();
   browser?.stopLoading();
   clearSnapshot();
   // The window shows its own page again, so its own address and title too.
-  if (!moved) replaceUrl(pageUrl);
-  if (pageTitle !== null) document.title = pageTitle;
-  pageTitle = null;
+  address.giveBack(!moved);
   return target;
 }
 
@@ -976,7 +880,8 @@ function teardown(): void {
   clearTimeout(settling);
   held = null;
   pending = null;
-  turned = null;
+  forgetTurn();
+  forgetFold();
   forget();
   released = false;
   stopAdopting();
@@ -1011,14 +916,27 @@ export function apply(value: ViewportValue): void {
   const first = !settled;
   settled = true;
   const animate = !first && moves(from, shape) && !still();
-  // A device turned while it stands turns in view. One on its way changes as any other change.
+  // A device turned or folded while it stands does so in view. One on its way changes as any other change.
   const turns = animate && !running() && turnOf(from, shape) !== 0;
+  const bends = animate && !running() && folds(from, shape);
   // The mat takes a new color at once, also while a device change holds the other knobs back.
   if (host) paintMat(value.mat);
+  if (folding()) {
+    if (from === shape) {
+      // The fold goes on, and the frame takes the other knobs once it is there.
+      holdFold(value);
+      return;
+    }
+    if (bends) {
+      foldDevice(value);
+      return;
+    }
+    finishFold();
+  }
   if (turning()) {
     if (from === shape) {
       // The turn goes on, and the frame takes the other knobs once it is there.
-      turned = value;
+      holdTurn(value);
       return;
     }
     if (animate && turnOf(from, shape) !== 0) {
@@ -1059,6 +977,10 @@ export function apply(value: ViewportValue): void {
   }
   if (turns) {
     turnDevice(value);
+    return;
+  }
+  if (bends) {
+    foldDevice(value);
     return;
   }
   if (animate) {

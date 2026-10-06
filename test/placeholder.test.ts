@@ -62,6 +62,14 @@ describe("the kept drawing", () => {
     expect(readSnapshot(PHONE, { ...VIEW, devicePixelRatio: 1 })).toBeNull();
   });
 
+  test("is not shown for a foldable in the other posture, held the same way", () => {
+    const shut = merge(DEFAULT_STATE, { device: "iphone-duo" });
+    writeSnapshot({ ...kept(), key: snapshotKey(shut, VIEW) });
+    expect(readSnapshot(shut, VIEW)).not.toBeNull();
+    // The same size, held the same way, but open: only the posture tells them apart.
+    expect(readSnapshot({ ...shut, posture: "open" }, VIEW)).toBeNull();
+  });
+
   test("is not shown once the mat has another color", () => {
     writeSnapshot(kept());
     expect(readSnapshot(merge(PHONE, { mat: "green" }), VIEW)).toBeNull();

@@ -1,7 +1,15 @@
-import type { OrientationValue } from "../types";
+import type { DevknobsState, OrientationValue } from "../types";
 import { BEZEL_URLS } from "./bezelurls";
-import { deviceOf, turn } from "./devices";
-import { type Mock, type Radius, type Sides, turnRadius, turnSides } from "./mock";
+import { deviceOf, formId, screenOf, turn } from "./devices";
+import {
+  type Mock,
+  mockOf,
+  placeIn,
+  type Radius,
+  type Sides,
+  turnRadius,
+  turnSides,
+} from "./mock";
 
 /**
  * The maker's own bezel image as the body of an iPhone or a Pixel, in place
@@ -293,7 +301,7 @@ function urlsOf(file: string): string[] {
  * that is not in the list.
  */
 export function densityOf(id: string, bezel: Bezel): number | null {
-  const device = deviceOf(id);
+  const device = screenOf(id);
   return device ? density(device, bezel) : null;
 }
 
@@ -303,13 +311,13 @@ function density(screen: { width: number; height: number }, bezel: Bezel): numbe
 }
 
 /**
- * The image as the mock of a device held one way, its opening on the screen,
- * or null. The image is drawn at its density, never stretched, and the screen
- * sits in the middle of the opening.
+ * The image as the mock of a device, or a foldable's screen, held one way, its
+ * opening on the screen, or null. The image is drawn at its density, never
+ * stretched, and the screen sits in the middle of the opening.
  */
 export function bezelMock(id: string, orientation: OrientationValue): Mock | null {
   const found = BEZELS[id];
-  const device = deviceOf(id);
+  const device = screenOf(id);
   if (!found || !device) return null;
   const own = orientation === "landscape" ? found.landscape : undefined;
   const bezel = own ?? found.portrait;
@@ -401,4 +409,36 @@ export function loadBezel(file: string, settled: () => void): Load["state"] {
 export function bezelUrl(file: string): string | null {
   const load = loads.get(file);
   return load?.state === "ready" ? load.url : null;
+}
+
+/** What picks the body drawn around the frame. */
+export type BodyKnobs = Pick<DevknobsState, "mock" | "device" | "orientation" | "posture">;
+
+/**
+ * The picture a foldable shows in its other posture, held the other way, as
+ * it is once folded, loads ahead, so a fold has it to draw.
+ */
+function loadOther(knobs: BodyKnobs): void {
+  if (!deviceOf(knobs.device)?.postures) return;
+  const other = formId(knobs.device, knobs.posture === "open" ? "closed" : "open");
+  const image = bezelMock(other, knobs.orientation === "portrait" ? "landscape" : "portrait")?.image;
+  if (image) loadBezel(image.file, () => {});
+}
+
+/**
+ * The body around the frame: the maker's bezel image where the device has
+ * one, and the drawn mock where it has none or the image does not load. While
+ * the image loads the drawn mock stands in its room, so the frame never moves
+ * as it comes in, and `settled` hears once it is in.
+ */
+export function bodyOf(knobs: BodyKnobs, settled: () => void): Mock | null {
+  if (!knobs.mock) return null;
+  const id = formId(knobs.device, knobs.posture);
+  const drawn = mockOf(id, knobs.orientation);
+  const bezel = bezelMock(id, knobs.orientation);
+  loadOther(knobs);
+  if (!bezel?.image) return drawn;
+  const state = loadBezel(bezel.image.file, settled);
+  if (state === "ready") return bezel;
+  return state === "loading" && drawn ? placeIn(drawn, bezel) : drawn;
 }

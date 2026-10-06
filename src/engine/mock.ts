@@ -1,5 +1,5 @@
 import type { OrientationValue } from "../types";
-import { deviceOf, turn } from "./devices";
+import { screenOf, turn } from "./devices";
 import { BODIES, type Button, type Front } from "./mockdata";
 
 /** A length on each side of a box, in css px of the screen. */
@@ -111,11 +111,11 @@ export function placeIn(mock: Mock, room: Mock): Mock {
 }
 
 /**
- * The mock of a device held one way, or null for one that has none. A turn
- * puts the top of the phone on the left, island and all.
+ * The mock of a device, or a foldable's screen, held one way, or null for one
+ * that has none. A turn puts the top of the phone on the left, island and all.
  */
 export function mockOf(id: string, orientation: OrientationValue): Mock | null {
-  const device = deviceOf(id);
+  const device = screenOf(id);
   const shape = BODIES[id];
   if (!device || !shape) return null;
   const { bezel, screenRadius, bodyRadius } = shape;

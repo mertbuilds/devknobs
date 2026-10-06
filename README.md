@@ -338,6 +338,7 @@ screen shows the page loading as Safari does a reload. without devknobs after
 | viewport height | px, full | makes the frame that tall, centered in the window both ways, so `innerHeight`, `100vh`, `svh`, `dvh` and height media queries see it. a frame taller or wider than the window is scaled down to fit both ways |
 | device | a preset, none | sets the width, height and device pixel ratio of a phone, tablet, laptop or desktop together, and a touch screen where it has one. see devices below |
 | orientation | portrait, landscape | turns a frame that has a width and a height, a device's or a custom one. it follows the size, so a size set across reads as landscape |
+| posture | closed, open | folds a foldable shut on its cover screen or open on its inner one, which turns the frame as its hinge stays put. only the iPhone Duo folds. see devices below |
 | mock | on, off | draws a phone's or tablet's body around its frame. on by default, and only offered while a phone or tablet is picked. see devices below |
 | touch pointer | on, off | the mouse acts as a finger inside a touch device's frame, like the devtools device toolbar: a round cursor, touch events, `pointerType: "touch"`, no hover, drag to scroll. on by default, and only offered while a device with a touch screen is picked. see devices below |
 | browser | compact, bottom, top, off on an iPhone; top, bottom, off on an Android phone | draws the phone's browser in its screen around the page, Safari on an iPhone and Chrome on an Android phone, and makes the frame the viewport that browser leaves the page. on by default with the browser's own default layout, and only offered while a phone is picked. see devices below |
@@ -408,8 +409,7 @@ platform (`iphone`, `pixel`, `ipad`, `macbook`, `phone`, `tablet`,
 | --- | --- | --- | --- |
 | iPhone 18 Pro | 402 × 874 | 3 | yes |
 | iPhone 18 Pro Max | 440 × 956 | 3 | yes |
-| iPhone Duo (closed) | 466 × 678 | 3 | yes |
-| iPhone Duo (open) | 669 × 951 | 3 | yes |
+| iPhone Duo | 466 × 678, open 951 × 669 | 3 | yes |
 | iPhone Air | 420 × 912 | 3 | yes |
 | iPhone 17 | 402 × 874 | 3 | yes |
 | iPhone 17 Pro | 402 × 874 | 3 | yes |
@@ -442,6 +442,17 @@ a phone or tablet picked after another is held the same way, anything else
 comes up its usual way, unless the patch names an orientation. a width or
 height set by hand that is no longer the device's drops the device and keeps
 the size, and a device pixel ratio set by hand keeps the device.
+
+the iPhone Duo folds. it comes up closed, on its cover screen, and the device
+row's `unfold` and `fold`, or `posture`, open it onto its inner screen and
+shut it again. like a book, its hinge stays where it is, so the cover screen
+held upright opens to the inner screen held across, and held across, it opens
+upright. it folds in view: the page goes under a cover in its own color, the
+half past the hinge swings toward you about it, and the page comes back laid
+out on the other screen. search finds it as `unfold`, `fold`, `open`,
+`closed` or `duo open`. a session kept from when the two screens were two
+devices, `iphone-duo-closed` and `iphone-duo-open`, comes back as the Duo in
+that posture.
 
 a phone or tablet comes up in a mock of its body, drawn in svg around the
 frame: the front glass in its band, the dynamic island, the punch hole, the
