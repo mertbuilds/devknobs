@@ -31,6 +31,7 @@ import {
   rowOf,
   wallInput,
 } from "./catalog";
+import { ACTION_ICONS, icon, ROW_ICONS } from "./icons";
 import {
   escapeStep,
   highlightAt,
@@ -102,39 +103,6 @@ const ROW_GAP = 1;
 /** How near the rows' top or bottom a dragged row scrolls them, and how far a move, in px. */
 const ROW_EDGE = 16;
 const ROW_SCROLL = 8;
-
-const SVG = "http://www.w3.org/2000/svg";
-
-type Part = [tag: string, attributes: Record<string, string>];
-
-/** An icon `width` by `height` px drawn in the text's color. */
-function icon(width: number, height: number, parts: Part[]): SVGElement {
-  const svg = document.createElementNS(SVG, "svg");
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.setAttribute("width", String(width));
-  svg.setAttribute("height", String(height));
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("fill", "currentColor");
-  for (const [tag, attributes] of parts) {
-    const part = document.createElementNS(SVG, tag);
-    for (const [name, value] of Object.entries(attributes)) part.setAttribute(name, value);
-    svg.append(part);
-  }
-  return svg;
-}
-
-/** Six dots, two across and three down: the grip a row is dragged by. */
-function gripIcon(): SVGElement {
-  const dots = [1, 5].flatMap((cx) =>
-    [2, 6, 10].map((cy): Part => ["circle", { cx: `${cx}`, cy: `${cy}`, r: "1" }]),
-  );
-  return icon(6, 12, dots);
-}
-
-/** A plus, for the button that adds a knob. */
-function plusIcon(): SVGElement {
-  return icon(10, 10, [["path", { d: "M5 .5v9M.5 5h9", stroke: "currentColor" }]]);
-}
 
 /** How far back the pointer's speed is read from when a drag ends, in ms. */
 export const FLING_SPAN = 150;
@@ -530,13 +498,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
   searchInput.setAttribute("aria-controls", "devknobs-results");
   searchInput.setAttribute("aria-expanded", "false");
   // For the pointer: escape does the same from the keys.
-  const closeSearch = button("search-close", "×");
+  const closeSearch = button("search-close", "");
+  closeSearch.append(icon("x"));
   closeSearch.tabIndex = -1;
   closeSearch.setAttribute("aria-label", "close the search");
   head.append(searchInput, closeSearch);
   // Where the search opens, under the rows.
   const add = button("add", "");
-  add.append(plusIcon(), "add knob");
+  add.append(icon("plus"), "add knob");
 
   const body = el("div", "body");
   const empty = el("div", "empty", "nothing emulated");
@@ -991,14 +960,15 @@ export function createPanel(options: PanelOptions = {}): Panel {
     box.dataset.row = row.id;
     const line = el("div", "line");
     const grip = button("grip", "");
-    grip.append(gripIcon());
+    grip.append(icon("grip-vertical"));
     grip.setAttribute("aria-label", `move ${row.label}`);
     grip.title = "drag, or press up or down, to reorder";
     const main = button("main", "");
     main.setAttribute("aria-expanded", "false");
     const value = el("span", "row-value");
-    main.append(el("span", "row-label", row.label), value);
-    const clear = button("clear", "×");
+    main.append(icon(ROW_ICONS[row.id]), el("span", "row-label", row.label), value);
+    const clear = button("clear", "");
+    clear.append(icon("x"));
     clear.setAttribute("aria-label", `reset ${row.label}`);
     line.append(grip, main, clear);
     const editor = el("div", "editor");
@@ -1210,7 +1180,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     } else searchInput.removeAttribute("aria-activedescendant");
   }
 
-  function entry(id: number, pick: () => void, ...parts: (HTMLElement | string)[]): Entry {
+  function entry(id: number, pick: () => void, ...parts: (Element | string)[]): Entry {
     const node = el("div", "entry");
     node.id = `devknobs-entry-${id}`;
     node.setAttribute("role", "option");
@@ -1227,6 +1197,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return entry(
       id,
       () => runAction(action.id),
+      icon(ACTION_ICONS[action.id]),
       el("span", "entry-knob", action.label),
       el("span", "entry-value", action.long),
     );
@@ -1242,6 +1213,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       return entry(
         actions.length + index,
         () => pick(result),
+        icon(ROW_ICONS[rowOf(result.knob.id).id]),
         el("span", "entry-knob", text.knob),
         value,
       );
@@ -1264,6 +1236,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
         const item = entry(
           list.length,
           () => openKnob(knob),
+          icon(ROW_ICONS[rowOf(knob.id).id]),
           el("span", "entry-name", knob.label),
           el("span", "entry-now", nameOf(knob, knob.read(state))),
         );

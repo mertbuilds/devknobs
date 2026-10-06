@@ -256,8 +256,6 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   margin-right: -6px;
   display: grid;
   place-items: center;
-  font-size: 14px;
-  line-height: 1;
   color: var(--faint);
   border-radius: 4px;
   transition: background-color 120ms ease-out, color 120ms ease-out;
@@ -277,7 +275,11 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 .add:hover { color: var(--fg); background: var(--card); }
-.add svg { flex: none; }
+/* Icons sit in the middle of a line whose text sits on its baseline. Beside a
+   row's or a result's name they stay faint, so the words are read first. */
+.glyph { flex: none; align-self: center; }
+.main .glyph, .entry .glyph { color: var(--faint); }
+.entry .glyph { margin-right: 2px; }
 
 /* The rows on top, then the results while the search is open, then the add
    knob button or the search. The rows and the results each scroll in their own
@@ -347,6 +349,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: opacity 120ms ease-out, color 120ms ease-out;
 }
 .grip:hover { color: var(--fg); }
+/* The icon is wider than the grip, so it overhangs both sides alike. */
+.grip .glyph { margin: 0 -2px; }
 .row:hover .grip, .row:focus-within .grip, .row.lifted .grip { opacity: 1; }
 @media (hover: none) {
   .grip { opacity: 1; }
@@ -389,8 +393,6 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   margin: 2px;
   display: grid;
   place-items: center;
-  font-size: 14px;
-  line-height: 1;
   color: var(--faint);
   border-radius: 6px;
   transition: background-color 120ms ease-out, color 120ms ease-out;
