@@ -3,7 +3,7 @@ import { DEVICES, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
-import { ease, holePath, lerpRect, MAT_CURVE, MORPH_TIME, windowRect } from "../src/engine/morph";
+import { holeAt, holePath, MORPH_TIME, rounded, windowRect } from "../src/engine/morph";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import {
   apply,
@@ -752,13 +752,13 @@ describe("the frame over the page", () => {
     const phone = { ...VIEWPORT, mock: false, device: "iphone-16-pro" } as const;
     apply(phone);
     const opening = back && Reflect.get(back.style, "clipPath");
-    expect(opening).toStartWith("polygon(evenodd");
+    expect(opening).toStartWith("path(evenodd");
     apply({ ...phone, mat: "green" });
     expect(letterbox?.getAttribute("data-mat")).toBe("green");
     expect(back && Reflect.get(back.style, "clipPath")).toBe(opening);
   });
 
-  test("moves the mat's opening a frame at a time onto a fitted screen, and back off it", async () => {
+  test("rounds the mat's opening, then moves it a frame at a time onto a fitted screen, and back", async () => {
     apply(KNOBS);
     define("Element", FakeElement);
     define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
@@ -776,17 +776,27 @@ describe("the frame over the page", () => {
     };
     // The drawn browser's loading line asks what moves it as the frame goes.
     Reflect.set(FakeElement.prototype, "getAnimations", () => []);
-    // The letterbox sits off the window's corner, and the phone's screen is drawn fitted, at 85%.
+    // The letterbox sits off the window's corner, and the phone's screen is drawn fitted, at 85%,
+    // its corners as round as the Duo's cover screen: the hinge's two far less.
     const box = { left: 10, top: 20, width: 1500, height: 850 };
-    const screen = { x: 579, y: 69, width: 342, height: 744 };
+    const place = fit({ ...PHONE, height: 874 }, box);
+    expect(place.transform).toBeLessThan(1);
+    const fitted = [8, 58, 58, 8].map((radius) => radius * place.transform);
+    const [a = 0, b = 0, c = 0, d = 0] = fitted;
+    const screen = { x: 579, y: 69, width: 342, height: 744, radius: [a, b, c, d] as const };
     const whole = windowRect(box);
     const create = document.createElement;
     Reflect.set(document, "createElement", (tag: string) => {
       const element = new FakeElement(tag.toUpperCase());
       Object.assign(element, { clientWidth: box.width, clientHeight: box.height });
       const glass = { ...screen, left: box.left + screen.x, top: box.top + screen.y };
-      element.getBoundingClientRect = () =>
-        Reflect.get(element, "className") === "glass" ? glass : box;
+      const isGlass = () => Reflect.get(element, "className") === "glass";
+      element.getBoundingClientRect = () => (isGlass() ? glass : box);
+      // The screen's corners as a mock rounds them, at the frame's own size.
+      Object.defineProperty(element.style, "borderRadius", {
+        get: () => (isGlass() ? "8px 58px 58px 8px" : ""),
+        set: () => {},
+      });
       return element;
     });
     /** Run the frames asked for, 40 ms apart, `rounds` times, and say where the opening was. */
@@ -799,25 +809,91 @@ describe("the frame over the page", () => {
       }
       return seen;
     };
-    const along = ease(MAT_CURVE, 40 / MORPH_TIME.mat);
     let back: FakeElement | undefined;
     try {
       apply({ ...KNOBS, mock: false, device: "iphone-16-pro", width: 402, height: 874 });
       back = everything().find((element) => Reflect.get(element, "className") === "back");
       const picked = await play(20);
+      const round = rounded(whole);
       expect(picked).toContain(holePath(whole));
-      expect(picked).toContain(holePath(lerpRect(whole, screen, along)));
+      expect(picked).toContain(holePath(holeAt(whole, round, 40, MORPH_TIME.round)));
+      expect(picked).toContain(holePath(round));
+      expect(picked).toContain(holePath(holeAt(round, screen, 40, MORPH_TIME.mat)));
       expect(picked.at(-1)).toBe(holePath(screen));
+      expect(picked.at(-1)).toContain(`A${Math.round(b * 100) / 100} `);
+      // A picture of the body that loads late moves the screen as the case comes in, and the opening goes with it.
+      const glass = everything().find((element) => Reflect.get(element, "className") === "glass");
+      const moved = { ...screen, x: screen.x + 3, y: screen.y - 2 };
+      const stood = glass?.getBoundingClientRect;
+      if (glass) glass.getBoundingClientRect = () => ({ ...moved, left: box.left + moved.x, top: box.top + moved.y });
+      expect((await play(2)).at(-1)).toBe(holePath(moved));
+      if (glass && stood) glass.getBoundingClientRect = stood;
+      expect((await play(2)).at(-1)).toBe(holePath(screen));
       apply(KNOBS);
       const removed = await play(20);
       expect(removed[0]).toBe(holePath(screen));
-      expect(removed).toContain(holePath(lerpRect(screen, whole, along)));
+      expect(removed).toContain(holePath(holeAt(screen, round, 40, MORPH_TIME.mat)));
+      expect(removed).toContain(holePath(round));
       expect(removed.at(-1)).toBe(holePath(whole));
       expect(keyframes.length).toBeGreaterThan(0);
       expect(keyframes.flat().some((frame) => "clipPath" in frame)).toBe(false);
     } finally {
       Reflect.set(document, "createElement", create);
       FakeElement.prototype.animate = animate;
+      Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+    }
+  });
+
+  test("turns a device in view, case and page as one, and draws it the other way once there", () => {
+    apply(KNOBS);
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    // Less movement asked for, so the phone comes up at once.
+    let reduce = true;
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: reduce, media: query }));
+    const frames: FrameRequestCallback[] = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+    const phone = { ...KNOBS, mock: false, device: "iphone-16-pro", width: 402, height: 874 } as const;
+    try {
+      apply(phone);
+      frames.splice(0);
+      reduce = false;
+      const unit = everything().find((element) => Reflect.get(element, "className") === "screen");
+      const back = everything().find((element) => Reflect.get(element, "className") === "back");
+      const frame = frameElement();
+      expect(Reflect.get(frame.style, "width")).toBe("402px");
+      apply({ ...phone, orientation: "landscape", width: 874, height: 402 });
+      const glass = everything().find((element) => Reflect.get(element, "className") === "glass");
+      const cover = glass?.children.at(-1);
+      expect(cover?.getAttribute("class") ?? Reflect.get(cover ?? {}, "className")).toBe("screenblank");
+      const seen: string[] = [];
+      const covers: number[] = [];
+      for (let now = 0; now <= MORPH_TIME.turn + 40; now += 40) {
+        for (const callback of frames.splice(0)) callback(now);
+        seen.push(String(Reflect.get(unit?.style ?? {}, "transform")));
+        covers.push(Number(Reflect.get(cover?.style ?? {}, "opacity") || 0));
+        if (now < MORPH_TIME.turn) {
+          // Held the old way all through the turn, in view, the mat whole behind it.
+          expect(Reflect.get(frame.style, "width")).toBe("402px");
+          expect(Reflect.get(back?.style ?? {}, "clipPath") || "").toBe("");
+        }
+      }
+      // The page goes under its cover in the turn's last part, and is laid out the other way under it.
+      expect(covers[1]).toBe(0);
+      expect(covers.at(-1)).toBe(1);
+      for (let now = 0; now <= MORPH_TIME.uncover + 160; now += 40) {
+        for (const callback of frames.splice(0)) callback(MORPH_TIME.turn + 80 + now);
+      }
+      expect(Reflect.get(cover ?? {}, "hidden")).toBe(true);
+      expect(seen[1]).toMatch(/rotate\(-\d+(\.\d+)?deg\)/);
+      // Once there, it is drawn held across, its own transform no more than its scale.
+      expect(Number.parseFloat(Reflect.get(frame.style, "width"))).toBeGreaterThan(700);
+      expect(seen.at(-1)).not.toContain("rotate");
+    } finally {
       Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
     }
   });

@@ -17,16 +17,29 @@ import {
 import { drawMat } from "./mat";
 import { type Mock, mockOf, placeIn, type Rect } from "./mock";
 import { corners, drawMock } from "./mockdraw";
-import { moves, shapeOf, windowRect } from "./morph";
 import {
+  type Hole,
+  moves,
+  poseOf,
+  readCorners,
+  shapeOf,
+  turnedPose,
+  turnOf,
+  windowRect,
+} from "./morph";
+import {
+  finishTurn,
   forget,
   halt,
   openVeiled,
   running,
   type Scene,
   snap,
+  spinning,
   start,
   still,
+  turning,
+  turnTo,
   veilShare,
 } from "./morphrun";
 import {
@@ -122,6 +135,8 @@ let glass: HTMLElement | null = null;
 let pageBox: HTMLElement | null = null;
 /** A phone's browser bars around the frame. */
 let browser: BrowserLayer | null = null;
+/** Covers the screen in the page's color while a device that turns lays it out the other way. */
+let turnCover: HTMLElement | null = null;
 /** The device's body drawn around the frame, while it has one. */
 let mockDrawing: SVGSVGElement | null = null;
 /** The device and the way it is held that the mock was last drawn for. */
@@ -178,6 +193,8 @@ let heading = "closed";
 let settled = false;
 /** The knobs a device change draws once the last device faded out. */
 let pending: ViewportValue | null = null;
+/** The knobs a device turning draws once it is the other way up. */
+let turned: ViewportValue | null = null;
 /** The window's own page is hidden under the frame. */
 let covered = false;
 /** The window has its own page back, and the frame is only fading off it. */
@@ -497,7 +514,8 @@ function bodyOf(value: ViewportValue): Mock | null {
 function resize(): void {
   if (!frame || !letterbox || !stage || !drawing || !screen || !readout || !caption) return;
   // The window has its own page back: the frame stays as it was until it goes.
-  if (released) return;
+  // A device turning is drawn the way it ends up once it is there.
+  if (released || turning()) return;
   readout.hidden = !hasStrip(current);
   letterbox.setAttribute("data-mat", current.mat);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
@@ -611,17 +629,91 @@ function painted(): boolean {
   return doc === null || doc.readyState === "complete";
 }
 
-/** The mat's opening at the whole window, a px past each edge. */
-function fullRect(): Rect {
+/** The mat's opening at the whole window, a px past each edge, square. */
+function fullRect(): Hole {
   return windowRect({ width: letterbox?.clientWidth ?? 0, height: letterbox?.clientHeight ?? 0 });
 }
 
-/** Where the frame's screen is drawn now, in the letterbox. */
-function screenRect(): Rect {
+/**
+ * Where the frame's screen is drawn now, in the letterbox, and how round its
+ * corners are there: the screen's own radius, drawn at the wrapper's scale.
+ */
+function screenRect(): Hole {
   if (!glass || !letterbox) return fullRect();
   const box = letterbox.getBoundingClientRect();
   const rect = glass.getBoundingClientRect();
-  return { x: rect.left - box.left, y: rect.top - box.top, width: rect.width, height: rect.height };
+  const scale = drawn?.transform ?? 1;
+  const [a, b, c, d] = readCorners(glass.style.borderRadius);
+  return {
+    x: rect.left - box.left,
+    y: rect.top - box.top,
+    width: rect.width,
+    height: rect.height,
+    radius: [a * scale, b * scale, c * scale, d * scale],
+  };
+}
+
+/**
+ * Where the frame's screen would be drawn for `value`, in the letterbox, as
+ * `resize` would place it, without drawing it.
+ */
+function screenFor(value: ViewportValue): Rect | null {
+  if (!letterbox || !stage) return null;
+  const mock = bodyOf(value);
+  const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
+  const place = fit(value, size, {
+    frameZoom: zoomFor(value.dpr),
+    aside: value.panel.open ? panelWidth() : 0,
+    side: value.panel.side,
+    mock: mock?.inset,
+  });
+  const room = { width: stage.clientWidth, height: stage.clientHeight };
+  const at = origin(place, room);
+  const box = letterbox.getBoundingClientRect();
+  const view = stage.getBoundingClientRect();
+  // A box that grows past the room keeps its scroll, as far as it still goes.
+  const scrolled = (scroll: number, length: number, room: number) =>
+    Math.min(scroll, Math.max(0, length - room));
+  return {
+    x: view.left - box.left + at.x - scrolled(stage.scrollLeft, place.box.width, room.width),
+    y: view.top - box.top + at.y - scrolled(stage.scrollTop, place.box.height, room.height),
+    width: place.width * place.scale,
+    height: place.height * place.scale,
+  };
+}
+
+/**
+ * Turn the device to be held the way `value` holds it, in view all along,
+ * case and page as one, and draw it that way once it is there. A turn back
+ * while it turns goes back from where it got to.
+ */
+function turnDevice(value: ViewportValue): void {
+  turned = value;
+  const done = () => {
+    const next = turned;
+    turned = null;
+    if (next) draw(next);
+  };
+  const going = spinning();
+  const angle = turnOf(shapeOf(current), shapeOf(value));
+  const to = angle === 0 ? null : screenFor(value);
+  if (going) {
+    turnTo(going, to ? turnedPose(going.start, to, angle) : poseOf(going.start), done);
+    return;
+  }
+  if (!screen || !letterbox || !glass || !frame || !turnCover || !drawn || !to) {
+    done();
+    return;
+  }
+  const box = letterbox.getBoundingClientRect();
+  const unit = screen.getBoundingClientRect();
+  const start = screenRect();
+  const corner = { x: unit.left - box.left, y: unit.top - box.top };
+  turnCover.style.background = (browser?.look() ?? readLook(frame)).background;
+  // Over the bars too, which are laid out the other way as well.
+  glass.append(turnCover);
+  const turn = { unit: screen, corner, base: drawn.transform, start, cover: turnCover };
+  turnTo(turn, turnedPose(start, to, angle), done);
 }
 
 /** Hide the window's own page under the frame, its popovers too. */
@@ -709,7 +801,7 @@ function change(target: "open" | "closed"): void {
 
 /** Keep the frame's drawing for the next page. One on its way somewhere, or scrolled, keeps none. */
 function keep(): void {
-  const away = running() || released || stage?.scrollLeft || stage?.scrollTop;
+  const away = running() || turning() || released || stage?.scrollLeft || stage?.scrollTop;
   if (!letterbox || !frame || !picker || away) {
     clearSnapshot();
     return;
@@ -793,6 +885,9 @@ function open(veiled: number | null, first: boolean): void {
   glass.append(pageBox);
   // The page's scroll minimizing or bringing back the bars resizes the frame.
   browser = createBrowser(glass, frame, resize, onReloading, painted);
+  turnCover = document.createElement("div");
+  turnCover.className = "screenblank";
+  turnCover.hidden = true;
   screen.append(glass);
   drawing.append(screen);
   stage.append(drawing);
@@ -868,6 +963,7 @@ function teardown(): void {
   pageBox = null;
   browser?.remove();
   browser = null;
+  turnCover = null;
   mockDrawing = null;
   mockKey = "";
   frame = null;
@@ -880,6 +976,7 @@ function teardown(): void {
   clearTimeout(settling);
   held = null;
   pending = null;
+  turned = null;
   forget();
   released = false;
   stopAdopting();
@@ -914,8 +1011,22 @@ export function apply(value: ViewportValue): void {
   const first = !settled;
   settled = true;
   const animate = !first && moves(from, shape) && !still();
+  // A device turned while it stands turns in view. One on its way changes as any other change.
+  const turns = animate && !running() && turnOf(from, shape) !== 0;
   // The mat takes a new color at once, also while a device change holds the other knobs back.
   if (host) paintMat(value.mat);
+  if (turning()) {
+    if (from === shape) {
+      // The turn goes on, and the frame takes the other knobs once it is there.
+      turned = value;
+      return;
+    }
+    if (animate && turnOf(from, shape) !== 0) {
+      turnDevice(value);
+      return;
+    }
+    finishTurn();
+  }
   /** How far the veil was over a page that a device change was giving back. */
   let veiled = 0;
   if (running()) {
@@ -944,6 +1055,10 @@ export function apply(value: ViewportValue): void {
     if (document.body) open(animate ? veiled : null, first);
     else document.addEventListener("DOMContentLoaded", openLater, { once: true });
     if (animate) change("open");
+    return;
+  }
+  if (turns) {
+    turnDevice(value);
     return;
   }
   if (animate) {
