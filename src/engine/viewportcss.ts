@@ -39,6 +39,8 @@ export const VIEWPORT_CSS = `
 .screenblank[hidden] { display: none; }
 .size {
   position: relative;
+  /* Over the fold, which turns out of the room under it. */
+  z-index: 1;
   flex: none;
   box-sizing: border-box;
   /* A set height, so the room the frame is fitted to never waits on the text. */
@@ -97,8 +99,8 @@ export const VIEWPORT_CSS = `
   transform-origin: 0 0;
 }
 .glass { position: relative; }
-/* A foldable folding: copies of its bodies stand in for it over the mat,
-   under the readout, and take no pointer. */
+/* A foldable folding: a copy of the half that turns, over the device and
+   under the readout, takes no pointer. */
 .fold {
   position: absolute;
   inset: 0;

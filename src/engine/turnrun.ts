@@ -1,19 +1,30 @@
-import { blurOf, unblurAt } from "./fold";
 import type { Rect } from "./mock";
-import { coverAt, MORPH_TIME, type Pose, poseAt, poseOf, poseTransform, turnedPose } from "./morph";
+import {
+  coverAt,
+  ease,
+  FADE_CURVE,
+  lerp,
+  MORPH_TIME,
+  type Pose,
+  poseAt,
+  poseOf,
+  poseTransform,
+  turnedPose,
+} from "./morph";
 import type { ViewportValue } from "./width";
 
 /**
- * Turns a device in view, case and page as one, and blurs the page on its
- * screen while it is laid out the other way, as a fold does too. What it needs
- * of the frame comes in a `TurnScene`, so it holds no node of its own.
+ * Turns a device in view, case and page as one, and darkens the page on its
+ * screen while it is laid out the other way, as the phone fades through black.
+ * A black cover over the page, not a filter on it, so the page stays as cheap
+ * to draw as ever. What it needs of the frame comes in a `TurnScene`, so it
+ * holds no node of its own.
  */
 
 /**
  * What a device turning moves: the element that holds the case and the
  * screen, its top left in the letterbox and the scale it is drawn at there,
- * where the screen stood as the turn started, the cover over its page, and
- * how many of the cover's px are a css px of the screen.
+ * where the screen stood as the turn started, and the cover over its page.
  */
 export interface Spin {
   unit: HTMLElement;
@@ -21,7 +32,6 @@ export interface Spin {
   base: number;
   start: Rect;
   cover: HTMLElement;
-  blur: number;
 }
 
 /** What a device turning asks of the frame, as it starts. */
@@ -34,7 +44,7 @@ export interface TurnScene {
   glass: HTMLElement;
   /** The frame the page is in. */
   frame: HTMLIFrameElement;
-  /** Blurs the page on the screen while it is laid out the other way. */
+  /** Darkens the page on the screen while it is laid out the other way, or as a foldable folds. */
   cover: HTMLElement;
   /** The scale the unit is drawn at. */
   base: number;
@@ -46,12 +56,8 @@ export interface TurnScene {
 
 /** A device turning on its way: how it stands now, and what draws it the way it ends up. */
 let spin: { spin: Spin; pose: Pose; frame: number; done: () => void } | null = null;
-/**
- * The cover that blurs the page on the screen of a device that turns or
- * folds, how far it has blurred it, and how many of its px are a css px of
- * the screen.
- */
-let cover: { node: HTMLElement; share: number; frame: number; blur: number } | null = null;
+/** The cover that darkens the page on the screen of a device that turns, and how dark it has gone. */
+let cover: { node: HTMLElement; share: number; frame: number } | null = null;
 /** The knobs a device turning draws once it is the other way up. */
 let turned: ViewportValue | null = null;
 
@@ -65,39 +71,25 @@ function stand(turn: Spin, pose: Pose): void {
   turn.unit.style.transform = poseTransform(turn.start, pose, turn.corner, turn.base);
 }
 
-/** How many of the cover's px, in the screen, are a css px of the page: the frame's zoom. */
-export function zoomOf(scene: TurnScene): number {
-  return Number.parseFloat(scene.frame.style.zoom) || 1;
-}
-
-/** How far the cover has blurred the page now, 0 to 1. */
-export function coverShare(): number {
-  return cover?.share ?? 0;
-}
-
-/** Blur the page under the cover `share` of the way. */
-function paint(node: HTMLElement, share: number, blur: number): void {
-  const filter = blurOf(share, blur);
-  node.style.backdropFilter = filter;
-  node.style.setProperty("-webkit-backdrop-filter", filter);
+/** Darken the page under the cover `share` of the way to black, none of it at rest. */
+export function darken(node: HTMLElement, share: number): void {
+  node.style.background = share > 0 ? "#000" : "";
+  node.style.opacity = share > 0 ? String(Math.round(share * 1000) / 1000) : "";
   node.hidden = share <= 0;
 }
 
-/**
- * Blur the page under the cover `share` of the way, `blur` of its px to a css
- * px of the screen, and stop it where it was going.
- */
-export function coverTo(node: HTMLElement, share: number, blur = 1): void {
+/** Darken the page under the cover `share` of the way, and stop it where it was going. */
+export function coverTo(node: HTMLElement, share: number): void {
   if (cover) window.cancelAnimationFrame(cover.frame);
-  cover = share > 0 ? { node, share, frame: 0, blur } : null;
-  paint(node, share, blur);
+  cover = share > 0 ? { node, share, frame: 0 } : null;
+  darken(node, share);
 }
 
 /**
- * Let the page laid out the other way sharpen, once the page in the frame has
- * had two frames to lay itself out at its new size.
+ * Let the page laid out the other way come out of the dark, once the page in
+ * the frame has had two frames to lay itself out at its new size.
  */
-export function uncover(): void {
+function uncover(): void {
   const lifting = cover;
   if (!lifting) return;
   const from = lifting.share;
@@ -111,13 +103,12 @@ export function uncover(): void {
     }
     begin ??= now;
     const elapsed = now - begin;
-    const share = unblurAt(from, elapsed);
     if (elapsed >= MORPH_TIME.uncover) {
       coverTo(lifting.node, 0);
       return;
     }
-    lifting.share = share;
-    paint(lifting.node, share, lifting.blur);
+    lifting.share = lerp(from, 0, ease(FADE_CURVE, elapsed / MORPH_TIME.uncover));
+    darken(lifting.node, lifting.share);
     lifting.frame = window.requestAnimationFrame(step);
   };
   lifting.frame = window.requestAnimationFrame(step);
@@ -126,9 +117,9 @@ export function uncover(): void {
 /**
  * Turn the device to `to` a frame at a time, from where a turn on its way got
  * to, or from where it stands, in view all along. In its last part the page
- * blurs, `done` draws the device the way it ends up, in the same frame as the
- * turn's last, and the page laid out the other way sharpens. A turn back to
- * the way the page is laid out sharpens it as it goes. A quarter turn takes
+ * goes dark, `done` draws the device the way it ends up, in the same frame as
+ * the turn's last, and the page laid out the other way comes out of the dark.
+ * A turn back to the way the page is laid out lightens it as it goes. A quarter turn takes
  * the whole time.
  */
 export function turnTo(turn: Spin, to: Pose, done: () => void): void {
@@ -137,7 +128,7 @@ export function turnTo(turn: Spin, to: Pose, done: () => void): void {
   const time = (MORPH_TIME.turn * Math.abs(to.angle - from.angle)) / 90;
   const over = cover?.share ?? 0;
   const across = to.angle === 0 ? 0 : 1;
-  coverTo(turn.cover, over, turn.blur);
+  coverTo(turn.cover, over);
   const going = { spin: turn, pose: from, frame: 0, done };
   spin = going;
   let begin: number | null = null;
@@ -146,7 +137,7 @@ export function turnTo(turn: Spin, to: Pose, done: () => void): void {
     const elapsed = now - begin;
     going.pose = poseAt(from, to, elapsed, time);
     stand(turn, going.pose);
-    coverTo(turn.cover, coverAt(over, across, elapsed, time), turn.blur);
+    coverTo(turn.cover, coverAt(over, across, elapsed, time));
     if (elapsed < time) {
       going.frame = window.requestAnimationFrame(step);
       return;
@@ -193,7 +184,7 @@ export function turnDevice(
   scene.cover.style.background = "";
   // Over the bars too, which are laid out the other way as well.
   scene.glass.append(scene.cover);
-  const turn = { unit: scene.unit, corner, base: scene.base, start, cover: scene.cover, blur: zoomOf(scene) };
+  const turn = { unit: scene.unit, corner, base: scene.base, start, cover: scene.cover };
   turnTo(turn, turnedPose(start, to, angle), done);
 }
 
@@ -202,7 +193,7 @@ export function holdTurn(value: ViewportValue): void {
   turned = value;
 }
 
-/** Land a device turning where it goes, at once, the page sharp. */
+/** Land a device turning where it goes, at once, the page lit. */
 export function finishTurn(): void {
   const last = spin;
   spin = null;
@@ -211,7 +202,7 @@ export function finishTurn(): void {
   last?.done();
 }
 
-/** Stop a device turning where it is, the page sharp. */
+/** Stop a device turning where it is, the page lit. */
 export function stopTurn(): void {
   if (spin) window.cancelAnimationFrame(spin.frame);
   spin = null;

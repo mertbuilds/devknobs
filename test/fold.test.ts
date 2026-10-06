@@ -1,19 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import {
-  angleOf,
-  blurOf,
-  FOLD_BLUR,
-  FOLD_CURVE,
-  foldAt,
-  foldBlurAt,
+  blurShares,
   foldFrame,
   foldLayout,
+  foldLight,
   type FoldSide,
-  foldTime,
-  unblurAt,
+  HAND_OVER,
+  handOver,
+  type Hinge,
+  HINGE,
+  HINGE_STEP,
+  hingeAfter,
+  hingeStep,
+  hingeStill,
+  openOf,
 } from "../src/engine/fold";
 import { mockOf } from "../src/engine/mock";
-import { ease, MORPH_TIME } from "../src/engine/morph";
 
 /** The Duo's two sides as fitted at 87% and 58%, each body where the frame draws it. */
 function sides(across: boolean): { closed: FoldSide; open: FoldSide } {
@@ -46,9 +48,11 @@ describe("foldLayout", () => {
     expect(layout.shut.x).toBeCloseTo(hinge);
     // The screens' middles line up along the hinge.
     expect(layout.shut.y + closed.body.inset.top + 678 / 2).toBeCloseTo(body.inset.top + 669 / 2);
-    expect(layout.clips.rest).toBe(`inset(0 0 0 ${Math.round(hinge * 100) / 100}px)`);
+    expect(layout.hinge).toBeCloseTo(hinge);
+    expect(layout.clip).toBe(`inset(0 ${Math.round((body.width - hinge - 1) * 100) / 100}px 0 0)`);
     expect(layout.open).toEqual({ width: body.width, height: body.height });
-    expect(layout.depth).toBeCloseTo(4.5 * hinge);
+    // Seen from about three widths of the open screen away, as Apple's camera sees it.
+    expect(layout.depth).toBeCloseTo(2.75 * 951);
   });
 
   test("lays it above the hinge held upright open, as the folded phone turned a quarter", () => {
@@ -59,7 +63,7 @@ describe("foldLayout", () => {
     const hinge = body.inset.top + 951 / 2;
     expect(layout.shut.y + layout.shut.height).toBeCloseTo(hinge);
     expect(layout.shut.x + closed.body.inset.left + 678 / 2).toBeCloseTo(body.inset.left + 669 / 2);
-    expect(layout.clips.inner).toBe(`inset(${Math.round((hinge - 1) * 100) / 100}px 0 0 0)`);
+    expect(layout.clip).toBe(`inset(${Math.round((hinge - 1) * 100) / 100}px 0 0 0)`);
   });
 
   test("places the fold shut where the folded body is drawn, and open where the open one is", () => {
@@ -95,126 +99,157 @@ describe("foldLayout", () => {
   });
 });
 
+describe("the hinge", () => {
+  /** Where the hinge is `ms` into a fold from `from` to `to`, as the frame steps it. */
+  const at = (from: number, to: number, ms: number) =>
+    hingeAfter({ position: from, velocity: 0 }, to, Math.round(ms / HINGE_STEP)).position;
+
+  test("is Apple's spring, of 0.75 s and a bounce of 0.15, stepped 60 times a second", () => {
+    expect(HINGE.stiffness).toBeCloseTo(70.18, 1);
+    expect(HINGE.damping).toBeCloseTo(14.24, 1);
+    expect(HINGE_STEP).toBeCloseTo(16.67, 1);
+  });
+
+  test("opens as fast as Apple's, measured, and moves from its first step", () => {
+    expect(at(0, 1, HINGE_STEP)).toBeGreaterThan(0.01);
+    expect(at(0, 1, 67)).toBeCloseTo(0.15, 1);
+    expect(at(0, 1, 167)).toBeCloseTo(0.49, 1);
+    expect(at(0, 1, 267)).toBeCloseTo(0.75, 1);
+    expect(at(0, 1, 417)).toBeCloseTo(0.93, 1);
+    expect(Math.abs(at(0, 1, 167) - 0.49)).toBeLessThan(0.03);
+    expect(Math.abs(at(0, 1, 267) - 0.75)).toBeLessThan(0.03);
+    expect(Math.abs(at(0, 1, 417) - 0.93)).toBeLessThan(0.03);
+  });
+
+  test("shuts the same way back", () => {
+    expect(at(1, 0, 167)).toBeCloseTo(1 - 0.49, 1);
+    expect(at(1, 0, 417)).toBeCloseTo(1 - 0.93, 1);
+  });
+
+  test("lands in under half a second, exactly, and never goes past", () => {
+    for (const [from, to] of [
+      [0, 1],
+      [1, 0],
+    ] as const) {
+      let hinge: Hinge = { position: from, velocity: 0 };
+      let steps = 0;
+      while (!hingeStill(hinge, to) && steps < 120) {
+        hinge = hingeStep(hinge, to);
+        steps++;
+        expect(hinge.position).toBeGreaterThanOrEqual(0);
+        expect(hinge.position).toBeLessThanOrEqual(1);
+      }
+      expect(hinge).toEqual({ position: to, velocity: 0 });
+      expect(steps * HINGE_STEP).toBeGreaterThan(420);
+      expect(steps * HINGE_STEP).toBeLessThan(520);
+    }
+  });
+
+  test("is snapped home by a magnet within 0.08, keeping its speed toward it", () => {
+    const near = hingeStep({ position: 0.95, velocity: 0.3 }, 1);
+    expect(near.position).toBeGreaterThan(0.95);
+    expect(near.velocity).toBeGreaterThan(0.3);
+    // Moving away inside the reach, it is turned back toward it at the same speed.
+    expect(hingeStep({ position: 0.95, velocity: -0.3 }, 1).velocity).toBeGreaterThan(0.3);
+    expect(hingeStep({ position: 0.999, velocity: 2 }, 1)).toEqual({ position: 1, velocity: 0 });
+    // Out of reach, the spring alone.
+    expect(hingeStep({ position: 0.5, velocity: 0 }, 1).velocity).toBeCloseTo(HINGE.stiffness * 0.5 * HINGE.step);
+  });
+
+  test("turned back on its way, goes back from there as fast as it was going", () => {
+    const going = hingeAfter({ position: 0, velocity: 0 }, 1, 10);
+    expect(going.velocity).toBeGreaterThan(1);
+    const back = hingeStep(going, 0);
+    expect(back.position).toBeGreaterThan(going.position);
+    expect(back.velocity).toBeLessThan(going.velocity);
+    const home = hingeAfter(going, 0, 60);
+    expect(home).toEqual({ position: 0, velocity: 0 });
+  });
+
+  test("a posture's opening", () => {
+    expect(openOf("open")).toBe(1);
+    expect(openOf("closed")).toBe(0);
+  });
+});
+
 describe("foldFrame", () => {
   const { closed, open } = sides(true);
   const layout = foldLayout(closed, open, true);
 
   test("is the folded body alone when shut, and the open body flat when open", () => {
-    const shut = foldFrame(layout, 180);
+    const shut = foldFrame(layout, 0);
     expect(shut.inner).toBeNull();
-    expect(shut.outer).toEqual({ transform: "perspective(" + Math.round(layout.depth * 100) / 100 + "px) rotateY(0deg)", shade: 1 });
-    expect(shut.rest).toBe(0);
-    expect(shut.place).toBe(`translate(${Math.round(layout.folded.x * 100) / 100}px, ${Math.round(layout.folded.y * 100) / 100}px) scale(${layout.folded.scale})`);
-    const flat = foldFrame(layout, 0);
+    expect(shut.outer).toBe(`perspective(${Math.round(layout.depth * 100) / 100}px) rotateY(0deg)`);
+    expect(shut.place).toEqual(layout.folded);
+    expect(shut.lift).toBe(0);
+    const flat = foldFrame(layout, 1);
     expect(flat.outer).toBeNull();
-    expect(flat.inner?.transform).toEndWith("rotateY(0deg)");
-    expect(flat.inner?.shade).toBe(1);
-    expect(flat.rest).toBe(1);
-    expect(flat.place).toContain(`scale(${layout.unfolded.scale})`);
+    expect(flat.inner).toEndWith("rotateY(0deg)");
+    expect(flat.place).toEqual(layout.unfolded);
   });
 
-  test("turns the half toward the viewer about the hinge, its inside up to a right angle and its outside past it, darker as it stands", () => {
-    const rising = foldFrame(layout, 60);
-    expect(rising.inner?.transform).toEndWith("rotateY(60deg)");
+  test("turns the half toward the viewer about the hinge, its inside up to a right angle, its outside past", () => {
+    const rising = foldFrame(layout, 2 / 3);
+    expect(rising.inner).toEndWith("rotateY(60deg)");
     expect(rising.outer).toBeNull();
-    expect(rising.inner?.shade).toBeCloseTo(1 - 0.5 * Math.sin(Math.PI / 3), 2);
-    const past = foldFrame(layout, 120);
+    expect(rising.lift).toBeCloseTo(Math.sin(Math.PI / 3), 2);
+    const past = foldFrame(layout, 1 / 3);
     expect(past.inner).toBeNull();
-    expect(past.outer?.transform).toEndWith("rotateY(-60deg)");
-    expect(past.outer?.shade).toBeCloseTo(1 - 0.35 * Math.sin(Math.PI / 3), 2);
-    expect(foldFrame(foldLayout(sides(false).closed, sides(false).open, false), 60).inner?.transform).toEndWith(
+    expect(past.outer).toEndWith("rotateY(-60deg)");
+    expect(foldFrame(foldLayout(sides(false).closed, sides(false).open, false), 2 / 3).inner).toEndWith(
       "rotateX(60deg)",
     );
   });
 
-  test("brings the half that stays out from under the folded body over the first 30 degrees", () => {
-    expect(foldFrame(layout, 165).rest).toBeCloseTo(0.5);
-    expect(foldFrame(layout, 150).rest).toBe(1);
+  test("moves from where it is drawn shut to where open as it opens", () => {
+    const half = foldFrame(layout, 0.5).place;
+    expect(half.x).toBeCloseTo((layout.folded.x + layout.unfolded.x) / 2);
+    expect(half.scale).toBeCloseTo((layout.folded.scale + layout.unfolded.scale) / 2);
   });
 });
 
-describe("timing", () => {
-  test("a posture's angle, and a half turn takes the whole time", () => {
-    expect(angleOf("open")).toBe(0);
-    expect(angleOf("closed")).toBe(180);
-    expect(foldTime(180, 0)).toBe(MORPH_TIME.fold);
-    expect(foldTime(90, 0)).toBe(MORPH_TIME.fold / 2);
-    expect(MORPH_TIME.fold).toBeGreaterThanOrEqual(450);
-    expect(MORPH_TIME.fold + MORPH_TIME.foldCover).toBeLessThanOrEqual(600);
+describe("foldLight", () => {
+  test("brightens the open screen from a quarter as it opens, and the folded one as it shuts", () => {
+    expect(foldLight(0).dim).toBe(0.75);
+    expect(foldLight(1).dim).toBe(0);
+    expect(foldLight(0.5).dim).toBeCloseTo(0.375);
+    expect(foldLight(0).coverDim).toBe(0);
+    expect(foldLight(1).coverDim).toBe(0.75);
   });
 
-  test("turns on the hinge's curve, and lands exactly", () => {
-    expect(foldAt(180, 0, 0)).toBe(180);
-    expect(foldAt(180, 0, MORPH_TIME.fold / 2)).toBeCloseTo(180 * (1 - ease(FOLD_CURVE, 0.5)));
-    expect(foldAt(47.3, 180, foldTime(47.3, 180))).toBe(180);
-    expect(foldAt(47.3, 180, 10000)).toBe(180);
-    let last = 180;
-    for (let elapsed = 0; elapsed <= MORPH_TIME.fold; elapsed += 16) {
-      const angle = foldAt(180, 0, elapsed);
-      expect(angle).toBeLessThanOrEqual(last);
-      last = angle;
+  test("blurs and shades the half that turns the more it stands, sharp and bright as it lands", () => {
+    expect(foldLight(1)).toEqual({ dim: 0, coverDim: 0.75, edge: 0, coverEdge: 1, blur: 0, coverBlur: 1 });
+    expect(foldLight(0)).toEqual({ dim: 0.75, coverDim: 0, edge: 1, coverEdge: 0, blur: 1, coverBlur: 0 });
+    expect(foldLight(0.5).blur).toBeCloseTo(0.6);
+    expect(foldLight(0.9).blur).toBeCloseTo(0.12);
+    expect(foldLight(0.1).coverBlur).toBeCloseTo(0.12);
+    let last = 2;
+    for (let open = 0; open <= 1; open += 0.05) {
+      expect(foldLight(open).blur).toBeLessThanOrEqual(last);
+      last = foldLight(open).blur;
     }
-    // Slow out of the hinge, and settling long at the end.
-    expect(foldAt(180, 0, 32)).toBeGreaterThan(170);
-    expect(foldAt(180, 0, MORPH_TIME.fold * 0.75)).toBeLessThan(18);
   });
 
-  test("blurs the page quickly before a fold, from as far as it is blurred", () => {
-    expect(foldBlurAt(0, 0)).toBe(0);
-    expect(foldBlurAt(0, MORPH_TIME.foldCover)).toBe(1);
-    expect(foldBlurAt(0.5, MORPH_TIME.foldCover / 2)).toBe(1);
-    expect(foldBlurAt(1, 0)).toBe(1);
-    expect(foldBlurAt(0, MORPH_TIME.foldCover / 2)).toBeGreaterThan(0.5);
-    expect(MORPH_TIME.foldCover).toBeGreaterThanOrEqual(90);
-    expect(MORPH_TIME.foldCover).toBeLessThanOrEqual(120);
-  });
-
-  test("sharpens the page once laid out, over 200 ms, and lands sharp", () => {
-    expect(MORPH_TIME.uncover).toBe(200);
-    expect(unblurAt(1, 0)).toBe(1);
-    expect(unblurAt(1, MORPH_TIME.uncover / 2)).toBeLessThan(0.5);
-    expect(unblurAt(0.4, MORPH_TIME.uncover / 2)).toBeLessThan(0.2);
-    expect(unblurAt(1, MORPH_TIME.uncover)).toBe(0);
-    expect(unblurAt(1, 10000)).toBe(0);
-    let last = 1;
-    for (let elapsed = 0; elapsed <= MORPH_TIME.uncover; elapsed += 16) {
-      const share = unblurAt(1, elapsed);
-      expect(share).toBeLessThanOrEqual(last);
-      last = share;
-    }
+  test("shows the blurrier pictures one after the other as the blur grows", () => {
+    expect(blurShares(0)).toEqual([0, 0]);
+    expect(blurShares(0.2)).toEqual([0.5, 0]);
+    expect(blurShares(0.4)).toEqual([1, 0.4]);
+    expect(blurShares(0.65)).toEqual([1, 1]);
+    expect(blurShares(1)).toEqual([1, 1]);
   });
 });
 
-describe("blurOf", () => {
-  test("blurs hard all the way, a little brighter and more colorful", () => {
-    expect(FOLD_BLUR.radius).toBeGreaterThanOrEqual(20);
-    expect(FOLD_BLUR.radius).toBeLessThanOrEqual(30);
-    expect(blurOf(1)).toBe(`blur(${FOLD_BLUR.radius}px) saturate(1.3) brightness(1.05)`);
-    expect(blurOf(0.5)).toBe(`blur(${FOLD_BLUR.radius / 2}px) saturate(1.15) brightness(1.02)`);
-  });
-
-  test("scales the radius with the px of the layer it is drawn on", () => {
-    expect(blurOf(1, 1.5)).toStartWith(`blur(${FOLD_BLUR.radius * 1.5}px)`);
-    expect(blurOf(1, 0.5)).toStartWith(`blur(${FOLD_BLUR.radius / 2}px)`);
-  });
-
-  test("is no filter at all at rest, so nothing is left on the page", () => {
-    expect(blurOf(0)).toBe("");
-    expect(blurOf(0, 3)).toBe("");
-    expect(blurOf(unblurAt(1, MORPH_TIME.uncover), 1.5)).toBe("");
-    expect(blurOf(-0.1)).toBe("");
-  });
-
-  test("blurs in, holds, then sharpens to nothing, over a whole fold", () => {
-    const radius = (filter: string) => Number(/blur\(([\d.]+)px\)/.exec(filter)?.[1] ?? 0);
-    const seen: number[] = [];
-    for (let now = 0; now <= MORPH_TIME.foldCover; now += 16) seen.push(radius(blurOf(foldBlurAt(0, now), 1)));
-    seen.push(radius(blurOf(foldBlurAt(0, MORPH_TIME.foldCover), 1)));
-    expect(seen[0]).toBe(0);
-    expect(seen.at(-1)).toBe(FOLD_BLUR.radius);
-    for (let now = 0; now <= MORPH_TIME.uncover; now += 16) seen.push(radius(blurOf(unblurAt(1, now), 1)));
-    seen.push(radius(blurOf(unblurAt(1, MORPH_TIME.uncover), 1)));
-    expect(Math.max(...seen)).toBe(FOLD_BLUR.radius);
-    expect(seen.at(-1)).toBe(0);
+describe("handOver", () => {
+  test("hands the screen to the page itself over the last 8% of the way, only where it is drawn", () => {
+    expect(HAND_OVER).toBe(0.08);
+    expect(handOver(0.9, "open")).toBe(0);
+    expect(handOver(0.92, "open")).toBe(0);
+    expect(handOver(0.96, "open")).toBeCloseTo(0.5);
+    expect(handOver(1, "open")).toBe(1);
+    expect(handOver(0.1, "closed")).toBe(0);
+    expect(handOver(0.04, "closed")).toBeCloseTo(0.5);
+    expect(handOver(0, "closed")).toBe(1);
+    // Drawn open, the picture keeps the screen all the way shut.
+    expect(handOver(0.02, "open")).toBe(0);
   });
 });

@@ -141,7 +141,7 @@ describe("a device", () => {
     });
   });
 
-  test("a phone or tablet after another is held the same way, anything else its usual way", () => {
+  test("a phone or tablet after another turned is turned too, anything else its usual way", () => {
     const across = state({ device: "iphone-16", orientation: "landscape" });
     expect(merge(across, { device: "ipad-mini" })).toMatchObject({
       width: 1133,
@@ -156,7 +156,7 @@ describe("a device", () => {
     });
   });
 
-  test("the iPhone Duo comes up folded, and open across, or upright after a phone held upright", () => {
+  test("the iPhone Duo comes up folded, and open across, or upright after a phone turned across", () => {
     expect(state({ device: "iphone-duo" })).toMatchObject({
       width: 466,
       height: 678,
@@ -172,9 +172,50 @@ describe("a device", () => {
     const upright = state({ device: "iphone-16" });
     expect(merge(upright, { device: "iphone-duo", posture: "open" })).toMatchObject({
       device: "iphone-duo",
+      width: 951,
+      height: 669,
+      orientation: "landscape",
+    });
+    const across = state({ device: "iphone-16", orientation: "landscape" });
+    expect(merge(across, { device: "iphone-duo", posture: "open" })).toMatchObject({
+      device: "iphone-duo",
       width: 669,
       height: 951,
       orientation: "portrait",
+    });
+  });
+
+  test("a fold is not a turn: the next phone comes up its usual way", () => {
+    const shut = state({ device: "iphone-duo" });
+    const open = merge(shut, { posture: "open" });
+    expect(merge(open, { device: "iphone-18-pro" })).toMatchObject({
+      width: 402,
+      height: 874,
+      orientation: "portrait",
+    });
+    const folded = merge(open, { posture: "closed" });
+    expect(merge(folded, { device: "iphone-18-pro" })).toMatchObject({ orientation: "portrait" });
+    // Picked again after a reload, the state as stored does the same.
+    expect(merge(state({ device: "iphone-duo", posture: "open" }), { device: "iphone-18-pro" })).toMatchObject({
+      orientation: "portrait",
+    });
+  });
+
+  test("a turn of the iPhone Duo goes on to the next phone, in either posture", () => {
+    const shut = state({ device: "iphone-duo" });
+    const turnedShut = merge(shut, { orientation: "landscape" });
+    expect(merge(turnedShut, { device: "iphone-18-pro" })).toMatchObject({
+      width: 874,
+      height: 402,
+      orientation: "landscape",
+    });
+    // Turned shut, it opens upright, still turned from the way it is held open.
+    const turnedOpen = merge(turnedShut, { posture: "open" });
+    expect(turnedOpen).toMatchObject({ orientation: "portrait" });
+    expect(merge(turnedOpen, { device: "iphone-18-pro" })).toMatchObject({ orientation: "landscape" });
+    const open = merge(shut, { posture: "open" });
+    expect(merge(merge(open, { orientation: "portrait" }), { device: "iphone-18-pro" })).toMatchObject({
+      orientation: "landscape",
     });
   });
 

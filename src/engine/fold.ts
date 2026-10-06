@@ -1,39 +1,92 @@
 import type { PostureValue } from "../types";
 import type { Rect, Sides } from "./mock";
-import { type Curve, ease, FADE_CURVE, lerp, MORPH_TIME } from "./morph";
+import { lerp } from "./morph";
 
 /**
  * A foldable folding open or shut in view, as a book does: the half of the
  * open body on the far side of the hinge from the folded one turns about the
  * hinge toward the viewer, the open screen on its inside and the folded body
  * on its outside, while the other half stays. Measured from Apple's own fold
- * of the iPhone Duo. The fold is drawn in the open screen's css px, from the
+ * of the iPhone Duo, which drives everything from how far open the hinge is,
+ * 0 shut to 1 open: the turn, how dim the screens are and how blurred the
+ * half that turns is. The fold is drawn in the open screen's css px, from the
  * open body's top left, and the whole of it moves from where the folded body
- * is drawn to where the open one is as it folds. Everything here is pure: the
+ * is drawn to where the open one is as it opens. Everything here is pure: the
  * frame draws it.
  */
 
 /**
- * The hinge turns out quickly and settles long, fitted to Apple's fold over
- * its measured 470 ms.
+ * The hinge is a spring, stepped 60 times a second: Apple's of 0.75 s with a
+ * bounce of 0.15, whose stiffness and damping follow from those, of mass 1.
+ * Within `reach` of shut or open a magnet takes over, `pull` strong, and
+ * snaps it there, so it never goes past.
  */
-export const FOLD_CURVE: Curve = [0.3, 0.15, 0.2, 1];
+export const HINGE = {
+  stiffness: (2 * Math.PI / 0.75) ** 2,
+  damping: ((1 - 0.15) * 4 * Math.PI) / 0.75,
+  step: 1 / 60,
+  reach: 0.08,
+  pull: { shut: 30, open: 20 },
+} as const;
 
-/** How far away the fold is seen from, in widths of the half that turns. */
-const DEPTH = 4.5;
+/** How long one step of the hinge is, in ms. */
+export const HINGE_STEP = HINGE.step * 1000;
 
-/** How much darker each side of the turning half goes as it stands up off the screen. */
-export const FOLD_SHADE = { inner: 0.5, outer: 0.35 } as const;
+/** How far open the hinge is, 0 shut to 1 open, and how fast it moves, in openings a second. */
+export interface Hinge {
+  position: number;
+  velocity: number;
+}
+
+/** How far open a posture leaves the hinge. */
+export function openOf(posture: PostureValue): number {
+  return posture === "open" ? 1 : 0;
+}
+
+/** The hinge a step on toward `target`, shut or open. */
+export function hingeStep(hinge: Hinge, target: number): Hinge {
+  const { position, velocity } = hinge;
+  const dt = HINGE.step;
+  const away = position - target;
+  if (away === 0) return { position, velocity: 0 };
+  const off = Math.abs(away);
+  if (off > HINGE.reach) {
+    const pushed = velocity + (-HINGE.stiffness * away - HINGE.damping * velocity) * dt;
+    return { position: position + pushed * dt, velocity: pushed };
+  }
+  // The magnet keeps the speed, turned toward where it pulls, and pulls the harder the nearer.
+  const toward = -Math.sign(away);
+  const near = (HINGE.reach * HINGE.reach) / 10;
+  const pull = target === 1 ? HINGE.pull.open : HINGE.pull.shut;
+  const pulled = Math.abs(velocity) * toward + toward * pull * (near / (off * off)) * dt;
+  const next = position + pulled * dt;
+  const past = Math.sign(next - target) !== Math.sign(away);
+  return past ? { position: target, velocity: 0 } : { position: next, velocity: pulled };
+}
+
+/** The hinge `steps` steps on toward `target`. */
+export function hingeAfter(hinge: Hinge, target: number, steps: number): Hinge {
+  let at = hinge;
+  for (let step = 0; step < steps && !hingeStill(at, target); step++) at = hingeStep(at, target);
+  return at;
+}
+
+/** Has the hinge got to `target` and stopped there? */
+export function hingeStill(hinge: Hinge, target: number): boolean {
+  return hinge.position === target && hinge.velocity === 0;
+}
+
+/** How far away the fold is seen from, in widths of the open screen. */
+const DEPTH = 2.75;
+
+/** How dark the half that turns goes toward its free edge as it stands, at most. */
+export const FOLD_EDGE = 0.6;
 
 /**
- * How the page on the screens blurs while a foldable folds, as it does on the
- * phone: its radius in the screen's css px, and how much more colorful and
- * brighter it goes.
+ * Over how much of the way the half that turns, a picture of the page, hands
+ * the screen over to the page itself, laid out as it ends up.
  */
-export const FOLD_BLUR = { radius: 24, saturate: 0.3, brightness: 0.05 } as const;
-
-/** Over how many degrees of a fold from shut the half that stays comes out from under the folded body. */
-const REST_IN = 30;
+export const HAND_OVER = 0.08;
 
 /** One posture's side of a fold. */
 export interface FoldSide {
@@ -60,8 +113,10 @@ export interface FoldLayout {
   open: { width: number; height: number };
   /** Where the folded body lies on the open one once shut. */
   shut: Rect;
-  /** What each part of the open body keeps: the half that stays, and the half that turns, a px past the hinge. */
-  clips: { rest: string; inner: string };
+  /** The hinge's line: x held across, else y. */
+  hinge: number;
+  /** What the half that turns keeps of the open body, a px past the hinge. */
+  clip: string;
   /** The point each side of the turning half turns about: the hinge, in the middle of the screens. */
   origins: { inner: string; outer: string };
   /** The fold shut, and open. */
@@ -73,6 +128,15 @@ export interface FoldLayout {
 
 function num(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** A share of light or blur, to a thousandth. */
+function fine(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function clamp(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 /** The body of a side, or the bare screen where none is drawn. */
@@ -119,12 +183,8 @@ export function foldLayout(closed: FoldSide, open: FoldSide, across: boolean): F
     across,
     open: { width, height },
     shut,
-    clips: across
-      ? { rest: `inset(0 0 0 ${num(middle.x)}px)`, inner: `inset(0 ${num(width - middle.x - 1)}px 0 0)` }
-      : {
-          rest: `inset(0 0 ${num(height - middle.y)}px 0)`,
-          inner: `inset(${num(middle.y - 1)}px 0 0 0)`,
-        },
+    hinge: across ? middle.x : middle.y,
+    clip: across ? `inset(0 ${num(width - middle.x - 1)}px 0 0)` : `inset(${num(middle.y - 1)}px 0 0 0)`,
     origins: across
       ? { inner: `${num(middle.x)}px ${num(middle.y)}px`, outer: `0px ${num(shutMiddle.y)}px` }
       : {
@@ -133,89 +193,88 @@ export function foldLayout(closed: FoldSide, open: FoldSide, across: boolean): F
         },
     folded: { x: at.x - shut.x * at.scale, y: at.y - shut.y * at.scale, scale: at.scale },
     unfolded: placeOf(open),
-    depth: DEPTH * (across ? middle.x : height - middle.y),
+    depth: DEPTH * (across ? open.size.width : open.size.height),
   };
 }
 
-/** The hinge's angle in a posture: 0 open flat, 180 folded shut. */
-export function angleOf(posture: PostureValue): number {
-  return posture === "open" ? 0 : 180;
-}
-
-/** How long a fold from one angle to another takes, a half turn the whole time. */
-export function foldTime(from: number, to: number): number {
-  return (MORPH_TIME.fold * Math.abs(to - from)) / 180;
-}
-
-/** The hinge's angle `elapsed` ms into a fold from one angle to another. */
-export function foldAt(from: number, to: number, elapsed: number): number {
-  const time = foldTime(from, to);
-  return elapsed < time ? lerp(from, to, ease(FOLD_CURVE, elapsed / time)) : to;
-}
-
-/**
- * How far the page is blurred `elapsed` ms into blurring it from `from`
- * before a fold, 0 to 1. A page part of the way there takes as much less time.
- */
-export function foldBlurAt(from: number, elapsed: number): number {
-  const time = MORPH_TIME.foldCover * (1 - from);
-  return time > 0 ? lerp(from, 1, ease(FADE_CURVE, elapsed / time)) : 1;
-}
-
-/** How far the page is blurred `elapsed` ms into sharpening from `from`, laid out at its new size, 0 to 1. */
-export function unblurAt(from: number, elapsed: number): number {
-  return elapsed < MORPH_TIME.uncover ? lerp(from, 0, ease(FADE_CURVE, elapsed / MORPH_TIME.uncover)) : 0;
-}
-
-/**
- * The page blurred `share` of the way, as a css filter for a layer whose px
- * are `scale` css px of the screen, so it blurs as much at any fit. A little
- * brighter and more colorful too, as frosted glass. None at rest.
- */
-export function blurOf(share: number, scale = 1): string {
-  if (share <= 0) return "";
-  const blur = num(FOLD_BLUR.radius * scale * share);
-  const saturate = num(1 + FOLD_BLUR.saturate * share);
-  const brightness = num(1 + FOLD_BLUR.brightness * share);
-  return `blur(${blur}px) saturate(${saturate}) brightness(${brightness})`;
-}
-
-/** One side of the turning half as it stands: its transform, and how bright it is drawn. */
-export interface Leaf {
-  transform: string;
-  shade: number;
-}
-
-/** How a fold is drawn at a hinge angle. */
+/** How a fold is drawn with its hinge `open` of the way open. */
 export interface FoldFrame {
-  /** The fold's transform in the letterbox, on its way from where it is drawn shut to where open. */
-  place: string;
-  /** How much of the half that stays shows. */
-  rest: number;
-  /** The turning half's inside, the open screen's, while it faces the viewer. */
-  inner: Leaf | null;
+  /** Where the fold is in the letterbox, on its way from where it is drawn shut to where open. */
+  place: Place;
+  /** The turning half's inside, the open screen's, while it faces the viewer, as a transform. */
+  inner: string | null;
   /** Its outside, the folded body, while that faces the viewer. */
-  outer: Leaf | null;
+  outer: string | null;
+  /** How far the turning half stands off the screen, 0 flat to 1 square to it. */
+  lift: number;
 }
 
-/** How a fold laid out as `layout` is drawn at `angle`. */
-export function foldFrame(layout: FoldLayout, angle: number): FoldFrame {
-  const share = 1 - angle / 180;
+/** How a fold laid out as `layout` is drawn with its hinge `open` of the way open. */
+export function foldFrame(layout: FoldLayout, open: number): FoldFrame {
+  const angle = 180 * (1 - open);
   const { folded, unfolded } = layout;
-  const x = lerp(folded.x, unfolded.x, share);
-  const y = lerp(folded.y, unfolded.y, share);
-  const scale = lerp(folded.scale, unfolded.scale, share);
   const turn = layout.across ? "rotateY" : "rotateX";
   const view = `perspective(${num(layout.depth)}px)`;
-  const lift = Math.sin((angle * Math.PI) / 180);
-  const leaf = (degrees: number, shade: number): Leaf => ({
-    transform: `${view} ${turn}(${num(degrees)}deg)`,
-    shade: num(1 - shade * lift),
-  });
+  const leaf = (degrees: number) => `${view} ${turn}(${num(degrees)}deg)`;
   return {
-    place: `translate(${num(x)}px, ${num(y)}px) scale(${scale})`,
-    rest: Math.min(1, Math.max(0, (180 - angle) / REST_IN)),
-    inner: angle < 90 ? leaf(angle, FOLD_SHADE.inner) : null,
-    outer: angle < 90 ? null : leaf(angle - 180, FOLD_SHADE.outer),
+    place: {
+      x: lerp(folded.x, unfolded.x, open),
+      y: lerp(folded.y, unfolded.y, open),
+      scale: lerp(folded.scale, unfolded.scale, open),
+    },
+    inner: angle < 90 ? leaf(angle) : null,
+    outer: angle < 90 ? null : leaf(angle - 180),
+    lift: num(Math.sin((angle * Math.PI) / 180)),
   };
+}
+
+/** How the screens are lit and blurred with the hinge `open` of the way open. */
+export interface FoldLight {
+  /** How dark the open screen is, both halves, 0 to 1. */
+  dim: number;
+  /** How dark the folded body's screen is. */
+  coverDim: number;
+  /** How far the open screen's half that turns darkens toward its free edge, of `FOLD_EDGE`. */
+  edge: number;
+  /** How far the folded body's screen does. */
+  coverEdge: number;
+  /** How blurred the open screen's half that turns is at its free edge, 0 to 1. */
+  blur: number;
+  /** How blurred the folded body's screen is at its free edge, 0 to 1. */
+  coverBlur: number;
+}
+
+/**
+ * The light of a fold, as the phone's: the open screen brightens from a
+ * quarter as it opens, and the folded one as it shuts, and the half that
+ * turns blurs and darkens toward its free edge the more it stands, so both
+ * are sharp and bright as the hinge lands.
+ */
+export function foldLight(open: number): FoldLight {
+  return {
+    dim: fine(0.75 * (1 - open)),
+    coverDim: fine(0.75 * open),
+    edge: fine(1 - open),
+    coverEdge: fine(open),
+    blur: fine(clamp(1.2 * (1 - open))),
+    coverBlur: fine(clamp(1.2 * open)),
+  };
+}
+
+/**
+ * How much each of the two ever blurrier pictures of the page shows over the
+ * sharp one, for a blur 0 to 1: the first all of the way by 0.4, the second
+ * from a quarter on, all of it by 0.65, as Apple's blur comes on quickly.
+ */
+export function blurShares(blur: number): [number, number] {
+  return [fine(clamp(2.5 * blur)), fine(clamp(2.5 * blur - 0.6))];
+}
+
+/**
+ * How far the page itself has taken over from the picture of it on the half
+ * that turns, 0 to 1, with the frame laid out `drawn`: in the last
+ * `HAND_OVER` of the way to that posture, where the half lies all but flat.
+ */
+export function handOver(open: number, drawn: PostureValue): number {
+  return fine(clamp(drawn === "open" ? (open - (1 - HAND_OVER)) / HAND_OVER : (HAND_OVER - open) / HAND_OVER));
 }

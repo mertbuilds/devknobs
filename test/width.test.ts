@@ -885,22 +885,24 @@ describe("the frame over the page", () => {
       for (let now = 0; now <= MORPH_TIME.turn + 40; now += 40) {
         for (const callback of frames.splice(0)) callback(now);
         seen.push(String(Reflect.get(unit?.style ?? {}, "transform")));
-        const blur = /blur\(([\d.]+)px\)/.exec(String(Reflect.get(cover?.style ?? {}, "backdropFilter") ?? ""));
-        covers.push(Number(blur?.[1] ?? 0));
+        covers.push(Number(Reflect.get(cover?.style ?? {}, "opacity") || 0));
+        expect(Reflect.get(cover?.style ?? {}, "backdropFilter") || "").toBe("");
         if (now < MORPH_TIME.turn) {
           // Held the old way all through the turn, in view, the mat whole behind it.
           expect(Reflect.get(frame.style, "width")).toBe("402px");
           expect(Reflect.get(back?.style ?? {}, "clipPath") || "").toBe("");
         }
       }
-      // The page blurs in the turn's last part, and is laid out the other way blurred.
+      // The page goes dark in the turn's last part, a black cover over it, and is laid out the other way unseen.
       expect(covers[1]).toBe(0);
-      expect(covers.at(-1)).toBe(24);
+      expect(covers.at(-1)).toBe(1);
+      expect(Reflect.get(cover?.style ?? {}, "background")).toBe("#000");
       for (let now = 0; now <= MORPH_TIME.uncover + 160; now += 40) {
         for (const callback of frames.splice(0)) callback(MORPH_TIME.turn + 80 + now);
       }
       expect(Reflect.get(cover ?? {}, "hidden")).toBe(true);
-      expect(Reflect.get(cover?.style ?? {}, "backdropFilter")).toBe("");
+      expect(Reflect.get(cover?.style ?? {}, "opacity")).toBe("");
+      expect(Reflect.get(cover?.style ?? {}, "background")).toBe("");
       expect(seen[1]).toMatch(/rotate\(-\d+(\.\d+)?deg\)/);
       // Once there, it is drawn held across, its own transform no more than its scale.
       expect(Number.parseFloat(Reflect.get(frame.style, "width"))).toBeGreaterThan(700);
@@ -1052,25 +1054,90 @@ describe("a foldable folding", () => {
     expect(drawnAs()).toEqual(shut);
     reduce = false;
     apply(OPEN);
-    // Held folded under a cover while the copies of its bodies fold over the mat.
-    for (let now = 0; now < 300; now += 16) {
+    // Live and shut for the first of the way, a copy of the half that turns fading in over it, then
+    // laid out open, the half that stays live under a dim, the copy turning over it.
+    const style = (name: string, key: string) => String(Reflect.get(byClass(name)?.style ?? {}, key) ?? "");
+    const leaves = () => byClass("fold")?.children[0]?.children ?? [];
+    expect(Reflect.get(frameElement().style, "width")).toBe("466px");
+    expect(leaves()).toHaveLength(2);
+    // Its body whole, only its screen faded, so nothing behind the device shows through.
+    expect(Reflect.get(leaves()[1]?.style ?? {}, "opacity") || "").toBe("");
+    expect(Reflect.get(leaves()[1]?.children[0]?.style ?? {}, "opacity")).toBe("0");
+    expect(String(Reflect.get(leaves()[1]?.style ?? {}, "transform"))).toEndWith("rotateY(0deg)");
+    // It moves on the first frame after the click.
+    for (const callback of frames.splice(0)) callback(1000);
+    expect(String(Reflect.get(leaves()[1]?.style ?? {}, "transform"))).toMatch(/rotateY\(-\d+(\.\d+)?deg\)/);
+    for (let now = 1016; now < 1200; now += 16) {
       for (const callback of frames.splice(0)) callback(now);
     }
-    const layer = byClass("fold");
-    expect(layer?.children[0]?.children).toHaveLength(3);
-    expect(Reflect.get(byClass("screen")?.style ?? {}, "visibility")).toBe("hidden");
-    expect(drawnAs()).toEqual(shut);
-    expect(Reflect.get(byClass("back")?.style ?? {}, "clipPath") || "").toBe("");
-    play();
-    expect(byClass("fold")).toBeUndefined();
-    expect(Reflect.get(byClass("screen")?.style ?? {}, "visibility")).toBe("");
-    expect(drawnAs()).toEqual(open);
+    expect(Reflect.get(frameElement().style, "width")).toBe("951px");
+    expect(style("screen", "visibility")).toBe("");
+    expect(style("screen", "clipPath")).toStartWith("polygon(");
+    expect(style("screen", "transform")).toStartWith("translate(");
+    expect(style("screen", "filter")).toBe("");
     const cover = byClass("glass")?.children.at(-1);
-    expect(Reflect.get(cover ?? {}, "hidden")).toBe(true);
-    apply(SHUT);
+    expect(Reflect.get(cover ?? {}, "hidden")).toBe(false);
+    expect(Reflect.get(cover?.style ?? {}, "background")).toBe("#000");
+    expect(Number(Reflect.get(cover?.style ?? {}, "opacity"))).toBeGreaterThan(0);
+    expect(Reflect.get(cover?.style ?? {}, "backdropFilter") || "").toBe("");
+    expect(style("back", "clipPath")).toBe("");
     play();
+    // Nothing left at rest: no layer, clip, transform of its own, dim or filter.
+    expect(byClass("fold")).toBeUndefined();
+    expect(drawnAs()).toEqual(open);
+    expect(style("screen", "clipPath")).toBe("");
+    expect(Reflect.get(cover ?? {}, "hidden")).toBe(true);
+    expect(Reflect.get(cover?.style ?? {}, "opacity")).toBe("");
+    expect(Reflect.get(cover?.style ?? {}, "background")).toBe("");
+    // Shutting, it stays laid out open, live, till the last of the way, where the copy hands over.
+    apply(SHUT);
+    const widths: string[] = [];
+    let handing = false;
+    for (let now = 0; now <= 2000 && byClass("fold"); now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+      widths.push(String(Reflect.get(frameElement().style, "width")));
+      const fading = Number(Reflect.get(leaves()[1]?.children[0]?.style ?? {}, "opacity") || 1);
+      if (byClass("fold") && widths.at(-1) === "466px" && fading < 1) handing = true;
+    }
+    expect(widths.slice(0, 20).every((width) => width === "951px")).toBe(true);
+    expect(handing).toBe(true);
+    // Shut, sharp and lit, in under half a second.
+    expect(widths.length * 16).toBeLessThan(520);
     expect(byClass("fold")).toBeUndefined();
     expect(drawnAs()).toEqual(shut);
+  });
+
+  test("never lets the mat show inside the device: whole bodies, each screen's own corners, start to end", () => {
+    const open = shown(OPEN);
+    const shut = shown(SHUT);
+    apply(SHUT);
+    reduce = false;
+    for (const [to, end] of [
+      [OPEN, open],
+      [SHUT, shut],
+    ] as const) {
+      apply(to);
+      let seen = 0;
+      for (let now = 0; now <= 2000 && byClass("fold"); now += 16) {
+        const leaves = byClass("fold")?.children[0]?.children ?? [];
+        const [inner, outer] = leaves;
+        // Neither copy of the half that turns is ever see-through, only its screen fades.
+        expect(Reflect.get(inner?.style ?? {}, "opacity") || "").toBe("");
+        expect(Reflect.get(outer?.style ?? {}, "opacity") || "").toBe("");
+        expect(Reflect.get(inner?.children[0]?.style ?? {}, "borderRadius")).toBe(open[0]);
+        expect(Reflect.get(outer?.children[0]?.style ?? {}, "borderRadius")).toBe(shut[0]);
+        // The device itself is drawn whole and opaque, its screen with its own corners, the mat uncut.
+        const glass = String(Reflect.get(byClass("glass")?.style ?? {}, "borderRadius"));
+        expect([open[0], shut[0]]).toContain(glass);
+        expect(Reflect.get(byClass("screen")?.style ?? {}, "visibility") || "").toBe("");
+        expect(Reflect.get(byClass("screen")?.style ?? {}, "opacity") || "").toBe("");
+        expect(Reflect.get(byClass("back")?.style ?? {}, "clipPath") || "").toBe("");
+        for (const callback of frames.splice(0)) callback(now);
+        seen++;
+      }
+      expect(seen).toBeGreaterThan(20);
+      expect(drawnAs()).toEqual(end);
+    }
   });
 
   test("folds back from where it got to, and lands at once for a turn", () => {
@@ -1093,7 +1160,7 @@ describe("a foldable folding", () => {
     // A turn while it folds lands the fold, and turns from there.
     apply({ ...OPEN, orientation: "portrait", width: 669, height: 951 });
     expect(byClass("fold")).toBeUndefined();
-    expect(Reflect.get(byClass("screen")?.style ?? {}, "visibility")).toBe("");
+    expect(Reflect.get(byClass("screen")?.style ?? {}, "clipPath")).toBe("");
     expect(Reflect.get(frameElement().style, "width")).toBe("951px");
     play();
     expect(Reflect.get(frameElement().style, "width")).toBe("669px");
@@ -1120,6 +1187,7 @@ describe("a foldable folding", () => {
     }
     reset();
     expect(everything().some((element) => Reflect.get(element, "className") === "fold")).toBe(false);
+    frames.splice(0);
     reduce = true;
     apply(SHUT);
     apply(OPEN);

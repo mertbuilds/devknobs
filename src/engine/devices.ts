@@ -367,6 +367,16 @@ function handheld(device: DevicePreset): boolean {
   return device.kind === "phone" || device.kind === "tablet";
 }
 
+/** The other way to hold a device. */
+function flip(orientation: OrientationValue): OrientationValue {
+  return orientation === "portrait" ? "landscape" : "portrait";
+}
+
+/** The way a device, or a foldable's screen, is usually held. */
+function usualOf(device: DevicePreset): OrientationValue {
+  return device.usual ?? (device.width > device.height ? "landscape" : "portrait");
+}
+
 /** A size held one way: landscape puts the long side across, portrait up. */
 export function turn(
   size: { width: number; height: number },
@@ -406,7 +416,7 @@ function fold(state: DevknobsState, patch: DevknobsStatePatch): DevknobsStatePat
   const from = formOf(state.device, state.posture);
   const to = formOf(state.device, posture);
   if (!from || !to || !deviceOf(state.device)?.postures) return null;
-  const orientation = patch.orientation ?? (state.orientation === "portrait" ? "landscape" : "portrait");
+  const orientation = patch.orientation ?? flip(state.orientation);
   const dpr = state.dpr === from.dpr ? to.dpr : state.dpr;
   const next = { ...turn(to, orientation), dpr, ...patch, orientation };
   return state.ua.preset === from.ua ? withUa(next, to.ua) : next;
@@ -415,10 +425,10 @@ function fold(state: DevknobsState, patch: DevknobsStatePatch): DevknobsStatePat
 /**
  * What a patch does to the frame's size. A device brings its width, height,
  * dpr and browser, a foldable those of the screen it shows in its posture. A
- * phone or tablet picked after another is held the same way, anything else
- * the way it usually is, unless the patch says how. A new orientation alone
- * turns a frame that has both a width and a height. What the patch sets
- * itself wins over all of it.
+ * phone or tablet picked after another one turned from its usual way is
+ * turned from its own too, anything else held the way it usually is, unless
+ * the patch says how. A new orientation alone turns a frame that has both a
+ * width and a height. What the patch sets itself wins over all of it.
  */
 export function hold(state: DevknobsState, patch: DevknobsStatePatch): DevknobsStatePatch {
   const folded = fold(state, patch);
@@ -426,10 +436,12 @@ export function hold(state: DevknobsState, patch: DevknobsStatePatch): DevknobsS
   const picked = patch.device === undefined ? undefined : deviceOf(patch.device);
   const device = picked && formOf(picked.id, patch.posture ?? state.posture);
   if (device) {
-    const before = deviceOf(state.device);
-    const keep = before !== undefined && handheld(before) && handheld(device);
-    const usual = device.usual ?? (device.width > device.height ? "landscape" : "portrait");
-    const orientation = patch.orientation ?? (keep ? state.orientation : usual);
+    // Turned from the way the last one is usually held, the next is turned
+    // from its own. Folding turns a foldable's screen, which is not a turn.
+    const before = formOf(state.device, state.posture);
+    const turned = before !== undefined && handheld(before) && state.orientation !== usualOf(before);
+    const usual = usualOf(device);
+    const orientation = patch.orientation ?? (turned && handheld(device) ? flip(usual) : usual);
     const size = turn(device, orientation);
     return withUa({ ...size, dpr: device.dpr, ...patch, orientation }, device.ua);
   }

@@ -608,11 +608,11 @@ function turnDevice(value: ViewportValue): void {
 /** What a foldable folding moves, while there is a frame to fold. */
 function foldScene(): FoldScene | null {
   const scene = turnScene();
-  if (!scene || !readout) return null;
-  const strip = readout;
+  if (!scene || !notice) return null;
+  const next = notice;
   return {
     ...scene,
-    place: (layer) => scene.letterbox.insertBefore(layer, strip),
+    place: (layer) => scene.letterbox.insertBefore(layer, next),
     body: bodyFor,
     screenFor,
   };

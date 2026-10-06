@@ -1,36 +1,44 @@
+import type { PostureValue } from "../types";
 import { bezelUrl } from "./bezels";
 import {
-  angleOf,
-  blurOf,
-  FOLD_BLUR,
-  foldAt,
-  foldBlurAt,
+  blurShares,
+  FOLD_EDGE,
   foldFrame,
   type FoldLayout,
   foldLayout,
+  foldLight,
   type FoldSide,
-  foldTime,
-  type Leaf,
+  HAND_OVER,
+  handOver,
+  type Hinge,
+  HINGE_STEP,
+  hingeAfter,
+  hingeStep,
+  hingeStill,
+  openOf,
 } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners, drawMock, UNDER } from "./mockdraw";
-import { pictureOf, shootPage } from "./pageshot";
-import { coverShare, coverTo, type TurnScene, uncover, zoomOf } from "./turnrun";
+import { lerp } from "./morph";
+import { blurPictures, copyPage, paintPage, shootPage } from "./pageshot";
+import { coverTo, darken, type TurnScene } from "./turnrun";
 import type { ViewportValue } from "./width";
 
 /**
- * Folds a foldable open or shut in view, as the phone does. The page on the
- * screen blurs under a cover, a copy of each body with a rough picture of the
- * page blurred as much on its screen stands in for the device on a layer
- * over the mat, and the half that turns turns about the hinge as fold.ts lays
- * it out. The device is drawn the way it ends up in the same frame as the
- * fold's last, and the page laid out there sharpens. What it needs of the
- * frame comes in a `FoldScene`, so it holds no node of its own.
+ * Folds a foldable open or shut in view, as the phone does, from the click's
+ * next frame. The frame's own device stays live and sharp: open, as the half
+ * of it that stays, and shut, for the last of the way there. A copy of the
+ * half that turns, with a picture of the page on its screen drawn once and
+ * blurred as a few ever softer layers, turns about the hinge on a layer over
+ * it, and the hinge's spring sets how far it has turned, how dim the screens
+ * are and how blurred the copy is. Close to shut and to open the copy fades
+ * into the device. Each frame changes only transforms and opacities. What it
+ * needs of the frame comes in a `FoldScene`, so it holds no node of its own.
  */
 
 /** What a foldable folding asks of the frame, as it starts. */
 export interface FoldScene extends TurnScene {
-  /** Put the layer the fold is drawn on over the mat, under the readout. */
+  /** Put the layer the fold is drawn on over the device, under the readout. */
   place(layer: HTMLElement): void;
   /** The body drawn around the screen for the knobs. */
   body(value: ViewportValue): Mock | null;
@@ -44,38 +52,60 @@ interface Face extends FoldSide {
   href: string | null;
 }
 
-/** The layer a fold is drawn on, the fold's place on it, and its three parts. */
+/** A copy of one side of the half that turns: the pictures of the page on its screen, and its shades. */
+interface Leaf {
+  node: HTMLElement;
+  /** Its screen, which fades to let the frame's own show through its body. */
+  screen: HTMLElement;
+  /** The page, and the same blurred more and more toward the free edge. */
+  pictures: HTMLElement[];
+  edge: HTMLElement;
+  dim: HTMLElement;
+  /** How the blurrier pictures fade in toward the free edge. */
+  ramp: string;
+  /** The screen's css width. */
+  width: number;
+}
+
+/** The layer a fold is drawn on, the fold's place on it, the half that turns, and the bend at the hinge. */
 interface Layer {
   layer: HTMLElement;
   place: HTMLElement;
-  rest: HTMLElement;
-  inner: HTMLElement;
-  outer: HTMLElement;
+  inner: Leaf;
+  outer: Leaf;
+  bend: HTMLElement;
 }
 
-/** A fold on its way: the hinge's angle now and where it goes, and what draws the device once there. */
+/**
+ * The frame's own device as it is drawn: in which posture, where its corner
+ * is in the letterbox and how it is transformed at rest, and its scale there.
+ */
+interface Unit {
+  posture: PostureValue;
+  corner: { x: number; y: number };
+  rest: string;
+  base: number;
+}
+
+/** A fold on its way: its hinge and where it goes, the knobs of each posture, and what draws them. */
 interface Going {
   scene: FoldScene;
   layout: FoldLayout;
-  closed: Face;
-  open: Face;
-  angle: number;
+  hinge: Hinge;
+  /** How far open the fold is drawn: between the hinge's last step and its next, by the time between. */
+  open: number;
   target: number;
+  values: Record<PostureValue, ViewportValue>;
   frame: number;
-  /** Counts the loops started, so a frame of one cut short draws nothing. */
-  loop: number;
-  /** A picture of the page as the fold started, or null where it is out of reach. */
-  shot: HTMLCanvasElement | null;
-  /** How many of the cover's px are a css px of the screen, which its blur is measured in. */
-  blur: number;
-  /** Null while the page blurs, before the fold stands in for the device. */
-  parts: Layer | null;
+  /** When the hinge's first step was, and how many it has taken since. */
+  begin: number | null;
+  steps: number;
+  parts: Layer;
+  unit: Unit;
   draw: (value: ViewportValue) => void;
 }
 
 let fold: Going | null = null;
-/** The knobs a fold draws once it is there. */
-let folded: ViewportValue | null = null;
 
 /** Is a foldable folding? */
 export function folding(): boolean {
@@ -96,163 +126,270 @@ function div(className: string): HTMLElement {
   return node;
 }
 
+/** Fill the screen it is in, under what goes over it. */
+function fill(node: HTMLElement): HTMLElement {
+  node.style.position = "absolute";
+  node.style.inset = "0";
+  node.style.width = "100%";
+  node.style.height = "100%";
+  return node;
+}
+
+/** Put `shot` on a leaf's screen, and the same blurred over it, as much as was shown before. */
+function paintLeaf(leaf: Leaf, shot: HTMLCanvasElement): void {
+  const next = [shot, ...blurPictures(shot, leaf.width)].map(fill);
+  next.forEach((picture, index) => {
+    if (index === 0) return;
+    picture.style.opacity = leaf.pictures[index]?.style.opacity || "0";
+    picture.style.maskImage = leaf.ramp;
+    picture.style.setProperty("-webkit-mask-image", leaf.ramp);
+  });
+  for (const last of leaf.pictures) last.remove();
+  // Under the bars and the shades.
+  leaf.edge.parentElement?.prepend(...next);
+  leaf.pictures = next;
+}
+
 /**
- * A side's body around its screen, in the screen's css px, as the frame draws
- * it. On its screen is `shot` stretched to it and blurred, or `color` alone.
+ * A copy of a side's body around its screen, in the screen's css px, as the
+ * frame draws it. On its screen is the page, `shot`, and over it the same
+ * blurred more and more toward the free edge, `toward` it from the hinge,
+ * which is `reach` percent of the way across, the browser's `bars`, then the shade
+ * there, and the dark the screen goes.
  */
-function faceOf(side: Face, color: string, shot: HTMLCanvasElement | null): HTMLElement {
+function leafOf(side: Face, color: string, picture: Picture, toward: string, reach: number): Leaf {
   const { body, size, href } = side;
-  const face = div("face");
-  face.style.width = `${body?.width ?? size.width}px`;
-  face.style.height = `${body?.height ?? size.height}px`;
+  const node = div("face");
+  node.style.width = `${body?.width ?? size.width}px`;
+  node.style.height = `${body?.height ?? size.height}px`;
   const blank = div("");
   blank.style.left = `${body?.inset.left ?? 0}px`;
   blank.style.top = `${body?.inset.top ?? 0}px`;
   blank.style.width = `${size.width}px`;
   blank.style.height = `${size.height}px`;
   blank.style.background = color;
+  blank.style.overflow = "hidden";
   if (body) blank.style.borderRadius = corners(body.screenRadius).map((r) => `${r}px`).join(" ");
   if (href) blank.style.boxShadow = `0 0 0 ${UNDER}px #000`;
-  // Drawn past the screen's edges, so its blur keeps the page's color right to them.
-  const margin = 3 * FOLD_BLUR.radius;
-  const picture = shot ? pictureOf(shot, size, margin) : null;
-  if (picture) {
-    blank.style.overflow = "hidden";
-    picture.style.position = "absolute";
-    picture.style.left = `${-margin}px`;
-    picture.style.top = `${-margin}px`;
-    picture.style.width = `${size.width + 2 * margin}px`;
-    picture.style.height = `${size.height + 2 * margin}px`;
-    picture.style.filter = blurOf(1);
-    blank.append(picture);
-  }
-  face.append(blank);
+  const edge = fill(div(""));
+  edge.style.background = `linear-gradient(${toward}, rgba(0, 0, 0, ${FOLD_EDGE}), transparent ${reach}%)`;
+  const dim = fill(div(""));
+  dim.style.background = "#000";
+  if (picture.bars) blank.append(picture.bars);
+  blank.append(edge, dim);
+  node.append(blank);
+  // Blurred all the way over the third of it nearest the free edge.
+  const ramp = `linear-gradient(${toward}, #000 ${reach / 3}%, transparent ${reach}%)`;
+  const leaf = { node, screen: blank, pictures: [], edge, dim, ramp, width: size.width };
+  if (picture.shot) paintLeaf(leaf, picture.shot);
+  // The page as the browser draws it, once it has, over the rough one.
+  void picture.painted?.then((shot) => {
+    if (shot && leaf.node.isConnected) paintLeaf(leaf, shot);
+  });
   if (body) {
     const drawing = drawMock(body, size, href);
     drawing.style.width = "100%";
     drawing.style.height = "100%";
-    face.append(drawing);
+    node.append(drawing);
   }
-  return face;
+  return leaf;
 }
 
-/** Put the fold over the mat in the device's place, and hide the device under it. */
-function build(going: Going): Layer {
-  const { scene, layout, open, closed, shot } = going;
+/** How wide the bend shows each side of the hinge, in css px of the open screen. */
+const BEND = 14;
+
+/**
+ * Put the copies of the half that turns over the frame's own device: its
+ * inside, `inner` on its screen, and its outside, the folded body, `outer`.
+ */
+function build(scene: FoldScene, layout: FoldLayout, open: Face, closed: Face, pictures: Pictures): Layer {
   const color = scene.background();
   const layer = div("fold");
   const place = div("");
-  const rest = faceOf(open, color, shot);
-  rest.style.clipPath = layout.clips.rest;
-  const inner = faceOf(open, color, shot);
-  inner.style.clipPath = layout.clips.inner;
-  inner.style.transformOrigin = layout.origins.inner;
-  const outer = faceOf(closed, color, shot);
-  outer.style.left = `${layout.shut.x}px`;
-  outer.style.top = `${layout.shut.y}px`;
-  outer.style.transformOrigin = layout.origins.outer;
-  place.append(rest, inner, outer);
+  const across = layout.across;
+  const inner = leafOf(open, color, pictures.open, across ? "to right" : "to top", 50);
+  inner.node.style.clipPath = layout.clip;
+  inner.node.style.transformOrigin = layout.origins.inner;
+  // A crease down the hinge, in the screen it bends.
+  const bend = div("");
+  const screen = inner.screen;
+  const inset = open.body?.inset ?? { left: 0, top: 0 };
+  const at = layout.hinge - (across ? inset.left : inset.top) - BEND;
+  bend.style.position = "absolute";
+  bend.style.left = across ? `${at}px` : "0";
+  bend.style.top = across ? "0" : `${at}px`;
+  bend.style.width = across ? `${2 * BEND}px` : "100%";
+  bend.style.height = across ? "100%" : `${2 * BEND}px`;
+  const shade = "transparent, rgba(0, 0, 0, 0.3) 50%, transparent";
+  bend.style.background = `linear-gradient(${across ? "to right" : "to bottom"}, ${shade})`;
+  screen.append(bend);
+  const outer = leafOf(closed, color, pictures.closed, across ? "to left" : "to bottom", 100);
+  outer.node.style.left = `${layout.shut.x}px`;
+  outer.node.style.top = `${layout.shut.y}px`;
+  outer.node.style.transformOrigin = layout.origins.outer;
+  place.append(inner.node, outer.node);
   layer.append(place);
   scene.place(layer);
-  scene.unit.style.visibility = "hidden";
-  return { layer, place, rest, inner, outer };
-}
-
-function stand(node: HTMLElement, leaf: Leaf | null): void {
-  node.style.visibility = leaf ? "" : "hidden";
-  if (!leaf) return;
-  node.style.transform = leaf.transform;
-  node.style.filter = leaf.shade < 1 ? `brightness(${leaf.shade})` : "";
-}
-
-/** Draw the fold at the angle it has got to. */
-function show(going: Going): void {
-  const parts = going.parts;
-  if (!parts) return;
-  const frame = foldFrame(going.layout, going.angle);
-  parts.place.style.transform = frame.place;
-  parts.rest.style.opacity = String(frame.rest);
-  stand(parts.inner, frame.inner);
-  stand(parts.outer, frame.outer);
+  return { layer, place, inner, outer, bend };
 }
 
 /**
- * The fold is over: the device is drawn the way the knobs say, the layer goes
- * in the same frame, and the page sharpens, at once unless `lift`.
+ * The page as laid out on a screen: a rough picture of it now, or null where
+ * it is out of reach, the one the browser draws once it has, and a copy of
+ * the browser's bars around it.
  */
-function land(lift: boolean): void {
+interface Picture {
+  shot: HTMLCanvasElement | null;
+  painted: Promise<HTMLCanvasElement | null> | null;
+  bars: HTMLElement | null;
+}
+
+/** Pictures of the page as laid out on each screen. */
+interface Pictures {
+  open: Picture;
+  closed: Picture;
+}
+
+/** The page as the frame lays it out now on a screen `size` css px, `copy` of it to draw. */
+function pictureOf(
+  scene: FoldScene,
+  size: { width: number; height: number },
+  color: string,
+  copy: Element | null,
+): Picture {
+  const { frame, glass } = scene;
+  const shown = Array.from(glass.children).find((node) => node.className === "browser");
+  const bars = shown ? (shown.cloneNode(true) as HTMLElement) : null;
+  // Drawn in the screen's css px, scaled up by the frame's zoom, which the copy leaves out.
+  if (bars) bars.style.transform = "";
+  return {
+    shot: shootPage(frame, glass, size, color),
+    painted: copy ? paintPage(frame, glass, size, color, copy) : null,
+    bars,
+  };
+}
+
+/** Where the frame's own device is, now that it is drawn `posture`. */
+function measure(scene: FoldScene, posture: PostureValue): Unit {
+  const box = scene.letterbox.getBoundingClientRect();
+  const rect = scene.unit.getBoundingClientRect();
+  const rest = scene.unit.style.transform;
+  const base = Number(/scale\(([\d.e-]+)\)/.exec(rest)?.[1] ?? 1);
+  return { posture, corner: { x: rect.left - box.left, y: rect.top - box.top }, rest, base };
+}
+
+/** Draw the frame's own device in a posture, in the middle of a fold, which holds any draw off otherwise. */
+function redraw(going: Going, posture: PostureValue): void {
+  fold = null;
+  going.draw(going.values[posture]);
+  fold = going;
+  going.unit = measure(going.scene, posture);
+}
+
+/**
+ * Draw the frame's own device the way it should be with the hinge where it
+ * is: open, but for the last of the way to shut, where the folded body hides
+ * the rest of it.
+ */
+function sync(going: Going): void {
+  const posture: PostureValue = going.open <= HAND_OVER ? "closed" : "open";
+  if (going.unit.posture !== posture) redraw(going, posture);
+}
+
+/**
+ * Show a copy of a side of the half that turns as it stands, blurred, shaded
+ * and dimmed as much, its screen `shown` of the way over the frame's own.
+ */
+function stand(leaf: Leaf, transform: string | null, blur: number, edge: number, dim: number, shown: number): void {
+  leaf.node.style.visibility = transform ? "" : "hidden";
+  if (!transform) return;
+  leaf.node.style.transform = transform;
+  // Its body stays whole, so nothing behind the device shows through it.
+  leaf.screen.style.opacity = shown < 1 ? String(shown) : "";
+  const shares = blurShares(blur);
+  leaf.pictures.slice(1).forEach((layer, index) => {
+    layer.style.opacity = String(shares[index] ?? 0);
+  });
+  leaf.edge.style.opacity = String(edge);
+  leaf.dim.style.opacity = String(dim);
+}
+
+/** Draw the fold with the hinge where it has got to. */
+function show(going: Going): void {
+  const { layout, parts, unit, scene } = going;
+  const { open } = going;
+  const frame = foldFrame(layout, open);
+  const light = foldLight(open);
+  const hand = handOver(open, unit.posture);
+  const { x, y, scale } = frame.place;
+  parts.place.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  stand(parts.inner, frame.inner, light.blur, light.edge, light.dim, 1 - hand);
+  stand(parts.outer, frame.outer, light.coverBlur, light.coverEdge, light.coverDim, 1 - hand);
+  parts.bend.style.opacity = String(frame.lift);
+  // The frame's own device moves with the fold, its folded body onto where it lies shut.
+  const opened = unit.posture === "open";
+  const own = opened ? layout.unfolded.scale : layout.folded.scale;
+  const to = opened ? { x, y } : { x: x + layout.shut.x * scale, y: y + layout.shut.y * scale };
+  const by = { x: to.x - unit.corner.x, y: to.y - unit.corner.y };
+  scene.unit.style.transform = `translate(${by.x}px, ${by.y}px) scale(${(unit.base * scale) / own})`;
+  // Open, only the half that stays shows, till the copy of the other fades into it.
+  const hinge = (layout.hinge * own) / unit.base;
+  const far = 1e5;
+  const rest = layout.across
+    ? `polygon(${hinge}px -${far}px, ${far}px -${far}px, ${far}px ${far}px, ${hinge}px ${far}px)`
+    : `polygon(-${far}px -${far}px, ${far}px -${far}px, ${far}px ${hinge}px, -${far}px ${hinge}px)`;
+  scene.unit.style.clipPath = opened && hand === 0 ? rest : "";
+  darken(scene.cover, opened ? light.dim : light.coverDim);
+}
+
+/** Take the fold's layer away, and leave the frame's own device as it is drawn. */
+function clear(last: Going): void {
+  window.cancelAnimationFrame(last.frame);
+  last.parts.layer.remove();
+  last.scene.unit.style.clipPath = "";
+  darken(last.scene.cover, 0);
+}
+
+/** The fold is over: the device is drawn the way the knobs say, and the layer goes in the same frame. */
+function land(): void {
   const last = fold;
   fold = null;
   if (!last) return;
-  window.cancelAnimationFrame(last.frame);
-  const next = folded;
-  folded = null;
-  if (!lift) coverTo(last.scene.cover, 0);
-  if (next) last.draw(next);
-  last.parts?.layer.remove();
-  last.scene.unit.style.visibility = "";
-  if (lift) uncover();
-}
-
-/** Start a loop of `going`, which ends any it had: a frame of that one does nothing. */
-function loop(going: Going): () => boolean {
-  window.cancelAnimationFrame(going.frame);
-  const mine = ++going.loop;
-  return () => fold === going && going.loop === mine;
-}
-
-/** Turn the hinge to where the fold goes, a frame at a time, from where it got to. */
-function swing(going: Going): void {
-  const live = loop(going);
-  const from = going.angle;
-  const to = going.target;
-  const time = foldTime(from, to);
-  let begin: number | null = null;
-  const step = (now: number) => {
-    if (!live()) return;
-    begin ??= now;
-    const elapsed = now - begin;
-    going.angle = foldAt(from, to, elapsed);
-    show(going);
-    if (elapsed < time) going.frame = window.requestAnimationFrame(step);
-    else land(true);
-  };
-  going.frame = window.requestAnimationFrame(step);
+  last.draw(last.values[last.target === 1 ? "open" : "closed"]);
+  clear(last);
 }
 
 /**
- * Blur the page, from as far as it is blurred, then let the fold stand in for
- * the device and turn. Turned back before then, the page sharpens again.
+ * Step the hinge sixty times a second from the click's next frame, its first
+ * step drawn then, till it lands. A frame between two steps draws it between
+ * them, so it moves as smoothly at any rate.
  */
-function cover(going: Going): void {
-  const live = loop(going);
-  if (going.target === going.angle) {
-    land(true);
-    return;
-  }
-  const from = coverShare();
-  let begin: number | null = null;
-  const step = (now: number) => {
-    if (!live()) return;
-    begin ??= now;
-    const share = foldBlurAt(from, now - begin);
-    coverTo(going.scene.cover, share, going.blur);
-    if (share < 1) {
-      going.frame = window.requestAnimationFrame(step);
+function swing(going: Going): void {
+  const tick = (now: number) => {
+    if (fold !== going) return;
+    going.begin ??= now;
+    const due = (now - going.begin) / HINGE_STEP + 1;
+    const steps = Math.floor(due);
+    going.hinge = hingeAfter(going.hinge, going.target, steps - going.steps);
+    going.steps = Math.max(going.steps, steps);
+    if (hingeStill(going.hinge, going.target)) {
+      land();
       return;
     }
-    going.parts = build(going);
+    const next = hingeStep(going.hinge, going.target).position;
+    going.open = lerp(going.hinge.position, next, due - steps);
+    sync(going);
     show(going);
-    swing(going);
+    going.frame = window.requestAnimationFrame(tick);
   };
-  going.frame = window.requestAnimationFrame(step);
+  going.frame = window.requestAnimationFrame(tick);
 }
 
 /**
  * Fold the device drawn as `from` to the posture `value` has, in view, and
  * `draw` the knobs once it is there. A fold back while it folds goes back
- * from where it got to. Without a scene or a place to go, the knobs are drawn
- * at once.
+ * from where it got to, as fast as it was going. Without a scene or a place
+ * to go, the knobs are drawn at once.
  */
 export function foldDevice(
   from: ViewportValue,
@@ -260,69 +397,79 @@ export function foldDevice(
   scene: FoldScene | null,
   draw: (value: ViewportValue) => void,
 ): void {
-  folded = value;
   const going = fold;
   if (going) {
-    going.target = angleOf(value.posture);
-    if (going.parts) swing(going);
-    else cover(going);
+    going.target = openOf(value.posture);
+    going.values[value.posture] = value;
+    going.open = going.hinge.position;
+    sync(going);
+    show(going);
     return;
   }
   const to = scene?.screenFor(value);
   if (!scene || !to) {
-    folded = null;
     draw(value);
     return;
   }
+  // A turn's dark lifting off the page stops, and the dim goes over the bars too.
+  coverTo(scene.cover, 0);
+  scene.glass.append(scene.cover);
+  const color = scene.background();
   const now = sideOf(scene, from, scene.screenRect());
   const next = sideOf(scene, value, to);
   const opening = value.posture === "open";
+  const across = (opening ? value : from).orientation === "landscape";
+  // Pictures of the page as it is, and as laid out for the other screen, for
+  // which the frame is drawn that way a moment, unseen.
+  const copy = copyPage(scene.frame);
+  const before = pictureOf(scene, now.size, color, copy);
+  draw(value);
+  const after = pictureOf(scene, next.size, color, copy);
+  draw(from);
   const closed = opening ? now : next;
   const open = opening ? next : now;
-  const across = (opening ? value : from).orientation === "landscape";
-  scene.cover.style.background = "";
-  // Over the bars too, which are laid out for the other screen as well.
-  scene.glass.append(scene.cover);
-  const shot = shootPage(scene.frame, scene.glass, now.size, scene.background());
+  const layout = foldLayout(closed, open, across);
+  const pictures = opening ? { open: after, closed: before } : { open: before, closed: after };
+  const values = { [from.posture]: from, [value.posture]: value } as Record<PostureValue, ViewportValue>;
   fold = {
     scene,
-    layout: foldLayout(closed, open, across),
-    closed,
-    open,
-    angle: angleOf(from.posture),
-    target: angleOf(value.posture),
+    layout,
+    hinge: { position: openOf(from.posture), velocity: 0 },
+    open: openOf(from.posture),
+    target: openOf(value.posture),
+    values,
     frame: 0,
-    loop: 0,
-    shot,
-    blur: zoomOf(scene),
-    parts: null,
+    begin: null,
+    steps: 0,
+    parts: build(scene, layout, open, closed, pictures),
+    unit: measure(scene, from.posture),
     draw,
   };
-  cover(fold);
+  show(fold);
+  swing(fold);
 }
 
 /** The fold goes on, and the frame takes these knobs once it is there. */
 export function holdFold(value: ViewportValue): void {
-  folded = value;
+  if (fold) fold.values[value.posture] = value;
 }
 
-/** Land a fold where it goes, at once, the page sharp. */
+/** Land a fold where it goes, at once. */
 export function finishFold(): void {
-  land(false);
+  land();
 }
 
-/** Stop a fold where it is, and show the device as it was drawn, the page sharp. */
+/** Stop a fold where it is, and show the device as it is drawn. */
 export function stopFold(): void {
   const last = fold;
   fold = null;
   if (!last) return;
-  window.cancelAnimationFrame(last.frame);
-  last.parts?.layer.remove();
-  last.scene.unit.style.visibility = "";
-  coverTo(last.scene.cover, 0);
+  clear(last);
+  last.scene.unit.style.transform = last.unit.rest;
 }
 
-/** The frame is gone, and the knobs a fold would draw with it. */
+/** The frame is gone, and the fold with it. */
 export function forgetFold(): void {
-  folded = null;
+  if (fold) window.cancelAnimationFrame(fold.frame);
+  fold = null;
 }
