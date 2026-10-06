@@ -1,17 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseColor } from "../src/engine/color";
-import {
-  along,
-  exit,
-  MAT_COLOR_NAMES,
-  MAT_COLORS,
-  MAT_CSS,
-  matGradient,
-  numbers,
-  SPAN,
-  ticks,
-  vertex,
-} from "../src/engine/mat";
+import { along, exit, MAT_CSS, numbers, SPAN, ticks, vertex } from "../src/engine/mat";
+import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../src/engine/matcolors";
 
 describe("ticks", () => {
   test("has one every cell, longer on the major lines and longest on the spans", () => {

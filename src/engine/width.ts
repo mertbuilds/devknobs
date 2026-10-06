@@ -1,4 +1,4 @@
-import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
+import type { DevknobsState, DprValue, MatColorValue, PanelValue, ZoomValue } from "../types";
 import { bezelMock, bezelUrl, loadBezel } from "./bezels";
 import { BARS_CSS, type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import type { Look } from "./browserkit";
@@ -916,6 +916,11 @@ function until(ready: () => boolean, cap: number): Promise<void> {
   });
 }
 
+function paintMat(mat: MatColorValue): void {
+  current = { ...current, mat };
+  letterbox?.setAttribute("data-mat", mat);
+}
+
 /** Draw the knobs: a new zoom from elsewhere keeps the middle of the letterbox where it is. */
 function draw(value: ViewportValue): void {
   const zoom = current.zoom;
@@ -1309,6 +1314,8 @@ export function apply(value: ViewportValue): void {
   const first = !settled;
   settled = true;
   const animate = !first && moves(from, shape) && !still();
+  // The mat takes a new color at once, also while a device change holds the other knobs back.
+  if (host) paintMat(value.mat);
   /** How far the veil was over a page that a device change was giving back. */
   let veiled = 0;
   if (run) {

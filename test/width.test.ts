@@ -384,6 +384,15 @@ class FakeElement extends EventTarget {
     this.parent = null;
   }
 
+  /** An animation that runs until it is cancelled. */
+  animate(): { finished: Promise<void>; currentTime: number; cancel: () => void } {
+    return { finished: new Promise(() => {}), currentTime: 0, cancel: () => {} };
+  }
+
+  getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
+    return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight };
+  }
+
   attachShadow(): FakeElement {
     this.shadowRoot = new FakeElement("#shadow-root");
     return this.shadowRoot;
@@ -637,6 +646,8 @@ afterEach(() => {
     "SVGElement",
     "HTMLDialogElement",
     "MutationObserver",
+    "Element",
+    "getComputedStyle",
   ]) {
     Reflect.deleteProperty(globalThis, name);
   }
@@ -701,6 +712,24 @@ describe("the frame over the page", () => {
     apply({ ...VIEWPORT, mat: "green" });
     expect(letterbox?.getAttribute("data-mat")).toBe("green");
     expect(frameElement()).toBe(frame);
+  });
+
+  test("takes a new mat color at once while a device change runs", () => {
+    apply({ ...VIEWPORT, mock: false });
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+    const letterbox = everything().find(
+      (element) => Reflect.get(element, "className") === "viewport",
+    );
+    const back = everything().find((element) => Reflect.get(element, "className") === "back");
+    const phone = { ...VIEWPORT, mock: false, device: "iphone-16-pro" } as const;
+    apply(phone);
+    const opening = back && Reflect.get(back.style, "clipPath");
+    expect(opening).toStartWith("polygon(evenodd");
+    apply({ ...phone, mat: "green" });
+    expect(letterbox?.getAttribute("data-mat")).toBe("green");
+    expect(back && Reflect.get(back.style, "clipPath")).toBe(opening);
   });
 
   test("offers fit, the presets and a zoom of the wheel's own, and stores a pick", () => {

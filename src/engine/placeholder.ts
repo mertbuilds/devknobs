@@ -1,6 +1,7 @@
-import type { DevknobsState, PanelValue } from "../types";
+import type { DevknobsState, MatColorValue, PanelValue } from "../types";
 import type { Look } from "./browserkit";
 import { needsFrame } from "./frame";
+import { MAT_COLORS, matGradient } from "./matcolors";
 
 /**
  * What stands in for the frame from a reload's first paint until devknobs
@@ -22,23 +23,18 @@ export const SNAPSHOT_KEY = "devknobs:snapshot";
 export const GIVE_UP = 3000;
 
 /**
- * The blue of the cutting mat the frame lies on, a little lighter up top and
- * deeper toward the edges, and in P3 where the screen has it.
- */
-export const MAT =
-  "radial-gradient(140% 100% at 50% 0%, rgb(20, 70, 152), rgb(12, 48, 114) 60%, rgb(7, 31, 80))";
-export const MAT_P3 =
-  "radial-gradient(140% 100% at 50% 0%, color(display-p3 0.1 0.27 0.61), color(display-p3 0.06 0.19 0.46) 60%, color(display-p3 0.035 0.12 0.32))";
-
-/**
  * The page under the frame hidden, as the frame hides it, and the bare mat
- * over it where nothing else stands in yet. It is a pseudo element, so a page
- * that hydrates its document finds no node of ours there.
+ * over it in the stored color where nothing else stands in yet. It is a
+ * pseudo element, so a page that hydrates its document finds no node of ours
+ * there.
  */
-const COVER = `html{overflow:hidden!important}
+export function coverCss(mat: MatColorValue): string {
+  const paint = MAT_COLORS[mat];
+  return `html{overflow:hidden!important}
 body>:not([data-devknobs]){content-visibility:hidden!important}
-html::after{content:"";position:fixed;inset:0;z-index:${Z_INDEX - 1};background:${MAT};pointer-events:none}
-@media (color-gamut:p3){html::after{background:${MAT_P3}}}`;
+html::after{content:"";position:fixed;inset:0;z-index:${Z_INDEX - 1};background:${matGradient(paint.srgb)};pointer-events:none}
+@media (color-gamut:p3){html::after{background:${matGradient(paint.p3)}}}`;
+}
 
 /** The knobs a drawing of the frame depends on, beside the window's size. */
 export type Drawn = Pick<
@@ -56,6 +52,7 @@ export type Drawn = Pick<
   | "bars"
   | "edgeToEdge"
   | "zoom"
+  | "mat"
 > & { panel: Pick<PanelValue, "open" | "side"> };
 
 /** The window's size and pixel ratio, which a drawing of the frame depends on too. */
@@ -91,6 +88,7 @@ export function snapshotKey(knobs: Drawn, view: WindowSize): string {
     knobs.bars,
     knobs.edgeToEdge,
     knobs.zoom,
+    knobs.mat,
     knobs.panel.open,
     knobs.panel.side,
     view.innerWidth,
@@ -182,7 +180,7 @@ export function showEarly(knobs: Drawn): void {
   if (!needsFrame(knobs) || !document.head) return;
   const style = document.createElement("style");
   style.setAttribute("data-devknobs", EARLY);
-  style.textContent = COVER;
+  style.textContent = coverCss(knobs.mat);
   document.head.append(style);
   window.setTimeout(dropEarly, GIVE_UP);
   const snapshot = readSnapshot(knobs, window);

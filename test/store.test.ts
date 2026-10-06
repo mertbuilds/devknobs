@@ -11,7 +11,7 @@ import {
   STORAGE_KEY,
   save,
 } from "../src/engine/store";
-import { MAT_COLOR_NAMES } from "../src/engine/mat";
+import { MAT_COLOR_NAMES } from "../src/engine/matcolors";
 import { ZOOM_MAX, ZOOM_MIN } from "../src/engine/zoom";
 import type { ClockValue, DevknobsState } from "../src/types";
 

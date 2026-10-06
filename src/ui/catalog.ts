@@ -4,7 +4,7 @@ import { DEVICES, deviceOf, hasTouch } from "../engine/devices";
 import { frameForced } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
 import { LOCALE_PRESETS } from "../engine/locale";
-import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../engine/mat";
+import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../engine/matcolors";
 import { mockOf } from "../engine/mock";
 import { DEFAULT_STATE } from "../engine/store";
 import { canonicalZone, TIME_ZONE_PRESETS } from "../engine/time";
