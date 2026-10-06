@@ -629,6 +629,26 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 /* Opens the shortcuts, at the end of the last line. */
 .keys-toggle { margin-left: auto; }
 .keys-toggle[aria-pressed="true"] { color: var(--fg); }
+/* The tooltip of an icon-only control, set over it by the panel. */
+.tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  padding: 3px 8px;
+  white-space: nowrap;
+  color: var(--fg);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--lift);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+.tip.on { opacity: 1; }
+.tip.hot { color: var(--hot); }
 .hint-key {
   box-sizing: border-box;
   min-width: 14px;
@@ -643,7 +663,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 
 /* The shortcuts, in place of the rows: a line each, as tall as a row, with
    its key as a button that records a new one and an x that puts it back. The
-   key sits 4 in from the line's edges, so 4 round. */
+   key sits 4 in from the line's edges, so 4 round. A key it cannot take
+   shakes the key and turns it red for a moment; reduced motion keeps only the
+   red. */
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .key-row {
   display: flex;
@@ -660,18 +682,37 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   box-sizing: border-box;
   min-width: 26px;
   height: 18px;
-  padding: 0 6px;
+  /* The line sits a little above the middle, so the text looks centered: a
+     key's capitals, and while it records the lowercase by their x-height. */
+  padding: 0 6px 1px;
   font-size: 11px;
-  line-height: 16px;
+  line-height: 15px;
   text-align: center;
   border: 1px solid var(--line);
   border-radius: 4px;
-  transition: border-color 120ms ease-out, color 120ms ease-out;
+  transition: border-color 120ms ease-out, color 120ms ease-out, background-color 120ms ease-out;
 }
 .key-row .clear { margin: 2px 2px 2px -6px; }
 .key-set:hover { border-color: var(--faint); }
-.key-set.recording { color: var(--faint); border-color: var(--faint); }
+.key-set.recording {
+  padding-bottom: 3px;
+  line-height: 13px;
+  color: var(--faint);
+  border-color: var(--faint);
+}
+.key-set.refused {
+  color: var(--hot);
+  background: color-mix(in srgb, var(--hot) 8%, transparent);
+  border-color: var(--hot);
+  animation: key-shake 320ms ease-out;
+}
+@keyframes key-shake {
+  15% { transform: translateX(-4px); }
+  35% { transform: translateX(4px); }
+  55% { transform: translateX(-2.5px); }
+  75% { transform: translateX(1.5px); }
+  90% { transform: translateX(-0.5px); }
+}
 /* An x that is gone keeps its room, so the keys line up. */
 .key-row .clear[hidden] { display: grid !important; visibility: hidden; }
-.key-why { padding: 0 10px 4px; font-size: 10.5px; color: var(--hot); }
 `;

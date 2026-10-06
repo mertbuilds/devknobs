@@ -82,6 +82,14 @@ describe("pinned rows", () => {
     ]);
   });
 
+  test("a row added by name, with nothing set, is pinned and listed", () => {
+    const added = use(BARE, "clock", {});
+    expect(added.clock).toEqual(DEFAULT_STATE.clock);
+    expect(added.panel.pinned).toEqual(["clock"]);
+    expect(listed(added)).toEqual(["clock"]);
+    expect(merge(added, removePatch(added, row("clock"))).panel.pinned).toEqual([]);
+  });
+
   test("a pinned row stays listed back at its default", () => {
     const back = use(use(BARE, "scheme", { scheme: "dark" }), "scheme", {
       scheme: "system",

@@ -133,8 +133,8 @@ click a row to open its editor in place under it, pushing the rows below it
 down, and click it again to close it. one editor is open at a time. `×` puts
 that row back to its default.
 a knob named the same as its row shows no label of its own under the row's
-title. a row set from the panel stays in the list, back at its default too,
-until its `×` takes it off. a default row's `×` takes it off for the session
+title. a row set or added from the panel stays in the list, at its default
+too, until its `×` takes it off. a default row's `×` takes it off for the session
 too, and reset all puts every knob back to its default and the four rows back
 in the list, in their order. with every row taken off the panel says nothing
 emulated, over the add knob button.
@@ -150,8 +150,8 @@ rows and the results each scrolling in its own room. type `dark`, `390`,
 `+2d`, `tr`, `tokyo`, `rtl`, `pause` or `offline` and enter sets the first
 result and shows its row. a value typed out in full works too: `500` for a width, `3d` for the
 clock, `pt-BR`, `Europe/Paris`, or `36.9, 30.7` for a position. a knob's name
-opens its editor, and with nothing typed the list shows every knob by
-category. arrows move through the results. a value or knob picked adds its row
+adds its row and opens its editor, with no value to set, and with nothing
+typed the list shows every knob by category. arrows move through the results. a value or knob picked adds its row
 at the bottom, if it is not listed yet, and gives it the focus. escape leaves
 the search, query and all, back to the add knob button, then closes an open
 editor, and then the panel. a click anywhere outside the search and its

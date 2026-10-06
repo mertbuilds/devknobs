@@ -151,6 +151,17 @@ export const SNAP = 24;
 
 const CUSTOM_DEBOUNCE = 200;
 
+/** How long the pointer rests on a control before its tooltip shows, in ms. */
+export const TIP_DELAY = 400;
+
+/** Space between a tooltip and its control, and between a tooltip and the window's edge, in px. */
+export const TIP_GAP = 6;
+export const TIP_MARGIN = 8;
+
+/** How long a chip stays red, and its reason shows, after a key it cannot take, in ms. */
+const REFUSED_RED = 1000;
+const REFUSED_TIP = 1800;
+
 /**
  * The host's own style. It is as wide and as tall as an open panel whatever
  * the panel is doing, so it never takes a pointer: the stylesheet hands that
@@ -220,6 +231,28 @@ export interface Room {
 /** A value kept between two bounds. With no room between them, the lower one. */
 function between(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+/**
+ * Where a tooltip goes, in window px: centered over its control, under it
+ * where there is no room above, and kept inside the window either way.
+ */
+export function tipAt(
+  control: { left: number; top: number; width: number; bottom: number },
+  tip: { width: number; height: number },
+  view: { width: number; height: number },
+): { x: number; y: number } {
+  const x = between(
+    control.left + (control.width - tip.width) / 2,
+    TIP_MARGIN,
+    view.width - TIP_MARGIN - tip.width,
+  );
+  const above = control.top - TIP_GAP - tip.height;
+  const y =
+    above >= TIP_MARGIN
+      ? above
+      : between(control.bottom + TIP_GAP, TIP_MARGIN, view.height - TIP_MARGIN - tip.height);
+  return { x, y };
 }
 
 /**
@@ -518,17 +551,18 @@ export function createPanel(options: PanelOptions = {}): Panel {
   results.id = "devknobs-results";
   results.setAttribute("role", "listbox");
   results.setAttribute("aria-label", "knobs");
-  // Says where a row moved to, for assistive tech.
+  // Says where a row moved to, and why a key was not taken, for assistive tech.
   const said = el("div", "said");
   said.setAttribute("aria-live", "polite");
   // The shortcuts, in place of the rows: each binding's key, to set or put back.
+  // A key that is not taken shakes its chip and says why in the tooltip.
   const keysView = el("div", "keys");
   keysView.setAttribute("role", "group");
   keysView.setAttribute("aria-label", "shortcuts");
   keysView.append(el("div", "group-label", "shortcuts"));
   const keyViews = new Map<
     Binding,
-    { set: HTMLButtonElement; back: HTMLButtonElement; why: HTMLElement }
+    { set: HTMLButtonElement; back: HTMLButtonElement }
   >();
   for (const binding of bindingsHere) {
     const line = el("div", "key-row");
@@ -536,11 +570,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const back = button("clear", "");
     back.append(icon("x"));
     back.setAttribute("aria-label", `put the ${BINDING_WORDS[binding]} key back`);
-    const why = el("div", "key-why");
-    why.setAttribute("aria-live", "polite");
     line.append(el("span", "key-word", BINDING_WORDS[binding]), set, back);
-    keysView.append(line, why);
-    keyViews.set(binding, { set, back, why });
+    keysView.append(line);
+    keyViews.set(binding, { set, back });
   }
   body.append(rows, empty, add, head, results, keysView, said);
 
@@ -562,12 +594,15 @@ export function createPanel(options: PanelOptions = {}): Panel {
   // Opens the shortcuts, where the keys are set.
   const keysToggle = button("hint keys-toggle", "");
   keysToggle.append(icon("keyboard", 12));
-  keysToggle.setAttribute("aria-label", "set the shortcuts");
-  keysToggle.title = "set the shortcuts";
+  keysToggle.setAttribute("aria-label", "modify shortcuts");
   meta.append(keysToggle);
   foot.append(badge, meta);
+  // The tooltip the icon-only controls share. Their aria-label already says
+  // the same, so assistive tech is not told twice.
+  const tip = el("div", "tip");
+  tip.setAttribute("aria-hidden", "true");
 
-  panel.append(body, foot);
+  panel.append(body, foot, tip);
   wrap.append(handle, panel);
   root.append(style, wrap);
 
@@ -584,9 +619,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
   let cursor = 0;
   /** The shortcuts show in place of the rows. */
   let editingKeys = false;
-  /** The binding waiting for its new key, and why the last key pressed was not taken. */
+  /** The binding waiting for its new key. */
   let recording: Binding | null = null;
-  let refusal = "";
+  /** Takes the red off a chip whose key was not taken. */
+  let refusedTimer = 0;
 
   /** Leave an input alone while it has the caret, so typing is never cut off. */
   function fill(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -1429,7 +1465,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
   }
 
-  /** Set a result's value, or open the editor of a knob found by name. */
+  /** Set a result's value, or add and open the row of a knob found by name. */
   function pick(result: Result): void {
     const { knob, option } = result;
     if (!option) {
@@ -1446,9 +1482,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     showRow(id, knob);
   }
 
+  /** A knob picked by name adds its row as it is, listed until its `×` takes it off. */
   function openKnob(knob: Knob): void {
     const id = rowOf(knob.id).id;
     leaveSearch();
+    commit(id, {});
     openEditor(id);
     showRow(id, knob);
   }
@@ -1509,8 +1547,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
         on ? `press the new ${word} key` : `${word}, ${comboSpoken(now[binding])}, change`,
       );
       view.back.hidden = !keys.custom(binding);
-      view.why.textContent = on ? refusal : "";
-      view.why.hidden = view.why.textContent === "";
     }
   }
 
@@ -1526,7 +1562,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
    */
   function startRecording(binding: Binding): void {
     recording = binding;
-    refusal = "";
     keys.recording = true;
     renderKeys();
     keyViews.get(binding)?.set.focus({ preventScroll: true });
@@ -1534,9 +1569,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   function stopRecording(): void {
     if (recording === null) return;
+    const chip = keyViews.get(recording)?.set;
     recording = null;
-    refusal = "";
     keys.recording = false;
+    if (chip) unrefuse(chip);
     renderKeys();
   }
 
@@ -1553,20 +1589,103 @@ export function createPanel(options: PanelOptions = {}): Panel {
     event.preventDefault();
     event.stopImmediatePropagation();
     const step = recordStep(event, binding, keysHere());
+    const chip = keyViews.get(binding)?.set;
+    // The reason a key was refused stays until the next key.
+    if (chip && tipFor === chip) hideTip();
     if (step.type === "cancel") stopRecording();
-    else if (step.type === "refuse") {
-      refusal = step.reason;
-      renderKeys();
-    } else if (step.type === "keep") {
+    else if (step.type === "refuse" && chip) refuse(chip, step.reason);
+    else if (step.type === "keep") {
       stopRecording();
       keys.set(binding, step.combo);
     }
+  }
+
+  /**
+   * A key the chip's binding cannot take: the chip shakes and goes red for a
+   * moment, and the tooltip over it says why, as the live region does. A
+   * second one starts it all again.
+   */
+  function refuse(chip: HTMLElement, reason: string): void {
+    clearTimeout(refusedTimer);
+    chip.classList.remove("refused");
+    // Read the layout, so the shake starts over.
+    void chip.offsetWidth;
+    chip.classList.add("refused");
+    refusedTimer = window.setTimeout(() => chip.classList.remove("refused"), REFUSED_RED);
+    showTip(chip, reason, true);
+    tipTimer = window.setTimeout(hideTip, REFUSED_TIP);
+    said.textContent = reason;
+  }
+
+  function unrefuse(chip: HTMLElement): void {
+    clearTimeout(refusedTimer);
+    chip.classList.remove("refused");
+    if (tipFor === chip) hideTip();
   }
 
   function openKeys(): void {
     if (browsing || searchInput.value) leaveSearch();
     editingKeys = true;
     render();
+  }
+
+  /** The control whose tooltip shows, or is about to once the pointer rests. */
+  let tipFor: HTMLElement | null = null;
+  let tipTimer = 0;
+
+  function showTip(node: HTMLElement, text: string, hot = false): void {
+    clearTimeout(tipTimer);
+    tipFor = node;
+    tip.textContent = text;
+    tip.classList.toggle("hot", hot);
+    const place = tipAt(
+      node.getBoundingClientRect(),
+      { width: tip.offsetWidth, height: tip.offsetHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    // The wrapper is translated, so it is what the tooltip is placed in.
+    const box = wrap.getBoundingClientRect();
+    tip.style.left = `${place.x - box.left}px`;
+    tip.style.top = `${place.y - box.top}px`;
+    tip.classList.add("on");
+  }
+
+  /** Hide the tooltip, and say whether one showed. */
+  function hideTip(): boolean {
+    clearTimeout(tipTimer);
+    const shown = tip.classList.contains("on");
+    tip.classList.remove("on");
+    tipFor = null;
+    return shown;
+  }
+
+  /**
+   * Give an icon-only control a tooltip: after a rest of the pointer, or at
+   * once when the keys bring the focus to it. A press, leaving or escape
+   * hides it, and a pressed control keeps it hidden until the pointer leaves.
+   */
+  function tooltip(node: HTMLElement, text: string): void {
+    let pressed = false;
+    node.addEventListener("pointerenter", () => {
+      if (pressed || tipFor === node) return;
+      clearTimeout(tipTimer);
+      tipFor = node;
+      tipTimer = window.setTimeout(() => showTip(node, text), TIP_DELAY);
+    });
+    node.addEventListener("pointerleave", () => {
+      pressed = false;
+      if (tipFor === node && !node.matches(":focus-visible")) hideTip();
+    });
+    node.addEventListener("pointerdown", () => {
+      pressed = true;
+      hideTip();
+    });
+    node.addEventListener("focus", () => {
+      if (node.matches(":focus-visible")) showTip(node, text);
+    });
+    node.addEventListener("blur", () => {
+      if (tipFor === node) hideTip();
+    });
   }
 
   function leaveKeys(): void {
@@ -1576,6 +1695,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   keysToggle.addEventListener("click", () => (editingKeys ? leaveKeys() : openKeys()));
+  tooltip(keysToggle, "modify shortcuts");
   for (const [binding, view] of keyViews) {
     view.set.addEventListener("click", () => {
       if (recording === binding) stopRecording();
@@ -1695,6 +1815,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       searchInput.value = "";
       editingKeys = false;
       stopRecording();
+      hideTip();
       const focused = root.activeElement;
       if (focused instanceof HTMLElement) {
         moved = true;
@@ -2083,6 +2204,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
       recordKey(event, recording);
       return;
     }
+    // Escape takes a tooltip away first, and nothing else with it.
+    if (event.key === "Escape" && hideTip()) {
+      event.preventDefault();
+      return;
+    }
     const zoom = zoomAction(event);
     if (zoom && zoomKey(zoom)) {
       event.preventDefault();
@@ -2157,6 +2283,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       stopGrab?.();
       stopCount();
       clearInterval(ticker);
+      clearTimeout(tipTimer);
+      clearTimeout(refusedTimer);
       cancelAnimationFrame(following);
       for (const timer of pending.values()) clearTimeout(timer);
       window.removeEventListener("keydown", onKeydown, true);

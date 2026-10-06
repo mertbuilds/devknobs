@@ -17,8 +17,8 @@ import {
 
 /**
  * Which rows the panel lists, and what they say. A row is listed while a knob
- * of it is off its default, and once set from the panel it stays listed, back
- * at its default too, until its `×` or reset all takes it off. A fresh panel,
+ * of it is off its default, and once set or added from the panel it stays
+ * listed, back at its default too, until its `×` or reset all takes it off. A fresh panel,
  * and reset all, lists the default rows.
  */
 

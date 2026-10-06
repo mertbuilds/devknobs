@@ -25,6 +25,9 @@ import {
   SNAP,
   settle,
   snap,
+  TIP_GAP,
+  TIP_MARGIN,
+  tipAt,
   translateOf,
   velocity,
   wallInput,
@@ -44,6 +47,27 @@ describe("overflowBadge", () => {
 
   test("says nothing before the frame reports a count", () => {
     expect(overflowBadge(true, null)).toBe("");
+  });
+});
+
+describe("tipAt", () => {
+  const view = { width: 1000, height: 800 };
+  const tip = { width: 100, height: 20 };
+
+  test("centers over its control", () => {
+    const control = { left: 500, top: 700, width: 20, bottom: 720 };
+    expect(tipAt(control, tip, view)).toEqual({ x: 460, y: 700 - TIP_GAP - 20 });
+  });
+
+  test("stays inside the window at either edge", () => {
+    expect(tipAt({ left: 990, top: 700, width: 10, bottom: 720 }, tip, view).x).toBe(
+      1000 - TIP_MARGIN - 100,
+    );
+    expect(tipAt({ left: 0, top: 700, width: 10, bottom: 720 }, tip, view).x).toBe(TIP_MARGIN);
+  });
+
+  test("goes under its control where there is no room above", () => {
+    expect(tipAt({ left: 500, top: 10, width: 20, bottom: 30 }, tip, view).y).toBe(30 + TIP_GAP);
   });
 });
 
