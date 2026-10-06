@@ -91,9 +91,10 @@ dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 
 the panel starts closed, as a handle on the right edge of the window. click it
 or press shift and the hotkey (`⇧K`) to open it, and it stays open across
-reloads. opening it puts the focus in its search, so a knob's name can be typed
-at once, and closing it gives the focus back to what had it before. a panel
-that comes back open after a reload leaves the focus on the page.
+reloads. opening it puts the focus on its add knob button, where typing a
+knob's name opens the search with it, so `⇧K` then `dark` works in one go, and
+closing it gives the focus back to what had it before. a panel that comes back
+open after a reload leaves the focus on the page.
 
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
@@ -123,27 +124,39 @@ mode, speed, time zone and server header. the rows stand by group: look
 (scheme, contrast, transparency, vision, text), motion, locale, location,
 time, network, device, viewport and debug.
 a fresh session starts with four rows at their defaults, in this order: the
-device, scheme, text and locale. they stand at the top, and any other row
-below them in the catalog's order. the `×` of the device row takes the size
-and device pixel ratio the device brought along with it.
+device, scheme, text and locale. a row added from the panel goes to the bottom
+of the list. the `×` of the device row takes the size and device pixel ratio
+the device brought along with it. that size and ratio are the device row's, so
+the viewport row lists only for a value set on it, and its `×` leaves the
+device as it is, its own pixel ratio included.
 click a row to open its editor, and `×` puts that row back to its default.
-a row set from the panel stays in the list, back at its default too, until its
-`×` takes it off. a default row's `×` takes it off for the session too, and
-reset all puts every knob back to its default and the four rows back in the
-list. with every row taken off the panel says nothing emulated.
+a knob named the same as its row shows no label of its own under the row's
+title. a row set from the panel stays in the list, back at its default too,
+until its `×` takes it off. a default row's `×` takes it off for the session
+too, and reset all puts every knob back to its default and the four rows back
+in the list, in their order. with every row taken off the panel says nothing
+emulated, over the add knob button.
 
-the field at the top finds knobs and values. type `dark`, `390`, `+2d`, `tr`,
+drag a row by the six dots at its leading edge, which show on hover and focus
+and always on a touch screen, to put it elsewhere in the list. with the dots
+focused, the up and down arrows move the row a place. the order is kept with
+the rest of the session.
+
+the rows stay on top. the add knob button under them opens a field in its
+place that finds knobs and values, and the results show between the rows and
+the field, each scrolling in its own room. type `dark`, `390`, `+2d`, `tr`,
 `tokyo`, `rtl`, `pause` or `offline` and enter sets the first result and shows
 its row. a value typed out in full works too: `500` for a width, `3d` for the
 clock, `pt-BR`, `Europe/Paris`, or `36.9, 30.7` for a position. a knob's name
 opens its editor, and with nothing typed the list shows every knob by
-category. arrows move through the results. escape leaves the search, query and
-all, then closes an open editor, and then the panel. right after the panel
-opens, with nothing typed and no editor open, escape closes it at once. a click
-anywhere outside the search and its results, or on the `×` at its end, leaves
-it too.
+category. arrows move through the results. a value or knob picked adds its row
+at the bottom, if it is not listed yet, and gives it the focus. escape leaves
+the search, query and all, back to the add knob button, then closes an open
+editor, and then the panel. a click anywhere outside the search and its
+results, or on the `×` at its end, leaves it too. with the focus on any of the
+panel's buttons, typing a character opens the search with it typed in.
 
-while the panel is out and the focus is in no field, `/` focuses the search,
+while the panel is out and the focus is in no field, `/` opens the search,
 `⇧R` replays the page's animations and shift backspace (or shift delete) resets
 every knob, from the frame too.
 while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,

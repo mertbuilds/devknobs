@@ -124,6 +124,19 @@ export function isSearchKey(event: KeyLike): boolean {
 }
 
 /**
+ * The character a keydown types into the panel's search when the focus is on
+ * one of the panel's controls rather than in a field, so a knob's name can be
+ * typed from anywhere in it. A space presses the control, `/` opens the search
+ * empty, and a key with a modifier other than shift, a named key such as an
+ * arrow, or one an IME takes types nothing.
+ */
+export function typeAhead(event: KeyLike): string | null {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing === true) return null;
+  if ([...event.key].length !== 1 || event.key === " " || event.key === "/") return null;
+  return isEditable(event.composedPath?.()[0] ?? event.target) ? null : event.key;
+}
+
+/**
  * What a zoom key asks of the frame: meta or ctrl with plus steps in, with
  * minus out, and with 0 goes back to fit, as the browser's own zoom keys do.
  * In a field that takes typing they are the browser's.

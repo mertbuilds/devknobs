@@ -13,8 +13,8 @@
  *
  * Nested rounded boxes are concentric: a box's radius is its parent's less the
  * space between them. The panel is 13 with 1 of border and 4 of padding, so
- * the search, rows and results are 8; an open row pads its editor by 4, so
- * controls are 4, and what sits 2 inside a control is 2.
+ * the rows, results, add knob button and search are 8; an open row pads its
+ * editor by 4, so controls are 4, and what sits 2 inside a control is 2.
  *
  * The panel lives on the right edge of the window, and `data-side="left"` on
  * the wrapper mirrors it onto the left: the handle on the panel's other side,
@@ -232,13 +232,14 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .wrap[data-float="true"][data-open="false"] .panel { transition-delay: 150ms, 0s, 0s, 0s, 0s, 0s; }
 
+/* The search opens where the add knob button was, and is as tall as a row. */
 .head {
   flex: none;
   box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
+  height: 26px;
   padding: 0 10px;
   background: var(--card);
   border-radius: 8px;
@@ -262,28 +263,103 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 .search-close:hover { color: var(--fg); background: var(--track); }
-/* Only while the search is open: it has the focus, or a query. */
-.wrap[data-mode="rows"] .search-close { display: none; }
 
+.add {
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 10px;
+  color: var(--faint);
+  border-radius: 8px;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.add:hover { color: var(--fg); background: var(--card); }
+.add svg { flex: none; }
+
+/* The rows on top, then the results while the search is open, then the add
+   knob button or the search. The rows and the results each scroll in their own
+   room, so the results never cover the rows. */
 .body {
   position: relative;
   flex: 0 1 auto;
   min-height: 0;
-  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rows, .results {
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
+/* While the search is open the rows keep their height up to two fifths of the
+   tallest panel, and scroll past it, so the results have the rest. */
+.wrap:not([data-mode="rows"]) .rows {
+  flex-shrink: 0;
+  max-height: calc(min(560px, 100vh - 16px) * 0.4);
+  max-height: calc(min(560px, 100dvh - 16px) * 0.4);
+}
 .wrap[data-mode="rows"] .results,
-.wrap:not([data-mode="rows"]) .rows,
+.wrap[data-mode="rows"] .head,
+.wrap:not([data-mode="rows"]) .add,
 .wrap:not([data-mode="rows"]) .body > .empty { display: none; }
+.rows:not([hidden]) ~ .results { padding-top: 4px; border-top: 1px solid var(--line); }
 .empty { padding: 4px 10px; color: var(--faint); }
+/* Heard, not seen. */
+.said {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
-.rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
-.row { border-radius: 8px; transition: background-color 120ms ease-out; }
+.rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; align-content: start; }
+.row { position: relative; border-radius: 8px; transition: background-color 120ms ease-out; }
 .row:hover, .row.open { background: var(--card); }
+/* The grip sits in the row's leading padding, and shows on hover or focus, or
+   always where there is no hover. */
+.grip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: 10px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  border-radius: 8px 0 0 8px;
+  opacity: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity 120ms ease-out, color 120ms ease-out;
+}
+.grip:hover { color: var(--fg); }
+.row:hover .grip, .row:focus-within .grip, .row.lifted .grip { opacity: 1; }
+@media (hover: none) {
+  .grip { opacity: 1; }
+}
+/* While a row is dragged the others make way for it, and it rides above them. */
+.rows.reordering .row { transition: transform 150ms ease-out, background-color 120ms ease-out; }
+.rows.reordering .row.lifted {
+  z-index: 2;
+  background: var(--card);
+  box-shadow: var(--lift);
+  transition: none;
+}
+.rows.reordering .grip { cursor: grabbing; }
 .line { display: flex; align-items: center; }
 .main {
   flex: 1;
@@ -333,8 +409,6 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .knob { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; }
 .knob-label { padding: 0 6px; font-size: 11px; color: var(--faint); }
-/* A row of one knob already says its name, unless the knob is a bare switch. */
-.knob:only-child:not(.knob-switch) > .knob-label { display: none; }
 .knob-switch { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .knob-switch .switch { margin-right: 2px; }
 

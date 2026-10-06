@@ -155,6 +155,11 @@ export interface Knob {
   available?(): boolean;
   /** The option values the editor shows for this state, in order, where they depend on it. */
   offers?(state: DevknobsState): readonly string[];
+  /**
+   * The value another knob brought, which stands in for the default while it
+   * does: such a value puts the knob off nothing, and its row's `×` puts it back.
+   */
+  base?(state: DevknobsState): string | undefined;
 }
 
 export type RowId =
@@ -863,6 +868,8 @@ const WIDTH: Knob = {
   read: (state) => String(state.width),
   write: (value) => ({ width: value === "full" ? "full" : Number(value) }),
   reset: { width: DEFAULT_STATE.width },
+  // A device's size is the device row's.
+  base: (state) => (deviceOf(state.device) ? String(state.width) : undefined),
   // With a height too, the device knob says the size.
   brief: (state) => (typeof state.height === "number" ? "" : String(state.width)),
   parse: (text) => {
@@ -887,8 +894,12 @@ const DPR: Knob = {
   read: (state) => String(state.dpr),
   write: (value) => ({ dpr: value === "system" ? "system" : Number(value) }),
   reset: { dpr: DEFAULT_STATE.dpr },
-  // A device says its own.
-  brief: (state) => (deviceOf(state.device)?.dpr === state.dpr ? "" : `dpr ${state.dpr}`),
+  // A device's dpr is the device row's.
+  base: (state) => {
+    const device = deviceOf(state.device);
+    return device ? String(device.dpr) : undefined;
+  },
+  brief: (state) => `dpr ${state.dpr}`,
   parse: (text) => numberIn(text, 0.25, 5),
 };
 
@@ -1143,7 +1154,7 @@ export function nameOf(knob: Knob, value: string): string {
 }
 
 export function offDefault(knob: Knob, state: DevknobsState): boolean {
-  return knob.read(state) !== knob.read(DEFAULT_STATE);
+  return knob.read(state) !== (knob.base?.(state) ?? knob.read(DEFAULT_STATE));
 }
 
 /** The knob's part of a row summary, empty while it is at its default. */

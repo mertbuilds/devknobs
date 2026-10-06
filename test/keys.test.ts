@@ -14,6 +14,7 @@ import {
   paletteMove,
   radioMove,
   shiftLabel,
+  typeAhead,
   typesInField,
   zoomAction,
 } from "../src/ui/keys";
@@ -275,6 +276,37 @@ describe("isSearchKey", () => {
     expect(isSearchKey(key({ key: "/", target: element("INPUT") }))).toBe(false);
     expect(isSearchKey(key({ key: "/", composedPath: () => [element("TEXTAREA")] }))).toBe(false);
     expect(isSearchKey(key({ key: "/", target: element("DIV", true) }))).toBe(false);
+  });
+});
+
+describe("typeAhead", () => {
+  test("a character on one of the panel's controls is typed into the search", () => {
+    const control = element("BUTTON");
+    expect(typeAhead(key({ key: "d", target: control }))).toBe("d");
+    expect(typeAhead(key({ key: "D", shiftKey: true, composedPath: () => [control] }))).toBe("D");
+    expect(typeAhead(key({ key: "4", target: control }))).toBe("4");
+    expect(typeAhead(key({ key: "ı", target: control }))).toBe("ı");
+  });
+
+  test("a space presses the control, and the slash opens the search empty", () => {
+    expect(typeAhead(key({ key: " " }))).toBeNull();
+    expect(typeAhead(key({ key: "/" }))).toBeNull();
+  });
+
+  test("named keys, modifiers and an IME type nothing", () => {
+    expect(typeAhead(key({ key: "ArrowDown" }))).toBeNull();
+    expect(typeAhead(key({ key: "Enter" }))).toBeNull();
+    expect(typeAhead(key({ key: "Dead" }))).toBeNull();
+    expect(typeAhead(key({ key: "d", metaKey: true }))).toBeNull();
+    expect(typeAhead(key({ key: "d", ctrlKey: true }))).toBeNull();
+    expect(typeAhead(key({ key: "d", altKey: true }))).toBeNull();
+    expect(typeAhead(key({ key: "d", isComposing: true }))).toBeNull();
+  });
+
+  test("a field types its own", () => {
+    expect(typeAhead(key({ key: "d", target: element("INPUT") }))).toBeNull();
+    expect(typeAhead(key({ key: "d", composedPath: () => [element("TEXTAREA")] }))).toBeNull();
+    expect(typeAhead(key({ key: "d", target: element("INPUT", false, true) }))).toBeNull();
   });
 });
 

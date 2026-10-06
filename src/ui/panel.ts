@@ -42,9 +42,20 @@ import {
   REPLAY_KEY,
   radioMove,
   shiftLabel,
+  typeAhead,
   zoomAction,
 } from "./keys";
-import { isListed, isReset, pinPatch, removePatch, rowOrder, rowText } from "./list";
+import {
+  isListed,
+  isReset,
+  listedOrder,
+  movePatch,
+  pinPatch,
+  removePatch,
+  rowOrder,
+  rowText,
+  showsLabel,
+} from "./list";
 import { filterOptions, type Result, resultText, search, searchActions } from "./search";
 import { CSS } from "./styles";
 
@@ -68,6 +79,7 @@ type Update = (state: DevknobsState) => void;
 interface RowView {
   row: Row;
   box: HTMLElement;
+  grip: HTMLButtonElement;
   main: HTMLButtonElement;
   value: HTMLElement;
   clear: HTMLButtonElement;
@@ -83,6 +95,46 @@ interface Entry {
 
 /** Pointer travel that turns a click on the handle into a drag. */
 const DRAG_SLOP = 4;
+
+/** The space between two rows, in px, as the stylesheet sets it. */
+const ROW_GAP = 1;
+
+/** How near the rows' top or bottom a dragged row scrolls them, and how far a move, in px. */
+const ROW_EDGE = 16;
+const ROW_SCROLL = 8;
+
+const SVG = "http://www.w3.org/2000/svg";
+
+type Part = [tag: string, attributes: Record<string, string>];
+
+/** An icon `width` by `height` px drawn in the text's color. */
+function icon(width: number, height: number, parts: Part[]): SVGElement {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("fill", "currentColor");
+  for (const [tag, attributes] of parts) {
+    const part = document.createElementNS(SVG, tag);
+    for (const [name, value] of Object.entries(attributes)) part.setAttribute(name, value);
+    svg.append(part);
+  }
+  return svg;
+}
+
+/** Six dots, two across and three down: the grip a row is dragged by. */
+function gripIcon(): SVGElement {
+  const dots = [1, 5].flatMap((cx) =>
+    [2, 6, 10].map((cy): Part => ["circle", { cx: `${cx}`, cy: `${cy}`, r: "1" }]),
+  );
+  return icon(6, 12, dots);
+}
+
+/** A plus, for the button that adds a knob. */
+function plusIcon(): SVGElement {
+  return icon(10, 10, [["path", { d: "M5 .5v9M.5 5h9", stroke: "currentColor" }]]);
+}
 
 /** How far back the pointer's speed is read from when a drag ends, in ms. */
 export const FLING_SPAN = 150;
@@ -440,9 +492,10 @@ function center(node: HTMLElement, box: HTMLElement): void {
  * panel cannot style the page.
  *
  * The panel lists the knobs that are off their default or were set from it,
- * one row each, and a row opens into an editor. A fresh panel lists the
- * default rows. Everything else is a search away: the field at the top finds knobs and values, and
- * with nothing typed lists every knob.
+ * one row each, in the order they were added or dragged to, and a row opens
+ * into an editor. A fresh panel lists the default rows. Everything else is a
+ * search away: the add knob button under the rows opens a field that finds
+ * knobs and values, and with nothing typed lists every knob.
  */
 export function createPanel(options: PanelOptions = {}): Panel {
   const hotkey = hotkeyOf(options.hotkey);
@@ -463,7 +516,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   handle.title = "drag to move · shift-drag moves the handle";
   const panel = el("div", "panel");
 
-  // A label, so a click anywhere in the header lands in the field.
+  // A label, so a click anywhere around the field lands in it.
   const head = el("label", "head");
   const searchInput = document.createElement("input");
   searchInput.className = "search";
@@ -481,6 +534,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
   closeSearch.tabIndex = -1;
   closeSearch.setAttribute("aria-label", "close the search");
   head.append(searchInput, closeSearch);
+  // Where the search opens, under the rows.
+  const add = button("add", "");
+  add.append(plusIcon(), "add knob");
 
   const body = el("div", "body");
   const empty = el("div", "empty", "nothing emulated");
@@ -489,7 +545,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
   results.id = "devknobs-results";
   results.setAttribute("role", "listbox");
   results.setAttribute("aria-label", "knobs");
-  body.append(empty, rows, results);
+  // Says where a row moved to, for assistive tech.
+  const said = el("div", "said");
+  said.setAttribute("aria-live", "polite");
+  body.append(rows, empty, results, add, head, said);
 
   const foot = el("div", "foot");
   const badge = el("span", "badge");
@@ -505,7 +564,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
   foot.append(badge, meta);
 
-  panel.append(head, body, foot);
+  panel.append(body, foot);
   wrap.append(handle, panel);
   root.append(style, wrap);
 
@@ -900,7 +959,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
       const line = el("div", `knob knob-${knob.control}`);
       line.dataset.knob = knob.id;
       const [node, update] = control(knob);
-      line.append(el("div", "knob-label", knob.label), node);
+      // The control keeps the knob's name for assistive tech where the label goes.
+      if (showsLabel(row, knob)) line.append(el("div", "knob-label", knob.label));
+      line.append(node);
       updates.push(update);
       const extra = EXTRAS[knob.id]?.();
       if (extra) {
@@ -927,14 +988,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const views: RowView[] = ROWS.map((row) => {
     const box = el("div", "row");
+    box.dataset.row = row.id;
     const line = el("div", "line");
+    const grip = button("grip", "");
+    grip.append(gripIcon());
+    grip.setAttribute("aria-label", `move ${row.label}`);
+    grip.title = "drag, or press up or down, to reorder";
     const main = button("main", "");
     main.setAttribute("aria-expanded", "false");
     const value = el("span", "row-value");
     main.append(el("span", "row-label", row.label), value);
     const clear = button("clear", "×");
     clear.setAttribute("aria-label", `reset ${row.label}`);
-    line.append(main, clear);
+    line.append(grip, main, clear);
     const editor = el("div", "editor");
     box.append(line, editor);
     main.addEventListener("click", () => openEditor(openRow === row.id ? null : row.id));
@@ -942,13 +1008,166 @@ export function createPanel(options: PanelOptions = {}): Panel {
       if (openRow === row.id) openRow = null;
       engine.setState(removePatch(engine.getState(), row));
     });
-    return { row, box, main, value, clear, editor, updates: buildEditor(row, editor) };
+    grip.addEventListener("pointerdown", (event: PointerEvent) => startReorder(event, row.id));
+    grip.addEventListener("pointermove", onReorderMove);
+    grip.addEventListener("pointerup", (event: PointerEvent) => {
+      if (event.pointerId === reorder?.pointer) endReorder(true);
+    });
+    // The browser took the pointer away: the rows go back where they were.
+    for (const type of ["pointercancel", "lostpointercapture"] as const) {
+      grip.addEventListener(type, (event: PointerEvent) => {
+        if (event.pointerId === reorder?.pointer) endReorder(false);
+      });
+    }
+    grip.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      event.preventDefault();
+      moveRow(row.id, event.key === "ArrowUp" ? -1 : 1);
+    });
+    return { row, box, grip, main, value, clear, editor, updates: buildEditor(row, editor) };
   });
 
-  /** The default rows stand first, in their order, and the rest as the catalog has them. */
-  for (const id of rowOrder()) {
-    const box = viewOf(id)?.box;
-    if (box) rows.append(box);
+  /** Stand the rows in the order the state lists them, moving nothing that is in place. */
+  function orderRows(state: DevknobsState): void {
+    const boxes = rowOrder(state).flatMap((id) => viewOf(id)?.box ?? []);
+    if (boxes.some((box, at) => rows.children[at] !== box)) rows.append(...boxes);
+  }
+
+  /** A listed row dragged by its grip, and where the rows stood when it was picked up. */
+  interface Reorder {
+    pointer: number;
+    grip: HTMLButtonElement;
+    /** The pointer's y and the rows' scroll as the press began, and the pointer's y now. */
+    startY: number;
+    startScroll: number;
+    y: number;
+    /** It moved past the slop, so it is a drag and not a press. */
+    started: boolean;
+    boxes: HTMLElement[];
+    tops: number[];
+    heights: number[];
+    /** The row's place in the list, and where it lands if let go now. */
+    from: number;
+    to: number;
+  }
+
+  let reorder: Reorder | null = null;
+
+  /** Say where a row stands now, for assistive tech. */
+  function announce(id: RowId): void {
+    const order = listedOrder(engine.getState());
+    const label = viewOf(id)?.row.label ?? id;
+    said.textContent = `${label} moved to ${order.indexOf(id) + 1} of ${order.length}`;
+  }
+
+  /**
+   * Pick a listed row up by its grip. It is a drag once the pointer travels
+   * the slop. The press keeps the focus where it was, so a search stays open.
+   */
+  function startReorder(event: PointerEvent, id: RowId): void {
+    if (event.button !== 0 || reorder || dragging) return;
+    const order = listedOrder(engine.getState());
+    const from = order.indexOf(id);
+    const grip = viewOf(id)?.grip;
+    if (from < 0 || !grip) return;
+    event.preventDefault();
+    const boxes = order.flatMap((entry) => viewOf(entry)?.box ?? []);
+    reorder = {
+      pointer: event.pointerId,
+      grip,
+      startY: event.clientY,
+      startScroll: rows.scrollTop,
+      y: event.clientY,
+      started: false,
+      boxes,
+      tops: boxes.map((box) => box.offsetTop),
+      heights: boxes.map((box) => box.offsetHeight),
+      from,
+      to: from,
+    };
+    grip.setPointerCapture(event.pointerId);
+  }
+
+  /**
+   * Put the dragged row under the pointer, held inside the list, and move the
+   * rows it passed out of its way. A scroll of the rows meanwhile counts as
+   * travel, so the row stays under the pointer.
+   */
+  function placeReorder(): void {
+    const at = reorder;
+    if (!at?.started) return;
+    const last = at.boxes.length - 1;
+    const top = at.tops[at.from] ?? 0;
+    const height = at.heights[at.from] ?? 0;
+    const end = (at.tops[last] ?? 0) + (at.heights[last] ?? 0);
+    const travel = at.y - at.startY + rows.scrollTop - at.startScroll;
+    const shift = between(travel, (at.tops[0] ?? 0) - top, end - top - height);
+    const middle = top + height / 2 + shift;
+    at.to = at.boxes.filter(
+      (box, index) =>
+        index !== at.from && (at.tops[index] ?? 0) + (at.heights[index] ?? 0) / 2 < middle,
+    ).length;
+    const step = height + ROW_GAP;
+    at.boxes.forEach((box, index) => {
+      let y = 0;
+      if (index === at.from) y = shift;
+      else if (index > at.from && index <= at.to) y = -step;
+      else if (index < at.from && index >= at.to) y = step;
+      box.style.transform = y === 0 ? "" : `translateY(${y}px)`;
+    });
+  }
+
+  function onReorderMove(event: PointerEvent): void {
+    const at = reorder;
+    if (!at || event.pointerId !== at.pointer) return;
+    at.y = event.clientY;
+    if (!at.started && Math.abs(at.y - at.startY) < DRAG_SLOP) return;
+    if (!at.started) {
+      at.started = true;
+      rows.classList.add("reordering");
+      at.boxes[at.from]?.classList.add("lifted");
+    }
+    // Near the top or the bottom of the rows, a list taller than its room scrolls.
+    const area = rows.getBoundingClientRect();
+    if (at.y < area.top + ROW_EDGE) rows.scrollTop -= ROW_SCROLL;
+    else if (at.y > area.bottom - ROW_EDGE) rows.scrollTop += ROW_SCROLL;
+    placeReorder();
+  }
+
+  /**
+   * Let a dragged row go: where it was dragged to with `keep`, else back
+   * where it was. The rows jump to their places, as they already show there.
+   */
+  function endReorder(keep: boolean): void {
+    const at = reorder;
+    if (!at) return;
+    reorder = null;
+    if (at.grip.hasPointerCapture(at.pointer)) at.grip.releasePointerCapture(at.pointer);
+    rows.classList.remove("reordering");
+    for (const box of at.boxes) {
+      box.classList.remove("lifted");
+      box.style.transform = "";
+    }
+    if (!keep || !at.started || at.to === at.from) return;
+    const id = listedOrder(engine.getState())[at.from];
+    engine.setState(movePatch(engine.getState(), at.from, at.to));
+    if (id) announce(id);
+  }
+
+  /** Move a listed row a step up or down from the keys, its grip keeping the focus. */
+  function moveRow(id: RowId, step: number): void {
+    const state = engine.getState();
+    const order = listedOrder(state);
+    const from = order.indexOf(id);
+    const to = between(from + step, 0, order.length - 1);
+    const view = viewOf(id);
+    if (from < 0 || to === from || !view) return;
+    engine.setState(movePatch(state, from, to));
+    // The move takes the grip off the page and back, and its focus with it.
+    view.grip.focus({ preventScroll: true });
+    reveal(view.box, rows);
+    announce(id);
   }
 
   function viewOf(id: RowId): RowView | undefined {
@@ -961,7 +1180,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     render();
     const view = id ? viewOf(id) : undefined;
     if (!view) return;
-    reveal(view.box, body);
+    reveal(view.box, rows);
     // A long list opens with the value that is on in its middle.
     for (const items of Array.from(view.editor.querySelectorAll<HTMLElement>(".items"))) {
       const on = items.querySelector<HTMLElement>(".on");
@@ -987,7 +1206,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const current = entries[cursor];
     if (current) {
       searchInput.setAttribute("aria-activedescendant", current.node.id);
-      reveal(current.node, body);
+      reveal(current.node, results);
     } else searchInput.removeAttribute("aria-activedescendant");
   }
 
@@ -1082,7 +1301,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     searchInput.value = "";
     browsing = false;
     cursor = 0;
-    body.scrollTop = 0;
+    results.scrollTop = 0;
     // The blur renders.
     if (root.activeElement === searchInput) searchInput.blur();
     else render();
@@ -1096,7 +1315,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   function showRow(id: RowId, knob: Knob): void {
     const view = viewOf(id);
     if (!view) return;
-    reveal(view.box, body);
+    reveal(view.box, rows);
     const line = openRow === id ? view.editor.querySelector(`[data-knob="${knob.id}"]`) : null;
     (firstControl(line) ?? view.main).focus();
   }
@@ -1155,6 +1374,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     const live = liveOf(state);
     let anyShown = false;
+    orderRows(state);
     for (const view of views) {
       const listed = isListed(view.row, state);
       const expanded = openRow === view.row.id;
@@ -1165,12 +1385,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
       view.value.textContent = rowText(view.row, state, live);
       view.value.classList.toggle("idle", !isActive(view.row, state));
       view.clear.hidden = !listed;
+      view.grip.hidden = !listed;
       view.editor.hidden = !expanded;
       if (expanded) for (const update of view.updates) update(state);
     }
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
     viewOf("debug")?.value.classList.toggle("hot", hot);
     empty.hidden = anyShown;
+    rows.hidden = !anyShown;
     const resetHint = hints.get("reset");
     if (resetHint) resetHint.disabled = isReset(state);
     badge.textContent = overflowBadge(state.overflow, live.overflow);
@@ -1266,15 +1488,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   /** What had the focus on the page when the panel opened. */
   let focusBefore: Element | null = null;
-  /** The search takes the focus as the panel opens, and lists nothing until it is used. */
-  let quiet = false;
 
   /**
    * Open or close the panel. Opened, it shows by the time the store has
-   * rendered, and the search takes the focus so a knob's name can be typed at
-   * once. Closed, it keeps no focus, so the next keys go to the page, to what
-   * had them before it opened when that is still there. Says whether the
-   * focus moved, so the key that did it is not typed where the focus went.
+   * rendered, and the add knob button takes the focus, where typing a knob's
+   * name opens the search with it. Closed, it keeps no focus, so the next
+   * keys go to the page, to what had them before it opened when that is
+   * still there. Says whether the focus moved, so the key that did it is not
+   * typed where the focus went.
    */
   function toggle(open?: boolean): boolean {
     const was = engine.getState().panel.open;
@@ -1301,39 +1522,44 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
     engine.setState({ panel: { open: next } });
     if (!next || was) return moved;
-    quiet = true;
-    searchInput.focus({ preventScroll: true });
-    quiet = false;
+    add.focus({ preventScroll: true });
     return true;
   }
 
   /**
-   * Focus the search and list the knobs. A search the panel opened with
-   * already has the focus, and lists them from here.
+   * Open the search where the add knob button was, list the knobs and focus
+   * it, with `text` typed in where there is some. The field shows only once
+   * it is open, so it is opened before it takes the focus.
    */
-  function startBrowsing(): void {
-    searchInput.focus();
-    if (browsing) return;
-    browsing = true;
-    render();
+  function startBrowsing(text = ""): void {
+    if (text) {
+      searchInput.value += text;
+      results.scrollTop = 0;
+    }
+    if (!browsing || text) {
+      browsing = true;
+      render();
+    }
+    searchInput.focus({ preventScroll: true });
   }
 
   searchInput.addEventListener("focus", () => {
-    if (quiet) return;
+    if (browsing) return;
     browsing = true;
     render();
   });
+  add.addEventListener("click", () => startBrowsing());
   searchInput.addEventListener("blur", () => {
     // The window lost the focus and the search kept it, or a press took it and
     // leaves the search once its click has landed.
     if (root.activeElement === searchInput || pressing) return;
     leaveSearch();
   });
-  // A click on the header lands here too.
-  searchInput.addEventListener("click", startBrowsing);
+  // A click around the field lands here too.
+  searchInput.addEventListener("click", () => startBrowsing());
   searchInput.addEventListener("input", () => {
     browsing = true;
-    body.scrollTop = 0;
+    results.scrollTop = 0;
     render();
   });
   searchInput.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -1350,11 +1576,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
   });
   // A press on a result or the scrollbar keeps the focus in the search, so the
   // list stays put under it.
-  body.addEventListener("mousedown", (event: MouseEvent) => {
-    if (wrap.dataset.mode !== "rows") event.preventDefault();
-  });
+  results.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
+  rows.addEventListener("scroll", placeReorder);
   closeSearch.addEventListener("mousedown", (event: MouseEvent) => event.preventDefault());
-  closeSearch.addEventListener("click", leaveSearch);
+  closeSearch.addEventListener("click", () => {
+    leaveSearch();
+    add.focus({ preventScroll: true });
+  });
 
   function onPointerDown(): void {
     pressing = true;
@@ -1578,6 +1806,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     dragged = false;
   });
   function onBlur(): void {
+    endReorder(false);
     if (!dragging) return;
     endDrag(null);
     dragged = false;
@@ -1611,22 +1840,30 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   /**
    * Escape takes one step back at a time, as `escapeStep` says. With the focus
-   * out on the page, it closes the panel straight away.
+   * out on the page, it closes the panel straight away. A row being dragged
+   * goes back where it was first.
    */
   function escape(): void {
     if (dragging || !engine.getState().panel.open) return;
+    if (reorder) {
+      endReorder(false);
+      return;
+    }
     const focused = root.activeElement;
     const filter =
       focused instanceof HTMLInputElement && focused.classList.contains("filter") ? focused : null;
     const view = openRow ? viewOf(openRow) : undefined;
-    // The search the panel opened with has nothing to leave until it is used.
     const step = escapeStep({
       search: browsing || searchInput.value !== "",
       filter: filter !== null && filter.value !== "",
       editor: focused !== null && view !== undefined,
     });
-    if (step === "search") leaveSearch();
-    else if (step === "filter" && filter) {
+    if (step === "search") {
+      // Back to the button the search opened from, while the focus was in it.
+      const inSearch = focused === searchInput;
+      leaveSearch();
+      if (inSearch) add.focus({ preventScroll: true });
+    } else if (step === "filter" && filter) {
       filter.value = "";
       filter.dispatchEvent(new Event("input"));
     } else if (step === "editor" && view) {
@@ -1638,9 +1875,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /**
    * Shift and the hotkey toggles the panel unless the focus is in a field
    * other than the search. While the panel is out and the focus is in no
-   * field, `/` focuses the search without typing into it. While the frame is
-   * up, the zoom keys zoom it instead of the browser. Every other key goes to
-   * the page.
+   * field, `/` opens the search without typing into it, and with the focus on
+   * one of the panel's controls a character opens it with that typed in.
+   * While the frame is up, the zoom keys zoom it instead of the browser.
+   * Every other key goes to the page.
    */
   function onKeydown(event: KeyboardEvent): void {
     const zoom = zoomAction(event);
@@ -1661,10 +1899,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if ((action === "toggle" && moved) || (action && action !== "close" && inSearch)) {
       event.preventDefault();
     }
-    if (action || dragging || !engine.getState().panel.open || !isSearchKey(event)) return;
+    if (action || dragging || reorder || !engine.getState().panel.open) return;
+    const text = event.composedPath().includes(panel) ? typeAhead(event) : null;
+    if (text === null && !isSearchKey(event)) return;
     event.preventDefault();
     event.stopPropagation();
-    searchInput.focus();
+    startBrowsing(text ?? "");
   }
 
   /**
