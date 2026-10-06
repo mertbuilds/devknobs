@@ -2,17 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DEFAULT_PINNED, DEFAULT_STATE, merge, resetState } from "../src/engine/store";
 import type { DevknobsState, DevknobsStatePatch } from "../src/types";
 import { type Live, ROWS, type Row, type RowId } from "../src/ui/catalog";
-import {
-  GRAB_ROW,
-  isGrabListed,
-  isListed,
-  isReset,
-  pinPatch,
-  removePatch,
-  rowOrder,
-  rowText,
-  unpinPatch,
-} from "../src/ui/list";
+import { isListed, isReset, pinPatch, removePatch, rowOrder, rowText } from "../src/ui/list";
 
 const LIVE: Live = { now: 0, real: 0, overflow: null };
 
@@ -45,16 +35,14 @@ describe("pinned rows", () => {
 
   test("the default rows stand first, in their order, and the rest in the catalog's", () => {
     const order = rowOrder();
-    expect(order.slice(0, 5)).toEqual(["viewport", "scheme", GRAB_ROW, "text", "locale"]);
+    expect(order.slice(0, 4)).toEqual(["viewport", "scheme", "text", "locale"]);
     const rest = ROWS.map((entry) => entry.id).filter((id) => !DEFAULT_PINNED.includes(id));
-    expect(order.slice(5)).toEqual(rest);
+    expect(order.slice(4)).toEqual(rest);
   });
 
   test("a default row's × takes it off, and the rest stay", () => {
     const removed = merge(DEFAULT_STATE, removePatch(DEFAULT_STATE, row("scheme")));
-    expect(removed.panel.pinned).toEqual(["viewport", "grab", "text", "locale"]);
-    const noGrab = merge(removed, unpinPatch(removed, GRAB_ROW));
-    expect(noGrab.panel.pinned).toEqual(["viewport", "text", "locale"]);
+    expect(removed.panel.pinned).toEqual(["viewport", "text", "locale"]);
   });
 
   test("a row set from the panel is pinned once", () => {
@@ -127,17 +115,9 @@ describe("pinned rows", () => {
     expect(isReset(merge(DEFAULT_STATE, { width: 390 }))).toBe(false);
   });
 
-  test("grab's row pins and unpins like a knob's", () => {
-    const pinned = merge(BARE, pinPatch(BARE, GRAB_ROW, {}));
-    expect(pinned.panel.pinned).toEqual([GRAB_ROW]);
-    expect(merge(pinned, unpinPatch(pinned, GRAB_ROW)).panel.pinned).toEqual([]);
-  });
-
-  test("grab's row is listed pinned or on, and never where there is no grab", () => {
-    expect(isGrabListed(DEFAULT_STATE, true, false)).toBe(true);
-    expect(isGrabListed(BARE, true, false)).toBe(false);
-    expect(isGrabListed(BARE, true, true)).toBe(true);
-    expect(isGrabListed(DEFAULT_STATE, false, false)).toBe(false);
-    expect(isGrabListed(DEFAULT_STATE, false, true)).toBe(false);
+  test("an id no row has, such as grab's from an older version, lists nothing and changes nothing", () => {
+    const old = merge(DEFAULT_STATE, { panel: { pinned: [...DEFAULT_PINNED, "grab"] } });
+    expect(listed(old)).toEqual(listed(DEFAULT_STATE));
+    expect(isReset(old)).toBe(true);
   });
 });

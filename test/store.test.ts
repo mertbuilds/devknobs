@@ -225,7 +225,7 @@ describe("parse", () => {
   });
 
   test("lists the default rows in a fresh session, and keeps a stored list as it is", () => {
-    expect(DEFAULT_PINNED).toEqual(["viewport", "scheme", "grab", "text", "locale"]);
+    expect(DEFAULT_PINNED).toEqual(["viewport", "scheme", "text", "locale"]);
     expect(parse(null).panel.pinned).toEqual([...DEFAULT_PINNED]);
     expect(parse(JSON.stringify({ scheme: "dark" })).panel.pinned).toEqual([...DEFAULT_PINNED]);
     expect(parse(JSON.stringify({ panel: { pinned: [] } })).panel.pinned).toEqual([]);

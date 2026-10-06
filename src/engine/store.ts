@@ -38,9 +38,9 @@ export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">
 
 /**
  * The rows a fresh panel lists, in the order they stand: the viewport row,
- * which holds the device, the scheme, grab, the text size and the locale.
+ * which holds the device, the scheme, the text size and the locale.
  */
-export const DEFAULT_PINNED: readonly string[] = ["viewport", "scheme", "grab", "text", "locale"];
+export const DEFAULT_PINNED: readonly string[] = ["viewport", "scheme", "text", "locale"];
 
 export const DEFAULT_STATE: DevknobsState = {
   scheme: "system",
