@@ -262,6 +262,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .search-close:hover { color: var(--fg); background: var(--track); }
 
+/* Its plus and label line up with the rows' icons and names, past the grip. */
 .add {
   flex: none;
   box-sizing: border-box;
@@ -269,7 +270,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   align-items: center;
   gap: 8px;
   height: 26px;
-  padding: 0 10px;
+  padding: 0 10px 0 26px;
   color: var(--faint);
   border-radius: 8px;
   transition: background-color 120ms ease-out, color 120ms ease-out;
@@ -328,19 +329,20 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; align-content: start; }
 .row { position: relative; border-radius: 8px; transition: background-color 120ms ease-out; }
 .row:hover, .row.open { background: var(--card); }
-/* The grip sits in the row's leading padding, and shows on hover or focus, or
-   always where there is no hover. */
+/* The grip has its own column in the row's leading padding, kept whether it
+   shows or not so nothing moves on hover. It shows on hover or focus, or
+   always where there is no hover. 4 in from the row's edges, so 4 round. */
 .grip {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: 4px;
+  left: 4px;
   z-index: 1;
-  width: 10px;
-  height: 26px;
+  width: 16px;
+  height: 18px;
   display: grid;
   place-items: center;
   color: var(--faint);
-  border-radius: 8px 0 0 8px;
+  border-radius: 4px;
   opacity: 0;
   cursor: grab;
   touch-action: none;
@@ -349,8 +351,6 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: opacity 120ms ease-out, color 120ms ease-out;
 }
 .grip:hover { color: var(--fg); }
-/* The icon is wider than the grip, so it overhangs both sides alike. */
-.grip .glyph { margin: 0 -2px; }
 .row:hover .grip, .row:focus-within .grip, .row.lifted .grip { opacity: 1; }
 @media (hover: none) {
   .grip { opacity: 1; }
@@ -371,7 +371,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 4px 8px 4px 10px;
+  padding: 4px 8px 4px 26px;
   border-radius: 8px;
 }
 .row-label { flex: none; color: var(--faint); }
