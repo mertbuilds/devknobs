@@ -8,6 +8,11 @@ import {
   FLING,
   FLING_LEAN,
   FLING_SPAN,
+  FLING_STRETCH,
+  GLIDE,
+  GLIDE_MAX,
+  GLIDE_SPEED,
+  glideTime,
   HOST_STYLE,
   keyChips,
   landSide,
@@ -346,7 +351,7 @@ describe("landSide", () => {
 describe("velocity", () => {
   const at = (t: number, x: number, y = 0): Sample => ({ t, x, y });
 
-  test("reads the speed over the span before the release", () => {
+  test("reads the speed of a steady drag", () => {
     const samples = [at(0, 0), at(50, 100, 10), at(100, 200, 20)];
     expect(velocity(samples, 100)).toEqual({ x: 2, y: 0.2 });
   });
@@ -354,12 +359,25 @@ describe("velocity", () => {
   test("leaves out what is older than the span", () => {
     const samples = [at(0, 1000), at(200, 0), at(250, -50), at(300, -100)];
     expect(velocity(samples, 300)).toEqual({ x: -1, y: 0 });
-    expect(FLING_SPAN).toBe(100);
+    expect(FLING_SPAN).toBe(150);
   });
 
-  test("goes by the whole span, so one jittery last step is no fling", () => {
+  test("goes by the fastest stretch, not by the slowing down before the release", () => {
+    // 2 px per ms for 48 ms, then a hand that slows, stops and lets go.
+    const samples = [at(0, 0), at(16, 32), at(32, 64), at(48, 96), at(64, 104), at(80, 106)];
+    expect(velocity([...samples, at(110, 106)], 110)).toEqual({ x: 2, y: 0 });
+  });
+
+  test("goes by a whole stretch, so one jittery step is no fling", () => {
     const samples = [at(0, 0), at(16, 2), at(32, 4), at(48, 6), at(64, 8), at(65, 12)];
-    expect(velocity(samples, 65).x).toBeCloseTo(12 / 65);
+    expect(velocity(samples, 65).x).toBeCloseTo(10 / 49);
+    expect(FLING_STRETCH).toBe(40);
+  });
+
+  test("the fastest stretch is the one that counts, up or down as well", () => {
+    // Fast down, with a slower step across on the way.
+    const samples = [at(0, 0, 0), at(20, 2, 60), at(40, 4, 120), at(60, 30, 130), at(80, 60, 140)];
+    expect(velocity(samples, 80)).toEqual({ x: 0.1, y: 3 });
   });
 
   test("has none for a pointer that stopped before it let go", () => {
@@ -367,10 +385,131 @@ describe("velocity", () => {
     expect(velocity(samples, 250)).toEqual({ x: 0, y: 0 });
   });
 
+  test("reads a drag shorter than a stretch whole, and one too short not at all", () => {
+    expect(velocity([at(0, 0), at(10, 10), at(30, 30)], 30)).toEqual({ x: 1, y: 0 });
+    expect(velocity([at(0, 0), at(5, 50)], 5)).toEqual({ x: 0, y: 0 });
+  });
+
   test("has none with one sample, or none in time", () => {
     expect(velocity([], 0)).toEqual({ x: 0, y: 0 });
     expect(velocity([at(10, 50)], 10)).toEqual({ x: 0, y: 0 });
     expect(velocity([at(10, 0), at(10, 50)], 10)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("a throw", () => {
+  /**
+   * A drag as the pointer reports it, every `step` ms: each leg goes on for a
+   * time at a speed, and the release is one more sample where the last one was.
+   */
+  function trace(
+    from: { x: number; y: number },
+    legs: { ms: number; vx: number; vy?: number }[],
+    step = 8,
+  ): Sample[] {
+    const samples: Sample[] = [{ t: 0, ...from }];
+    let { x, y } = from;
+    let t = 0;
+    for (const leg of legs) {
+      for (let spent = 0; spent < leg.ms; spent += step) {
+        t += step;
+        x += leg.vx * step;
+        y += (leg.vy ?? 0) * step;
+        samples.push({ t, x, y });
+      }
+    }
+    samples.push({ t: t + 3, x, y });
+    return samples;
+  }
+
+  /** The side a drag off the right edge of a window lands on, by its last sample. */
+  function landed(samples: Sample[], width: number): string {
+    const last = samples[samples.length - 1];
+    if (!last) return "right";
+    const speed = velocity(samples, last.t);
+    return landSide("right", last.x, width, speed.x, speed.y);
+  }
+
+  const WIDTHS = [800, 1440, 2560, 3840];
+  /** A flick with a mouse: speed up, peak, slow down, then a pause before the button comes up. */
+  const flick = (pause: number, vy = 0) => [
+    { ms: 48, vx: -0.6, vy: vy / 2 },
+    { ms: 48, vx: -1.6, vy },
+    { ms: 24, vx: -0.4, vy: vy / 4 },
+    { ms: pause, vx: 0 },
+  ];
+
+  test("lands on the other side at any width, however the hand slows before it lets go", () => {
+    for (const width of WIDTHS) {
+      for (const pause of [0, 32, 56]) {
+        for (const step of [4, 8, 16]) {
+          const samples = trace({ x: width - 20, y: 300 }, flick(pause), step);
+          expect(landed(samples, width)).toBe("left");
+        }
+      }
+    }
+  });
+
+  test("the speed at the release alone would miss it", () => {
+    const samples = trace({ x: 3820, y: 300 }, flick(56));
+    const last = samples[samples.length - 1];
+    const first = samples.find((sample) => last && sample.t >= last.t - 100);
+    if (!first || !last) throw new Error("no samples");
+    expect(Math.abs((last.x - first.x) / (last.t - first.t))).toBeLessThan(FLING);
+    expect(Math.abs(velocity(samples, last.t).x)).toBeGreaterThan(FLING * 2);
+  });
+
+  test("lands there with the arc a long throw has", () => {
+    for (const width of WIDTHS) {
+      expect(landed(trace({ x: width - 20, y: 300 }, flick(40, 0.8)), width)).toBe("left");
+      expect(landed(trace({ x: width - 20, y: 300 }, flick(40, -0.8)), width)).toBe("left");
+    }
+  });
+
+  test("a slow drag that ends before the middle glides home", () => {
+    for (const width of WIDTHS) {
+      const samples = trace({ x: width - 20, y: 300 }, [{ ms: 800, vx: -0.3 }]);
+      expect(landed(samples, width)).toBe("right");
+    }
+  });
+
+  test("a fast drag up or down never changes sides", () => {
+    for (const width of WIDTHS) {
+      const down = [
+        { ms: 48, vx: -0.2, vy: 1 },
+        { ms: 96, vx: -0.6, vy: 3 },
+        { ms: 24, vx: -0.1, vy: 0.5 },
+        { ms: 40, vx: 0 },
+      ];
+      expect(landed(trace({ x: width - 20, y: 100 }, down), width)).toBe("right");
+    }
+  });
+
+  test("a drag that stopped a span before it let go is no throw", () => {
+    for (const width of WIDTHS) {
+      const samples = trace({ x: width - 20, y: 300 }, [{ ms: 96, vx: -1.6 }]);
+      const last = samples[samples.length - 1];
+      if (!last) throw new Error("no samples");
+      const held = [...samples, { ...last, t: last.t + FLING_SPAN }];
+      expect(landed(held, width)).toBe("right");
+    }
+  });
+});
+
+describe("glideTime", () => {
+  test("a short way takes the least", () => {
+    expect(glideTime(0)).toBe(GLIDE);
+    expect(glideTime(400)).toBe(GLIDE);
+    expect(glideTime(GLIDE * GLIDE_SPEED)).toBe(GLIDE);
+    expect(GLIDE).toBe(220);
+  });
+
+  test("a long way takes longer, up to the most", () => {
+    expect(glideTime(1800)).toBe(300);
+    expect(glideTime(2400)).toBe(400);
+    expect(glideTime(3600)).toBe(GLIDE_MAX);
+    expect(glideTime(10000)).toBe(GLIDE_MAX);
+    expect(GLIDE_MAX).toBe(440);
   });
 });
 
@@ -560,7 +699,9 @@ describe("the edge side", () => {
 
   test("takes its border at once, and drops it when the color has eased out", () => {
     const late = (edge: string, pad: string) =>
-      new RegExp(`border-${edge}-width 0s linear 220ms,\\s*padding-${pad} 0s linear 220ms`);
+      new RegExp(
+        `border-${edge}-width 0s linear var\\(--glide\\),\\s*padding-${pad} 0s linear var\\(--glide\\)`,
+      );
     expect(body(".panel")).toMatch(late("right", "right"));
     expect(body('.wrap[data-open="false"] .handle')).toMatch(late("right", "left"));
     expect(body('.wrap[data-side="left"] .panel')).toMatch(
@@ -570,7 +711,7 @@ describe("the edge side", () => {
       /border-left-color,\s*border-left-width, padding-right;/,
     );
     expect(body('.wrap[data-open="true"] .panel')).toMatch(
-      /transition-delay:\s*0s, 0s, 0s, 0s, 220ms, 220ms/,
+      /transition-delay:\s*0s, 0s, 0s, 0s, var\(--glide\), var\(--glide\)/,
     );
     expect(body('.wrap[data-float="true"] .panel')).toMatch(/transition-delay:\s*0s;/);
     expect(body('.wrap[data-float="true"][data-open="false"] .handle')).toMatch(
@@ -593,7 +734,14 @@ describe("the edge side", () => {
 
 describe("the glide", () => {
   test("is the translate, apart from the open and close slide", () => {
-    expect(body(".wrap")).toMatch(/transition:\s*transform 150ms ease-out, translate 220ms ease-out/);
+    expect(body(".wrap")).toMatch(
+      /transition:\s*transform 150ms ease-out, translate var\(--glide\) ease-out/,
+    );
+  });
+
+  test("takes 220ms unless the panel sets it longer, and the edge eases back with it", () => {
+    expect(body(".wrap")).toMatch(/--glide:\s*220ms/);
+    expect(CSS.match(/220ms/g)).toHaveLength(1);
   });
 
   test("stops with reduced motion, as every transition does", () => {

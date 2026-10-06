@@ -47,6 +47,7 @@ export const CSS = `
   --hot: #e5484d;
   --edge: 0px;
   --edge-line: transparent;
+  --glide: 220ms;
   display: flex;
   align-items: flex-start;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -57,8 +58,10 @@ export const CSS = `
   -webkit-font-smoothing: antialiased;
   transform: translateX(239px);
   /* The open and close slide is the transform. A drag moves the wrapper by
-     translate, one to one, and lets it glide to its place from there. */
-  transition: transform 150ms ease-out, translate 220ms ease-out;
+     translate, one to one, and lets it glide to its place from there. A glide
+     takes --glide, which the panel sets longer for a long way, and the edge
+     eases back flush in the same time. */
+  transition: transform 150ms ease-out, translate var(--glide) ease-out;
 }
 @media (prefers-color-scheme: dark) {
   .wrap {
@@ -146,9 +149,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    there comes at once and goes when its color has eased out, and the padding
    on the other side keeps the label in the middle. */
 .wrap[data-open="false"] .handle {
-  transition: border-top-right-radius 220ms ease-out, border-bottom-right-radius 220ms ease-out,
-    border-right-color 220ms ease-out, border-right-width 0s linear 220ms,
-    padding-left 0s linear 220ms;
+  transition: border-top-right-radius var(--glide) ease-out,
+    border-bottom-right-radius var(--glide) ease-out, border-right-color var(--glide) ease-out,
+    border-right-width 0s linear var(--glide), padding-left 0s linear var(--glide);
 }
 .wrap[data-open="false"][data-side="left"] .handle {
   transition-property: border-top-left-radius, border-bottom-left-radius, border-left-color,
@@ -187,16 +190,16 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
      once the slide is over. The edge side's border and the padding that pays
      for it go once its color has eased out. */
   visibility: hidden;
-  transition: visibility 0s linear 150ms, border-top-right-radius 220ms ease-out,
-    border-bottom-right-radius 220ms ease-out, border-right-color 220ms ease-out,
-    border-right-width 0s linear 220ms, padding-right 0s linear 220ms;
+  transition: visibility 0s linear 150ms, border-top-right-radius var(--glide) ease-out,
+    border-bottom-right-radius var(--glide) ease-out, border-right-color var(--glide) ease-out,
+    border-right-width 0s linear var(--glide), padding-right 0s linear var(--glide);
 }
 /* Only a panel that is out catches anything. The attribute flips the moment
    the close starts, so the slide back leaves nothing hit-testable behind. */
 .wrap[data-open="true"] .panel {
   pointer-events: auto;
   visibility: visible;
-  transition-delay: 0s, 0s, 0s, 0s, 220ms, 220ms;
+  transition-delay: 0s, 0s, 0s, 0s, var(--glide), var(--glide);
 }
 /* The handle covers one of these corners, so square that one off. It goes by
    the tab alone, not by data-open: the open flag flips the moment a close

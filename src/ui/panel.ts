@@ -95,7 +95,13 @@ interface Entry {
 const DRAG_SLOP = 4;
 
 /** How far back the pointer's speed is read from when a drag ends, in ms. */
-export const FLING_SPAN = 100;
+export const FLING_SPAN = 150;
+
+/** The shortest stretch of a drag a speed is read over, in ms. */
+export const FLING_STRETCH = 40;
+
+/** The shortest a whole drag can be and still have a speed, in ms. */
+const FLING_LEAST = 8;
 
 /** Speed across, in px per ms, that throws the panel to the other side. */
 export const FLING = 0.5;
@@ -105,6 +111,13 @@ export const FLING_LEAN = 1.5;
 
 /** Travel across, in px, a drag needs before it can be flung, so a hurried click never is. */
 const FLING_TRAVEL = 16;
+
+/** How long a glide takes at the least and at the most, in ms. */
+export const GLIDE = 220;
+export const GLIDE_MAX = 440;
+
+/** The fastest a glide goes on average, in px per ms, until it takes `GLIDE_MAX`. */
+export const GLIDE_SPEED = 6;
 
 /** Space the panel keeps between itself and the top or bottom of the viewport. */
 export const PANEL_GAP = 8;
@@ -286,18 +299,44 @@ export interface Sample {
   y: number;
 }
 
+/** The speed from one sample to a later one, in px per ms. */
+function speedOf(from: Sample, to: Sample): { x: number; y: number } {
+  const time = to.t - from.t;
+  return { x: (to.x - from.x) / time, y: (to.y - from.y) / time };
+}
+
 /**
- * The pointer's speed in px per ms, over the samples of the `FLING_SPAN`
- * before `at`, so one jittery event does not make a fling and a pointer that
- * stopped before it let go has none.
+ * The pointer's speed in px per ms as a drag ends: that of its fastest
+ * stretch in the `FLING_SPAN` before `at`. A hand slows down, and often
+ * stops, before the button comes up, so the speed at the release itself says
+ * little about the throw. A stretch is `FLING_STRETCH` long or a little more,
+ * so one jittery event does not make a fling, and a pointer that stopped a
+ * span before it let go has none. A drag shorter than a stretch is read whole.
  */
 export function velocity(samples: Sample[], at: number): { x: number; y: number } {
   const recent = samples.filter((sample) => sample.t >= at - FLING_SPAN && sample.t <= at);
+  let fastest = { x: 0, y: 0 };
+  let read = false;
+  for (const [index, end] of recent.entries()) {
+    // The shortest stretch that ends here: from the last sample far enough back.
+    let start: Sample | undefined;
+    for (const sample of recent.slice(0, index)) {
+      if (end.t - sample.t >= FLING_STRETCH) start = sample;
+    }
+    if (!start) continue;
+    const speed = speedOf(start, end);
+    if (!read || Math.hypot(speed.x, speed.y) > Math.hypot(fastest.x, fastest.y)) fastest = speed;
+    read = true;
+  }
   const first = recent[0];
   const last = recent[recent.length - 1];
-  if (!first || !last || last.t <= first.t) return { x: 0, y: 0 };
-  const time = last.t - first.t;
-  return { x: (last.x - first.x) / time, y: (last.y - first.y) / time };
+  if (!read && first && last && last.t - first.t >= FLING_LEAST) return speedOf(first, last);
+  return fastest;
+}
+
+/** How long a glide over a distance in px takes, in ms: longer the farther it goes. */
+export function glideTime(distance: number): number {
+  return between(distance / GLIDE_SPEED, GLIDE, GLIDE_MAX);
 }
 
 /**
@@ -1476,6 +1515,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       // from there, one to one with the pointer. An open or close slide runs on.
       ({ x: across, y: down } = translateOf(getComputedStyle(wrap).translate));
       wrap.style.transitionProperty = "transform";
+      // The edge takes its free shape in the usual time, whatever the last glide took.
+      wrap.style.removeProperty("--glide");
     }
     dragged = true;
     // The panel and the handle move as one, and shift lets the handle go
@@ -1509,7 +1550,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
    * there from where it shows: the place goes in, side and all, what shows is
    * measured there, moved back by the difference, and let go, so it slides
    * the rest of the way. The side swaps first, so the glide starts from what
-   * shows under the pointer.
+   * shows under the pointer. A long way takes longer, and the edge eases back
+   * flush in the same time, so it only stops floating here.
    */
   function land(next: DevknobsStatePatch["panel"] | null): void {
     const { open } = engine.getState().panel;
@@ -1521,6 +1563,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const to = shownBox(open);
     const x = from.left - to.left;
     const y = from.top - to.top;
+    wrap.style.setProperty("--glide", `${glideTime(Math.hypot(x, y))}ms`);
+    wrap.dataset.float = "false";
     if (x !== 0 || y !== 0) {
       wrap.style.translate = `${x}px ${y}px`;
       wrap.getBoundingClientRect();
@@ -1539,7 +1583,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (!dragging) return;
     dragging = false;
     wrap.dataset.drag = "false";
-    wrap.dataset.float = "false";
     if (handle.hasPointerCapture(pointer)) handle.releasePointerCapture(pointer);
     if (dragged && event) {
       sample(event);
