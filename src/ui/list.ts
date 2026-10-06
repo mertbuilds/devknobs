@@ -8,6 +8,7 @@ import {
   knobsOf,
   type Live,
   nameOf,
+  offDefault,
   ROWS,
   type Row,
   type RowId,
@@ -49,6 +50,49 @@ export function moveItem<T>(items: readonly T[], from: number, to: number): T[] 
 }
 
 /**
+ * The moves that stand `items` in the order `wanted` lists them, each an item
+ * and the one it goes before, null for the end. Nothing already in place
+ * moves, nor does an item of `keep`, the first ones first, while the kept
+ * ones stand in the same order in both lists. So a row that holds the focus
+ * is never taken off the page, and keeps it.
+ */
+export function arrange<T>(
+  items: readonly T[],
+  wanted: readonly T[],
+  keep: readonly T[] = [],
+): Array<[T, T | null]> {
+  const held: T[] = [];
+  for (const item of keep) {
+    const from = items.indexOf(item);
+    const to = wanted.indexOf(item);
+    if (from < 0 || to < 0 || held.includes(item)) continue;
+    const agree = held.every((other) => from < items.indexOf(other) === to < wanted.indexOf(other));
+    if (agree) held.push(item);
+  }
+  const list = [...items];
+  const moves: Array<[T, T | null]> = [];
+  let at = 0;
+  for (const item of wanted) {
+    if (held.includes(item)) {
+      // What stands before a kept item and belongs after it moves on its turn.
+      at = list.indexOf(item) + 1;
+      continue;
+    }
+    if (list[at] === item) {
+      at += 1;
+      continue;
+    }
+    const before = list[at] ?? null;
+    const from = list.indexOf(item);
+    if (from >= 0) list.splice(from, 1);
+    list.splice(before === null ? list.length : list.indexOf(before), 0, item);
+    moves.push([item, before]);
+    at = list.indexOf(item) + 1;
+  }
+  return moves;
+}
+
+/**
  * The patch that moves the listed row at `from` to `to`. The list is pinned
  * as it then stands, so a row listed only for being off its default is
  * pinned where it was put.
@@ -67,8 +111,13 @@ export function pinPatch(
   return { ...patch, panel: { pinned: pinned.includes(id) ? pinned : [...pinned, id] } };
 }
 
-/** What a row's `×` puts a knob back to: what another knob brought, else its default. */
+/**
+ * What a row's `×` puts a knob back to: what another knob brought, else its
+ * default. A knob already there is left alone, so a reset that spans other
+ * rows' values, as the device's does, takes nothing it did not bring.
+ */
 function undo(knob: Knob, state: DevknobsState): DevknobsStatePatch {
+  if (!offDefault(knob, state)) return {};
   const base = knob.base?.(state);
   return base === undefined ? knob.reset : knob.write(base, state);
 }

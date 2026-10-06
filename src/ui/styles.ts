@@ -401,14 +401,15 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 /* An open row's editor folds out under its line and pushes the rows below it
    down. The fold eases between none and all of the editor's height, and clips
    what is past it without scrolling, so a control focused while it folds out
-   never shifts the editor. */
+   never shifts the editor. The track's floor of 0 lets it close past the
+   editor's padding, which a bare 0fr keeps open. */
 .fold {
   display: grid;
-  grid-template-rows: 0fr;
+  grid-template-rows: minmax(0, 0fr);
   overflow: clip;
   transition: grid-template-rows 180ms ease-out;
 }
-.row.open .fold { grid-template-rows: 1fr; }
+.row.open .fold { grid-template-rows: minmax(0, 1fr); }
 .editor {
   min-height: 0;
   display: grid;

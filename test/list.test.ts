@@ -3,6 +3,7 @@ import { DEFAULT_PINNED, DEFAULT_STATE, merge, resetState } from "../src/engine/
 import type { DevknobsState, DevknobsStatePatch } from "../src/types";
 import { knobOf, type Live, ROWS, type Row, type RowId } from "../src/ui/catalog";
 import {
+  arrange,
   isListed,
   isReset,
   listedOrder,
@@ -178,6 +179,59 @@ describe("moving a row", () => {
   });
 });
 
+/** Make the moves `arrange` gives, as the panel does with insertBefore. */
+function apply<T>(items: readonly T[], moves: Array<[T, T | null]>): T[] {
+  const list = [...items];
+  for (const [item, before] of moves) {
+    list.splice(list.indexOf(item), 1);
+    list.splice(before === null ? list.length : list.indexOf(before), 0, item);
+  }
+  return list;
+}
+
+describe("arrange", () => {
+  test("moves nothing that is in place", () => {
+    expect(arrange(["a", "b", "c"], ["a", "b", "c"])).toEqual([]);
+    expect(arrange(["a", "b", "c", "d"], ["d", "a", "b", "c"])).toEqual([["d", "a"]]);
+    expect(arrange(["a", "b", "c", "d"], ["a", "c", "b", "d"])).toEqual([["c", "b"]]);
+  });
+
+  test("stands the items in the order wanted", () => {
+    const items = ["a", "b", "c", "d", "e"];
+    for (const wanted of [
+      ["e", "d", "c", "b", "a"],
+      ["c", "a", "e", "b", "d"],
+      ["b", "c", "d", "e", "a"],
+    ]) {
+      expect(apply(items, arrange(items, wanted))).toEqual(wanted);
+    }
+  });
+
+  test("moves the others around a kept item", () => {
+    const items = ["a", "b", "c", "d"];
+    const wanted = ["d", "a", "b", "c"];
+    const moves = arrange(items, wanted, ["d"]);
+    expect(apply(items, moves)).toEqual(wanted);
+    expect(moves.map(([item]) => item)).toEqual(["a", "b", "c"]);
+    const back = arrange(wanted, items, ["d"]);
+    expect(apply(wanted, back)).toEqual(items);
+    expect(back.map(([item]) => item)).not.toContain("d");
+  });
+
+  test("keeps two items that stand in the same order in both, else the first", () => {
+    const items = ["a", "b", "c", "d", "e"];
+    const wanted = ["e", "b", "a", "d", "c"];
+    const both = arrange(items, wanted, ["b", "d"]);
+    expect(apply(items, both)).toEqual(wanted);
+    expect(both.map(([item]) => item)).not.toContain("b");
+    expect(both.map(([item]) => item)).not.toContain("d");
+    const swapped = ["a", "d", "c", "b", "e"];
+    const first = arrange(items, swapped, ["d", "b"]);
+    expect(apply(items, first)).toEqual(swapped);
+    expect(first.map(([item]) => item)).not.toContain("d");
+  });
+});
+
 describe("a phone and the viewport", () => {
   const phone = use(BARE, "device", { device: "iphone-16-pro" });
 
@@ -199,6 +253,21 @@ describe("a phone and the viewport", () => {
     const removed = merge(busy, removePatch(busy, row("viewport")));
     expect(removed).toMatchObject({ device: "iphone-16-pro", width: 402, dpr: 3, zoom: "fit" });
     expect(listed(removed)).toEqual(["device"]);
+  });
+
+  test("the device's × with no device leaves a size and dpr set on the viewport row", () => {
+    const sized = merge(DEFAULT_STATE, { width: 768, dpr: 2 });
+    const removed = merge(sized, removePatch(sized, row("device")));
+    expect(removed).toMatchObject({ device: "none", width: 768, dpr: 2 });
+    expect(removed.panel.pinned).not.toContain("device");
+  });
+
+  test("the device's × takes the device's size and dpr, a viewport row set too", () => {
+    const busy = use(phone, "viewport", { zoom: 1.25 });
+    const removed = merge(busy, removePatch(busy, row("device")));
+    expect(removed).toMatchObject({ device: "none", width: "full", height: "full", dpr: "system" });
+    expect(removed.ua.preset).toBe("system");
+    expect(removed.zoom).toBe(1.25);
   });
 });
 

@@ -47,6 +47,7 @@ import {
   zoomAction,
 } from "./keys";
 import {
+  arrange,
   isListed,
   isReset,
   listedOrder,
@@ -1016,10 +1017,27 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return { row, box, grip, main, value, clear, fold, editor, updates: buildEditor(row, editor) };
   });
 
-  /** Stand the rows in the order the state lists them, moving nothing that is in place. */
+  /**
+   * Stand the rows in the order the state lists them, moving nothing that is
+   * in place. A row moved goes off the page and back, which would take its
+   * focus and its lists' scroll, so the row with the focus and the open row
+   * stay put and the others move around them.
+   */
   function orderRows(state: DevknobsState): void {
     const boxes = rowOrder(state).flatMap((id) => viewOf(id)?.box ?? []);
-    if (boxes.some((box, at) => rows.children[at] !== box)) rows.append(...boxes);
+    const focused = root.activeElement;
+    const keep = views.flatMap((view) => (focused && view.box.contains(focused) ? [view.box] : []));
+    const open = openRow ? viewOf(openRow) : undefined;
+    if (open) keep.push(open.box);
+    for (const [box, before] of arrange(Array.from(rows.children), boxes, keep)) {
+      // An open row that moves anyway, past the row with the focus, keeps its lists' place.
+      const lists = Array.from(box.querySelectorAll<HTMLElement>(".items"));
+      const tops = lists.map((list) => list.scrollTop);
+      rows.insertBefore(box, before);
+      lists.forEach((list, at) => {
+        list.scrollTop = tops[at] ?? 0;
+      });
+    }
   }
 
   /** A listed row dragged by its grip, and where the rows stood when it was picked up. */
@@ -1153,8 +1171,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const view = viewOf(id);
     if (from < 0 || to === from || !view) return;
     engine.setState(movePatch(state, from, to));
-    // The move takes the grip off the page and back, and its focus with it.
-    view.grip.focus({ preventScroll: true });
     reveal(view.box, rows);
     announce(id);
   }
