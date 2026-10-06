@@ -1,10 +1,9 @@
 import type { DevknobsState, DprValue, MatColorValue, PanelValue, ZoomValue } from "../types";
 import { bezelMock, bezelUrl, loadBezel } from "./bezels";
-import { BARS_CSS, type BrowserLayer, createBrowser, readLook } from "./browserdraw";
-import type { Look } from "./browserkit";
+import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf } from "./devices";
-import { type Fit, fit, hasStrip, label, origin, STRIP, STRIP_TOP } from "./fit";
+import { type Fit, fit, hasStrip, label, origin } from "./fit";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -15,41 +14,35 @@ import {
   UNFRAMED,
   type ZoomAction,
 } from "./frame";
-import { drawMat, MAT_CSS } from "./mat";
-import { baseMatchMedia } from "./matchmedia";
+import { drawMat } from "./mat";
 import { type Mock, mockOf, placeIn, type Rect } from "./mock";
-import { corners, drawMock, MOCK_CSS } from "./mockdraw";
+import { corners, drawMock } from "./mockdraw";
+import { moves, shapeOf, windowRect } from "./morph";
 import {
-  bezier,
-  type Curve,
-  ease,
-  FADE_CURVE,
-  holePath,
-  lerp,
-  lerpRect,
-  MAT_CURVE,
-  MORPH_TIME,
-  moves,
-  plan,
-  type Run,
-  type Step,
-  sameRect,
-  sequence,
-  shapeOf,
-  windowRect,
-} from "./morph";
+  forget,
+  halt,
+  openVeiled,
+  running,
+  type Scene,
+  snap,
+  start,
+  still,
+  veilShare,
+} from "./morphrun";
 import {
+  adoptEarly,
   clearSnapshot,
   dropEarly,
-  earlyHost,
+  keepDrawing,
   readSnapshot,
   snapshotKey,
-  writeSnapshot,
+  stopAdopting,
   Z_INDEX,
 } from "./placeholder";
 import * as reload from "./reload";
 import { ensureStyle, removeStyle } from "./style";
 import { cover, uncover } from "./underneath";
+import { VIEWPORT_CSS } from "./viewportcss";
 import { visionFilter } from "./vision";
 import { anchorScroll, percent, type Point, stepZoom, wheelZoom, ZOOM_PRESETS } from "./zoom";
 
@@ -88,10 +81,6 @@ const UNDER = 2;
 /** The pixels a wheel line stands for, where a wheel counts in lines. */
 const WHEEL_LINE = 20;
 
-/** The chevron of the zoom control, as its own arrow is styled away. */
-const CHEVRON =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='4'%3E%3Cpath d='M.5.5 3 3.5 5.5.5' fill='none' stroke='%23fff' stroke-opacity='.7'/%3E%3C/svg%3E";
-
 /**
  * Everything an app on this origin does unframed, pointer lock, presentation
  * and orientation lock included, short of navigating the window above on its
@@ -112,147 +101,6 @@ const SANDBOX = [
   "allow-top-navigation-by-user-activation",
 ].join(" ");
 
-/**
- * How long a reloading page keeps the screen blank at most, in ms. One that
- * never finishes loading shows as far as it got.
- */
-const LOAD_WAIT = 5000;
-
-/** How many frames the early script's stand-in waits over the frame for the device's picture. */
-const EARLY_FRAMES = 60;
-
-/**
- * The letterbox around the frame. It lives in a shadow root like the panel,
- * so page css cannot reach it. A dark cutting mat reads as chrome in light and
- * dark, under a white page and a near black mock alike. Its grid and rulers
- * stay put from the top left as the frame is fitted or zoomed.
- */
-const CSS = `
-.viewport {
-  all: initial;
-  box-sizing: border-box;
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  direction: ltr;
-}
-/* The mat's paint, which a device change cuts its opening in, and the veil
-   under it in the page's color, which hides the page as the frame comes. */
-.back, .veil {
-  position: absolute;
-  inset: 0;
-}
-.back { background: var(--mat); }
-/* The screen of a page that is loading, blank in the page's color. */
-.screenblank {
-  position: absolute;
-  inset: 0;
-}
-.screenblank[hidden] { display: none; }
-.size {
-  position: relative;
-  flex: none;
-  box-sizing: border-box;
-  /* A set height, so the room the frame is fitted to never waits on the text. */
-  height: ${STRIP}px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: ${STRIP_TOP}px 8px 0;
-  font: 11px/16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: nowrap;
-  color: rgba(255, 255, 255, 0.8);
-  user-select: none;
-  -webkit-user-select: none;
-}
-.size[hidden] { display: none; }
-.zoom {
-  appearance: none;
-  -webkit-appearance: none;
-  box-sizing: border-box;
-  height: 18px;
-  margin: 0;
-  padding: 0 16px 0 6px;
-  font: inherit;
-  color: inherit;
-  color-scheme: dark;
-  background: url("${CHEVRON}") no-repeat right 5px center;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 4px;
-  cursor: pointer;
-}
-.zoom:focus { outline: none; }
-.zoom:hover, .zoom:focus-visible { color: #fff; border-color: rgba(255, 255, 255, 0.7); }
-.stage {
-  position: relative;
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  overflow: auto;
-}
-/* As big as the frame is drawn, margins and all, so a bigger one scrolls both
-   ways. Auto margins center a smaller one and drop to nothing on a bigger
-   one, so every edge of it scrolls into view. */
-.drawing {
-  flex: none;
-  position: relative;
-  margin: auto;
-}
-/* Scales the frame to fit, or by the zoom. A transform keeps the device pixel
-   ratio inside, where zoom would change it, and hit testing follows it into
-   the frame, so clicks land where they are drawn. */
-.screen {
-  position: absolute;
-  top: 0;
-  left: 0;
-  transform-origin: 0 0;
-}
-.glass { position: relative; }
-/* Where a phone's browser leaves the page in its screen. */
-.page.placed { position: absolute; }
-iframe {
-  display: block;
-  border: 0;
-  /* The canvas color of the frame's own scheme, which is what shows through a
-     page that leaves its background to the browser. */
-  background: Canvas;
-}
-.blocked {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font: 12px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: rgba(255, 255, 255, 0.85);
-  background: var(--mat);
-}
-.blocked[hidden] { display: none; }
-.blocked button {
-  appearance: none;
-  -webkit-appearance: none;
-  margin: 0;
-  padding: 2px 8px;
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 4px;
-  cursor: pointer;
-}
-.blocked button:hover { color: #fff; border-color: #fff; }
-@media (color-gamut: p3) {
-  .back, .blocked { background: var(--mat-p3); }
-}
-${MAT_CSS}
-${MOCK_CSS}
-${BARS_CSS}`;
-
 let host: HTMLElement | null = null;
 /** The mat around the frame, readout strip included, which the frame is fitted to. */
 let letterbox: HTMLElement | null = null;
@@ -272,8 +120,6 @@ let screen: HTMLElement | null = null;
 let glass: HTMLElement | null = null;
 /** Holds the frame where a phone's browser leaves the page. */
 let pageBox: HTMLElement | null = null;
-/** Blanks the screen while its page reloads. */
-let screenBlank: HTMLElement | null = null;
 /** A phone's browser bars around the frame. */
 let browser: BrowserLayer | null = null;
 /** The device's body drawn around the frame, while it has one. */
@@ -330,36 +176,13 @@ let latest: DevknobsState | null = null;
 let heading = "closed";
 /** The knobs were applied once, so what comes next is a change, not the first paint. */
 let settled = false;
-/** A device change on its way. */
-let run: Run | null = null;
 /** The knobs a device change draws once the last device faded out. */
 let pending: ViewportValue | null = null;
-/** What shows of a device change: the veil, the case and page, and the mat's opening. */
-let seen = { veil: 1, content: 1, hole: { x: 0, y: 0, width: 0, height: 0 } };
-/** The mat has an opening cut in it, as it does only while a device changes. */
-let clipped = false;
 /** The window's own page is hidden under the frame. */
 let covered = false;
 /** The window has its own page back, and the frame is only fading off it. */
 let released = false;
 
-/** A part of a device change in flight, which knows where it stands when cut short. */
-interface Flight {
-  animations: Animation[];
-  time: number;
-  curve: Curve;
-  /** Show the part `share` of its way along, and keep it there. */
-  hold(share: number): void;
-}
-
-let flights: Flight[] = [];
-/** The wait for the frame's page to paint in a device change, and in a reload. */
-let waiting = 0;
-let loadWait = 0;
-/** The screen is blank while its page reloads. */
-let loading = false;
-/** The wait for the device's picture under the early script's stand-in. */
-let earlyWait = 0;
 /** The window inside the frame, while there is one. */
 export function frameWindow(): Window | null {
   return frame?.contentWindow ?? null;
@@ -781,13 +604,6 @@ export function zoomKey(action: ZoomAction): boolean {
   return true;
 }
 
-/** No movement: the user asks for less, or the browser cannot animate. */
-function still(): boolean {
-  if (typeof window.matchMedia !== "function" || typeof Element === "undefined") return true;
-  if (typeof Element.prototype.animate !== "function") return true;
-  return baseMatchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 /** Is the frame's page in and ready to paint, with no reload on its way? */
 function painted(): boolean {
   if (!loaded || reload.pending()) return false;
@@ -806,21 +622,6 @@ function screenRect(): Rect {
   const box = letterbox.getBoundingClientRect();
   const rect = glass.getBoundingClientRect();
   return { x: rect.left - box.left, y: rect.top - box.top, width: rect.width, height: rect.height };
-}
-
-/** Is a css color fully see-through? */
-function clear(color: string): boolean {
-  return color === "" || color === "transparent" || /[,/]\s*0\)$/.test(color);
-}
-
-/** The veil takes the color the window's page paints its canvas in. */
-function paintVeil(): void {
-  if (!veil) return;
-  const root = getComputedStyle(document.documentElement);
-  const body = document.body ? getComputedStyle(document.body).backgroundColor : "";
-  const color = [root.backgroundColor, body].find((value) => !clear(value));
-  veil.style.background = color ?? "Canvas";
-  veil.style.colorScheme = root.colorScheme || "normal";
 }
 
 /** Hide the window's own page under the frame, its popovers too. */
@@ -846,76 +647,6 @@ function contentNodes(): HTMLElement[] {
   return [readout, stage, notice].filter((node): node is HTMLElement => node !== null);
 }
 
-/**
- * Move a style of `nodes` from `from` to `to` over `time` ms on `curve`. The
- * end value goes in the style at once, so a move cut short or never run
- * leaves it there, and `hold` puts it where a cut left it.
- */
-function tween(
-  nodes: HTMLElement[],
-  property: "opacity" | "clipPath",
-  from: string,
-  to: string,
-  time: number,
-  curve: Curve,
-  hold: (share: number) => void,
-): Promise<void> {
-  for (const node of nodes) node.style[property] = to;
-  if (time <= 0 || nodes.length === 0) return Promise.resolve();
-  const animations = nodes.map((node) =>
-    node.animate([{ [property]: from }, { [property]: to }], {
-      duration: time,
-      easing: bezier(curve),
-    }),
-  );
-  const flight: Flight = { animations, time, curve, hold };
-  flights.push(flight);
-  return Promise.all(animations.map((animation) => animation.finished)).then(
-    () => {
-      flights = flights.filter((other) => other !== flight);
-    },
-    () => {},
-  );
-}
-
-function fade(part: "veil" | "content", to: number, time: number): Promise<void> {
-  const nodes = part === "veil" ? (veil ? [veil] : []) : contentNodes();
-  const from = seen[part];
-  seen[part] = to;
-  return tween(nodes, "opacity", String(from), String(to), time, FADE_CURVE, (share) => {
-    const value = lerp(from, to, share);
-    seen[part] = value;
-    for (const node of nodes) node.style.opacity = String(value);
-  });
-}
-
-function moveHole(to: Rect, time: number): Promise<void> {
-  const node = back;
-  const from = seen.hole;
-  seen.hole = to;
-  clipped = true;
-  if (!node) return Promise.resolve();
-  const span = sameRect(from, to) ? 0 : time;
-  return tween([node], "clipPath", holePath(from), holePath(to), span, MAT_CURVE, (share) => {
-    const rect = lerpRect(from, to, share);
-    seen.hole = rect;
-    node.style.clipPath = holePath(rect);
-  });
-}
-
-/** Wait for `ready` a frame at a time, `cap` ms at most. */
-function until(ready: () => boolean, cap: number): Promise<void> {
-  const end = performance.now() + cap;
-  return new Promise((resolve) => {
-    const look = () => {
-      waiting = 0;
-      if (ready() || performance.now() >= end) resolve();
-      else waiting = window.requestAnimationFrame(look);
-    };
-    look();
-  });
-}
-
 function paintMat(mat: MatColorValue): void {
   current = { ...current, mat };
   letterbox?.setAttribute("data-mat", mat);
@@ -930,188 +661,72 @@ function draw(value: ViewportValue): void {
   else resize();
 }
 
-/** The frame as it stays: the mat whole, the case and the page in full. */
-function rest(): void {
-  if (back) back.style.clipPath = "";
-  if (veil) veil.style.opacity = "";
-  for (const node of contentNodes()) node.style.opacity = "";
-  clipped = false;
-  seen = { veil: 1, content: 1, hole: seen.hole };
+/** Draw the knobs a device change goes to, once the last device faded out. */
+function layout(): void {
+  const next = pending;
+  pending = null;
+  if (next) draw(next);
+  else resize();
 }
 
-/**
- * One step of a device change. Whatever a step changes at once it changes
- * before it waits, so a step run `instant` is done when it returns.
- */
-async function perform(step: Step, target: "open" | "closed", instant: boolean): Promise<void> {
-  if (step.kind === "fade") {
-    const time = instant ? 0 : step.time;
-    await Promise.all([
-      step.veil === undefined ? null : fade("veil", step.veil, time),
-      step.content === undefined ? null : fade("content", step.content, time),
-    ]);
-  } else if (step.kind === "cover") {
-    // The page's scrollbar goes with it, and the window's opening grows by as much.
-    const whole = sameRect(seen.hole, fullRect());
-    hidePage();
-    if (whole) void moveHole(fullRect(), 0);
-  } else if (step.kind === "layout") {
-    const next = pending;
-    pending = null;
-    if (next) draw(next);
-    else resize();
-  } else if (step.kind === "mat") {
-    await moveHole(step.to === "screen" ? screenRect() : fullRect(), instant ? 0 : step.time);
-  } else if (step.kind === "wait") {
-    if (!instant) await until(painted, MORPH_TIME.wait);
-  } else if (step.kind === "release") {
-    const target = release(true);
-    if (target && target !== window.location.href) {
-      halt();
-      teardown();
-      window.location.assign(target);
-      return;
-    }
-    // Under the veil, which then lifts off it.
-    showPage();
-    window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
-  } else if (target === "open") rest();
-  else teardown();
-}
-
-/** Start a device change from what shows now, toward a frame or none. */
-function start(target: "open" | "closed"): void {
-  if (!host || !back || !veil) return;
-  if (!clipped) {
-    // From the frame as it stays: the opening is its screen, and nothing changes to see yet.
-    seen = { veil: 1, content: 1, hole: screenRect() };
-    paintVeil();
-    veil.style.opacity = "1";
-    back.style.clipPath = holePath(seen.hole);
-    clipped = true;
-  }
-  const shown = { ...seen, covered, open: sameRect(seen.hole, fullRect()) };
-  const next = sequence(plan(shown, target), target);
-  run = next;
-  void next.run((step) => perform(step, target, false)).then(() => {
-    if (run === next && !next.live()) run = null;
-  });
-}
-
-/** Stop a device change where it is, each part held where it got to. */
-function halt(): void {
-  run?.cancel();
-  run = null;
-  for (const flight of flights) {
-    const elapsed = flight.animations[0]?.currentTime;
-    const share = typeof elapsed === "number" ? elapsed / flight.time : 0;
-    flight.hold(ease(flight.curve, share));
-    for (const animation of flight.animations) animation.cancel();
-  }
-  flights = [];
-  if (waiting) window.cancelAnimationFrame(waiting);
-  waiting = 0;
-}
-
-/** Finish a device change at once, as it would end. */
-function snap(): void {
-  const last = run;
-  halt();
-  if (!last) return;
-  for (const step of last.rest()) void perform(step, last.target, true);
-}
-
-/**
- * Blank the screen in the page's color and show the browser loading, as
- * Safari shows a reload, until the frame's page can paint. A device change
- * hides the frame for its own wait, and shows none of this.
- */
-function startLoading(seed: Look | null): void {
-  if (!screenBlank || !frame || run) return;
-  const look = seed ?? browser?.look() ?? readLook(frame);
-  screenBlank.style.background = look.background;
-  screenBlank.hidden = false;
-  loading = true;
-  browser?.loading(true, seed);
-  if (loadWait) window.cancelAnimationFrame(loadWait);
-  const end = performance.now() + LOAD_WAIT;
-  const check = () => {
-    loadWait = 0;
-    if (painted() || performance.now() >= end) stopLoading();
-    else loadWait = window.requestAnimationFrame(check);
-  };
-  loadWait = window.requestAnimationFrame(check);
-}
-
-function stopLoading(): void {
-  if (loadWait) window.cancelAnimationFrame(loadWait);
-  loadWait = 0;
-  if (!loading) return;
-  loading = false;
-  if (screenBlank) screenBlank.hidden = true;
-  browser?.loading(false, null);
-}
-
-function onReloading(): void {
-  startLoading(null);
-}
-
-/**
- * The early script's stand-in goes over the frame, which draws the same
- * under it, and goes once the device's picture is in, so the switch never
- * shows. Where the frame does not come up, it goes at once.
- */
-function adoptEarly(): void {
-  const early = earlyHost();
-  if (!early || !host || !document.body) {
-    dropEarly();
+/** A device change hands the window its own page back, or leaves for where the frame went. */
+function handBack(): void {
+  const target = release(true);
+  if (target && target !== window.location.href) {
+    halt();
+    teardown();
+    window.location.assign(target);
     return;
   }
-  document.body.append(early);
-  let frames = 0;
-  const step = () => {
-    earlyWait = 0;
-    const bezel = current.mock ? bezelMock(current.device, current.orientation) : null;
-    const picture = bezel?.image ? loadBezel(bezel.image.file, resize) : "ready";
-    if (picture === "loading" && ++frames < EARLY_FRAMES) {
-      earlyWait = window.requestAnimationFrame(step);
-      return;
-    }
-    // One more frame, so the frame's own drawing is on screen under it.
-    earlyWait = window.requestAnimationFrame(() => {
-      earlyWait = 0;
-      dropEarly();
-    });
-  };
-  earlyWait = window.requestAnimationFrame(step);
+  // Under the veil, which then lifts off it.
+  showPage();
+  window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
 }
 
-/**
- * Keep the frame's drawing for the next page, so a reload shows it from its
- * first paint: the letterbox as it is, its screen blank in the page's color.
- * A frame on its way somewhere, or scrolled, keeps none.
- */
+/** What a device change moves and asks of the frame, while there is one. */
+function scene(): Scene | null {
+  if (!host || !back || !veil) return null;
+  return {
+    back,
+    veil,
+    content: contentNodes,
+    screenRect,
+    fullRect,
+    covered: () => covered,
+    hidePage,
+    painted,
+    layout,
+    release: handBack,
+    teardown,
+  };
+}
+
+/** Start a device change toward a frame or none, where there is a frame to change. */
+function change(target: "open" | "closed"): void {
+  const now = scene();
+  if (now) start(now, target);
+}
+
+/** Keep the frame's drawing for the next page. One on its way somewhere, or scrolled, keeps none. */
 function keep(): void {
-  if (!letterbox || !frame || !picker || run || released || stage?.scrollLeft || stage?.scrollTop) {
+  const away = running() || released || stage?.scrollLeft || stage?.scrollTop;
+  if (!letterbox || !frame || !picker || away) {
     clearSnapshot();
     return;
   }
-  const copy = letterbox.cloneNode(true);
-  if (!(copy instanceof HTMLElement)) return;
   const look = browser?.look() ?? readLook(frame);
-  copy.querySelector("iframe")?.remove();
-  for (const line of Array.from(copy.querySelectorAll<HTMLElement>(".progress"))) line.hidden = true;
-  const blank = copy.querySelector<HTMLElement>(".screenblank");
-  if (blank) {
-    blank.hidden = false;
-    blank.style.background = look.background;
-  }
-  // The zoom control's pick is a property, which a copy leaves out.
-  const value = picker.value;
-  for (const option of Array.from(copy.querySelectorAll("option"))) {
-    option.toggleAttribute("selected", option.value === value);
-  }
-  writeSnapshot({ key: snapshotKey(current, window), css: CSS, html: copy.outerHTML, look });
+  const key = snapshotKey(current, window);
+  keepDrawing({ letterbox, zoom: picker.value, key, css: VIEWPORT_CSS, look });
+}
+
+/** Is the device's picture still on its way? */
+function pictureLoading(): boolean {
+  const bezel = current.mock ? bezelMock(current.device, current.orientation) : null;
+  return bezel?.image ? loadBezel(bezel.image.file, resize) === "loading" : false;
+}
+
+function onReloading(): void {
+  if (!running()) browser?.startLoading(null);
 }
 
 /**
@@ -1129,7 +744,7 @@ function open(veiled: number | null, first: boolean): void {
   host.style.cssText = `position:fixed;inset:0;z-index:${Z_INDEX}`;
   const root = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
-  style.textContent = CSS;
+  style.textContent = VIEWPORT_CSS;
   letterbox = document.createElement("div");
   letterbox.className = "viewport";
   veil = document.createElement("div");
@@ -1175,12 +790,9 @@ function open(veiled: number | null, first: boolean): void {
   pageBox = document.createElement("div");
   pageBox.className = "page";
   pageBox.append(frame);
-  screenBlank = document.createElement("div");
-  screenBlank.className = "screenblank";
-  screenBlank.hidden = true;
-  glass.append(pageBox, screenBlank);
+  glass.append(pageBox);
   // The page's scroll minimizing or bringing back the bars resizes the frame.
-  browser = createBrowser(glass, frame, resize, onReloading);
+  browser = createBrowser(glass, frame, resize, onReloading, painted);
   screen.append(glass);
   drawing.append(screen);
   stage.append(drawing);
@@ -1188,22 +800,12 @@ function open(veiled: number | null, first: boolean): void {
   letterbox.addEventListener("wheel", onWheel, { passive: false });
   root.append(style, letterbox);
   if (veiled === null) hidePage();
-  else {
-    seen = { veil: veiled, content: 0, hole: seen.hole };
-    paintVeil();
-    veil.style.opacity = String(veiled);
-    for (const node of contentNodes()) node.style.opacity = "0";
-  }
   window.addEventListener("message", onMessage);
   window.addEventListener("resize", resize);
   window.addEventListener("pagehide", keep);
   body.append(host);
-  if (veiled !== null) {
-    // None of the mat shows yet: its opening is the whole window.
-    seen.hole = fullRect();
-    back.style.clipPath = holePath(seen.hole);
-    clipped = true;
-  }
+  const now = scene();
+  if (veiled !== null && now) openVeiled(now, veiled);
   // The first page takes over the blank window the frame starts with, patches
   // and all, and it starts no sooner than this task ends, after the knobs.
   queueMicrotask(() => {
@@ -1214,8 +816,8 @@ function open(veiled: number | null, first: boolean): void {
   resize();
   // The panel comes up after the frame, and is measured for the fit once it is there.
   window.requestAnimationFrame(resize);
-  if (first) startLoading(readSnapshot(current, window)?.look ?? null);
-  adoptEarly();
+  if (first) browser.startLoading(readSnapshot(current, window)?.look ?? null);
+  adoptEarly(pictureLoading);
 }
 
 /** Open the frame once there is a body, as the first paint. */
@@ -1241,7 +843,7 @@ function release(follow: boolean): string {
   frame?.removeEventListener("load", onLoad);
   titleObserver?.disconnect();
   reload.untrack();
-  stopLoading();
+  browser?.stopLoading();
   clearSnapshot();
   // The window shows its own page again, so its own address and title too.
   if (!moved) replaceUrl(pageUrl);
@@ -1264,7 +866,6 @@ function teardown(): void {
   screen = null;
   glass = null;
   pageBox = null;
-  screenBlank = null;
   browser?.remove();
   browser = null;
   mockDrawing = null;
@@ -1279,10 +880,9 @@ function teardown(): void {
   clearTimeout(settling);
   held = null;
   pending = null;
-  clipped = false;
+  forget();
   released = false;
-  if (earlyWait) window.cancelAnimationFrame(earlyWait);
-  earlyWait = 0;
+  stopAdopting();
   dropEarly();
   showPage();
 }
@@ -1318,7 +918,7 @@ export function apply(value: ViewportValue): void {
   if (host) paintMat(value.mat);
   /** How far the veil was over a page that a device change was giving back. */
   let veiled = 0;
-  if (run) {
+  if (running()) {
     if (from === shape) {
       // The change goes on, and the frame takes the other knobs as it draws its own.
       if (shape !== "closed") {
@@ -1329,13 +929,13 @@ export function apply(value: ViewportValue): void {
     }
     if (released) {
       halt();
-      veiled = seen.veil;
+      veiled = veilShare();
       teardown();
     } else if (animate) halt();
-    else snap();
+    else snap(scene());
   }
   if (!needsFrame(value)) {
-    if (animate && host && !released) start("closed");
+    if (animate && host && !released) change("closed");
     else close(true);
     return;
   }
@@ -1343,12 +943,12 @@ export function apply(value: ViewportValue): void {
     current = held === null ? value : { ...value, zoom: held };
     if (document.body) open(animate ? veiled : null, first);
     else document.addEventListener("DOMContentLoaded", openLater, { once: true });
-    if (animate) start("open");
+    if (animate) change("open");
     return;
   }
   if (animate) {
     pending = value;
-    start("open");
+    change("open");
     return;
   }
   draw(value);

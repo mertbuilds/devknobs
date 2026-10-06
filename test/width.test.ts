@@ -316,6 +316,13 @@ class FakeElement extends EventTarget {
   shadowRoot: FakeElement | null = null;
   readonly style = new FakeStyle();
   textContent = "";
+  readonly dataset: Record<string, string> = {};
+  private readonly classes = new Set<string>();
+  readonly classList = {
+    add: (name: string) => this.classes.add(name),
+    toggle: (name: string, on: boolean) => (on ? this.classes.add(name) : this.classes.delete(name)),
+    contains: (name: string) => this.classes.has(name),
+  };
   clientWidth = 0;
   clientHeight = 0;
 
@@ -393,6 +400,14 @@ class FakeElement extends EventTarget {
     return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight };
   }
 
+  /** A class selector such as `.domain`, the only kind the browser's bars ask for. */
+  querySelectorAll(selector: string): FakeElement[] {
+    const name = selector.slice(1);
+    return [...this.descendants()].filter((node) =>
+      String(Reflect.get(node, "className") ?? node.getAttribute("class")).split(" ").includes(name),
+    );
+  }
+
   attachShadow(): FakeElement {
     this.shadowRoot = new FakeElement("#shadow-root");
     return this.shadowRoot;
@@ -462,8 +477,9 @@ let head: FakeElement;
 let location: { href: string; origin: string; assign: (url: string) => void };
 /** Where the window was sent, and every `scrollTo`. */
 let assigned: string[];
-/** How many times the frame's page was reloaded. */
+/** How many times the frame's page was reloaded, and stopped loading. */
 let reloads: number;
+let stops: number;
 let scrolls: ScrollToOptions[];
 
 function define(name: string, value: unknown): void {
@@ -538,6 +554,10 @@ class FakeView extends EventTarget {
 
   postMessage(): void {}
 
+  stop(): void {
+    stops++;
+  }
+
   /** The page sets off for `href`, a cross-document navigation unless `same`. */
   navigate(href: string, same = false): void {
     const event = Object.assign(new Event("navigate", { cancelable: true }), {
@@ -594,6 +614,7 @@ beforeEach(() => {
   assigned = [];
   scrolls = [];
   reloads = 0;
+  stops = 0;
   location = { href: PAGE, origin: "http://localhost:3000", assign: (url) => assigned.push(url) };
   define("window", {
     location,
@@ -998,5 +1019,95 @@ describe("a new identity", () => {
     await load(PAGE);
     await Bun.sleep(5);
     expect(reloads).toBe(1);
+  });
+});
+
+describe("the drawn browser's reload button", () => {
+  /** The frames asked for, by id, which `frames` runs. */
+  let queued: Map<number, () => void>;
+  let ids: number;
+
+  beforeEach(() => {
+    queued = new Map();
+    ids = 0;
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "", transform: "none" }));
+    Object.assign(window, {
+      // Reduced motion, so the bars draw with no animation the fakes cannot run.
+      matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
+      requestAnimationFrame: (callback: () => void) => {
+        queued.set(++ids, callback);
+        return ids;
+      },
+      cancelAnimationFrame: (id: number) => queued.delete(id),
+    });
+  });
+
+  /** Run `count` frames, each with what was asked for before it. */
+  function frames(count: number): void {
+    for (let i = 0; i < count; i++) {
+      const due = [...queued.values()];
+      queued.clear();
+      for (const callback of due) callback();
+    }
+  }
+
+  /** The page in the frame has loaded all of itself. */
+  function complete(): void {
+    Reflect.set(view.document, "readyState", "complete");
+  }
+
+  function blank(): FakeElement {
+    const found = everything().find((element) => Reflect.get(element, "className") === "screenblank");
+    if (!found) throw new Error("no blank screen");
+    return found;
+  }
+
+  /**
+   * The one glyph that does anything on a fresh page: reload, or stop while it
+   * loads. The fakes have no `isConnected`, so the bars' layer is in twice.
+   */
+  function reloadGlyph(): FakeElement {
+    const pressable = new Set(everything().filter((element) => element.classList.contains("press")));
+    const [glyph, ...rest] = pressable;
+    if (!glyph || rest.length > 0) throw new Error("no reload glyph");
+    return glyph;
+  }
+
+  async function framePhone(): Promise<void> {
+    apply(merge(DEFAULT_STATE, { device: "iphone-16-pro", dpr: "system" }));
+    await load(FRAMED);
+    complete();
+    frames(2);
+    expect(Reflect.get(blank(), "hidden")).toBe(true);
+  }
+
+  test("keeps the screen blank until the reloaded page takes the old one's place", async () => {
+    await framePhone();
+    reloadGlyph().dispatchEvent(new Event("click"));
+    expect(reloads).toBe(1);
+    expect(Reflect.get(blank(), "hidden")).toBe(false);
+    // The old page is still there, loaded, while the new one is on its way.
+    frames(3);
+    expect(Reflect.get(blank(), "hidden")).toBe(false);
+    view.commit(FRAMED);
+    complete();
+    frames(1);
+    expect(Reflect.get(blank(), "hidden")).toBe(true);
+  });
+
+  test("is Safari's stop while the page loads, which shows the page as far as it got", async () => {
+    await framePhone();
+    const glyph = reloadGlyph();
+    const drawn = glyph.children.length;
+    glyph.dispatchEvent(new Event("click"));
+    expect(glyph.children.length).not.toBe(drawn);
+    glyph.dispatchEvent(new Event("click"));
+    expect(reloads).toBe(1);
+    expect(stops).toBe(1);
+    expect(Reflect.get(blank(), "hidden")).toBe(true);
+    expect(glyph.children.length).toBe(drawn);
+    glyph.dispatchEvent(new Event("click"));
+    expect(reloads).toBe(2);
   });
 });

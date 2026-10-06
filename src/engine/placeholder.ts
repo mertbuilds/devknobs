@@ -22,6 +22,12 @@ export const SNAPSHOT_KEY = "devknobs:snapshot";
 /** How long the stand-in waits for devknobs before it gives the page back, in ms. */
 export const GIVE_UP = 3000;
 
+/** How many frames the early script's stand-in waits over the frame for the device's picture. */
+const EARLY_FRAMES = 60;
+
+/** The wait for the device's picture under the early script's stand-in. */
+let earlyWait = 0;
+
 /**
  * The page under the frame hidden, as the frame hides it, and the bare mat
  * over it in the stored color where nothing else stands in yet. It is a
@@ -150,6 +156,39 @@ export function writeSnapshot(snapshot: Snapshot): void {
   }
 }
 
+/** What `keepDrawing` keeps of the frame. */
+export interface Kept {
+  /** The mat around the frame, as it is drawn now. */
+  letterbox: HTMLElement;
+  /** The zoom control's pick, a property, which a copy leaves out. */
+  zoom: string;
+  /** What it was drawn for, from `snapshotKey`. */
+  key: string;
+  /** The shadow root's style. */
+  css: string;
+  look: Look;
+}
+
+/**
+ * Keep the frame's drawing for the next page, so a reload shows it from its
+ * first paint: the letterbox as it is, its screen blank in the page's color.
+ */
+export function keepDrawing({ letterbox, zoom, key, css, look }: Kept): void {
+  const copy = letterbox.cloneNode(true);
+  if (!(copy instanceof HTMLElement)) return;
+  copy.querySelector("iframe")?.remove();
+  for (const line of Array.from(copy.querySelectorAll<HTMLElement>(".progress"))) line.hidden = true;
+  const blank = copy.querySelector<HTMLElement>(".screenblank");
+  if (blank) {
+    blank.hidden = false;
+    blank.style.background = look.background;
+  }
+  for (const option of Array.from(copy.querySelectorAll("option"))) {
+    option.toggleAttribute("selected", option.value === zoom);
+  }
+  writeSnapshot({ key, css, html: copy.outerHTML, look });
+}
+
 export function clearSnapshot(): void {
   try {
     session()?.removeItem(SNAPSHOT_KEY);
@@ -168,6 +207,40 @@ export function dropEarly(): void {
   for (const node of Array.from(document.querySelectorAll(`[data-devknobs="${EARLY}"]`))) {
     node.remove();
   }
+}
+
+/**
+ * The early script's stand-in goes over the frame, which draws the same
+ * under it, and goes once the device's picture is in, so the switch never
+ * shows. `pictureLoading` says whether it is still on its way.
+ */
+export function adoptEarly(pictureLoading: () => boolean): void {
+  const early = earlyHost();
+  if (!early || !document.body) {
+    dropEarly();
+    return;
+  }
+  document.body.append(early);
+  let frames = 0;
+  const step = () => {
+    earlyWait = 0;
+    if (pictureLoading() && ++frames < EARLY_FRAMES) {
+      earlyWait = window.requestAnimationFrame(step);
+      return;
+    }
+    // One more frame, so the frame's own drawing is on screen under it.
+    earlyWait = window.requestAnimationFrame(() => {
+      earlyWait = 0;
+      dropEarly();
+    });
+  };
+  earlyWait = window.requestAnimationFrame(step);
+}
+
+/** Stop waiting for the device's picture, as the frame goes. */
+export function stopAdopting(): void {
+  if (earlyWait) window.cancelAnimationFrame(earlyWait);
+  earlyWait = 0;
 }
 
 /**
