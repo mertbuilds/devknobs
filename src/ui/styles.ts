@@ -565,7 +565,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .unit { flex: none; font-size: 11px; color: var(--faint); }
 /* The fold slider, experimental: a thumb on a track as far along as the hinge
    is open, a tick under where it lands a third of the way. The thumb eases to
-   a stop once let go, and follows the pointer while held. */
+   a stop once let go, and follows the pointer while held, and the hinge
+   while the knobs fold it. */
 .fold-slider {
   position: relative;
   height: 22px;
@@ -600,7 +601,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: left 200ms ease-out;
 }
 .fold-slider.held { cursor: grabbing; }
-.fold-slider.held .fold-thumb { transition: none; }
+.fold-slider.held .fold-thumb,
+.fold-slider.following .fold-thumb { transition: none; }
 .extra { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .note { padding: 0 6px; font-size: 10.5px; line-height: 1.4; color: var(--faint); }
 

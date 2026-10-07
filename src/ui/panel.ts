@@ -1,5 +1,6 @@
 import * as engine from "../engine";
 import { now, realNow } from "../engine/clock";
+import { deviceOf } from "../engine/devices";
 import { frameForced, type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { resolveTimeZone } from "../engine/time";
@@ -32,7 +33,7 @@ import {
   wallInput,
 } from "./catalog";
 import { BINDING_WORDS, BINDINGS, createKeys, type LiveKeys, recordStep } from "./bindings";
-import { createFoldSlider } from "./foldslider";
+import { createFoldSlider, foldChip } from "./foldslider";
 import { ACTION_ICONS, icon, ROW_ICONS } from "./icons";
 import {
   type Binding,
@@ -972,16 +973,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
     ];
   }
 
-  /** A width and a height of the frame's own, a turn of it, and a slider that folds a foldable. */
+  /** A width and a height of the frame's own, a turn of it, and a fold of a foldable, by a chip and by a slider. */
   function deviceExtra(): [HTMLElement, Update] {
     const extra = el("div", "extra extra-device");
     const box = el("div", "fields");
     const width = numberField("width", "viewport width in pixels");
     const height = numberField("height", "viewport height in pixels");
     const rotate = button("chip", "rotate");
-    box.append(width, el("span", "unit", "×"), height, rotate);
-    const fold = createFoldSlider((posture) => commit("device", { posture }));
-    extra.append(box, fold.node);
+    const fold = button("chip", "unfold");
+    box.append(width, el("span", "unit", "×"), height, rotate, fold);
+    const slider = createFoldSlider((posture) => commit("device", { posture }));
+    extra.append(box, slider.node);
     // An empty field is the window's own size.
     const size = (input: HTMLInputElement) => {
       const value = toNumber(input.value);
@@ -993,13 +995,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
       const turned = engine.getState().orientation === "portrait" ? "landscape" : "portrait";
       commit("device", { orientation: turned });
     });
+    // The chip takes the hinge from the slider, held or springing, and folds it to the other posture.
+    fold.addEventListener("click", () => {
+      commit("device", { posture: foldChip(engine.getState().posture).posture });
+    });
     return [
       extra,
       (state) => {
         fill(width, typeof state.width === "number" ? String(state.width) : "");
         fill(height, typeof state.height === "number" ? String(state.height) : "");
         rotate.hidden = typeof state.width !== "number" || typeof state.height !== "number";
-        fold.update(state);
+        fold.hidden = !deviceOf(state.device)?.postures;
+        fold.textContent = foldChip(state.posture).label;
+        slider.update(state);
       },
     ];
   }

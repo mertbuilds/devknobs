@@ -1,7 +1,7 @@
 import * as engine from "../engine";
 import { deviceOf } from "../engine/devices";
 import { openOf } from "../engine/fold";
-import { foldRest, letGo, moveHinge, takeHinge, watchFold } from "../engine/foldhand";
+import { foldRest, holdingHinge, letGo, moveHinge, takeHinge, watchFold, watchHinge } from "../engine/foldhand";
 import type { DevknobsState, PostureValue } from "../types";
 import { icon } from "./icons";
 
@@ -74,6 +74,14 @@ export function valueText(at: number): string {
   return at >= 1 ? "open" : "half open";
 }
 
+/**
+ * What the fold chip beside the slider says, and the posture it folds to: the
+ * other one than the knobs hold, also from half open.
+ */
+export function foldChip(posture: PostureValue): { label: string; posture: PostureValue } {
+  return posture === "open" ? { label: "fold", posture: "closed" } : { label: "unfold", posture: "open" };
+}
+
 export interface FoldSlider {
   node: HTMLElement;
   update(state: DevknobsState): void;
@@ -100,8 +108,11 @@ export function createFoldSlider(commit: (posture: PostureValue) => void): FoldS
   /** The pointer dragging the thumb, and where on the thumb it took it. */
   let pointer: number | null = null;
   let grip = THUMB / 2;
+  /** Does the thumb follow a fold the knobs sent the hinge on, as the fold chip does? */
+  let following = false;
 
   function show(): void {
+    node.classList.toggle("following", following);
     node.style.setProperty("--at", String(Math.min(Math.max(at, 0), 1)));
     node.setAttribute("aria-valuenow", String(valueNow(at)));
     node.setAttribute("aria-valuetext", valueText(at));
@@ -109,6 +120,7 @@ export function createFoldSlider(commit: (posture: PostureValue) => void): FoldS
 
   /** Where the hinge is, by the knobs, unless a hand left it between the ends. */
   function settled(): void {
+    if (following) return;
     at = foldRest() ?? openOf(engine.getState().posture);
     show();
   }
@@ -144,7 +156,7 @@ export function createFoldSlider(commit: (posture: PostureValue) => void): FoldS
   node.addEventListener("pointermove", (event: PointerEvent) => {
     if (pointer !== event.pointerId) return;
     at = Math.min(Math.max(along(event), 0), 1);
-    // The fold ended under the hand, as a turn or another device took over.
+    // The fold ended under the hand, as a turn or another device took over, or the knobs took the hinge, which the thumb then follows.
     if (!moveHinge(heldTarget(at))) {
       end(event);
       settled();
@@ -156,7 +168,8 @@ export function createFoldSlider(commit: (posture: PostureValue) => void): FoldS
     if (pointer !== event.pointerId) return;
     end(event);
     const stop = nearestStop(heldTarget(at));
-    if (!letGo(stop)) {
+    // The knobs took the hinge from the hand, as the fold chip does.
+    if (!holdingHinge() || !letGo(stop)) {
       settled();
       return;
     }
@@ -190,8 +203,18 @@ export function createFoldSlider(commit: (posture: PostureValue) => void): FoldS
   });
   // The slider goes with the panel, and stops listening once it is off the page.
   const unwatch = watchFold(() => {
-    if (!node.isConnected) unwatch();
-    else if (pointer === null) settled();
+    following = false;
+    if (!node.isConnected) {
+      unwatch();
+      unhinge();
+    } else if (pointer === null) settled();
+  });
+  // The knobs folding it, the thumb goes along with the hinge, so the two never disagree.
+  const unhinge = watchHinge((open, hand) => {
+    following = !hand;
+    if (!following || pointer !== null) return;
+    at = open;
+    show();
   });
   show();
   return {

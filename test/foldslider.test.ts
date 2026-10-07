@@ -3,6 +3,7 @@ import { foldRest, moveHinge } from "../src/engine/foldhand";
 import {
   FOLD_MAGNET,
   FOLD_STOPS,
+  foldChip,
   heldTarget,
   keyStop,
   nearestStop,
@@ -103,5 +104,17 @@ describe("a hand on the hinge with no fold", () => {
   test("moves nothing, and leaves nothing between the ends", () => {
     expect(moveHinge(0.5)).toBe(false);
     expect(foldRest()).toBeNull();
+  });
+});
+
+describe("the fold chip beside the slider", () => {
+  test("says unfold while shut and fold while open", () => {
+    expect(foldChip("closed").label).toBe("unfold");
+    expect(foldChip("open").label).toBe("fold");
+  });
+
+  test("folds to the posture opposite the one the knobs hold, also from half open", () => {
+    expect(foldChip("closed").posture).toBe("open");
+    expect(foldChip("open").posture).toBe("closed");
   });
 });

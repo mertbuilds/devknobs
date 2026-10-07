@@ -8,10 +8,12 @@ import {
   foldRest,
   forgetFold,
   holdFold,
+  holdingHinge,
   releaseFold,
   scrubFold,
   stopFold,
   watchFold,
+  watchHinge,
 } from "../src/engine/foldrun";
 import { DEFAULT_STATE } from "../src/engine/store";
 import type { ViewportValue } from "../src/engine/width";
@@ -647,5 +649,110 @@ describe("a hand on a foldable's hinge", () => {
     fold(SHUT, OPEN, sceneOf());
     play(2000);
     expect(told).toBe(2);
+  });
+});
+
+describe("the fold chip beside a hand on the hinge", () => {
+  /** A hand takes the hinge of a fold from `from` toward `to`, drawing what the knobs say. */
+  function hold(from: ViewportValue, to: ViewportValue, scene: FoldScene): boolean {
+    return foldDevice(from, to, scene, (value) => drawn.push(value), true);
+  }
+
+  /** Where the hinge is drawn each time, and whether a hand sent it there, while `run` runs. */
+  function hinged(run: () => void): { open: number; hand: boolean }[] {
+    const seen: { open: number; hand: boolean }[] = [];
+    const unwatch = watchHinge((open, hand) => seen.push({ open, hand }));
+    run();
+    unwatch();
+    return seen;
+  }
+
+  test("tells the thumb where the hinge is each frame of a fold the knobs start, so it goes along", () => {
+    const seen = hinged(() => {
+      fold(SHUT, OPEN, sceneOf());
+      play(2000);
+    });
+    expect(seen.length).toBeGreaterThan(10);
+    expect(seen.every((at) => !at.hand)).toBe(true);
+    expect(seen[0]?.open).toBe(0);
+    const opens = seen.map((at) => at.open);
+    expect(Math.max(...opens)).toBeGreaterThan(0.9);
+  });
+
+  test("tells it the hinge goes where a hand sends it, so the thumb stays under the hand", () => {
+    const seen = hinged(() => {
+      hold(SHUT, OPEN, sceneOf());
+      scrubFold(0.6);
+      play(200);
+    });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((at) => at.hand)).toBe(true);
+  });
+
+  test("pressed while the hand holds the hinge, takes it from the hand toward the other posture", () => {
+    const scene = sceneOf();
+    hold(SHUT, OPEN, scene);
+    scrubFold(0.4);
+    play(100);
+    expect(holdingHinge()).toBe(true);
+    const seen = hinged(() => {
+      fold(SHUT, OPEN, scene);
+      play(32);
+    });
+    expect(holdingHinge()).toBe(false);
+    expect(scrubFold(0.1)).toBe(false);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((at) => !at.hand)).toBe(true);
+    play(2000);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("pressed while the hinge springs back where a hand let it go, turns it round", () => {
+    const scene = sceneOf();
+    hold(SHUT, OPEN, scene);
+    scrubFold(0.6);
+    play(100);
+    releaseFold(0, false);
+    play(32);
+    const seen = hinged(() => {
+      fold(SHUT, OPEN, scene);
+      play(32);
+    });
+    expect(seen.every((at) => !at.hand)).toBe(true);
+    play(2000);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("pressed half open, goes to the posture opposite the one the knobs hold", () => {
+    const scene = sceneOf();
+    hold(SHUT, OPEN, scene);
+    scrubFold(0.7);
+    play(100);
+    releaseFold(0.333, false);
+    play(3000);
+    expect(foldRest()).toBe(0.333);
+    fold(SHUT, OPEN, scene);
+    expect(foldRest()).toBeNull();
+    play(2000);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("a hand let go at an end the knobs then take keeps the hinge its own, so the thumb stays at the stop", () => {
+    const scene = sceneOf();
+    hold(SHUT, OPEN, scene);
+    scrubFold(0.95);
+    play(100);
+    releaseFold(1, false);
+    const seen = hinged(() => {
+      fold(SHUT, OPEN, scene);
+      play(32);
+    });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((at) => at.hand)).toBe(true);
+    play(2000);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
   });
 });

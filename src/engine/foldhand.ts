@@ -1,5 +1,5 @@
 import type { DevknobsState } from "../types";
-import { foldRest, releaseFold, scrubFold, watchFold } from "./foldrun";
+import { foldRest, holdingHinge, releaseFold, scrubFold, watchFold, watchHinge } from "./foldrun";
 import { running, still } from "./morphrun";
 import { merge } from "./store";
 import { turning } from "./turnrun";
@@ -11,7 +11,7 @@ import { foldDevice } from "./width";
  * change posture only once it is let go at an end, which the slider says.
  */
 
-export { foldRest, watchFold };
+export { foldRest, holdingHinge, watchFold, watchHinge };
 
 /**
  * Take the hinge of the foldable `state` shows: of the fold on its way, else

@@ -196,6 +196,8 @@ interface Going {
   /** Does a hand hold the hinge, and the posture the knobs hold, which it lands in let go between the ends? */
   held: boolean;
   home: PostureValue;
+  /** Does the hinge go where a hand sent it, not where the knobs did? */
+  hand: boolean;
   values: Record<PostureValue, ViewportValue>;
   frame: number;
   /** When the hinge's first step was, and how many it has taken since. */
@@ -212,6 +214,9 @@ let fold: Going | null = null;
 
 /** What wants to know once a fold is over. */
 const watchers = new Set<() => void>();
+
+/** What wants to know where the hinge is drawn each time it is, and whether a hand sent it there. */
+const hinges = new Set<(open: number, hand: boolean) => void>();
 
 /** Is a foldable folding? */
 export function folding(): boolean {
@@ -753,6 +758,7 @@ function show(going: Going): void {
     : `polygon(-${far}px -${far}px, ${far}px -${far}px, ${far}px ${hinge}px, -${far}px ${hinge}px)`;
   scene.unit.style.clipPath = opened && hand === 0 ? rest : "";
   darken(scene.cover, screenDim(opened ? "inner" : "cover", open));
+  for (const watcher of Array.from(hinges)) watcher(open, going.hand);
 }
 
 /** Take the fold's layer away, and leave the frame's own device as it is drawn. */
@@ -852,9 +858,12 @@ export function foldDevice(
   const going = fold;
   if (going && held) {
     going.held = true;
+    going.hand = true;
     return true;
   }
   if (going) {
+    // The knobs take the hinge from a hand that holds it, or that sent it somewhere else.
+    if (going.held || going.target !== openOf(value.posture)) going.hand = false;
     going.held = false;
     going.home = value.posture;
     going.target = openOf(value.posture);
@@ -906,6 +915,7 @@ export function foldDevice(
     target: openOf((held ? from : value).posture),
     held,
     home: (held ? from : value).posture,
+    hand: held,
     values,
     frame: 0,
     begin: null,
@@ -933,10 +943,16 @@ export function releaseFold(stop: number, snap: boolean): boolean {
   const going = fold;
   if (!going) return false;
   going.held = false;
+  going.hand = true;
   going.target = stop;
   if (snap) going.hinge = { position: stop, velocity: 0 };
   wake(going);
   return true;
+}
+
+/** Does a hand hold the hinge? */
+export function holdingHinge(): boolean {
+  return fold?.held ?? false;
 }
 
 /** Where a hand left the hinge between the ends, on its way there or resting, else null. */
@@ -949,6 +965,14 @@ export function watchFold(watcher: () => void): () => void {
   watchers.add(watcher);
   return () => {
     watchers.delete(watcher);
+  };
+}
+
+/** Hear where the hinge is drawn, 0 shut to 1 open, each time it is, and whether a hand sent it there. Returns the way to stop. */
+export function watchHinge(watcher: (open: number, hand: boolean) => void): () => void {
+  hinges.add(watcher);
+  return () => {
+    hinges.delete(watcher);
   };
 }
 
