@@ -6,8 +6,10 @@ import {
   load,
   merge,
   PLACE_KEY,
+  PLACE_VERSION,
   parse,
   placeText,
+  STATE_VERSION,
   STORAGE_KEY,
   save,
 } from "../src/engine/store";
@@ -419,7 +421,14 @@ describe("the place kept across sessions", () => {
       panel: { open: true, side: "left", y: 120, top: 80, edge: "bottom", pinned: ["scheme"] },
     });
     const text = placeText(state);
-    expect(JSON.parse(text)).toEqual({ side: "left", y: 120, top: 80, edge: "bottom", tab: "none" });
+    expect(JSON.parse(text)).toEqual({
+      v: PLACE_VERSION,
+      side: "left",
+      y: 120,
+      top: 80,
+      edge: "bottom",
+      tab: "none",
+    });
     expect(parse(null, text).panel).toEqual({
       ...DEFAULT_STATE.panel,
       side: "left",
@@ -478,6 +487,47 @@ describe("the kept place", () => {
       edge: "bottom",
       tab: "top",
     });
+  });
+});
+
+describe("versions", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "window");
+  });
+
+  test("a save writes the state's version, and it reads back", () => {
+    const { session } = stubStorage();
+    const state = merge(DEFAULT_STATE, { scheme: "dark", mat: "green" });
+    save(state);
+    const stored = JSON.parse(session.get(STORAGE_KEY) ?? "");
+    expect(stored.v).toBe(STATE_VERSION);
+    expect(load()).toEqual(state);
+  });
+
+  test("a state and place kept before versions read as ever, and the next writes carry the version", () => {
+    const { session, local } = stubStorage();
+    const kept = { scheme: "dark", panel: { open: true, pinned: ["scheme"] } };
+    session.set(STORAGE_KEY, JSON.stringify(kept));
+    local.set(PLACE_KEY, JSON.stringify({ side: "left", y: 40, top: 40, edge: "none" }));
+    const state = load();
+    expect(state.scheme).toBe("dark");
+    expect(state.panel).toMatchObject({ open: true, side: "left", pinned: ["scheme"] });
+    save(state);
+    keepPlace(state);
+    expect(JSON.parse(session.get(STORAGE_KEY) ?? "").v).toBe(STATE_VERSION);
+    expect(JSON.parse(local.get(PLACE_KEY) ?? "").v).toBe(PLACE_VERSION);
+    expect(load()).toEqual(state);
+  });
+
+  test("a state or place from a newer devknobs reads as nothing kept, and stays until a write", () => {
+    const { session, local } = stubStorage();
+    const state = JSON.stringify({ v: STATE_VERSION + 1, scheme: "dark" });
+    const place = JSON.stringify({ v: PLACE_VERSION + 1, side: "left" });
+    session.set(STORAGE_KEY, state);
+    local.set(PLACE_KEY, place);
+    expect(load()).toEqual(DEFAULT_STATE);
+    expect(session.get(STORAGE_KEY)).toBe(state);
+    expect(local.get(PLACE_KEY)).toBe(place);
   });
 });
 

@@ -24,15 +24,22 @@ import type {
 import { mergeClock } from "./clock";
 import { deviceOf, formParent, hold, POSTURES, settle } from "./devices";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
+import { newer, stamped } from "./stored";
 import { clampZoom } from "./zoom";
 
 export const STORAGE_KEY = "devknobs";
+
+/** The version of the state `STORAGE_KEY` keeps. Bump it with a change of shape, see stored.ts. */
+export const STATE_VERSION = 1;
 
 /**
  * Where the panel's place is kept beside the session, in `localStorage`, so
  * a new tab or session starts with the panel where the user last put it.
  */
 export const PLACE_KEY = "devknobs:place";
+
+/** The version of the place `PLACE_KEY` keeps. Bump it with a change of shape, see stored.ts. */
+export const PLACE_VERSION = 1;
 
 /** What of the panel outlives the session: its side and where it sits on it. */
 export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">;
@@ -188,11 +195,15 @@ function rowIds(value: unknown): string[] {
   return Array.from(new Set(ids.map((id) => MOVED_ROWS.get(id) ?? id)));
 }
 
-/** Stored json as a value, or null where there is none or it does not read. */
-function read(json: string | null | undefined): unknown {
+/**
+ * Stored json as a value, or null where there is none, it does not read, or
+ * a newer devknobs than one at `version` kept it.
+ */
+function read(json: string | null | undefined, version: number): unknown {
   if (!json) return null;
   try {
-    return JSON.parse(json);
+    const value: unknown = JSON.parse(json);
+    return newer(value, version) ? null : value;
   } catch {
     return null;
   }
@@ -220,7 +231,7 @@ function placeOf(value: unknown, fallback: PanelPlace): PanelPlace {
 /** The place of a state's panel, as `PLACE_KEY` keeps it. */
 export function placeText(state: DevknobsState): string {
   const { side, y, top, edge, tab } = state.panel;
-  return JSON.stringify({ side, y, top, edge, tab });
+  return JSON.stringify(stamped({ side, y, top, edge, tab }, PLACE_VERSION));
 }
 
 /**
@@ -229,8 +240,8 @@ export function placeText(state: DevknobsState): string {
  * the defaults, so the session's own place wins where it has one.
  */
 export function parse(json: string | null | undefined, place?: string | null): DevknobsState {
-  const home = placeOf(read(place), DEFAULT_STATE.panel);
-  const state = record(read(json));
+  const home = placeOf(read(place, PLACE_VERSION), DEFAULT_STATE.panel);
+  const state = record(read(json, STATE_VERSION));
   const locale = record(state.locale);
   const geo = record(state.geo);
   const clock = record(state.clock);
@@ -371,7 +382,7 @@ export function load(): DevknobsState {
 
 export function save(state: DevknobsState): void {
   try {
-    storage("session")?.setItem(STORAGE_KEY, JSON.stringify(state));
+    storage("session")?.setItem(STORAGE_KEY, JSON.stringify(stamped(state, STATE_VERSION)));
   } catch {
     // Private mode, disabled storage: knobs still work, they just do not stick.
   }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createPrefs, PREFS_KEY, readPrefs, resolvePrefs } from "../src/ui/prefs";
+import { createPrefs, PREFS_KEY, PREFS_VERSION, readPrefs, resolvePrefs } from "../src/ui/prefs";
 
 describe("readPrefs", () => {
   test("keeps a handle that is a boolean", () => {
@@ -14,6 +14,13 @@ describe("readPrefs", () => {
     expect(readPrefs("[false]")).toEqual({});
     expect(readPrefs("false")).toEqual({});
     expect(readPrefs(JSON.stringify({ handle: "no", other: 1 }))).toEqual({});
+  });
+
+  test("reads its own version and one kept before versions, and leaves a newer one alone", () => {
+    const prefs = { handle: false };
+    expect(readPrefs(JSON.stringify({ v: PREFS_VERSION, ...prefs }))).toEqual(prefs);
+    expect(readPrefs(JSON.stringify(prefs))).toEqual(prefs);
+    expect(readPrefs(JSON.stringify({ v: PREFS_VERSION + 1, ...prefs }))).toEqual({});
   });
 });
 
@@ -91,7 +98,7 @@ describe("createPrefs", () => {
     let heard = 0;
     prefs.subscribe(() => heard++);
     prefs.setHandle(false);
-    expect(JSON.parse(local.get(PREFS_KEY) ?? "")).toEqual({ handle: false });
+    expect(JSON.parse(local.get(PREFS_KEY) ?? "")).toEqual({ v: PREFS_VERSION, handle: false });
     expect(prefs.get().handle).toBe(false);
     prefs.setHandle(true);
     expect(local.has(PREFS_KEY)).toBe(false);

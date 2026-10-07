@@ -2,6 +2,7 @@ import type { DevknobsState, MatColorValue, PanelValue } from "../types";
 import type { Look } from "./browserkit";
 import { needsFrame } from "./frame";
 import { MAT_COLORS, matGradient } from "./matcolors";
+import { newer, stamped } from "./stored";
 
 /**
  * What stands in for the frame from a reload's first paint until devknobs
@@ -18,6 +19,9 @@ export const EARLY = "early";
 
 /** Where the frame's drawing is kept for the next page, in `sessionStorage`. */
 export const SNAPSHOT_KEY = "devknobs:snapshot";
+
+/** The version of the snapshot `SNAPSHOT_KEY` keeps. Bump it with a new shape, see stored.ts. */
+export const SNAPSHOT_VERSION = 1;
 
 /** How long the stand-in waits for devknobs before it gives the page back, in ms. */
 export const GIVE_UP = 3000;
@@ -136,7 +140,7 @@ export function readSnapshot(knobs: Drawn, view: WindowSize): Snapshot | null {
     const text = session()?.getItem(SNAPSHOT_KEY);
     if (!text) return null;
     const data: unknown = JSON.parse(text);
-    if (typeof data !== "object" || data === null) return null;
+    if (typeof data !== "object" || data === null || newer(data, SNAPSHOT_VERSION)) return null;
     const key = Reflect.get(data, "key");
     const css = Reflect.get(data, "css");
     const html = Reflect.get(data, "html");
@@ -151,7 +155,7 @@ export function readSnapshot(knobs: Drawn, view: WindowSize): Snapshot | null {
 
 export function writeSnapshot(snapshot: Snapshot): void {
   try {
-    session()?.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
+    session()?.setItem(SNAPSHOT_KEY, JSON.stringify(stamped(snapshot, SNAPSHOT_VERSION)));
   } catch {
     // Storage full or off: the next page shows the bare mat.
     clearSnapshot();

@@ -1,8 +1,13 @@
+import { newer, stamped } from "../engine/stored";
+
 /**
  * Where the panel's preferences the user set are kept, in `localStorage`, so
  * they hold across reloads and in new tabs of the origin. Reset all leaves them.
  */
 export const PREFS_KEY = "devknobs:prefs";
+
+/** The version of the preferences `PREFS_KEY` keeps. Bump it with a new shape, see stored.ts. */
+export const PREFS_VERSION = 1;
 
 /** The panel's preferences: whether the handle shows while the panel is closed. */
 export interface Prefs {
@@ -21,6 +26,7 @@ export function readPrefs(json: string | null | undefined): StoredPrefs {
     return {};
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  if (newer(value, PREFS_VERSION)) return {};
   const handle: unknown = Reflect.get(value, "handle");
   return typeof handle === "boolean" ? { handle } : {};
 }
@@ -49,7 +55,7 @@ function loadPrefs(): StoredPrefs {
 function keepPrefs(prefs: StoredPrefs): void {
   try {
     if (Object.keys(prefs).length === 0) local()?.removeItem(PREFS_KEY);
-    else local()?.setItem(PREFS_KEY, JSON.stringify(prefs));
+    else local()?.setItem(PREFS_KEY, JSON.stringify(stamped(prefs, PREFS_VERSION)));
   } catch {
     // Private mode, disabled storage: the preference holds until the page goes.
   }

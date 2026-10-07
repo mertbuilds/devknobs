@@ -1,3 +1,4 @@
+import { newer, stamped } from "../engine/stored";
 import {
   type Binding,
   type Combo,
@@ -15,6 +16,9 @@ import {
  * hold across reloads and in new tabs of the origin. Reset all leaves them.
  */
 export const KEYS_KEY = "devknobs:keys";
+
+/** The version of the keys `KEYS_KEY` keeps. Bump it with a new shape, see stored.ts. */
+export const KEYS_VERSION = 1;
 
 /** The bindings in the order the panel lists them. */
 export const BINDINGS: readonly Binding[] = ["panel", "grab", "replay", "reset"];
@@ -176,6 +180,7 @@ export function readKeys(json: string | null | undefined): StoredKeys {
   } catch {
     return {};
   }
+  if (newer(value, KEYS_VERSION)) return {};
   const stored = record(value);
   const keys: StoredKeys = {};
   for (const binding of BINDINGS) {
@@ -226,7 +231,7 @@ function loadKeys(): StoredKeys {
 function keepKeys(keys: StoredKeys): void {
   try {
     if (Object.keys(keys).length === 0) local()?.removeItem(KEYS_KEY);
-    else local()?.setItem(KEYS_KEY, JSON.stringify(keys));
+    else local()?.setItem(KEYS_KEY, JSON.stringify(stamped(keys, KEYS_VERSION)));
   } catch {
     // Private mode, disabled storage: the key holds until the page goes.
   }

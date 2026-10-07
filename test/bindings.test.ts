@@ -5,6 +5,7 @@ import {
   createKeys,
   isReserved,
   KEYS_KEY,
+  KEYS_VERSION,
   readKeys,
   recordStep,
   resolveKeys,
@@ -203,6 +204,15 @@ describe("readKeys", () => {
   });
 });
 
+describe("readKeys versions", () => {
+  test("reads its own version and one kept before versions, and leaves a newer one alone", () => {
+    const keys = { grab: "shift+x" };
+    expect(readKeys(JSON.stringify({ v: KEYS_VERSION, ...keys }))).toEqual(keys);
+    expect(readKeys(JSON.stringify(keys))).toEqual(keys);
+    expect(readKeys(JSON.stringify({ v: KEYS_VERSION + 1, ...keys }))).toEqual({});
+  });
+});
+
 describe("resolveKeys", () => {
   test("a key the user set wins over the mount's, which wins over the default", () => {
     const base = defaultKeys({ hotkey: "d", grabKey: "alt+shift+g" });
@@ -306,7 +316,7 @@ describe("createKeys", () => {
     let heard = 0;
     keys.subscribe(() => heard++);
     keys.set("grab", combo("shift+x"));
-    expect(JSON.parse(local.get(KEYS_KEY) ?? "")).toEqual({ grab: "shift+x" });
+    expect(JSON.parse(local.get(KEYS_KEY) ?? "")).toEqual({ v: KEYS_VERSION, grab: "shift+x" });
     expect(comboText(keys.get().grab)).toBe("shift+x");
     keys.set("grab", null);
     expect(local.has(KEYS_KEY)).toBe(false);

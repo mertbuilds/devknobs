@@ -8,10 +8,13 @@ import {
   languagesFor,
   LOCALE_PRESETS,
   OWNER_KEY,
+  OWNER_VERSION,
   PARAGLIDE_COOKIE,
   parseOwned,
+  parseReload,
   readCookie,
   RELOAD_KEY,
+  RELOAD_VERSION,
   reset,
   syncStores,
 } from "../src/engine/locale";
@@ -394,6 +397,8 @@ describe("syncStores", () => {
     expect(readCookie(browser.jar, PARAGLIDE_COOKIE)).toBe("tr");
     expect(owner(browser)).toBe("tr");
     expect(browser.storage.has(RELOAD_KEY)).toBe(true);
+    expect(JSON.parse(browser.storage.get(RELOAD_KEY) ?? "").v).toBe(RELOAD_VERSION);
+    expect(JSON.parse(browser.storage.get(OWNER_KEY) ?? "").v).toBe(OWNER_VERSION);
     expect(browser.reloads).toBe(1);
   });
 
@@ -513,6 +518,24 @@ describe("parseOwned", () => {
     expect(parseOwned("tr")).toBeNull();
     expect(parseOwned("null")).toBeNull();
     expect(parseOwned(JSON.stringify({ lang: "tr" }))).toBeNull();
+  });
+
+  test("reads its own version and one kept before versions, and not one from a newer devknobs", () => {
+    const owned = { lang: "tr", writes: [] };
+    expect(parseOwned(JSON.stringify({ v: OWNER_VERSION, ...owned }))).toEqual(owned);
+    expect(parseOwned(JSON.stringify(owned))).toEqual(owned);
+    expect(parseOwned(JSON.stringify({ v: OWNER_VERSION + 1, ...owned }))).toBeNull();
+  });
+});
+
+describe("parseReload", () => {
+  test("reads its own version and the bare time kept before versions, and not one from a newer devknobs", () => {
+    expect(parseReload(JSON.stringify({ v: RELOAD_VERSION, at: 1000 }))).toBe(1000);
+    expect(parseReload("1000")).toBe(1000);
+    expect(parseReload(JSON.stringify({ v: RELOAD_VERSION + 1, at: 1000 }))).toBe(0);
+    expect(parseReload(null)).toBe(0);
+    expect(parseReload("{")).toBe(0);
+    expect(parseReload(JSON.stringify({ v: RELOAD_VERSION }))).toBe(0);
   });
 });
 

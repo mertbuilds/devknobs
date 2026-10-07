@@ -4,12 +4,13 @@ import {
   EARLY,
   readSnapshot,
   SNAPSHOT_KEY,
+  SNAPSHOT_VERSION,
   type Snapshot,
   showEarly,
   snapshotKey,
   writeSnapshot,
 } from "../src/engine/placeholder";
-import { DEFAULT_STATE, merge, parse } from "../src/engine/store";
+import { DEFAULT_STATE, merge, parse, STATE_VERSION } from "../src/engine/store";
 
 const PHONE = merge(DEFAULT_STATE, { device: "iphone-18-pro" });
 const VIEW = { innerWidth: 1440, innerHeight: 900, devicePixelRatio: 2 };
@@ -85,6 +86,15 @@ describe("the kept drawing", () => {
     items.set(SNAPSHOT_KEY, JSON.stringify({ ...kept(), look: { ...LOOK, scheme: "dim" } }));
     expect(readSnapshot(PHONE, VIEW)).toBeNull();
   });
+
+  test("is kept with its version, read from before versions, and left alone from a newer devknobs", () => {
+    writeSnapshot(kept());
+    expect(JSON.parse(items.get(SNAPSHOT_KEY) ?? "").v).toBe(SNAPSHOT_VERSION);
+    items.set(SNAPSHOT_KEY, JSON.stringify(kept()));
+    expect(readSnapshot(PHONE, VIEW)).toEqual(kept());
+    items.set(SNAPSHOT_KEY, JSON.stringify({ v: SNAPSHOT_VERSION + 1, ...kept() }));
+    expect(readSnapshot(PHONE, VIEW)).toBeNull();
+  });
 });
 
 /** The early style's text, from a session stored as `stored`. */
@@ -126,5 +136,14 @@ describe("the early cover", () => {
     const blue = MAT_COLORS.blue;
     expect(earlyCover(JSON.stringify({ width: 390 }))).toContain(matGradient(blue.srgb));
     expect(earlyCover(JSON.stringify({ width: 390, mat: "teal" }))).toContain(matGradient(blue.p3));
+  });
+
+  test("reads a session stored with its version as one stored before versions, and not one from a newer devknobs", () => {
+    const green = matGradient(MAT_COLORS.green.srgb);
+    const stored = { width: 390, mat: "green" };
+    expect(earlyCover(JSON.stringify({ v: STATE_VERSION, ...stored }))).toContain(green);
+    expect(earlyCover(JSON.stringify(stored))).toContain(green);
+    const newer = JSON.stringify({ v: STATE_VERSION + 1, ...stored });
+    expect(() => earlyCover(newer)).toThrow("no early style");
   });
 });
