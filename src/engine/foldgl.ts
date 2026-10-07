@@ -4,9 +4,9 @@ import {
   darkAt,
   type FoldShots,
   type Pane,
-  paneAt,
   type Quad,
   rawArea,
+  shotPane,
   shotPicture,
   shotQuad,
   shotWindow,
@@ -107,7 +107,7 @@ export function wedgeOf(window: Quad, pane: Pane, picture: Rect, span: number): 
 export function reachOf(shots: FoldShots, pane: Pane): number {
   let most = 0;
   for (const shot of shots.frames) {
-    if (paneAt(shot.deg) !== pane) continue;
+    if (shotPane(shots, shot) !== pane) continue;
     const quad = shotQuad(shot, pane);
     const picture = shotPicture(shots, pane, quad);
     most = Math.max(most, wedgeOf(shotWindow(quad, pane, picture), pane, picture, 1));

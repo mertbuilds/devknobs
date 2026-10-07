@@ -375,20 +375,27 @@ describe("the Duo's fold frames", () => {
       ],
       inner: [[0, 0], [1, 0], [1, 1], [0, 1]],
       cover: [[0, 0], [1, 0], [1, 1], [0, 1]],
-      side: [[0, 0], [1, 0], [1, 1], [0, 1]],
     })),
+    still: { file: "still.webp", box: [1560, 310, 3054, 2442], pieces: [[0, 0, 725, 56, 4, 4]] },
   };
 
   test.skipIf(!existsSync(FOLDER))("are each a file in assets/bezels/duo-fold, named in the module, with its corners", () => {
     const shots = foldShotsIn(FOLDER);
     expect(shots).toEqual(DUO_FOLD);
-    const files = (shots?.frames ?? []).map((shot) => shot.file);
-    expect(files).toHaveLength(39);
+    const frames = shots?.frames ?? [];
+    // Every 2 degrees, open to shut, and the half that stays from the same render.
+    expect(frames.map((shot) => shot.deg)).toEqual(Array.from({ length: 91 }, (_, index) => index * 2));
+    expect(frames.map((shot) => shot.file)).toEqual(
+      frames.map((shot) => `${FOLD_FOLDER}/fold-${String(shot.deg).padStart(3, "0")}.webp`),
+    );
+    expect(shots?.still.file).toBe(`${FOLD_FOLDER}/still.webp`);
+    const files = [...frames.map((shot) => shot.file), shots?.still.file ?? ""];
+    for (const file of files) expect(existsSync(`${FOLDER}/${file}`)).toBe(true);
     // The manifest stays beside the packer: only the frames ship.
     expect([...readdirSync(`${FOLDER}/${FOLD_FOLDER}`)].sort()).toEqual(
       files.map((file) => file.slice(FOLD_FOLDER.length + 1)).sort(),
     );
-    expect(bezelFiles(FOLDER).filter((file) => file.startsWith(`${FOLD_FOLDER}/`))).toEqual(files);
+    expect(bezelFiles(FOLDER).filter((file) => file.startsWith(`${FOLD_FOLDER}/`))).toEqual(files.toSorted());
   });
 
   test("are read from the manifest, from open to shut, each file in their folder", () => {
@@ -403,6 +410,7 @@ describe("the Duo's fold frames", () => {
       [0, 0, 774, 44, 4, 4],
       [0, 44, 64, 972, 4, 56],
     ]);
+    expect(shots.still).toEqual({ file: "duo-fold/still.webp", box: [1560, 310, 3054, 2442], pieces: [[0, 0, 725, 56, 4, 4]] });
   });
 
   test("are none without their folder, whatever the manifest says", () => {
@@ -416,7 +424,9 @@ describe("the Duo's fold frames", () => {
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open] })).toThrow("no frames");
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, deg: 174 }] })).toThrow("0 to 180");
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, inner: [[0, 0]] }] })).toThrow("corners");
-    expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, side: undefined }] })).toThrow("side");
+    expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, cover: undefined }] })).toThrow("cover");
+    expect(() => foldShotsOf({ ...MANIFEST, still: undefined })).toThrow("still");
+    expect(() => foldShotsOf({ ...MANIFEST, still: { ...MANIFEST.still, pieces: [] } })).toThrow("still: no pieces");
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, file: "../x.webp" }] })).toThrow("file");
     expect(() => foldShotsOf({ ...MANIFEST, open: [0, 0, 1] })).toThrow("open");
     expect(() => foldShotsOf({ ...MANIFEST, scale: 0 })).toThrow("scale");
@@ -430,6 +440,7 @@ describe("the Duo's fold frames", () => {
     expect(source).toContain('file: "duo-fold/fold-180.webp",');
     expect(source).toContain("scale: 0.5,");
     expect(source).toContain("pieces: [[0, 0, 774, 44, 4, 4], [0, 44, 64, 972, 4, 56]],");
+    expect(source).toContain('file: "duo-fold/still.webp",');
   });
 
   /** An image that loads from the addresses `ok` says, and never decodes. */

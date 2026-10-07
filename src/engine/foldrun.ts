@@ -7,6 +7,7 @@ import {
   foldLayout,
   type FoldShot,
   type FoldShots,
+  type FoldStill,
   flatMatrix,
   HAND_OVER,
   handOver,
@@ -15,20 +16,23 @@ import {
   hingeAfter,
   hingeStep,
   hingeStill,
+  nearestReady,
   openOf,
   type Pane,
   type Point,
   type Quad,
   quadFacing,
   quadMap,
-  quadToQuad,
   RIM,
   roundedPath,
   screenDim,
   seenAt,
-  SHOTS_HAND_OVER,
+  SHOTS_FADE,
+  shotAt,
+  shotPane,
   shotPicture,
-  shotPose,
+  shotQuad,
+  shotsDrift,
   shotsTransform,
   shotWindow,
 } from "./fold";
@@ -73,14 +77,18 @@ import type { ViewportValue } from "./width";
  * transforms, the window's outline, gradients, masks and opacities. What it
  * needs of the frame comes in a `FoldScene`, so it holds no node of its own.
  *
- * A fold of the Duo in its bezels decodes the Duo's fold frames as it starts,
- * and once they are in draws the half that turns as the two frames either
- * side of the hinge's angle instead, rendered from Apple's model, each on a
- * canvas laid onto the screen's corners between theirs, faded one into the
- * other, and the screen between those corners a window onto the page lying
- * flat, as Apple projects it: its picture, blurs and shades stay still, and
- * the window is dark where it reaches past them. They hand over to the device only when
- * all but flat. Till then, or where one fails, it turns the copies. The
+ * A fold of the Duo in its bezels decodes the Duo's fold frames round the
+ * hinge's angle as it goes, and once the first are in draws the half that
+ * turns as the frame nearest that angle instead, rendered from Apple's model,
+ * exactly as it was rendered, never warped, and its screen, by that frame's
+ * own corners, a window onto the page lying flat, as Apple projects it: its
+ * picture, blurs and shades stay still, and the window is dark where it
+ * reaches past them. The case of the half that stays is drawn from the same
+ * render, over the device's own, whose live page shows through it, so both
+ * halves meet at the hinge in the same size and shade. It fades in over the
+ * device's bezel picture as the hinge leaves an end, and once the hinge is
+ * still at an end the whole render fades out to the device as it is drawn at
+ * rest. Till the frames are in, or where one fails, it turns the copies. The
  * frames are let go of a while after it lands.
  */
 
@@ -128,18 +136,17 @@ interface Plane {
 
 /**
  * The half that turns as the Duo's fold frames: the render's px laid on the
- * fold by `model`, the two canvases in it the frames either side of the
- * hinge are drawn on, from `corner` in the render, their pictures, and the
- * two screens glued on. The open screen and the folded one, where the layout lays them.
+ * fold by `model`, the canvas in it the frame nearest the hinge's angle is
+ * drawn on, from `corner` in the render, the case of the half that stays from
+ * the same render under it, and the two screens glued on. The open screen
+ * and the folded one, where the layout lays them.
  */
 interface Shots {
   shots: FoldShots;
   model: HTMLElement;
-  planes: [Plane, Plane];
-  /** The dark of each frame's screen, under the windows, where it is laid off them near edge on. */
-  holes: [HTMLElement, HTMLElement];
+  plane: Plane;
+  still: HTMLCanvasElement;
   corner: Point;
-  bitmaps: ImageBitmap[];
   inner: Glued;
   outer: Glued;
   inside: Rect;
@@ -191,13 +198,22 @@ interface Going {
   hand: boolean;
   values: Record<PostureValue, ViewportValue>;
   frame: number;
-  /** When the hinge's first step was, and how many it has taken since. */
+  /** When the hinge's first step was, how long since in the hinge's own time, and how many steps it has taken. */
   begin: number | null;
+  elapsed: number;
   /** How many times slower than the phone's it runs. */
   slow: number;
   steps: number;
   parts: Layer;
   unit: Unit;
+  /**
+   * Under the frames, how far the still half's rendered case has faded in
+   * over the device's bezel picture since the hinge left an end, and how far
+   * the whole render has faded out to the device since it got still at one,
+   * 0 to 1 each.
+   */
+  still: number;
+  out: number;
   draw: (value: ViewportValue) => void;
 }
 
@@ -322,19 +338,19 @@ function copiesOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictur
 }
 
 /**
- * The half that turns as the fold's frames, `found`, laid on the fold: two
- * canvases over where every frame lies in the render, under them the screens
- * with the page glued on, and the bend's half on the open one. Null where
- * there is no canvas to draw on.
+ * The half that turns as the fold's frames, `found`, laid on the fold: a
+ * canvas over where every frame lies in the render, under it the screens
+ * with the page glued on, the bend's half on the open one, and under them the
+ * half that stays, drawn once. Null where there is no canvas to draw on.
  */
 function shotsOf(
   layout: FoldLayout,
   open: Face,
   closed: Face,
   pictures: Pictures,
-  found: { shots: FoldShots; bitmaps: ImageBitmap[] },
+  found: { shots: FoldShots; still: ImageBitmap },
 ): Shots | null {
-  const { shots, bitmaps } = found;
+  const { shots } = found;
   const [first, ...rest] = shots.frames.map((shot) => shot.box);
   if (!first) return null;
   const [left, top, right, bottom] = rest.reduce(
@@ -346,20 +362,20 @@ function shotsOf(
     ],
     [...first],
   );
-  const plane = (): Plane | null => {
+  const canvasOver = (box: readonly [number, number, number, number]) => {
     const canvas = document.createElement("canvas");
-    const pen = canvas.getContext("2d");
-    if (!pen) return null;
-    canvas.width = Math.ceil((right - left) * shots.scale);
-    canvas.height = Math.ceil((bottom - top) * shots.scale);
-    placeAt(canvas, { x: left, y: top, width: canvas.width / shots.scale, height: canvas.height / shots.scale });
+    canvas.width = Math.ceil((box[2] - box[0]) * shots.scale);
+    canvas.height = Math.ceil((box[3] - box[1]) * shots.scale);
+    placeAt(canvas, { x: box[0], y: box[1], width: canvas.width / shots.scale, height: canvas.height / shots.scale });
     canvas.style.display = "block";
-    canvas.style.transformOrigin = "0 0";
-    return { canvas, pen, shot: null };
+    return canvas;
   };
-  const under = plane();
-  const over = plane();
-  if (!under || !over) return null;
+  const canvas = canvasOver([left, top, right, bottom]);
+  const pen = canvas.getContext("2d");
+  const still = canvasOver(shots.still.box);
+  const stillPen = still.getContext("2d");
+  if (!pen || !stillPen) return null;
+  drawPieces(stillPen, found.still, shots.still, 0, 0, shots.scale);
   const sides = turningOf(layout, open, closed);
   const model = div("");
   const box = { x: left, y: top, width: right - left, height: bottom - top };
@@ -369,25 +385,14 @@ function shotsOf(
   const inner = gluedOf(open, pictures.open, sides.inner, layout.across, box, margin(open, "inner"), density);
   const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across, box, margin(closed, "cover"), density);
   inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
-  const frames = div("");
-  frames.style.position = "absolute";
-  frames.append(under.canvas, over.canvas);
-  const hole = () => {
-    const node = placeAt(div(""), box);
-    node.style.background = "#000";
-    node.style.visibility = "hidden";
-    return node;
-  };
-  const holes: [HTMLElement, HTMLElement] = [hole(), hole()];
-  model.append(...holes, inner.node, outer.node, frames);
+  model.append(still, inner.node, outer.node, canvas);
   const { rect } = screenOf(closed);
   return {
     shots,
     model,
-    planes: [under, over],
-    holes,
+    plane: { canvas, pen, shot: null },
+    still,
     corner: { x: left, y: top },
-    bitmaps,
     inner,
     outer,
     inside: screenOf(open).rect,
@@ -406,7 +411,7 @@ function build(
   open: Face,
   closed: Face,
   pictures: Pictures,
-  found: { shots: FoldShots; bitmaps: ImageBitmap[] } | null,
+  found: { shots: FoldShots; still: ImageBitmap } | null,
 ): Layer {
   const layer = div("fold");
   const place = div("");
@@ -475,15 +480,6 @@ function sync(going: Going): void {
 }
 
 /**
- * Over how much of the way the device takes over from the half that turns:
- * the frames, all but flat by then, cover it till later, so the device under
- * them is drawn the way it ends up a while before it shows.
- */
-function spanOf(going: Going): number {
-  return "model" in going.parts.turning ? SHOTS_HAND_OVER : HAND_OVER;
-}
-
-/**
  * Show a copy of a side of the half that turns as it stands, turned with
  * `transform` as `frame` has it, lit and blurred as the hinge `open` of the
  * way open has it, its screen `shown` of the way over the frame's own.
@@ -526,37 +522,27 @@ const BLEED = 2;
 const SEEN_BLEED = 2;
 
 /**
- * Show the frames either side of the hinge's angle, `open` of the way open,
- * the more open one and the next over it, the one faded in and the other
- * out as the hinge goes from one to the other, laid on the fold, and the screen that faces the viewer a
- * window onto the page lying flat, its corners as far between the two
- * frames', the whole of it `shown` of the way over the frame's own device.
- * Each frame is laid onto the corners between from its own, as `shotPose`
- * has it, so the two outlines meet and the case never shows twice.
+ * Show the frame nearest the hinge's angle, `open` of the way open, as it was
+ * rendered, or the nearest to it decoded where it is not yet, laid on the
+ * fold, and the screen that faces the viewer in it a window onto the page
+ * lying flat, by that frame's own corners, so the window fills the frame's
+ * hole exactly. The whole of it `shown` of the way over the frame's own
+ * device, and the case of the half that stays `still` of the way over it.
  */
-function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): void {
-  const { shots, model } = turning;
-  const posed = shotPose(shots, open);
-  if (!posed) return;
-  const { from, to, share, lay, pane, quad, holes } = posed;
-  const [under, over] = planesFor(turning, from, to);
-  layShot(turning, under, lay.from, lay.onto);
-  // The next fades in over the one under in the first half of the way, which fades out in the second, so where
-  // the two meet the case is whole all the way, and where they part neither comes or goes at once.
-  const fade = (value: number) => (value >= 1 ? "" : String(Math.round(Math.max(0, value) * 1000) / 1000));
-  under.canvas.style.opacity = fade(from === to ? 1 : 2 * (1 - share));
-  over.canvas.style.opacity = fade(from === to ? 0 : 2 * share);
-  if (from !== to) layShot(turning, over, lay.to, lay.onto);
-  holes.forEach((hole, index) => {
-    const node = turning.holes[index];
-    if (!node) return;
-    node.style.visibility = hole && (index === 0 || from !== to) ? "" : "hidden";
-    if (hole) node.style.clipPath = `path("${outline(local(turning, hole))}")`;
-    // Each as its frame shows.
-    node.style.opacity = (index === 0 ? under : over).canvas.style.opacity;
-  });
+function pose(turning: Shots, layout: FoldLayout, open: number, shown: number, still: number): void {
+  const { shots, model, plane } = turning;
+  const found = foldShots();
+  const at = found ? nearestReady(found.frames, shotAt(shots, open)) : null;
+  const next = at === null ? null : shots.frames[at];
+  const bitmap = at === null ? null : found?.frames[at];
+  if (next && bitmap && next !== plane.shot) drawShot(turning, next, bitmap);
+  const shot = plane.shot;
   model.style.transform = shotsTransform(shots, layout, turning.inside, turning.outside, open);
-  model.style.opacity = shown < 1 ? String(shown) : "";
+  const fade = (value: number) => (value >= 1 ? "" : String(Math.round(Math.max(0, value) * 1000) / 1000));
+  model.style.opacity = fade(shown);
+  turning.still.style.opacity = fade(still);
+  const pane = shot && shotPane(shots, shot);
+  const quad = shot && pane ? shotQuad(shot, pane) : null;
   for (const glued of [turning.inner, turning.outer]) {
     const facing = quad && glued.pane === pane ? quad : null;
     const picture = facing && shotPicture(shots, glued.pane, facing);
@@ -574,11 +560,6 @@ function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): 
     const span = layout.across ? glued.size.height : glued.size.width;
     glued.gl?.draw(screenLook(glued.pane, open, glued.extent, wedgeOf(opening, glued.pane, picture, span)));
   }
-}
-
-/** A quad as css path data. */
-function outline(quad: Quad): string {
-  return `${quad.map(([x, y], index) => `${index ? "L" : "M"}${Math.round(x * 100) / 100} ${Math.round(y * 100) / 100}`).join("")}Z`;
 }
 
 /**
@@ -618,45 +599,32 @@ function local(turning: Shots, corners: Quad): Quad {
   return a && b && c && d ? [a, b, c, d] : corners;
 }
 
-/**
- * The planes to draw `from` on, under, and `to` over it, drawing either
- * only where its plane does not hold it already: a plane keeps its frame as
- * the hinge goes on to the next.
- */
-function planesFor(turning: Shots, from: FoldShot, to: FoldShot): [Plane, Plane] {
-  const [first, second] = turning.planes;
-  const under = second.shot === from || first.shot === to ? second : first;
-  const over = under === first ? second : first;
-  if (under.shot !== from) drawShot(turning, under, from);
-  if (from !== to && over.shot !== to) drawShot(turning, over, to);
-  under.canvas.style.zIndex = "0";
-  over.canvas.style.zIndex = "1";
-  return [under, over];
+/** Draw a picture's pieces with `pen`, its box's top left at `x` `y` of the file's px. */
+function drawPieces(pen: CanvasRenderingContext2D, bitmap: ImageBitmap, still: FoldStill, x: number, y: number, scale: number): void {
+  const left = Math.round(x * scale);
+  const top = Math.round(y * scale);
+  for (const [px, py, width, height, fileX, fileY] of still.pieces) {
+    pen.drawImage(bitmap, fileX, fileY, width, height, left + px, top + py, width, height);
+  }
 }
 
-/** Lay the frame a plane holds from its corners `own` onto `onto`, or as it was rendered where either is edge on. */
-function layShot(turning: Shots, plane: Plane, own: Quad, onto: Quad): void {
-  const laid = plane.shot ? quadToQuad(local(turning, own), local(turning, onto)) : null;
-  plane.canvas.style.transform = laid ?? "";
-}
-
-/** Draw a frame's pieces on a plane, where they lie on it, in place of what was there. */
-function drawShot(turning: Shots, plane: Plane, shot: FoldShot): void {
-  const { corner, shots } = turning;
+/** Draw a frame on the plane, where it lies on it, in place of what was there. */
+function drawShot(turning: Shots, shot: FoldShot, bitmap: ImageBitmap): void {
+  const { corner, shots, plane } = turning;
   const { pen, canvas } = plane;
   plane.shot = shot;
   pen.clearRect(0, 0, canvas.width, canvas.height);
-  const bitmap = turning.bitmaps[shots.frames.indexOf(shot)];
-  if (!bitmap) return;
-  const x = Math.round((shot.box[0] - corner.x) * shots.scale);
-  const y = Math.round((shot.box[1] - corner.y) * shots.scale);
-  for (const [left, top, width, height, fileX, fileY] of shot.pieces) {
-    pen.drawImage(bitmap, fileX, fileY, width, height, x + left, y + top, width, height);
-  }
+  drawPieces(pen, bitmap, shot, shot.box[0] - corner.x, shot.box[1] - corner.y, shots.scale);
+}
+
+/** Which way the hinge goes along the frames: toward shut, 1, toward open, -1, or neither, 0. */
+function towardOf(going: Going): number {
+  return Math.sign(going.open - going.target);
 }
 
 /** Draw the fold with the hinge where it has got to. */
 function show(going: Going): void {
+  if (going.duo) decodeFoldShots(going.open, towardOf(going));
   const found = going.waiting ? foldShots() : null;
   // The frames came in as it folds: they take over from the copies, once.
   if (found) {
@@ -668,37 +636,64 @@ function show(going: Going): void {
   const { layout, parts, unit, scene } = going;
   const { open } = going;
   const frame = foldFrame(layout, open);
-  const hand = handOver(open, unit.posture, spanOf(going));
+  const { turning } = parts;
+  const shots = "model" in turning ? turning : null;
+  const hand = shots ? going.out : handOver(open, unit.posture);
   const { x, y, scale } = frame.place;
   parts.place.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-  const { turning } = parts;
-  if ("model" in turning) pose(turning, layout, open, 1 - hand);
+  if ("model" in turning) pose(turning, layout, open, 1 - hand, going.still);
   else {
     stand(turning.inner, layout, frame, frame.inner, open, 1 - hand);
     stand(turning.outer, layout, frame, frame.outer, open, 1 - hand);
     turning.bend.style.opacity = String(frame.lift);
   }
   // As the half that turns shows it, faded as it is. Under the frames it may go on past a right angle, so it never goes at once.
-  parts.still.style.visibility = frame.inner || "model" in turning ? "" : "hidden";
+  parts.still.style.visibility = frame.inner || shots ? "" : "hidden";
   parts.still.style.opacity = String(frame.lift * (1 - hand));
-  // The frame's own device moves with the fold, its folded body onto where it lies shut.
+  // The frame's own device moves with the fold, its folded body onto where it lies shut, and under the frames with them.
   const opened = unit.posture === "open";
   const own = opened ? layout.unfolded.scale : layout.folded.scale;
-  const to = opened ? { x, y } : { x: x + layout.shut.x * scale, y: y + layout.shut.y * scale };
+  const drift = shots
+    ? shotsDrift(shots.shots, layout, shots.inside, shots.outside, open, unit.posture)
+    : { wide: 1, tall: 1, x: 0, y: 0 };
+  const body = opened ? { x: 0, y: 0 } : layout.shut;
+  const to = { x: x + (drift.wide * body.x + drift.x) * scale, y: y + (drift.tall * body.y + drift.y) * scale };
   const by = { x: to.x - unit.corner.x, y: to.y - unit.corner.y };
-  scene.unit.style.transform = `translate(${by.x}px, ${by.y}px) scale(${(unit.base * scale) / own})`;
-  // Open, only the half that stays shows, till the copy of the other fades into it. It
-  // goes a px of the screen under the inside of the copy, while that shows, so
-  // their edges at the hinge leave no seam.
-  const under = frame.inner ? 1 : 0;
-  const hinge = ((layout.hinge + (layout.across ? -under : under)) * own) / unit.base;
-  const far = 1e5;
-  const rest = layout.across
-    ? `polygon(${hinge}px -${far}px, ${far}px -${far}px, ${far}px ${far}px, ${hinge}px ${far}px)`
-    : `polygon(-${far}px -${far}px, ${far}px -${far}px, ${far}px ${hinge}px, -${far}px ${hinge}px)`;
-  scene.unit.style.clipPath = opened && hand === 0 ? rest : "";
+  const size = (unit.base * scale) / own;
+  scene.unit.style.transform = `translate(${by.x}px, ${by.y}px) scale(${size * drift.wide}, ${size * drift.tall})`;
+  scene.unit.style.clipPath = opened && hand === 0 ? stillClip(going, shots, frame.inner !== null, own) : "";
   darken(scene.cover, screenDim(opened ? "inner" : "cover", open));
   for (const watcher of Array.from(hinges)) watcher(open, going.hand);
+}
+
+/**
+ * What of the frame's own device shows open, in its own css px: the half
+ * that stays, till the copy of the other fades into it. It goes a px of the
+ * screen under the inside of the half that turns, while that shows, so their
+ * edges at the hinge leave no seam. Under the frames, once the still half's
+ * rendered case is all in, only its screen shows, `BLEED` px further out, under
+ * that case, so none of the bezel picture shows past the render's.
+ */
+function stillClip(going: Going, shots: Shots | null, inside: boolean, own: number): string {
+  const { layout, unit } = going;
+  const at = (value: number) => (value * own) / unit.base;
+  const under = inside ? 1 : 0;
+  const hinge = at(layout.hinge + (layout.across ? -under : under));
+  const far = 1e5;
+  const points = (corners: [number, number][]) => `polygon(${corners.map(([px, py]) => `${px}px ${py}px`).join(", ")})`;
+  if (!shots || going.still < 1) {
+    return layout.across
+      ? points([[hinge, -far], [far, -far], [far, far], [hinge, far]])
+      : points([[-far, -far], [far, -far], [far, hinge], [-far, hinge]]);
+  }
+  const { inside: screen } = shots;
+  const left = at(screen.x - BLEED);
+  const top = at(screen.y - BLEED);
+  const right = at(screen.x + screen.width + BLEED);
+  const bottom = at(screen.y + screen.height + BLEED);
+  return layout.across
+    ? points([[hinge, top], [right, top], [right, bottom], [hinge, bottom]])
+    : points([[left, top], [right, top], [right, hinge], [left, hinge]]);
 }
 
 /** Take a fold's layer away, and let go of what draws its screens. */
@@ -750,6 +745,7 @@ function settle(): void {
 function rest(going: Going): void {
   going.frame = 0;
   going.begin = null;
+  going.elapsed = 0;
   going.steps = 0;
   going.open = going.target;
   sync(going);
@@ -763,25 +759,52 @@ function wake(going: Going): void {
 }
 
 /**
+ * Under the frames, fade the render `ms` on: out to the device where the
+ * hinge is still at an end, else the still half's case in over it, from none
+ * again where the render had faded out.
+ */
+function fadeOn(going: Going, ms: number, flat: boolean): void {
+  if (!("model" in going.parts.turning)) return;
+  if (flat) {
+    going.out = Math.min(1, going.out + ms / SHOTS_FADE);
+    return;
+  }
+  if (going.out > 0) going.still = 0;
+  going.out = 0;
+  going.still = Math.min(1, going.still + ms / SHOTS_FADE);
+}
+
+/** Has the render done fading, the hinge still at an end or not? Always without the frames. */
+function faded(going: Going, flat: boolean): boolean {
+  if (!("model" in going.parts.turning)) return true;
+  return flat ? going.out >= 1 : going.still >= 1;
+}
+
+/**
  * Step the hinge sixty times a second from the click's next frame, its first
- * step drawn then, till it lands. A frame between two steps draws it between
- * them, so it moves as smoothly at any rate.
+ * step drawn then, till it lands, and while the render fades. A frame between
+ * two steps draws it between them, so it moves as smoothly at any rate.
  */
 function swing(going: Going): void {
   const tick = (now: number) => {
     if (fold !== going) return;
     going.begin ??= now;
-    const due = slowed(now - going.begin, going.slow) / HINGE_STEP + 1;
+    const elapsed = slowed(now - going.begin, going.slow);
+    const due = elapsed / HINGE_STEP + 1;
     const steps = Math.floor(due);
     going.hinge = hingeAfter(going.hinge, going.target, steps - going.steps);
     going.steps = Math.max(going.steps, steps);
-    if (hingeStill(going.hinge, going.target)) {
+    const still = hingeStill(going.hinge, going.target);
+    const flat = still && isEnd(going.target);
+    fadeOn(going, elapsed - going.elapsed, flat);
+    going.elapsed = elapsed;
+    if (still && faded(going, flat)) {
       if (!going.held && isEnd(going.target)) land();
       else rest(going);
       return;
     }
     const next = hingeStep(going.hinge, going.target).position;
-    going.open = lerp(going.hinge.position, next, due - steps);
+    going.open = still ? going.target : lerp(going.hinge.position, next, due - steps);
     sync(going);
     show(going);
     going.frame = window.requestAnimationFrame(tick);
@@ -851,7 +874,9 @@ export function foldDevice(
   const duo = [open, closed].every((side) => side.body?.image?.file.startsWith("iphone-duo-"));
   const pictures = opening ? { open: after, closed: before } : { open: before, closed: after };
   const values = { [from.posture]: from, [value.posture]: value } as Record<PostureValue, ViewportValue>;
-  if (duo) decodeFoldShots();
+  const start = openOf(from.posture);
+  const target = openOf((held ? from : value).posture);
+  if (duo) decodeFoldShots(start, Math.sign(start - target));
   const parts = build(scene, layout, open, closed, pictures, duo ? foldShots() : null);
   fold = {
     scene,
@@ -860,19 +885,23 @@ export function foldDevice(
     pictures,
     duo,
     waiting: duo && !("model" in parts.turning),
-    hinge: { position: openOf(from.posture), velocity: 0 },
-    open: openOf(from.posture),
-    target: openOf((held ? from : value).posture),
+    hinge: { position: start, velocity: 0 },
+    open: start,
+    target,
     held,
     home: (held ? from : value).posture,
     hand: held,
     values,
     frame: 0,
     begin: null,
+    elapsed: 0,
     slow: slowness(),
     steps: 0,
     parts,
     unit: measure(scene, from.posture),
+    // At rest the device shows as it is drawn, till the hinge moves.
+    still: 0,
+    out: 1,
     draw,
   };
   show(fold);
@@ -895,7 +924,12 @@ export function releaseFold(stop: number, snap: boolean): boolean {
   going.held = false;
   going.hand = true;
   going.target = stop;
-  if (snap) going.hinge = { position: stop, velocity: 0 };
+  // With less motion it lands at once, without fading.
+  if (snap) {
+    going.hinge = { position: stop, velocity: 0 };
+    going.out = isEnd(stop) ? 1 : 0;
+    going.still = 1;
+  }
   wake(going);
   return true;
 }

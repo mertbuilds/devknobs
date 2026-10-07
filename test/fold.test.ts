@@ -6,7 +6,6 @@ import {
   blurWidth,
   brightness,
   darkAt,
-  EDGE_ON,
   edgeLight,
   flatMatrix,
   foldFrame,
@@ -20,26 +19,26 @@ import {
   hingeAfter,
   hingeStep,
   hingeStill,
-  laidQuad,
+  nearestReady,
   openOf,
-  paneAt,
   paneLook,
   type Quad,
-  quadBetween,
+  quadArea,
   quadFacing,
   quadMap,
-  quadToMatrix3d,
-  quadToQuad,
   RIM,
   roundedPath,
   screenDim,
   seenAt,
-  SHOTS_HAND_OVER,
+  SHOTS_AHEAD,
+  SHOTS_AROUND,
+  shotAt,
+  shotPane,
   shotPicture,
-  shotPose,
   shotQuad,
-  shotsBetween,
+  shotsDrift,
   shotsTransform,
+  shotsWindow,
   shotWindow,
   uvOf,
   wipeAmount,
@@ -461,11 +460,6 @@ describe("handOver", () => {
     expect(handOver(0, "closed")).toBe(1);
     // Drawn open, the picture keeps the screen all the way shut.
     expect(handOver(0.02, "open")).toBe(0);
-    // The fold's frames, all but flat by then, over the last 2%.
-    expect(SHOTS_HAND_OVER).toBe(0.02);
-    expect(handOver(0.03, "closed", SHOTS_HAND_OVER)).toBe(0);
-    expect(handOver(0.01, "closed", SHOTS_HAND_OVER)).toBeCloseTo(0.5);
-    expect(handOver(0.99, "open", SHOTS_HAND_OVER)).toBeCloseTo(0.5);
   });
 });
 
@@ -481,7 +475,7 @@ function through(transform: string, x: number, y: number): { x: number; y: numbe
   return { x: at(0) / w, y: at(1) / w };
 }
 
-describe("quadToMatrix3d", () => {
+describe("quadMap", () => {
   const RECT = { x: 20, y: 10, width: 300, height: 200 };
   const QUADS: Quad[] = [
     [[0, 0], [300, 0], [300, 200], [0, 200]],
@@ -491,9 +485,8 @@ describe("quadToMatrix3d", () => {
 
   test("lays each corner of the rect on its corner of the quad, exactly", () => {
     for (const quad of QUADS) {
-      const matrix = quadToMatrix3d(RECT, quad);
-      if (!matrix) throw new Error("no matrix");
-      expect(matrix).toStartWith("matrix3d(");
+      const seen = quadMap(RECT, quad);
+      if (!seen) throw new Error("no map");
       const corners = [
         [RECT.x, RECT.y],
         [RECT.x + RECT.width, RECT.y],
@@ -501,9 +494,9 @@ describe("quadToMatrix3d", () => {
         [RECT.x, RECT.y + RECT.height],
       ];
       corners.forEach(([x = 0, y = 0], index) => {
-        const seen = through(matrix, x, y);
-        expect(seen.x).toBeCloseTo(quad[index]?.[0] ?? NaN, 4);
-        expect(seen.y).toBeCloseTo(quad[index]?.[1] ?? NaN, 4);
+        const point = seen({ x, y });
+        expect(point.x).toBeCloseTo(quad[index]?.[0] ?? NaN, 4);
+        expect(point.y).toBeCloseTo(quad[index]?.[1] ?? NaN, 4);
       });
     }
   });
@@ -511,8 +504,8 @@ describe("quadToMatrix3d", () => {
   test("keeps the middle where the quad's diagonals cross, as a flat screen in perspective", () => {
     const quad = QUADS[2];
     if (!quad) throw new Error("no quad");
-    const matrix = quadToMatrix3d(RECT, quad) ?? "";
-    const middle = through(matrix, RECT.x + RECT.width / 2, RECT.y + RECT.height / 2);
+    const middle = quadMap(RECT, quad)?.({ x: RECT.x + RECT.width / 2, y: RECT.y + RECT.height / 2 });
+    if (!middle) throw new Error("no map");
     const [[x0, y0], , [x2, y2]] = quad;
     const [, [x1, y1], , [x3, y3]] = quad;
     // Where the lines from corner 0 to 2 and from 1 to 3 cross.
@@ -522,38 +515,8 @@ describe("quadToMatrix3d", () => {
   });
 
   test("is none for a screen seen edge on", () => {
-    expect(quadToMatrix3d(RECT, [[10, 0], [10.01, 0], [10.01, 50], [10, 50]])).toBeNull();
-    expect(quadToMatrix3d({ ...RECT, width: 0 }, QUADS[0] ?? [[0, 0], [0, 0], [0, 0], [0, 0]])).toBeNull();
-  });
-
-  test("lays a quad onto another corner on corner, as the plane they are seen on turns", () => {
-    const [flat, turned, other] = QUADS;
-    if (!flat || !turned || !other) throw new Error("no quads");
-    for (const [from, to] of [[turned, other], [other, turned], [flat, other]] as const) {
-      const matrix = quadToQuad(from, to);
-      if (!matrix) throw new Error("no matrix");
-      from.forEach(([x, y], index) => {
-        const seen = through(matrix, x, y);
-        expect(seen.x).toBeCloseTo(to[index]?.[0] ?? NaN, 4);
-        expect(seen.y).toBeCloseTo(to[index]?.[1] ?? NaN, 4);
-      });
-    }
-    expect(quadToQuad(turned, [[10, 0], [10.01, 0], [10.01, 50], [10, 50]])).toBeNull();
-  });
-
-  test("keeps w at 1 at the origin, so css draws it, laid onto a quad round the other way too", () => {
-    const [, turned, other] = QUADS;
-    if (!turned || !other) throw new Error("no quads");
-    const [a, b, c, d] = other;
-    const mirrored: Quad = [b, a, d, c];
-    for (const to of [other, mirrored]) {
-      const matrix = quadToQuad(turned, to) ?? "";
-      expect(Number(matrix.slice(0, -1).split(",").at(-1))).toBe(1);
-      turned.forEach(([x, y], index) => {
-        expect(through(matrix, x, y).x).toBeCloseTo(to[index]?.[0] ?? NaN, 4);
-        expect(laidQuad(turned, to, turned)?.[index]?.[0]).toBeCloseTo(to[index]?.[0] ?? NaN, 4);
-      });
-    }
+    expect(quadMap(RECT, [[10, 0], [10.01, 0], [10.01, 50], [10, 50]])).toBeNull();
+    expect(quadMap({ ...RECT, width: 0 }, QUADS[0] ?? [[0, 0], [0, 0], [0, 0], [0, 0]])).toBeNull();
   });
 });
 
@@ -561,28 +524,50 @@ describe("the Duo's fold frames", () => {
   if (!DUO_FOLD) return;
   const shots = DUO_FOLD;
 
-  test("run from open to shut every 6 degrees, and every 3 within 24 of a right angle, where the half turns edge on", () => {
-    const every = (step: number, from: number, to: number) =>
-      Array.from({ length: (to - from) / step + 1 }, (_, index) => from + index * step);
-    const degs = [...new Set([...every(6, 0, 180), ...every(3, 66, 114)])].sort((a, b) => a - b);
-    expect(shots.frames.map((shot) => shot.deg)).toEqual(degs);
+  test("run from open to shut every 2 degrees, 91 of them, both ends with them", () => {
+    expect(shots.frames).toHaveLength(91);
+    expect(shots.frames.map((shot) => shot.deg)).toEqual(Array.from({ length: 91 }, (_, index) => index * 2));
   });
 
-  test("go over from one to the next as the hinge turns, evenly all the way, either way", () => {
-    // 20 degrees: a third of the way from 18 to 24.
-    expect(shotsBetween(shots, 1 - 20 / 180)).toMatchObject({ from: { deg: 18 }, to: { deg: 24 } });
-    expect(shotsBetween(shots, 1 - 20 / 180)?.share).toBeCloseTo(1 / 3);
-    // 23.9 degrees: all but at 24, still over 18, so nothing jumps at the middle.
-    expect(shotsBetween(shots, 1 - 23.9 / 180)).toMatchObject({ from: { deg: 18 }, to: { deg: 24 } });
-    expect(shotsBetween(shots, 1 - 23.9 / 180)?.share).toBeCloseTo(59 / 60);
-    expect(shotsBetween(shots, 0.5)).toMatchObject({ from: { deg: 90 }, to: { deg: 90 }, share: 0 });
-    expect(shotsBetween(shots, 1)).toMatchObject({ from: { deg: 0 }, to: { deg: 0 }, share: 0 });
-    expect(shotsBetween(shots, 0)).toMatchObject({ from: { deg: 180 }, to: { deg: 180 }, share: 0 });
-    expect(shotsBetween({ ...shots, frames: [] }, 0.5)).toBeNull();
-    expect([paneAt(0), paneAt(89.9), paneAt(90), paneAt(90.1), paneAt(180)]).toEqual(["inner", "inner", null, "cover", "cover"]);
-    const from: Quad = [[0, 0], [10, 0], [10, 10], [0, 10]];
-    const to: Quad = [[2, 2], [12, 0], [10, 14], [0, 10]];
-    expect(quadBetween(from, to, 0.5)).toEqual([[1, 1], [11, 0], [10, 12], [0, 10]]);
+  test("show the one nearest the hinge's angle, either way it turns, the more open of two as near", () => {
+    const at = (deg: number) => shots.frames[shotAt(shots, 1 - deg / 180)]?.deg;
+    expect([at(0), at(0.9), at(1.1), at(2), at(2.9), at(3.1)]).toEqual([0, 0, 2, 2, 2, 4]);
+    expect([at(89), at(90), at(90.9), at(91.1), at(179.1), at(180)]).toEqual([88, 90, 90, 92, 180, 180]);
+    expect(at(3)).toBe(2);
+    // Opening or shutting, the same angle shows the same frame: no pair, no fade, no warp.
+    for (let deg = 0; deg <= 180; deg += 0.37) {
+      const shown = at(deg) ?? NaN;
+      expect(Math.abs(shown - deg)).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+
+  test("where the nearest is not decoded yet, show the nearest that is, never none while one is", () => {
+    const ready = [true, false, false, false, true, false];
+    expect(nearestReady(ready, 0)).toBe(0);
+    expect(nearestReady(ready, 1)).toBe(0);
+    expect(nearestReady(ready, 3)).toBe(4);
+    expect(nearestReady(ready, 2)).toBe(0);
+    expect(nearestReady(ready, 5)).toBe(4);
+    expect(nearestReady([null, null], 1)).toBeNull();
+  });
+
+  test("decode those round the hinge and more ahead of it as it goes, none past the ends", () => {
+    expect([SHOTS_AROUND, SHOTS_AHEAD]).toEqual([10, 10]);
+    expect(shotsWindow(91, 45, 0)).toEqual([35, 55]);
+    // Shutting, the angle and the frames grow: ahead is after it.
+    expect(shotsWindow(91, 45, 1)).toEqual([35, 65]);
+    expect(shotsWindow(91, 45, -1)).toEqual([25, 55]);
+    expect(shotsWindow(91, 0, 1)).toEqual([0, 20]);
+    expect(shotsWindow(91, 90, -1)).toEqual([70, 90]);
+    expect(shotsWindow(91, 88, 1)).toEqual([78, 90]);
+  });
+
+  test("face the viewer by the inside up to a right angle, the outside past it, one in each frame", () => {
+    for (const shot of shots.frames) {
+      const pane = shotPane(shots, shot);
+      expect(pane).toBe(shot.deg <= 90 ? "inner" : "cover");
+      if (pane) expect(Math.abs(quadArea(shotQuad(shot, pane)))).toBeGreaterThan(1000);
+    }
   });
 
   test("start each screen's corners from its top left as the layout shows it, held upright", () => {
@@ -654,8 +639,8 @@ describe("the Duo's fold frames", () => {
     const { layout, inside, outside } = bezelled(across);
     const frame = open === 1 ? shots.frames[0] : shots.frames.at(-1);
     if (!frame) throw new Error("no frame");
-    const glued = quadToMatrix3d({ x: 0, y: 0, width: rect.width, height: rect.height }, quadFacing(shotQuad(frame, pane), across));
-    if (!glued) throw new Error("no matrix");
+    const glued = quadMap({ x: 0, y: 0, width: rect.width, height: rect.height }, quadFacing(shotQuad(frame, pane), across));
+    if (!glued) throw new Error("no map");
     const model = shotsTransform(shots, layout, inside, outside, open);
     const { width, height } = rect;
     const [a = 0, b = 0, c = 0, d = 0] = radii;
@@ -666,7 +651,7 @@ describe("the Duo's fold frames", () => {
       [arc(a), arc(a)], [width - arc(b), arc(b)], [width - arc(c), height - arc(c)], [arc(d), height - arc(d)],
     ];
     for (const [x, y] of points) {
-      const onFrame = through(glued, x, y);
+      const onFrame = glued({ x, y });
       const seen = through(model, onFrame.x, onFrame.y);
       expect(Math.abs(seen.x - (rect.x + x))).toBeLessThan(0.25);
       expect(Math.abs(seen.y - (rect.y + y))).toBeLessThan(0.25);
@@ -689,7 +674,7 @@ describe("the Duo's fold frames", () => {
 
   test("show the page flat and still behind the turned screen, the open one's where it lies open", () => {
     const [x, y, width, height] = shots.open;
-    for (const shot of shots.frames.filter((frame) => paneAt(frame.deg) === "inner")) {
+    for (const shot of shots.frames.filter((frame) => shotPane(shots, frame) === "inner")) {
       expect(shotPicture(shots, "inner", shotQuad(shot, "inner"))).toEqual({ x, y, width: width / 2, height });
     }
   });
@@ -698,7 +683,7 @@ describe("the Duo's fold frames", () => {
     const last = shots.frames.at(-1);
     if (!last) throw new Error("no frames");
     const [[left, top], , [right, bottom]] = shotQuad(last, "cover");
-    for (const shot of shots.frames.filter((frame) => paneAt(frame.deg) === "cover")) {
+    for (const shot of shots.frames.filter((frame) => shotPane(shots, frame) === "cover")) {
       const quad = shotQuad(shot, "cover");
       expect(shotPicture(shots, "cover", quad)).toEqual({ x: quad[0][0], y: top, width: right - left, height: bottom - top });
     }
@@ -707,7 +692,7 @@ describe("the Duo's fold frames", () => {
   test("darken the turned screen past the page, above and below its free edge, the more the nearer it comes", () => {
     const dark = (deg: number) => {
       const shot = shots.frames.find((frame) => frame.deg === deg);
-      const pane = paneAt(deg);
+      const pane = shot && shotPane(shots, shot);
       if (!shot || !pane) throw new Error("no frame");
       const quad = shotQuad(shot, pane);
       return darkAt(shotWindow(quad, pane, shotPicture(shots, pane, quad)), pane, shotPicture(shots, pane, quad));
@@ -782,56 +767,32 @@ describe("the Duo's fold frames", () => {
     }
   });
 
-  /** Where the frames are drawn, `deg` turned: the free edge where each of the two lays it, and where it shows, by how far the next is faded in. */
-  function drawnAt(deg: number) {
-    const posed = shotPose(shots, 1 - deg / 180);
-    if (!posed) throw new Error("no frames");
-    const { from, to, share, lay } = posed;
-    const under = laidQuad(lay.from, lay.onto, from.side);
-    const over = laidQuad(lay.to, lay.onto, to.side);
-    if (!under || !over) throw new Error("edge on");
-    const ghost = Math.max(...under.map(([x, y], index) => Math.hypot(x - (over[index]?.[0] ?? x), y - (over[index]?.[1] ?? y))));
-    const edge = quadBetween(under, over, from === to ? 0 : share);
-    const clock = shots.frames.indexOf(from) + (from === to ? 0 : share);
-    return { posed, ghost, edge, clock };
-  }
-
-  /** Does no step of `values` stand out of the steps next to it, by more than three times and `slack`? */
-  function smooth(values: number[], slack: number): boolean {
-    const steps = values.slice(1).map((value, index) => Math.abs(value - (values[index] ?? value)));
-    return steps.every((step, index) => step <= 3 * Math.max(steps[index - 1] ?? 0, steps[index + 1] ?? 0) + slack);
-  }
-
-  test("near edge on, lay both frames from their free edge's side, so it moves as one and never shows twice", () => {
-    for (let deg = 90 - 2 * EDGE_ON; deg <= 90 + 2 * EDGE_ON; deg += 0.25) {
-      const { posed, ghost } = drawnAt(deg);
-      const near = [posed.from, posed.to].every((shot) => Math.abs(shot.deg - 90) <= EDGE_ON);
-      if (near) expect(ghost).toBeLessThan(0.01);
-      // Else from the screen that faces the viewer, whose hole each lays on the window, exactly.
-      else expect(posed.holes).toEqual([null, null]);
-      for (const hole of posed.holes) expect(hole === null || hole.flat().every(Number.isFinite)).toBe(true);
-    }
-  });
-
-  test("pass a right angle without a step: the case, the frames' fade, the window and the page all move smoothly", () => {
-    const degs = Array.from({ length: 401 }, (_, index) => 80 + index * 0.05);
-    const seen = degs.map(drawnAt);
-    expect(smooth(seen.map(({ clock }) => clock), 0.01)).toBe(true);
-    for (const corner of [0, 1, 2, 3]) {
-      for (const axis of [0, 1]) expect(smooth(seen.map(({ edge }) => edge[corner]?.[axis] ?? NaN), 0.5)).toBe(true);
-    }
-    // The window and the page behind it, either side of the right angle, where each screen faces the viewer.
-    for (const pane of ["inner", "cover"] as const) {
-      const facing = seen.filter(({ posed }) => posed.pane === pane);
-      expect(facing.length).toBeGreaterThan(150);
-      for (const corner of [0, 1, 2, 3]) {
-        for (const axis of [0, 1]) {
-          expect(smooth(facing.map(({ posed }) => posed.quad?.[corner]?.[axis] ?? NaN), 0.5)).toBe(true);
-        }
+  test("keep the device under them on the render all the way, so the still half's live screen stays in its rendered hole", () => {
+    const [x, y, width, height] = shots.open;
+    const screen = [[x, y], [x + width, y], [x + width, y + height], [x, y + height]] as const;
+    for (const across of [true, false]) {
+      const { layout, inside, outside } = bezelled(across);
+      for (const posture of ["open", "closed"] as const) {
+        // At its own end the device does not move.
+        const end = shotsDrift(shots, layout, inside, outside, posture === "open" ? 1 : 0, posture);
+        expect(end.wide).toBeCloseTo(1, 9);
+        expect(end.tall).toBeCloseTo(1, 9);
+        expect(end.x).toBeCloseTo(0, 6);
+        expect(end.y).toBeCloseTo(0, 6);
       }
-      const pictures = facing.map(({ posed }) => (posed.quad ? shotPicture(shots, pane, posed.quad) : null));
-      for (const key of ["x", "y", "width", "height"] as const) {
-        expect(smooth(pictures.map((picture) => picture?.[key] ?? NaN), 0.5)).toBe(true);
+      for (const open of [0.2, 0.5, 0.9]) {
+        // The open screen, drawn open and moved on, lies where the render's does, within a hundredth of a px.
+        const drift = shotsDrift(shots, layout, inside, outside, open, "open");
+        const seen = boundsThrough(shotsTransform(shots, layout, inside, outside, open), screen);
+        const moved = {
+          x: inside.x * drift.wide + drift.x,
+          y: inside.y * drift.tall + drift.y,
+          width: inside.width * drift.wide,
+          height: inside.height * drift.tall,
+        };
+        for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(moved[key] - seen[key])).toBeLessThan(0.02);
+        // The render is a little smaller than the device between the ends: without moving it, they would part by px.
+        expect(Math.abs(seen.width - inside.width)).toBeGreaterThan((1 - open) * 8);
       }
     }
   });

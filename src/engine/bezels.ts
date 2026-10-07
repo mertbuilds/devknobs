@@ -1,7 +1,7 @@
 import type { DevknobsState, OrientationValue } from "../types";
 import { BEZEL_URLS, DUO_FOLD } from "./bezelurls";
 import { deviceOf, formId, screenOf, turn } from "./devices";
-import type { FoldShots } from "./fold";
+import { type FoldShots, shotAt, shotsWindow } from "./fold";
 import {
   type Mock,
   mockOf,
@@ -23,8 +23,11 @@ import {
  * the mock on. Delete assets/bezels and build, and every device draws its own
  * mock again, as it does where an image does not load. The Duo's fold has
  * frames of its own in assets/bezels/duo-fold, rendered from Apple's model,
- * which all load once the Duo is first shown with the mock on, decode as a
- * fold starts, and are let go of a while after it, or once the Duo is not shown.
+ * and its half that stays, which all load once the Duo is first shown with
+ * the mock on. A fold decodes only the frames round the hinge's angle and
+ * ahead of it, and the half that stays, letting go of each frame it leaves
+ * behind, and the rest are let go of a while after it, or once the Duo is not
+ * shown.
  */
 
 /** One image, measured in its own px, at its own density: see `densityOf`. */
@@ -436,15 +439,19 @@ export async function loadAll(files: readonly string[]): Promise<HTMLImageElemen
 }
 
 /**
- * The Duo's fold frames: their files as they load, which then wait in the
- * browser undecoded, and their pictures while a fold wants them.
+ * The Duo's fold frames and its half that stays: their files as they load,
+ * which then wait in the browser undecoded, and the pictures of those a fold
+ * wants, the half that stays last.
  */
 interface ShotsLoad {
   state: Load["state"];
   images: HTMLImageElement[];
-  bitmaps: ImageBitmap[] | null;
-  /** The pictures under way, if any. */
-  decoding: Promise<ImageBitmap[]> | null;
+  /** Each one's picture while it is decoded, else null, in the same order. */
+  bitmaps: (ImageBitmap | null)[];
+  /** Those under way. */
+  decoding: Set<number>;
+  /** The frames to keep, first and last, or null where none are: any outside are let go of, also as they come in. */
+  keep: [number, number] | null;
   release: ReturnType<typeof setTimeout> | null;
   /** Is a fold drawing them, so they are let go of only once it ends, and were they let go of meanwhile? */
   held: boolean;
@@ -457,23 +464,26 @@ let shotsLoad: ShotsLoad | null = null;
 export const SHOTS_KEPT = 4000;
 
 /**
- * Load every frame of the Duo's fold, once, so it is in the browser when a
- * fold wants it. Where one fails, a fold turns copies of the bezels for good.
+ * Load every frame of the Duo's fold and its half that stays, once, so they
+ * are in the browser when a fold wants them. Where one fails, a fold turns
+ * copies of the bezels for good.
  */
 export function loadFoldShots(): void {
   // Nothing to load or draw them with: try again later.
   if (shotsLoad || !DUO_FOLD || typeof Image === "undefined" || typeof createImageBitmap !== "function") return;
+  const files = [...DUO_FOLD.frames.map((shot) => shot.file), DUO_FOLD.still.file];
   const started: ShotsLoad = {
     state: "loading",
     images: [],
-    bitmaps: null,
-    decoding: null,
+    bitmaps: files.map(() => null),
+    decoding: new Set(),
+    keep: null,
     release: null,
     held: false,
     pending: false,
   };
   shotsLoad = started;
-  loadAll(DUO_FOLD.frames.map((shot) => shot.file)).then(
+  loadAll(files).then(
     (images) => {
       started.images = images;
       started.state = "ready";
@@ -485,33 +495,57 @@ export function loadFoldShots(): void {
 }
 
 /**
- * Decode every frame, once they have all loaded, for a fold that starts,
- * which holds them till `endFoldShots`: the pictures stay till then, and
- * after, till `releaseFoldShots`. Till they are in, a fold turns copies of
- * the bezels.
+ * Decode, for a fold drawing the hinge `open` of the way open and going
+ * `toward` shut, 1, open, -1, or neither, 0, the frames `shotsWindow` keeps
+ * round it and the half that stays, nearest first, and let go of every other
+ * frame, each time it draws. The fold holds them till `endFoldShots`: the pictures stay till then,
+ * and after, till `releaseFoldShots`. Till the first are in, a fold turns
+ * copies of the bezels.
  */
-export function decodeFoldShots(): void {
+export function decodeFoldShots(open: number, toward: number): void {
   const load = shotsLoad;
-  if (!load || load.state !== "ready") return;
-  if (load.release !== null) clearTimeout(load.release);
-  load.release = null;
-  load.held = true;
-  load.pending = false;
-  if (load.bitmaps || load.decoding) return;
-  const decoding = Promise.all(load.images.map((image) => createImageBitmap(image)));
-  load.decoding = decoding;
-  decoding.then(
-    (bitmaps) => {
-      // Let go of while they decoded.
-      if (load.decoding !== decoding) {
-        for (const bitmap of bitmaps) bitmap.close();
-        return;
-      }
-      load.decoding = null;
-      load.bitmaps = bitmaps;
+  if (!load || load.state !== "ready" || !DUO_FOLD) return;
+  // A fold starts: it holds them, and they are not let go of meanwhile. Asked each frame after, a release it was asked for waits.
+  if (!load.held) {
+    if (load.release !== null) clearTimeout(load.release);
+    load.release = null;
+    load.held = true;
+    load.pending = false;
+  }
+  const at = shotAt(DUO_FOLD, open);
+  const [first, last] = shotsWindow(DUO_FOLD.frames.length, at, toward);
+  load.keep = [first, last];
+  const still = DUO_FOLD.frames.length;
+  load.bitmaps.forEach((bitmap, index) => {
+    if (!bitmap || index === still || (index >= first && index <= last)) return;
+    bitmap.close();
+    load.bitmaps[index] = null;
+  });
+  const wanted = [still, ...Array.from({ length: last - first + 1 }, (_, index) => first + index)];
+  wanted.sort((a, b) => (a === still ? -1 : b === still ? 1 : Math.abs(a - at) - Math.abs(b - at)));
+  for (const index of wanted) decode(load, index);
+}
+
+/** Is the frame or the half that stays at `index` one to keep? */
+function kept(load: ShotsLoad, index: number): boolean {
+  const { keep } = load;
+  return keep !== null && (index === load.bitmaps.length - 1 || (index >= keep[0] && index <= keep[1]));
+}
+
+/** Decode one, unless it is in or under way, and keep it where it is still wanted once it is in. */
+function decode(load: ShotsLoad, index: number): void {
+  const image = load.images[index];
+  if (!image || load.bitmaps[index] || load.decoding.has(index)) return;
+  load.decoding.add(index);
+  createImageBitmap(image).then(
+    (bitmap) => {
+      load.decoding.delete(index);
+      // Let go of, or left behind, while it decoded.
+      if (!kept(load, index) || load.bitmaps[index]) bitmap.close();
+      else load.bitmaps[index] = bitmap;
     },
     () => {
-      load.decoding = null;
+      load.decoding.delete(index);
       load.state = "failed";
     },
   );
@@ -519,8 +553,8 @@ export function decodeFoldShots(): void {
 
 /**
  * Let go of the frames' pictures `after` ms from now, or at once, and of any
- * under way: while a fold draws them, once it ends. Their files stay loaded
- * for the next fold.
+ * under way as they come in: while a fold draws them, once it ends. Their
+ * files stay loaded for the next fold.
  */
 export function releaseFoldShots(after = 0): void {
   const load = shotsLoad;
@@ -536,9 +570,11 @@ export function releaseFoldShots(after = 0): void {
     return;
   }
   load.pending = false;
-  for (const bitmap of load.bitmaps ?? []) bitmap.close();
-  load.bitmaps = null;
-  load.decoding = null;
+  load.keep = null;
+  load.bitmaps.forEach((bitmap, index) => {
+    bitmap?.close();
+    load.bitmaps[index] = null;
+  });
 }
 
 /**
@@ -553,10 +589,18 @@ export function endFoldShots(now = false): void {
   releaseFoldShots(now || load.pending ? 0 : SHOTS_KEPT);
 }
 
-/** The Duo's fold frames and their pictures, in the same order, while every one is decoded, or null. */
-export function foldShots(): { shots: FoldShots; bitmaps: ImageBitmap[] } | null {
-  const bitmaps = shotsLoad?.bitmaps;
-  return DUO_FOLD && bitmaps ? { shots: DUO_FOLD, bitmaps } : null;
+/**
+ * The Duo's fold frames, the pictures of those decoded, by their place among
+ * the frames, else null, and the picture of the half that stays: once it and
+ * a frame are in, else null. Asked again each time a fold draws, as frames
+ * come and go.
+ */
+export function foldShots(): { shots: FoldShots; frames: readonly (ImageBitmap | null)[]; still: ImageBitmap } | null {
+  const load = shotsLoad;
+  if (!DUO_FOLD || !load) return null;
+  const frames = load.bitmaps.slice(0, -1);
+  const still = load.bitmaps.at(-1);
+  return still && frames.some(Boolean) ? { shots: DUO_FOLD, frames, still } : null;
 }
 
 /** What picks the body drawn around the frame. */

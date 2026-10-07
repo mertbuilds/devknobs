@@ -3,7 +3,7 @@
  * prepared, and writes what the renderer sends to /save/ into the master
  * folder. Offline only, never part of the package: see README.md here.
  *
- *   bun scripts/render-duo-fold/serve.ts <iphone-duo clone> <master folder>
+ *   [PORT=8767] bun scripts/render-duo-fold/serve.ts <iphone-duo clone> <master folder>
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, normalize, resolve } from "node:path";
@@ -12,7 +12,7 @@ const [clone, master] = process.argv.slice(2).map((path) => resolve(path));
 if (!clone || !master) throw new Error("usage: serve.ts <iphone-duo clone> <master folder>");
 mkdirSync(master, { recursive: true });
 const HERE = import.meta.dir;
-const PORT = 8767;
+const PORT = Number(process.env.PORT) || 8767;
 
 /** A file under `root`, or null for a path that leaves it. */
 function under(root: string, path: string): string | null {

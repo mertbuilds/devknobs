@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { DUO_FOLD } from "../src/engine/bezelurls";
-import { BLURS, blurArea, blurWidth, darkAt, type Pane, paneAt, type Quad, shotPicture, shotQuad, shotWindow, uvOf, wipeAmount } from "../src/engine/fold";
+import { BLURS, blurArea, blurWidth, darkAt, type Pane, type Quad, shotPane, shotPicture, shotQuad, shotWindow, uvOf, wipeAmount } from "../src/engine/fold";
 import {
   blurAt,
   canvasRect,
@@ -103,7 +103,7 @@ describe("the dark past the page's ends", () => {
       const reach = reachOf(shots, pane);
       expect(reach).toBeGreaterThan(0.05);
       expect(reach).toBeLessThan(0.2);
-      for (const shot of shots.frames.filter((frame) => paneAt(frame.deg) === pane)) {
+      for (const shot of shots.frames.filter((frame) => shotPane(shots, frame) === pane)) {
         const quad = shotQuad(shot, pane);
         const picture = shotPicture(shots, pane, quad);
         const { top, bottom } = darkAt(shotWindow(quad, pane, picture), pane, picture);

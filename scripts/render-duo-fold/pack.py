@@ -5,8 +5,10 @@ from `near` either side of a right angle, where the half turns edge on and
 its outline changes the most from one frame to the next, cropped to what it
 draws, scaled from the master's 3 px per css px to `scale`, and saved as WebP, and
 manifest.json beside this script with each frame's crop box and the corners
-of its two turned screens and of its free edge's side, in master px, its
-pieces, in frame px, and the open inner screen's rect.
+of its two turned screens, in master px, its pieces, in frame px, and the
+open inner screen's rect. The half that stays, rendered once from the same
+camera, is packed the same way into still.webp, so during a fold both halves
+come from one render.
 
 The case is a thin outline round see-through screens, so the clear middle of
 a frame is cut out: what is left is up to four pieces round it, cut shorter
@@ -129,27 +131,34 @@ if angles[-1] != 180:
 frames = []
 total = 0
 decoded = 0
-for deg in angles:
-    image, box = crop(f"moving-{deg:03d}.png")
+
+
+def save(master_name, file):
+    """A master packed into `file` in the out folder: its crop box and its pieces."""
+    global total, decoded
+    image, box = crop(master_name)
     sheet, cut = pack(image, pieces(image))
     data = io.BytesIO()
     sheet.save(data, "WEBP", quality=quality, method=6, alpha_quality=90)
-    file = f"fold-{deg:03d}.webp"
     open(os.path.join(out, file), "wb").write(data.getvalue())
     total += data.tell()
     decoded += sheet.width * sheet.height * 4
+    return {"file": file, "box": box, "pieces": cut}
+
+
+for deg in angles:
     seen = meta["angles"][str(deg)]
-    frames.append({
-        "deg": deg, "file": file, "box": box, "pieces": cut,
-        "inner": seen["innerMoving"], "cover": seen["cover"], "side": seen["side"],
-    })
+    frames.append({"deg": deg, **save(f"moving-{deg:03d}.png", f"fold-{deg:03d}.webp"),
+                   "inner": seen["innerMoving"], "cover": seen["cover"]})
+still = save("fixed.png", "still.webp")
 opened = meta["angles"]["0"]
 (left, top), (right, bottom) = opened["innerMoving"][0], opened["innerFixed"][2]
 manifest = {
     "open": [left, top, round(right - left, 2), round(bottom - top, 2)],
     "scale": float(ratio),
     "frames": frames,
+    "still": still,
 }
 here = os.path.dirname(os.path.abspath(__file__))
 json.dump(manifest, open(os.path.join(here, "manifest.json"), "w"), separators=(",", ":"))
-print(f"{len(frames)} frames, {total / 1024:.0f} KiB, {decoded / 1e6:.1f} MB decoded")
+print(f"{len(frames)} frames and the still half, {total / 1024:.0f} KiB, {decoded / 1e6:.1f} MB decoded")

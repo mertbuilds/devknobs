@@ -91,11 +91,13 @@ const DEPTH = 2.75;
 export const HAND_OVER = 0.08;
 
 /**
- * The same for the Duo's fold frames, rendered from its model: they turn
- * all but flat onto where the device lies by then, so handing over changes
- * only their look, never where anything is.
+ * How long, in ms, the Duo's fold frames, rendered from its model, hand over
+ * to the device's own bezel picture once the hinge is still at an end, both
+ * lying flat in the same place: the whole device fades from the one to the
+ * other, as their shades differ. As long, the still half's rendered case
+ * fades in over the picture as the hinge leaves an end.
  */
-export const SHOTS_HAND_OVER = 0.02;
+export const SHOTS_FADE = 150;
 
 /** A point, in css px. */
 export interface Point {
@@ -281,55 +283,85 @@ export type Quad = readonly [Pair, Pair, Pair, Pair];
 export type Piece = readonly [x: number, y: number, width: number, height: number, fileX: number, fileY: number];
 
 /**
- * One frame of the iPhone Duo's turning half, rendered offline from Apple's
- * model by scripts/render-duo-fold: its case alone, its screens see-through,
- * as seen from the fold's own distance. Everything but its pieces is in the
- * render's px.
+ * A picture of the iPhone Duo's case rendered offline from Apple's model by
+ * scripts/render-duo-fold, its screens see-through, as seen from the fold's
+ * own distance: where it lies in the render, in the render's px, and the
+ * pieces of it its file holds.
  */
-export interface FoldShot {
+export interface FoldStill {
+  file: string;
+  /** Where it lies in the render: left, top, right, bottom. */
+  box: readonly [number, number, number, number];
+  /** The pieces of it its file holds: all of it but its clear middle. */
+  pieces: readonly Piece[];
+}
+
+/** One frame of the Duo's turning half. Everything but its pieces is in the render's px. */
+export interface FoldShot extends FoldStill {
   /** How far the half has turned, 0 open to 180 shut. */
   deg: number;
-  file: string;
-  /** Where the frame lies in the render: left, top, right, bottom. */
-  box: readonly [number, number, number, number];
-  /** The pieces of the frame its file holds: all of it but its clear middle. */
-  pieces: readonly Piece[];
   /** Where the open screen's turning half is seen, and the folded body's screen, each as it faces the viewer. */
   inner: Quad;
   cover: Quad;
-  /** Its free edge's side, from the open screen's plane to the folded one's, which faces the viewer as the screens go edge on. */
-  side: Quad;
 }
 
-/** The frames of a fold, from open to shut, and where the open screen lies in them. */
+/** The frames of a fold, from open to shut, where the open screen lies in them, and the half that stays. */
 export interface FoldShots {
   /** The open screen: left, top, width, height. */
   open: readonly [number, number, number, number];
   /** The files' px per px of the render. */
   scale: number;
   frames: readonly FoldShot[];
+  /** The half that stays, from the same render, so both halves meet at the hinge. */
+  still: FoldStill;
+}
+
+/** The frame nearest how far the hinge is open, by its place among the frames: the more open of two as near. */
+export function shotAt(shots: FoldShots, open: number): number {
+  const deg = 180 * (1 - open);
+  let best = 0;
+  shots.frames.forEach((shot, index) => {
+    const far = Math.abs(shot.deg - deg);
+    // Not by a rounding of the angle either, so two as near never flicker.
+    if (far < Math.abs((shots.frames[best]?.deg ?? 0) - deg) - 1e-9) best = index;
+  });
+  return best;
+}
+
+/** The frame nearest `at` whose picture `ready` has, by its place among the frames, or null where none is ready. */
+export function nearestReady(ready: readonly unknown[], at: number): number | null {
+  for (let off = 0; off < ready.length; off++) {
+    if (ready[at - off]) return at - off;
+    if (ready[at + off]) return at + off;
+  }
+  return null;
+}
+
+/** How many frames either side of the hinge's are decoded, and how many more ahead of it as it goes. */
+export const SHOTS_AROUND = 10;
+export const SHOTS_AHEAD = 10;
+
+/**
+ * The frames decoded with the hinge at frame `at` of `count`, going `toward`
+ * the shut end, 1, the open one, -1, or neither, 0: from `SHOTS_AROUND`
+ * before it to as many past it and `SHOTS_AHEAD` more ahead, first and last.
+ */
+export function shotsWindow(count: number, at: number, toward: number): [number, number] {
+  const ahead = SHOTS_AROUND + SHOTS_AHEAD;
+  const from = at - (toward < 0 ? ahead : SHOTS_AROUND);
+  const to = at + (toward > 0 ? ahead : SHOTS_AROUND);
+  return [Math.max(0, from), Math.min(count - 1, to)];
 }
 
 /**
- * The two frames either side of how far the hinge is open, the more open
- * one first, and how much of the way from it to the other the hinge is, 0
- * to 1, so a frame goes over to the next as the hinge turns, not in steps.
- * On a frame, both are that frame.
+ * Which screen of the half that turns faces the viewer in a frame: the one
+ * whose corners go round as they do lying flat. One does in each of the
+ * Duo's frames, the inside up to a right angle and the outside past it.
  */
-export function shotsBetween(shots: FoldShots, open: number): { from: FoldShot; to: FoldShot; share: number } | null {
-  const deg = 180 * (1 - open);
-  const { frames } = shots;
-  const next = frames.findIndex((shot) => shot.deg >= deg);
-  const to = frames[next < 0 ? frames.length - 1 : next];
-  const from = next > 0 && to && to.deg > deg ? frames[next - 1] : to;
-  if (!from || !to) return null;
-  return { from, to, share: from === to ? 0 : (deg - from.deg) / (to.deg - from.deg) };
-}
-
-/** Which screen of the half that turns faces the viewer with it turned `deg`: the inside up to a right angle, the outside past it. */
-export function paneAt(deg: number): Pane | null {
-  if (deg === 90) return null;
-  return deg < 90 ? "inner" : "cover";
+export function shotPane(shots: FoldShots, shot: FoldShot): Pane | null {
+  const panes: Pane[] = ["inner", "cover"];
+  // Its own corners, as seen from behind the other's are round the other way, also lying flat.
+  return panes.find((pane) => Math.sign(quadArea(pane === "inner" ? shot.inner : shot.cover)) === faceOf(shots, pane)) ?? null;
 }
 
 /**
@@ -344,61 +376,6 @@ export function shotQuad(shot: FoldShot, pane: Pane): Quad {
   return [[x, y], [x + width, y], [x + width, y + height], [x, y + height]];
 }
 
-/**
- * How near edge on, in degrees either side of a right angle, a frame's
- * screens are too thin to lay it from: there its free edge's side is laid
- * instead, which faces the viewer then and moves the most.
- */
-export const EDGE_ON = 6;
-
-/** How the two frames either side of the hinge's angle are drawn. */
-export interface ShotPose {
-  from: FoldShot;
-  to: FoldShot;
-  /** How far `to` is faded in over `from`, 0 to 1. */
-  share: number;
-  /** The corners each frame is laid from, its own, and where both are laid, between them. */
-  lay: { from: Quad; to: Quad; onto: Quad };
-  /** The screen that faces the viewer, and where it is seen, or null edge on and just past it, while it is seen from behind. */
-  pane: Pane | null;
-  quad: Quad | null;
-  /**
-   * Where each frame's own hole for that screen ends up, `from`'s and `to`'s,
-   * laid from its side: off `quad`, so each is dark under its frame as that
-   * fades in, the screen it shows. Null where the frames are laid from the
-   * screen itself, their holes on `quad`, or where a frame sees it from behind.
-   */
-  holes: [Quad | null, Quad | null];
-}
-
-/**
- * How the frames either side of how far the hinge is `open` are drawn: each
- * laid from its own corners onto those between, of the screen they both see
- * face on, or near edge on of their free edge's side, so the two meet as the
- * half turns and the case never shows twice; and the screen that faces the
- * viewer, as far between the two frames'.
- */
-export function shotPose(shots: FoldShots, open: number): ShotPose | null {
-  const between = shotsBetween(shots, open);
-  if (!between) return null;
-  const { from, to, share } = between;
-  const near = (shot: FoldShot) => Math.abs(shot.deg - 90) <= EDGE_ON;
-  const laidBy = near(from) && near(to) ? null : (paneAt(from.deg) ?? paneAt(to.deg));
-  const own = (shot: FoldShot) => (laidBy ? shotQuad(shot, laidBy) : shot.side);
-  const lay = { from: own(from), to: own(to), onto: quadBetween(own(from), own(to), share) };
-  // A screen just past edge on is still seen from behind, its corners round the other way: none faces the viewer yet.
-  const turned = paneAt(180 * (1 - open));
-  const facing = (pane: Pane, seen: Quad | null) => seen !== null && Math.sign(quadArea(seen)) === faceOf(shots, pane);
-  const seen = turned && quadBetween(shotQuad(from, turned), shotQuad(to, turned), share);
-  const pane = turned && facing(turned, seen) ? turned : null;
-  const quad = pane ? seen : null;
-  const hole = (shot: FoldShot, laid: Quad) => {
-    const laidHole = pane && !laidBy ? laidQuad(laid, lay.onto, shotQuad(shot, pane)) : null;
-    return pane && facing(pane, laidHole) ? laidHole : null;
-  };
-  return { from, to, share, lay, pane, quad, holes: [hole(from, lay.from), hole(to, lay.to)] };
-}
-
 /** Which way a screen's corners go round as it faces the viewer: as they do lying flat, open or shut. */
 function faceOf(shots: FoldShots, pane: Pane): number {
   const shot = pane === "inner" ? shots.frames[0] : shots.frames.at(-1);
@@ -411,28 +388,6 @@ export function quadArea(quad: Quad): number {
     const [nx, ny] = quad[(index + 1) % 4] ?? [x, y];
     return sum + x * ny - nx * y;
   }, 0) / 2;
-}
-
-/** Where the corners of `quad` are seen once the plane is laid from `from` onto `to`, as `quadToQuad` lays it. */
-export function laidQuad(from: Quad, to: Quad, quad: Quad): Quad | null {
-  const back = squareTo(from);
-  const ahead = squareTo(to);
-  if (!back || !ahead) return null;
-  const [a, b, c, d, e, f, g, h, i] = times(ahead, undo(back));
-  const [p, q, r, s] = quad.map(([x, y]): Pair => {
-    const w = g * x + h * y + i;
-    return [(a * x + b * y + c) / w, (d * x + e * y + f) / w];
-  });
-  return p && q && r && s ? [p, q, r, s] : null;
-}
-
-/** A quad `share` of the way from `from` to `to`, corner by corner. */
-export function quadBetween(from: Quad, to: Quad, share: number): Quad {
-  const [a, b, c, d] = from.map(([x, y], index): Pair => {
-    const [tx, ty] = to[index] ?? [x, y];
-    return [lerp(x, tx, share), lerp(y, ty, share)];
-  });
-  return a && b && c && d ? [a, b, c, d] : from;
 }
 
 /** A Quad's bounds, as a rect. */
@@ -478,16 +433,58 @@ function fitOf(from: Rect, to: Rect, across: boolean): Fit {
  * device is drawn; between, the one goes over to the other.
  */
 export function shotsTransform(shots: FoldShots, layout: FoldLayout, inside: Rect, outside: Rect, open: number): string {
+  const fit = shotsFit(shots, layout, inside, outside, open);
+  const exact = (value: number) => Math.round(value * 1e6) / 1e6;
+  const wide = exact(fit.wide);
+  const tall = exact(fit.tall);
+  const e = num(fit.x);
+  const f = num(fit.y);
+  return layout.across ? `matrix(${wide}, 0, 0, ${tall}, ${e}, ${f})` : `matrix(0, ${-wide}, ${tall}, 0, ${e}, ${f})`;
+}
+
+/** How the frames lie on the fold with the hinge `open` of the way open, as `shotsTransform` lays them. */
+function shotsFit(shots: FoldShots, layout: FoldLayout, inside: Rect, outside: Rect, open: number): Fit {
   const [x, y, width, height] = shots.open;
   const last = shots.frames.at(-1);
   const opened = fitOf({ x, y, width, height }, inside, layout.across);
   const shut = last ? fitOf(boundsOf(last.cover), outside, layout.across) : opened;
-  const exact = (value: number) => Math.round(value * 1e6) / 1e6;
-  const wide = exact(lerp(shut.wide, opened.wide, open));
-  const tall = exact(lerp(shut.tall, opened.tall, open));
-  const e = num(lerp(shut.x, opened.x, open));
-  const f = num(lerp(shut.y, opened.y, open));
-  return layout.across ? `matrix(${wide}, 0, 0, ${tall}, ${e}, ${f})` : `matrix(0, ${-wide}, ${tall}, 0, ${e}, ${f})`;
+  return {
+    wide: lerp(shut.wide, opened.wide, open),
+    tall: lerp(shut.tall, opened.tall, open),
+    x: lerp(shut.x, opened.x, open),
+    y: lerp(shut.y, opened.y, open),
+  };
+}
+
+/** A point of the layout scaled by `wide` and `tall` and then moved by `x` and `y`. */
+export interface Drift {
+  wide: number;
+  tall: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * How the device drawn in `posture` moves on the layout with the hinge `open`
+ * of the way open, so it stays on the frames: the frames lie on it exactly at
+ * that posture's end, and between the ends they shrink a little toward the
+ * folded screen's size in the render, which is about 1% smaller than the
+ * device's. None at that end.
+ */
+export function shotsDrift(
+  shots: FoldShots,
+  layout: FoldLayout,
+  inside: Rect,
+  outside: Rect,
+  open: number,
+  posture: PostureValue,
+): Drift {
+  const now = shotsFit(shots, layout, inside, outside, open);
+  const end = shotsFit(shots, layout, inside, outside, openOf(posture));
+  // Held upright the render's x goes up the layout, so its height scales the layout's x.
+  const wide = layout.across ? now.wide / end.wide : now.tall / end.tall;
+  const tall = layout.across ? now.tall / end.tall : now.wide / end.wide;
+  return { wide, tall, x: now.x - wide * end.x, y: now.y - tall * end.y };
 }
 
 /**
@@ -519,68 +516,10 @@ function squareTo(quad: Quad): Mat3 | null {
   return [x1 - x0 + g * x1, x3 - x0 + h * x3, x0, y1 - y0 + g * y1, y3 - y0 + h * y3, y0, g, h, 1];
 }
 
-/** The map `b`, then `a`. */
-function times(a: Mat3, b: Mat3): Mat3 {
-  const [a0, a1, a2, a3, a4, a5, a6, a7, a8] = a;
-  const [b0, b1, b2, b3, b4, b5, b6, b7, b8] = b;
-  return [
-    a0 * b0 + a1 * b3 + a2 * b6, a0 * b1 + a1 * b4 + a2 * b7, a0 * b2 + a1 * b5 + a2 * b8,
-    a3 * b0 + a4 * b3 + a5 * b6, a3 * b1 + a4 * b4 + a5 * b7, a3 * b2 + a4 * b5 + a5 * b8,
-    a6 * b0 + a7 * b3 + a8 * b6, a6 * b1 + a7 * b4 + a8 * b7, a6 * b2 + a7 * b5 + a8 * b8,
-  ];
-}
-
-/** The map undone, scaled anyhow, which a projective map does not mind. */
-function undo(m: Mat3): Mat3 {
-  const [a, b, c, d, e, f, g, h, i] = m;
-  return [
-    e * i - f * h, c * h - b * i, b * f - c * e,
-    f * g - d * i, a * i - c * g, c * d - a * f,
-    d * h - e * g, b * g - a * h, a * e - b * d,
-  ];
-}
-
-/**
- * A plane's map as a css `matrix3d`, with its transform origin at 0 0. Scaled
- * so w is 1 at the origin: the map is the same scaled anyhow, but css draws
- * nothing where w is below 0, as a map scaled by less than 0 has it.
- */
-function matrix3dOf(m: Mat3): string {
-  const w = m[8] || 1;
-  const [a, b, c, d, e, f, g, h, i] = m.map((value) => value / w);
-  const values = [a, d, 0, g, b, e, 0, h, 0, 0, 1, 0, c, f, 0, i];
-  return `matrix3d(${values.map((value) => Number(value.toPrecision(12))).join(", ")})`;
-}
-
-/**
- * The css `matrix3d` that lays the rect `from` onto the quad `to`, corner on
- * corner, each straight line staying straight, as a flat screen is seen in
- * perspective, with its transform origin at 0 0. Null where the quad has no
- * room, seen edge on.
- */
-export function quadToMatrix3d(from: Rect, to: Quad): string | null {
-  const square = squareTo(to);
-  if (!square || from.width <= 0 || from.height <= 0) return null;
-  // The rect onto the square of side 1, then the square onto the quad.
-  const rect: Mat3 = [1 / from.width, 0, -from.x / from.width, 0, 1 / from.height, -from.y / from.height, 0, 0, 1];
-  return matrix3dOf(times(square, rect));
-}
-
-/**
- * The css `matrix3d` that lays the quad `from` onto the quad `to`, corner on
- * corner, as the plane they are both seen on turns, with its transform origin
- * at 0 0. Null where either has no room, seen edge on.
- */
-export function quadToQuad(from: Quad, to: Quad): string | null {
-  const back = squareTo(from);
-  const ahead = squareTo(to);
-  return back && ahead ? matrix3dOf(times(ahead, undo(back))) : null;
-}
-
 /**
  * Where a point of the rect `from` is seen with the rect laid onto the quad
- * `to`, as `quadToMatrix3d` lays it. Null where the quad has no room, seen
- * edge on.
+ * `to`, corner on corner, each straight line staying straight, as a flat
+ * screen is seen in perspective. Null where the quad has no room, seen edge on.
  */
 export function quadMap(from: Rect, to: Quad): ((point: Point) => Point) | null {
   const square = squareTo(to);
