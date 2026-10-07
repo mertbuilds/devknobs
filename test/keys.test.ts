@@ -468,6 +468,10 @@ describe("escapeStep", () => {
     expect(escapeStep({ ...idle, keys: true, editor: true })).toBe("keys");
   });
 
+  test("leaves a search opened from the settings before the settings", () => {
+    expect(escapeStep({ ...idle, search: true, keys: true })).toBe("search");
+  });
+
   test("closes the panel when nothing else is open", () => {
     expect(escapeStep(idle)).toBe("panel");
   });

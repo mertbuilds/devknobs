@@ -108,6 +108,7 @@ export const ICONS = {
     c("12", "12", "3"),
   ],
   "rotate-ccw": [p("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"), p("M3 3v5h5")],
+  "chevron-left": [p("m15 18-6-6 6-6")],
   plus: [p("M5 12h14"), p("M12 5v14")],
   x: [p("M18 6 6 18"), p("m6 6 12 12")],
   "grip-vertical": [

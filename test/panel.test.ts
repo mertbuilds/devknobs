@@ -33,6 +33,7 @@ import {
   velocity,
   wallInput,
 } from "../src/ui/panel";
+import { SLIDE } from "../src/ui/slide";
 import { CSS } from "../src/ui/styles";
 
 describe("overflowBadge", () => {
@@ -800,5 +801,52 @@ describe("the glide", () => {
   test("stops with reduced motion, as every transition does", () => {
     const reduced = CSS.slice(CSS.indexOf("prefers-reduced-motion"));
     expect(reduced).toMatch(/\.wrap, [^{]*\{\s*transition:\s*none !important/);
+  });
+});
+
+describe("the slide between the rows and the settings", () => {
+  const curve = "cubic-bezier(0.32, 0.72, 0, 1)";
+
+  test("moves the views by transform alone, on the iOS curve, as long as the panel waits", () => {
+    const panes = body(".body[data-slide] > .pane");
+    expect(panes).toContain(`transform ${SLIDE}ms ${curve}`);
+    expect(panes).toContain(`opacity ${SLIDE}ms ${curve}`);
+    expect(panes).not.toMatch(/left|width|margin/);
+  });
+
+  test("eases the body's height in the same time, clipped out to the border across", () => {
+    const slide = body(".body[data-slide]");
+    expect(slide).toContain(`height ${SLIDE}ms ${curve}`);
+    expect(slide).toMatch(/clip-path:\s*inset\(0 -4px\)/);
+  });
+
+  test("pushes the settings in from the right and the rows a little to the left", () => {
+    expect(body('.wrap:not([data-mode="keys"]) .body[data-slide] > .keys')).toMatch(
+      /transform:\s*translateX\(100%\)/,
+    );
+    const rows = body('.wrap[data-mode="keys"] .body[data-slide] > .home');
+    expect(rows).toMatch(/transform:\s*translateX\(-30%\)/);
+    expect(rows).toMatch(/opacity:\s*0\.4/);
+  });
+
+  test("starts a view coming in from where it rests while away", () => {
+    const starting = CSS.slice(CSS.indexOf("@starting-style"));
+    const keys = starting.indexOf('.wrap[data-mode="keys"] .body[data-slide] > .keys {');
+    const home = starting.indexOf('.wrap:not([data-mode="keys"]) .body[data-slide] > .home {');
+    expect(starting.slice(keys)).toMatch(/^[^}]*transform:\s*translateX\(100%\)/);
+    expect(starting.slice(home)).toMatch(/^[^}]*transform:\s*translateX\(-30%\)/);
+  });
+
+  test("keeps the view that leaves up, out of the flow, under the settings", () => {
+    const hiding = rules(CSS).find((rule) => rule.selector.includes(".keys:not(.leaving)"));
+    expect(hiding?.selector).toContain('.wrap[data-mode="keys"] .home:not(.leaving)');
+    expect(hiding?.body).toMatch(/display:\s*none/);
+    expect(body(".body[data-slide] > .pane.leaving")).toMatch(/position:\s*absolute/);
+    expect(body(".body[data-slide] > .keys")).toMatch(/z-index:\s*1/);
+  });
+
+  test("swaps at once with reduced motion, the body and the views being in the wrapper", () => {
+    const reduced = CSS.slice(CSS.indexOf("prefers-reduced-motion"));
+    expect(reduced).toMatch(/\.wrap \*, [^{]*\{\s*transition:\s*none !important/);
   });
 });

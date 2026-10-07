@@ -295,14 +295,44 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 
 /* The rows on top, then the add knob button, or the search in its place with
    its results under it. The rows and the results each scroll in their own
-   room, so the results never cover the rows. */
-.body {
+   room, so the results never cover the rows. The settings take the place of
+   all of it. */
+.body, .home {
   position: relative;
   flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+/* The settings push in from the right over the rows, which give way a little
+   to the left and dim, and pop back off the same way, with the curve and the
+   time of an iOS sheet. A view coming in starts from where it rests while it
+   is away, and one turned round on its way goes back from where it is. The
+   body eases between the heights of the two and clips what is past it, out
+   to the panel's border across. The view that leaves is taken out of the
+   flow and the panel holds it at the height it had, and the settings ride
+   above the rows. Reduced motion swaps them at once, as the panel finds no
+   time on them. */
+.body[data-slide] {
+  clip-path: inset(0 -4px);
+  transition: height 500ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.body[data-slide] > .pane {
+  flex: none;
+  transition: transform 500ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 500ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.body[data-slide] > .keys { position: relative; z-index: 1; background: var(--bg); }
+.body[data-slide] > .pane.leaving { position: absolute; top: 0; left: 0; width: 100%; }
+.wrap[data-mode="keys"] .body[data-slide] > .home { transform: translateX(-30%); opacity: 0.4; }
+.wrap:not([data-mode="keys"]) .body[data-slide] > .keys { transform: translateX(100%); }
+@starting-style {
+  .wrap[data-mode="keys"] .body[data-slide] > .keys { transform: translateX(100%); }
+  .wrap:not([data-mode="keys"]) .body[data-slide] > .home {
+    transform: translateX(-30%);
+    opacity: 0.4;
+  }
 }
 .rows, .results {
   position: relative;
@@ -316,19 +346,19 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 /* While the search is open the rows keep their height up to two fifths of the
    tallest panel, and scroll past it, so the results have the rest. */
-.wrap:not([data-mode="rows"]) .rows {
+.wrap:is([data-mode="results"], [data-mode="browse"]) .rows {
   flex-shrink: 0;
   max-height: calc(min(672px, 100vh - 16px) * 0.4);
   max-height: calc(min(672px, 100dvh - 16px) * 0.4);
 }
-.wrap[data-mode="rows"] .results,
-.wrap[data-mode="rows"] .head,
-.wrap:not([data-mode="rows"]) .add,
-.wrap:not([data-mode="rows"]) .body > .empty,
-.wrap[data-mode="keys"] .rows,
-.wrap[data-mode="keys"] .results,
-.wrap[data-mode="keys"] .head,
-.wrap:not([data-mode="keys"]) .keys { display: none; }
+/* The rows view stays as it was while the settings show, so it leaves and
+   comes back as it is. */
+.wrap:not([data-mode="results"], [data-mode="browse"]) .results,
+.wrap:not([data-mode="results"], [data-mode="browse"]) .head,
+.wrap:is([data-mode="results"], [data-mode="browse"]) .add,
+.wrap:is([data-mode="results"], [data-mode="browse"]) .home > .empty,
+.wrap[data-mode="keys"] .home:not(.leaving),
+.wrap:not([data-mode="keys"]) .keys:not(.leaving) { display: none; }
 .empty { padding: 4px 10px; color: var(--faint); }
 /* Heard, not seen. */
 .said {
@@ -679,6 +709,20 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    shakes the key and turns it red for a moment; reduced motion keeps only the
    red. */
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+/* Back to the rows, on top of the settings and as tall as a row, its chevron
+   where a row's grip is and its title where a row's icon is. */
+.back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px 0 4px;
+  border-radius: 8px;
+  transition: background-color 120ms ease-out;
+}
+.back .glyph { color: var(--faint); transition: color 120ms ease-out; }
+.back:hover { background: var(--card); }
+.back:hover .glyph { color: var(--fg); }
 .key-row {
   display: flex;
   align-items: center;

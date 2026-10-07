@@ -63,6 +63,7 @@ import {
 } from "./list";
 import { createPrefs } from "./prefs";
 import { filterOptions, type Result, resultText, search, searchActions } from "./search";
+import { createSlide, focusOn, type View } from "./slide";
 import { CSS } from "./styles";
 
 export { wallInput } from "./catalog";
@@ -573,22 +574,22 @@ export function createPanel(options: PanelOptions = {}): Panel {
   // Says where a row moved to, and why a key was not taken, for assistive tech.
   const said = el("div", "said");
   said.setAttribute("aria-live", "polite");
-  // The settings, in place of the rows: whether the handle shows while the
-  // panel is closed, then each binding's key, to set or put back. A key that
-  // is not taken shakes its chip and says why in the tooltip.
-  const keysView = el("div", "keys");
+  // The settings, in place of the rows: a way back to them, whether the
+  // handle shows while the panel is closed, then each binding's key, to set
+  // or put back. A key that is not taken shakes its chip and says why in the
+  // tooltip.
+  const keysView = el("div", "keys pane");
   keysView.setAttribute("role", "group");
   keysView.setAttribute("aria-label", "settings");
+  const keysBack = button("back", "");
+  keysBack.append(icon("chevron-left"), "settings");
+  keysBack.setAttribute("aria-label", "back from settings");
   const handleLine = el("div", "key-row");
   const handleSwitch = button("switch", "");
   handleSwitch.setAttribute("role", "switch");
   handleSwitch.setAttribute("aria-label", "show handle");
   handleLine.append(el("span", "key-word", "show handle"), handleSwitch);
-  keysView.append(
-    el("div", "group-label", "settings"),
-    handleLine,
-    el("div", "group-label", "shortcuts"),
-  );
+  keysView.append(keysBack, handleLine, el("div", "group-label", "shortcuts"));
   const keyViews = new Map<
     Binding,
     { set: HTMLButtonElement; back: HTMLButtonElement }
@@ -603,7 +604,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     keysView.append(line);
     keyViews.set(binding, { set, back });
   }
-  body.append(rows, empty, add, head, results, keysView, said);
+  // The rows view, which the settings slide in over.
+  const home = el("div", "home pane");
+  home.append(rows, empty, add, head, results);
+  body.append(home, keysView, said);
+  const slide = createSlide(body, { home, keys: keysView });
 
   const foot = el("div", "foot");
   const badge = el("span", "badge");
@@ -1435,7 +1440,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
   function renderBody(state: DevknobsState): void {
     const query = searchInput.value.trim();
     const mode = editingKeys ? "keys" : query ? "results" : browsing ? "browse" : "rows";
-    wrap.dataset.mode = mode;
+    slide.show(mode === "keys" ? "keys" : "home", state.panel.open, () => {
+      wrap.dataset.mode = mode;
+    });
     searchInput.setAttribute("aria-expanded", mode === "rows" ? "false" : "true");
     if (mode === "results") {
       entries = resultEntries(query, state);
@@ -1663,10 +1670,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (tipFor === chip) hideTip();
   }
 
+  /** Hand the focus to what a view takes it on, as it slides there. */
+  function focusView(view: View): void {
+    (focusOn(view) === "back" ? keysBack : keysToggle).focus({ preventScroll: true });
+  }
+
   function openKeys(): void {
     if (browsing || searchInput.value) leaveSearch();
     editingKeys = true;
     render();
+    focusView("keys");
   }
 
   /** The control whose tooltip shows, or is about to once the pointer rests. */
@@ -1732,9 +1745,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     stopRecording();
     editingKeys = false;
     render();
+    focusView("home");
   }
 
   keysToggle.addEventListener("click", () => (editingKeys ? leaveKeys() : openKeys()));
+  keysBack.addEventListener("click", leaveKeys);
   tooltip(keysToggle, "settings");
   // Hiding the handle says how to bring the closed panel back, so nobody is shut out.
   handleSwitch.addEventListener("click", () => {
@@ -2239,7 +2254,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
       filter.dispatchEvent(new Event("input"));
     } else if (step === "keys") {
       leaveKeys();
-      keysToggle.focus({ preventScroll: true });
     } else if (step === "editor" && view) {
       openEditor(null);
       view.main.focus();
@@ -2345,6 +2359,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       clearTimeout(tipTimer);
       clearTimeout(refusedTimer);
       cancelAnimationFrame(following);
+      slide.destroy();
       for (const timer of pending.values()) clearTimeout(timer);
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("pointerdown", onPointerDown, true);
