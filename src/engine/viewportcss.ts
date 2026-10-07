@@ -25,12 +25,14 @@ export const VIEWPORT_CSS = `
   direction: ltr;
 }
 /* The mat's paint, which a device change cuts its opening in, and the veil
-   under it in the page's color, which hides the page as the frame comes. */
-.back, .veil {
+   under it in the page's color, which hides the page as the frame comes. A
+   splash over the paint shows a new color as it spreads. */
+.back, .veil, .splash {
   position: absolute;
   inset: 0;
 }
-.back { background: var(--mat); }
+.back, .splash { background: var(--mat); }
+.splash { pointer-events: none; }
 /* The screen of a page that is loading, blank in the page's color. */
 .screenblank {
   position: absolute;
@@ -154,7 +156,7 @@ iframe {
 }
 .blocked button:hover { color: #fff; border-color: #fff; }
 @media (color-gamut: p3) {
-  .back, .blocked { background: var(--mat-p3); }
+  .back, .splash, .blocked { background: var(--mat-p3); }
 }
 ${MAT_CSS}
 ${MOCK_CSS}

@@ -395,6 +395,24 @@ class FakeElement extends EventTarget {
     return node;
   }
 
+  after(node: FakeElement): void {
+    const siblings = this.parent?.children;
+    this.parent?.insertBefore(node, siblings?.[siblings.indexOf(this) + 1] ?? null);
+  }
+
+  /** A copy with the same attributes, and copies of the children when `deep`. */
+  cloneNode(deep = false): FakeElement {
+    const copy = new FakeElement(this.tagName);
+    for (const [name, value] of this.attributes) copy.setAttribute(name, value);
+    if (deep) copy.append(...this.children.map((child) => child.cloneNode(true)));
+    return copy;
+  }
+
+  /** A tag name such as `pattern`, the only kind the mat's splash asks for. */
+  querySelector(selector: string): FakeElement | null {
+    return [...this.descendants()].find((node) => node.tagName === selector) ?? null;
+  }
+
   remove(): void {
     const siblings = this.parent?.children;
     siblings?.splice(siblings.indexOf(this), 1);
@@ -766,6 +784,106 @@ describe("the frame over the page", () => {
     apply({ ...phone, mat: "green" });
     expect(letterbox?.getAttribute("data-mat")).toBe("green");
     expect(back && Reflect.get(back.style, "clipPath")).toBe(opening);
+  });
+
+  describe("a new mat color splashing out", () => {
+    let frames: FrameRequestCallback[];
+    let cancelled: number;
+    const named = (name: string) =>
+      everything().filter((element) => Reflect.get(element, "className") === name);
+    /** Run the frames asked for at `now` ms. */
+    const tick = (now: number) => {
+      for (const frame of frames.splice(0)) frame(now);
+    };
+
+    beforeEach(() => {
+      apply({ ...VIEWPORT, mock: false });
+      define("Element", FakeElement);
+      define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+      Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+      frames = [];
+      cancelled = 0;
+      Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+        frames.push(callback),
+      );
+      Reflect.set(window, "cancelAnimationFrame", () => cancelled++);
+    });
+
+    test("comes over the old color from the screen, behind the device, and leaves nothing once it covers the mat", () => {
+      const [letterbox] = named("viewport");
+      const [back] = named("back");
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      expect(letterbox?.getAttribute("data-mat")).toBe("green");
+      // The mat's paint keeps the old color under the splash.
+      expect(back?.getAttribute("data-mat")).toBe("blue");
+      const [splash] = named("splash");
+      expect(splash?.getAttribute("data-mat")).toBe("green");
+      expect(splash && letterbox?.children.indexOf(splash)).toBe(
+        back && (letterbox?.children.indexOf(back) ?? 0) + 1,
+      );
+      // Its own lines, on a grid of its own, so they take its color.
+      const grid = splash?.querySelector("pattern")?.getAttribute("id");
+      expect(grid).toStartWith("mat-grid-");
+      expect(splash?.querySelector("rect")?.getAttribute("fill")).toBe(`url(#${grid})`);
+      tick(0);
+      tick(200);
+      expect(String(splash && Reflect.get(splash.style, "clipPath"))).toStartWith('path("M');
+      tick(700);
+      expect(named("splash")).toHaveLength(0);
+      expect(back?.hasAttribute("data-mat")).toBe(false);
+      expect(frames).toHaveLength(0);
+    });
+
+    test("stacks a color picked mid splash over the one on its way, and lands each in turn", () => {
+      const [back] = named("back");
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      tick(0);
+      tick(300);
+      apply({ ...VIEWPORT, mock: false, mat: "magenta" });
+      expect(named("splash").map((node) => node.getAttribute("data-mat"))).toEqual([
+        "green",
+        "magenta",
+      ]);
+      tick(400);
+      tick(700);
+      expect(named("splash").map((node) => node.getAttribute("data-mat"))).toEqual(["magenta"]);
+      expect(back?.getAttribute("data-mat")).toBe("green");
+      tick(1100);
+      expect(named("splash")).toHaveLength(0);
+      expect(back?.hasAttribute("data-mat")).toBe(false);
+    });
+
+    test("lands at once when a device change starts", () => {
+      const [back] = named("back");
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      tick(0);
+      apply({ ...VIEWPORT, mock: false, mat: "green", device: "iphone-16-pro" });
+      tick(100);
+      expect(named("splash")).toHaveLength(0);
+      expect(back?.hasAttribute("data-mat")).toBe(false);
+      expect(named("viewport")[0]?.getAttribute("data-mat")).toBe("green");
+    });
+
+    test("leaves no layer and no frame when the frame goes mid splash", () => {
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      tick(0);
+      reset();
+      expect(cancelled).toBeGreaterThan(0);
+      expect(named("splash")).toHaveLength(0);
+      tick(100);
+      expect(frames).toHaveLength(0);
+    });
+
+    test("is instant with less motion", () => {
+      Reflect.set(window, "matchMedia", (query: string) => ({
+        matches: query.includes("reduce"),
+        media: query,
+      }));
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      expect(named("splash")).toHaveLength(0);
+      expect(named("viewport")[0]?.getAttribute("data-mat")).toBe("green");
+      expect(named("back")[0]?.hasAttribute("data-mat")).toBe(false);
+    });
   });
 
   test("rounds the mat's opening, then moves it a frame at a time onto a fitted screen, and back", async () => {

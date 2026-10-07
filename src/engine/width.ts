@@ -1,4 +1,4 @@
-import type { DevknobsState, DprValue, MatColorValue, PanelValue, ZoomValue } from "../types";
+import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
 import * as address from "./address";
 import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
@@ -17,6 +17,7 @@ import {
   type ZoomAction,
 } from "./frame";
 import { drawMat } from "./mat";
+import { landSplash, spreadMat } from "./matsplash";
 import type { Mock, Rect } from "./mock";
 import { corners, drawMock, UNDER } from "./mockdraw";
 import {
@@ -646,11 +647,6 @@ function contentNodes(): HTMLElement[] {
   return [readout, stage, notice].filter((node): node is HTMLElement => node !== null);
 }
 
-function paintMat(mat: MatColorValue): void {
-  current = { ...current, mat };
-  letterbox?.setAttribute("data-mat", mat);
-}
-
 /** Draw the knobs: a new zoom from elsewhere keeps the middle of the letterbox where it is. */
 function draw(value: ViewportValue): void {
   const zoom = current.zoom;
@@ -708,6 +704,7 @@ function change(target: "open" | "closed"): void {
 
 /** Keep the frame's drawing for the next page. One on its way somewhere, or scrolled, keeps none. */
 function keep(): void {
+  landSplash();
   const moving = running() || turning() || folding();
   const away = moving || released || stage?.scrollLeft || stage?.scrollTop;
   if (!letterbox || !frame || !picker || away) {
@@ -884,6 +881,7 @@ function teardown(): void {
   forgetTurn();
   forgetFold();
   forget();
+  landSplash();
   released = false;
   stopAdopting();
   dropEarly();
@@ -920,8 +918,9 @@ export function apply(value: ViewportValue): void {
   // A device turned or folded while it stands does so in view. One on its way changes as any other change.
   const turns = animate && !running() && turnOf(from, shape) !== 0;
   const bends = animate && !running() && folds(from, shape);
-  // The mat takes a new color at once, also while a device change holds the other knobs back.
-  if (host) paintMat(value.mat);
+  // The mat takes a new color now, also while a device change holds the other knobs back.
+  if (host) current = { ...current, mat: value.mat };
+  if (letterbox && back) spreadMat({ letterbox, back, paper: mat, screen: screenRect }, value.mat);
   if (folding()) {
     if (from === shape) {
       // The fold goes on, and the frame takes the other knobs once it is there.
