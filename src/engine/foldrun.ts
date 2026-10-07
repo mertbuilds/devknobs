@@ -15,17 +15,17 @@ import {
   hingeStep,
   hingeStill,
   openOf,
-  outline,
   type Pane,
   paneLook,
   type Point,
   RIM,
+  roundedPath,
   screenDim,
   seenAt,
 } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners, drawMock, UNDER } from "./mockdraw";
-import { lerp } from "./morph";
+import { type Corners, lerp } from "./morph";
 import { blurPictures, copyPage, forgetShots, paintPage, shootPage } from "./pageshot";
 import { slowed, slowness } from "./slow";
 import { coverTo, darken, type TurnScene } from "./turnrun";
@@ -84,23 +84,26 @@ interface Leaf {
   /** The way from the hinge to the free edge, as a gradient goes, and where the two are on the stage, in percent. */
   toward: string;
   span: [number, number];
-  /** The outline of the part that turns, and the point it turns about, in the body's css px. */
-  outline: Point[];
+  /** The part that turns and its corners, and the point it turns about, in the body's css px. */
+  rect: Rect;
+  radii: Corners;
   pivot: Point;
-  /** Where the window's top left is in the body's css px. */
-  corner: Point;
   /** The screen's css px across the hinge, and its width. */
   extent: number;
   width: number;
 }
 
-/** The layer a fold is drawn on, the fold's place on it, the half that turns, and the bend at the hinge. */
+/**
+ * The layer a fold is drawn on, the fold's place on it, the half that turns,
+ * and the bend at the hinge: its half on the half that turns, and on the half that stays.
+ */
 interface Layer {
   layer: HTMLElement;
   place: HTMLElement;
   inner: Leaf;
   outer: Leaf;
   bend: HTMLElement;
+  still: HTMLElement;
 }
 
 /**
@@ -155,6 +158,11 @@ function div(className: string): HTMLElement {
   return node;
 }
 
+/** Corners as a css border radius. */
+function round(radii: Corners): string {
+  return radii.map((radius) => `${radius}px`).join(" ");
+}
+
 /** Fill the box it is in. */
 function fill(node: HTMLElement): HTMLElement {
   node.style.position = "absolute";
@@ -191,7 +199,7 @@ function paintLeaf(leaf: Leaf, shot: HTMLCanvasElement): void {
 }
 
 /** The screen of a side's body, where it is in the body, and its corners. */
-function screenOf(side: Face): { rect: Rect; radii: number[] } {
+function screenOf(side: Face): { rect: Rect; radii: Corners } {
   const { body, size } = side;
   const rect = { x: body?.inset.left ?? 0, y: body?.inset.top ?? 0, ...size };
   return { rect, radii: body ? corners(body.screenRadius) : [0, 0, 0, 0] };
@@ -202,7 +210,7 @@ interface Turning {
   pane: Pane;
   /** Where it is in the body, and its corners, square at the hinge. */
   rect: Rect;
-  radii: number[];
+  radii: Corners;
   toward: string;
   /** Where the hinge and the free edge are along `toward` on the whole screen, in percent. */
   span: [number, number];
@@ -221,11 +229,11 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
   const node = div("face");
   node.style.width = `${body?.width ?? size.width}px`;
   node.style.height = `${body?.height ?? size.height}px`;
-  const { rect: whole } = screenOf(side);
+  const { rect: whole, radii } = screenOf(side);
   const { rect } = turning;
   const screen = placeAt(div(""), whole);
   screen.style.background = "#000";
-  if (body) screen.style.borderRadius = corners(body.screenRadius).map((r) => `${r}px`).join(" ");
+  screen.style.borderRadius = round(radii);
   if (href) screen.style.boxShadow = `0 0 0 ${UNDER}px #000`;
   node.append(screen);
   if (body) {
@@ -239,7 +247,10 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
   dark.style.position = "absolute";
   dark.style.inset = "-100%";
   dark.style.background = "#000";
+  // Rounded as the screen is, so the pictures, the bars and the rim are too.
   const stage = placeAt(div(""), { ...whole, x: whole.x - rect.x, y: whole.y - rect.y });
+  stage.style.borderRadius = round(radii);
+  stage.style.overflow = "hidden";
   if (picture.bars) stage.append(picture.bars);
   const rim = fill(div(""));
   const edge = `transparent ${RIM * 100}%, transparent ${(1 - RIM) * 100}%`;
@@ -251,6 +262,7 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
   veil.style.width = node.style.width;
   veil.style.height = node.style.height;
   const shade = placeAt(div(""), rect);
+  shade.style.borderRadius = round(turning.radii);
   veil.append(shade);
   const leaf: Leaf = {
     pane: turning.pane,
@@ -265,9 +277,9 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     shade,
     toward: turning.toward,
     span: turning.span,
-    outline: outline(rect, turning.radii),
+    rect,
+    radii: turning.radii,
     pivot: turning.pivot,
-    corner: { x: rect.x, y: rect.y },
     extent: across ? size.width : size.height,
     width: size.width,
   };
@@ -333,20 +345,30 @@ function build(scene: FoldScene, layout: FoldLayout, open: Face, closed: Face, p
   }
   outer.node.style.transformOrigin = layout.origins.outer;
   outer.veil.style.transformOrigin = layout.origins.outer;
-  // A crease down the hinge, in the screen it bends.
-  const bend = div("");
-  bend.style.position = "absolute";
-  bend.style.left = across ? `${hinge - BEND}px` : `${inside.rect.x}px`;
-  bend.style.top = across ? `${inside.rect.y}px` : `${hinge - BEND}px`;
-  bend.style.width = across ? `${2 * BEND}px` : `${inside.rect.width}px`;
-  bend.style.height = across ? `${inside.rect.height}px` : `${2 * BEND}px`;
-  const shade = "transparent, rgba(0, 0, 0, 0.3) 50%, transparent";
-  bend.style.background = `linear-gradient(${across ? "to right" : "to bottom"}, ${shade})`;
+  // A crease down the hinge, in the screen it bends, darkest at the hinge. Each
+  // half of it meets the other there, the one on the half that turns turned
+  // with it, so its edge at the hinge is not cut off as it stands.
+  const crease = (turned: boolean) => {
+    const before = across === turned;
+    const from = before ? hinge - BEND : hinge;
+    const node = placeAt(
+      div(""),
+      across
+        ? { x: from, y: inside.rect.y, width: BEND, height: inside.rect.height }
+        : { x: inside.rect.x, y: from, width: inside.rect.width, height: BEND },
+    );
+    const away = across ? (before ? "to left" : "to right") : before ? "to top" : "to bottom";
+    node.style.background = `linear-gradient(${away}, rgba(0, 0, 0, 0.3), transparent)`;
+    return node;
+  };
+  const bend = crease(true);
+  const still = crease(false);
   inner.veil.append(bend);
-  place.append(inner.node, inner.window, inner.veil, outer.node, outer.window, outer.veil);
+  // The bend's half that stays shows only while the inside does, so the outside never goes over it.
+  place.append(inner.node, inner.window, inner.veil, outer.node, outer.window, outer.veil, still);
   layer.append(place);
   scene.place(layer);
-  return { layer, place, inner, outer, bend };
+  return { layer, place, inner, outer, bend, still };
 }
 
 /**
@@ -445,13 +467,13 @@ function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: stri
   if (!transform) return;
   leaf.node.style.transform = transform;
   leaf.veil.style.transform = transform;
-  // The window shows the flat picture only where the turned screen is seen.
-  const { corner, pivot } = leaf;
-  const points = leaf.outline.map((point) => {
+  // The window shows the flat picture only where the turned screen is seen, its corners as round.
+  const { rect, pivot } = leaf;
+  const path = roundedPath(rect, leaf.radii, (point) => {
     const seen = seenAt(point, pivot, frame.degrees, layout.across, layout.depth);
-    return `${Math.round((seen.x - corner.x) * 100) / 100}px ${Math.round((seen.y - corner.y) * 100) / 100}px`;
+    return { x: seen.x - rect.x, y: seen.y - rect.y };
   });
-  leaf.window.style.clipPath = `polygon(${points.join(", ")})`;
+  leaf.window.style.clipPath = `path("${path}")`;
   leaf.rim.style.opacity = String(frame.lift);
   const look = paneLook(leaf.pane, open, leaf.extent);
   leaf.shade.style.background = shading(leaf.toward, look.turned);
@@ -475,14 +497,20 @@ function show(going: Going): void {
   stand(parts.inner, layout, frame, frame.inner, open, 1 - hand);
   stand(parts.outer, layout, frame, frame.outer, open, 1 - hand);
   parts.bend.style.opacity = String(frame.lift);
+  // As the half that turns shows it, faded as it is.
+  parts.still.style.visibility = frame.inner ? "" : "hidden";
+  parts.still.style.opacity = String(frame.lift * (1 - hand));
   // The frame's own device moves with the fold, its folded body onto where it lies shut.
   const opened = unit.posture === "open";
   const own = opened ? layout.unfolded.scale : layout.folded.scale;
   const to = opened ? { x, y } : { x: x + layout.shut.x * scale, y: y + layout.shut.y * scale };
   const by = { x: to.x - unit.corner.x, y: to.y - unit.corner.y };
   scene.unit.style.transform = `translate(${by.x}px, ${by.y}px) scale(${(unit.base * scale) / own})`;
-  // Open, only the half that stays shows, till the copy of the other fades into it.
-  const hinge = (layout.hinge * own) / unit.base;
+  // Open, only the half that stays shows, till the copy of the other fades into it. It
+  // goes a px of the screen under the inside of the copy, while that shows, so
+  // their edges at the hinge leave no seam.
+  const under = frame.inner ? 1 : 0;
+  const hinge = ((layout.hinge + (layout.across ? -under : under)) * own) / unit.base;
   const far = 1e5;
   const rest = layout.across
     ? `polygon(${hinge}px -${far}px, ${far}px -${far}px, ${far}px ${far}px, ${hinge}px ${far}px)`

@@ -18,9 +18,9 @@ import {
   hingeStep,
   hingeStill,
   openOf,
-  outline,
   paneLook,
   RIM,
+  roundedPath,
   screenDim,
   seenAt,
   uvOf,
@@ -243,17 +243,42 @@ describe("seenAt", () => {
   });
 });
 
-describe("outline", () => {
-  test("goes round the rect clockwise from its top left, a few points along each rounded corner", () => {
-    const points = outline({ x: 0, y: 0, width: 100, height: 50 }, [10, 0, 0, 10]);
-    expect(points).toHaveLength(4 + 1 + 1 + 4);
-    expect(points[0]?.x).toBeCloseTo(0);
-    expect(points[0]?.y).toBeCloseTo(10);
-    expect(points[3]?.x).toBeCloseTo(10);
-    expect(points[3]?.y).toBeCloseTo(0);
-    expect(points[4]).toEqual({ x: 100, y: 0 });
-    expect(points[5]).toEqual({ x: 100, y: 50 });
-    expect(points[9]?.x).toBeCloseTo(0);
+describe("roundedPath", () => {
+  const flat = (point: { x: number; y: number }) => point;
+
+  test("goes round the rect clockwise from its top left, each rounded corner a quarter circle's cubic", () => {
+    const path = roundedPath({ x: 0, y: 0, width: 100, height: 50 }, [10, 0, 0, 10], flat);
+    expect(path).toBe("M10 0L100 0L100 50L10 50C4.48 50 0 45.52 0 40L0 10C0 4.48 4.48 0 10 0Z");
+  });
+
+  test("shrinks corners that would overlap, as css draws them", () => {
+    const path = roundedPath({ x: 0, y: 0, width: 40, height: 100 }, [30, 30, 0, 0], flat);
+    expect(path.startsWith("M20 0L20 0C")).toBe(true);
+  });
+
+  test("puts every point and handle where the turn sees it", () => {
+    const rect = { x: 20, y: 10, width: 200, height: 300 };
+    const pivot = { x: 220, y: 160 };
+    const seen = (point: { x: number; y: number }) => seenAt(point, pivot, 40, true, 2000);
+    const path = roundedPath(rect, [55, 0, 0, 55], seen);
+    const numbers = (path.match(/-?[\d.]+/g) ?? []).map(Number);
+    const start = seen({ x: 75, y: 10 });
+    expect(numbers[0]).toBeCloseTo(start.x, 1);
+    expect(numbers[1]).toBeCloseTo(start.y, 1);
+    // The top left corner ends on the seen top edge, where the path started.
+    expect(path.endsWith(`${numbers[0]} ${numbers[1]}Z`)).toBe(true);
+    // Its last handle lies on the seen top edge, so the curve meets it without a kink.
+    const handle = seen({ x: 20 + 55 * (1 - 0.5523), y: 10 });
+    expect(path).toContain(`${Math.round(handle.x * 100) / 100} ${Math.round(handle.y * 100) / 100} ${numbers[0]}`);
+  });
+
+  test("keeps a corner's curve on the circle it rounds, flat", () => {
+    const path = roundedPath({ x: 0, y: 0, width: 200, height: 200 }, [0, 50, 0, 0], flat);
+    const curve = /C([\d. ]+)/.exec(path)?.[1]?.split(" ").map(Number) ?? [];
+    const [x1 = 0, y1 = 0, x2 = 0, y2 = 0, x3 = 0, y3 = 0] = curve;
+    // The cubic's middle, from (150, 0), is within a hair of the circle about (150, 50).
+    const mid = { x: (150 + 3 * x1 + 3 * x2 + x3) / 8, y: (0 + 3 * y1 + 3 * y2 + y3) / 8 };
+    expect(Math.hypot(mid.x - 150, mid.y - 50)).toBeCloseTo(50, 1);
   });
 });
 

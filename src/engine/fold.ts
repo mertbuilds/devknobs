@@ -1,6 +1,6 @@
 import type { PostureValue } from "../types";
 import type { Rect, Sides } from "./mock";
-import { lerp } from "./morph";
+import { type Corners, fitCorners, lerp } from "./morph";
 
 /**
  * A foldable folding open or shut in view, as a book does: the half of the
@@ -256,28 +256,38 @@ export function seenAt(point: Point, pivot: Point, degrees: number, across: bool
     : { x: pivot.x + x * grow, y: pivot.y + y * Math.cos(angle) * grow };
 }
 
+/** How far along its tangents a cubic's handles sit to draw a quarter circle, in radii. */
+const KAPPA = 0.5523;
+
 /**
- * Points around a rect with its corners rounded by `radii`, top left first and
- * clockwise, a few along each corner, as a polygon of it.
+ * The outline of a rect with its corners rounded by `radii`, from the top left
+ * round by the right, as css path data, each point put where `seen` puts it:
+ * its sides as lines, and each corner as a quarter circle's cubic through its
+ * handles, so it stays as round as a border radius in perspective.
  */
-export function outline(rect: { x: number; y: number; width: number; height: number }, radii: number[]): Point[] {
+export function roundedPath(rect: Rect, radii: Corners, seen: (point: Point) => Point): string {
   const { x, y, width, height } = rect;
-  const most = Math.min(width, height) / 2;
-  const [a = 0, b = 0, c = 0, d = 0] = radii.map((radius) => Math.max(0, Math.min(radius, most)));
-  // Each corner's middle, its radius, and where along a circle it starts, in quarter turns.
-  const turns: [number, number, number, number][] = [
-    [x + a, y + a, a, 2],
-    [x + width - b, y + b, b, 3],
-    [x + width - c, y + height - c, c, 0],
-    [x + d, y + height - d, d, 1],
-  ];
-  return turns.flatMap(([cx, cy, radius, start]) => {
-    const steps = radius > 0 ? 4 : 1;
-    return Array.from({ length: steps }, (_, step) => {
-      const angle = ((start + step / Math.max(1, steps - 1)) * Math.PI) / 2;
-      return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
-    });
-  });
+  const [a, b, c, d] = fitCorners(rect, radii);
+  const at = (px: number, py: number) => {
+    const point = seen({ x: px, y: py });
+    return `${num(point.x)} ${num(point.y)}`;
+  };
+  // A corner from where it leaves one side, by its two handles, to where it meets the next.
+  const corner = (radius: number, from: Point, to: Point, tip: Point) => {
+    if (radius <= 0) return `L${at(tip.x, tip.y)}`;
+    const handle = (end: Point) => at(end.x + (tip.x - end.x) * KAPPA, end.y + (tip.y - end.y) * KAPPA);
+    return `L${at(from.x, from.y)}C${handle(from)} ${handle(to)} ${at(to.x, to.y)}`;
+  };
+  const right = x + width;
+  const bottom = y + height;
+  return [
+    `M${at(x + a, y)}`,
+    corner(b, { x: right - b, y }, { x: right, y: y + b }, { x: right, y }),
+    corner(c, { x: right, y: bottom - c }, { x: right - c, y: bottom }, { x: right, y: bottom }),
+    corner(d, { x: x + d, y: bottom }, { x, y: bottom - d }, { x, y: bottom }),
+    corner(a, { x, y: y + a }, { x: x + a, y }, { x, y }),
+    "Z",
+  ].join("");
 }
 
 /**

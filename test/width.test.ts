@@ -1057,10 +1057,11 @@ describe("a foldable folding", () => {
     // Live and shut for the first of the way, a copy of the half that turns fading in over it, then
     // laid out open, the half that stays live under a dim, the copy turning over it.
     const style = (name: string, key: string) => String(Reflect.get(byClass(name)?.style ?? {}, key) ?? "");
-    // Each side of the half that turns is its body, the window onto the page its screen is, and the shade over it.
+    // Each side of the half that turns is its body, the window onto the page its screen is, and the shade over
+    // it, then the bend's half on the half that stays.
     const leaves = () => byClass("fold")?.children[0]?.children ?? [];
     expect(Reflect.get(frameElement().style, "width")).toBe("466px");
-    expect(leaves()).toHaveLength(6);
+    expect(leaves()).toHaveLength(7);
     // Its body whole, only its screen faded, so nothing behind the device shows through.
     expect(Reflect.get(leaves()[3]?.style ?? {}, "opacity") || "").toBe("");
     expect(Reflect.get(leaves()[3]?.children[0]?.style ?? {}, "opacity")).toBe("0");
@@ -1127,6 +1128,17 @@ describe("a foldable folding", () => {
         expect(Reflect.get(outer?.style ?? {}, "opacity") || "").toBe("");
         expect(Reflect.get(inner?.children[0]?.style ?? {}, "borderRadius")).toBe(open[0]);
         expect(Reflect.get(outer?.children[0]?.style ?? {}, "borderRadius")).toBe(shut[0]);
+        // The pictures each window shows are rounded as their screen, the window cut with true curves, and
+        // the shade over the turned screen rounded as it is, square only at the hinge.
+        const [, innerWindow, innerVeil, , outerWindow, outerVeil] = leaves;
+        expect(Reflect.get(innerWindow?.children[1]?.style ?? {}, "borderRadius")).toBe(open[0]);
+        expect(Reflect.get(outerWindow?.children[1]?.style ?? {}, "borderRadius")).toBe(shut[0]);
+        expect(Reflect.get(innerVeil?.children[0]?.style ?? {}, "borderRadius")).toBe("55px 0px 0px 55px");
+        expect(Reflect.get(outerVeil?.children[0]?.style ?? {}, "borderRadius")).toBe(shut[0]);
+        for (const window of [innerWindow, outerWindow]) {
+          const clip = String(Reflect.get(window?.style ?? {}, "clipPath") ?? "");
+          if (Reflect.get(window?.style ?? {}, "visibility") !== "hidden") expect(clip).toStartWith('path("M');
+        }
         // The device itself is drawn whole and opaque, its screen with its own corners, the mat uncut.
         const glass = String(Reflect.get(byClass("glass")?.style ?? {}, "borderRadius"));
         expect([open[0], shut[0]]).toContain(glass);
