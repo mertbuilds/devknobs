@@ -34,7 +34,7 @@ import {
 } from "./catalog";
 import { BINDING_WORDS, BINDINGS, createKeys, type LiveKeys, recordStep } from "./bindings";
 import { createFoldSlider, foldChip } from "./foldslider";
-import { ACTION_ICONS, icon, ROW_ICONS } from "./icons";
+import { ACTION_ICONS, BINDING_ICONS, icon, type IconName, ROW_ICONS } from "./icons";
 import {
   type Binding,
   comboLabel,
@@ -603,7 +603,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   // The settings, in place of the rows: a way back to them, whether the
   // handle shows while the panel is closed, then each binding's key, to set
   // or put back. A key that is not taken shakes its chip and says why in the
-  // tooltip.
+  // tooltip. The panel's icons face the side it is on.
   const keysView = el("div", "keys pane");
   keysView.setAttribute("role", "group");
   keysView.setAttribute("aria-label", "settings");
@@ -612,12 +612,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const handleSwitch = button("switch row-control", "");
   handleSwitch.setAttribute("role", "switch");
   handleSwitch.setAttribute("aria-label", "show handle");
-  // The handle's line has no x, but keeps its room so its switch lines up with the keys.
-  const noClear = el("span", "clear");
-  noClear.hidden = true;
+  const sided = (name: IconName): SVGElement => {
+    const glyph = icon(name);
+    if (name.startsWith("panel-")) glyph.classList.add("sided");
+    return glyph;
+  };
   keysView.append(
     rowBox(keysBack, icon("chevron-left"), "settings"),
-    rowBox(el("div", "main"), el("span", "glyph blank"), "show handle", handleSwitch, noClear),
+    rowBox(el("div", "main"), sided("panel-right"), "show handle", handleSwitch),
     el("div", "group-label", "shortcuts"),
   );
   const keyViews = new Map<
@@ -630,7 +632,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const back = button("clear", "");
     back.append(icon("x"));
     back.setAttribute("aria-label", `put the ${word} key back`);
-    keysView.append(rowBox(el("div", "main"), el("span", "glyph blank"), word, set, back));
+    // Its x sits before its key, so every key ends on the row's right edge.
+    keysView.append(rowBox(el("div", "main"), sided(BINDING_ICONS[binding]), word, set));
+    set.before(back);
     keyViews.set(binding, { set, back });
   }
   // The rows view, which the settings slide in over.
@@ -1439,15 +1443,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const actions = searchActions(query, actionsHere);
     const found = search(query).map((result, index) => {
       const text = resultText(result);
-      const value = el("span", "entry-value", text.value);
       const current = result.option !== null && result.knob.read(state) === result.option.value;
-      value.classList.toggle("current", current);
+      // The value that is on ends its entry with a check, on the rows' right edge.
+      const check = icon("check", 12);
+      check.classList.add("entry-check");
       return entry(
         actions.length + index,
         () => pick(result),
         icon(ROW_ICONS[rowOf(result.knob.id).id]),
         el("span", "entry-knob", text.knob),
-        value,
+        el("span", "entry-value", text.value),
+        ...(current ? [check] : []),
       );
     });
     return [...actions.map((action, index) => actionEntry(index, action)), ...found];

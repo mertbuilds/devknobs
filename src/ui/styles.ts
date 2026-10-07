@@ -629,8 +629,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   color: var(--faint);
   border-radius: 2px;
 }
-/* The check that marks the value that is on. */
-.item::before, .current::after {
+/* The check that marks the value that is on, faint as a result's is. */
+.item::before {
   content: "";
   flex: none;
   display: inline-block;
@@ -643,7 +643,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .item:hover, .item.cursor { color: var(--fg); background: var(--card); }
 .item.on { color: var(--fg); }
-.item.on::before, .current::after { border-color: currentColor; }
+.item.on::before { border-color: var(--faint); }
 
 .results { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .entry {
@@ -657,6 +657,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .entry.cursor { background: var(--card); }
 .entry-knob { flex: none; color: var(--faint); }
+/* Past the entry's padding to the right edge the rows' x and the settings'
+   controls end on. */
+.entry .entry-check { margin: 0 -8px 0 auto; }
 .entry-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .entry-name { flex: none; }
 .entry-now {
@@ -742,15 +745,19 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 
 /* The settings, in place of the rows: each a row as the knob rows are, its
    grip column empty, and the way back on top of them, its chevron where a
-   row's icon is. Where a row's value is, the handle's has a switch, and a
-   shortcut's has its key as a button that records a new one, with an x that
-   puts it back. A key it cannot take shakes the key and turns it red for a
-   moment; reduced motion keeps only the red. */
+   row's icon is. A row has no x after it, so where a row's x ends, the
+   handle's ends with a switch, and a shortcut's with its key as a button that
+   records a new one, an x before it that puts it back. A key it cannot take
+   shakes the key and turns it red for a moment; reduced motion keeps only the
+   red. The group label sits over the icons, as it does over the results'. */
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .keys .group-label { padding-left: 22px; }
-/* Where a row with no icon keeps the room of one. */
-.glyph.blank { width: 14px; height: 14px; }
+.keys .main { padding-right: 2px; }
 .row-control { flex: none; align-self: center; margin-left: auto; }
+.keys .clear { align-self: center; margin: -2px 0 -2px auto; }
+.keys .clear:not([hidden]) + .row-control { margin-left: 0; }
+/* The panel's icons face the side the panel is on. */
+.wrap[data-side="left"] .glyph.sided { transform: scaleX(-1); }
 .key-set {
   flex: none;
   box-sizing: border-box;
@@ -786,6 +793,4 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   75% { transform: translateX(1.5px); }
   90% { transform: translateX(-0.5px); }
 }
-/* An x that is gone keeps its room, so the keys line up. */
-.keys .clear[hidden] { display: grid !important; visibility: hidden; }
 `;

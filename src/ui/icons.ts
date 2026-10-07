@@ -1,4 +1,5 @@
 import type { Action, RowId } from "./catalog";
+import type { Binding } from "./keys";
 
 /**
  * The panel's icons, drawn from lucide-static 1.52.0 (ISC, see
@@ -107,7 +108,23 @@ export const ICONS = {
     ),
     c("12", "12", "3"),
   ],
+  "panel-right": [
+    ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }],
+    p("M15 3v18"),
+  ],
+  "panel-right-open": [
+    ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }],
+    p("M15 3v18"),
+    p("m10 15-3-3 3-3"),
+  ],
+  eraser: [
+    p(
+      "M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21",
+    ),
+    p("m5.082 11.09 8.828 8.828"),
+  ],
   "rotate-ccw": [p("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"), p("M3 3v5h5")],
+  check: [p("M20 6 9 17l-5-5")],
   "chevron-left": [p("m15 18-6-6 6-6")],
   "chevrons-left-right": [p("m9 7-5 5 5 5"), p("m15 7 5 5-5 5")],
   plus: [p("M5 12h14"), p("M12 5v14")],
@@ -144,6 +161,14 @@ export const ROW_ICONS: Record<RowId, IconName> = {
 export const ACTION_ICONS: Record<Action["id"], IconName> = {
   grab: "square-dashed-mouse-pointer",
   replay: "rotate-ccw",
+};
+
+/** The icon each shortcut shows in the settings, an action's own where it has one. */
+export const BINDING_ICONS: Record<Binding, IconName> = {
+  panel: "panel-right-open",
+  grab: ACTION_ICONS.grab,
+  replay: ACTION_ICONS.replay,
+  reset: "eraser",
 };
 
 /** An icon `size` px square, stroked in the text's color and hidden from assistive tech. */
