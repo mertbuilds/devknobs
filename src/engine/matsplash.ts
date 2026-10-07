@@ -2,7 +2,7 @@ import type { MatColorValue } from "../types";
 import { folding } from "./foldrun";
 import type { Point } from "./mat";
 import type { Rect } from "./mock";
-import { ease, MAT_CURVE } from "./morph";
+import { type Curve, ease } from "./morph";
 import { running, still } from "./morphrun";
 import { slowed, slowness } from "./slow";
 import { turning } from "./turnrun";
@@ -16,7 +16,10 @@ import { turning } from "./turnrun";
  */
 
 /** How long a splash takes to cover the letterbox, in ms. */
-export const SPLASH_TIME = 700;
+export const SPLASH_TIME = 1200;
+
+/** How a splash grows: a gentle ease-out, so the long splash reads as a slow spread, not a burst and a tail. */
+const SPLASH_CURVE: Curve = [0.25, 0.6, 0.3, 1];
 
 /** How far past the farthest corner of the letterbox a splash ends, in px. */
 const MARGIN = 24;
@@ -168,12 +171,12 @@ export function segments(points: Point[]): Segment[] {
 
 /**
  * The rims of a splash `time` of the way through, 0 to 1: the main blob first,
- * grown on the mat's curve, then its drops, which fly out ahead of it and fall
+ * grown on the splash's curve, then its drops, which fly out ahead of it and fall
  * back into it as it catches up. All go round the same way, so they add up.
  */
 export function rimsAt(splash: Splash, plan: Plan, time: number): Point[][] {
   const t = Math.min(1, Math.max(0, time));
-  const radius = plan.radius * ease(MAT_CURVE, t);
+  const radius = plan.radius * ease(SPLASH_CURVE, t);
   const centre = { x: plan.x, y: plan.y };
   const rims = [rim(centre, radius, splash.waves, t, RIM)];
   for (const drop of splash.drops) {

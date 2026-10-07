@@ -828,7 +828,7 @@ describe("the frame over the page", () => {
       tick(0);
       tick(200);
       expect(String(splash && Reflect.get(splash.style, "clipPath"))).toStartWith('path("M');
-      tick(700);
+      tick(1200);
       expect(named("splash")).toHaveLength(0);
       expect(back?.hasAttribute("data-mat")).toBe(false);
       expect(frames).toHaveLength(0);
@@ -845,10 +845,10 @@ describe("the frame over the page", () => {
         "magenta",
       ]);
       tick(400);
-      tick(700);
+      tick(1200);
       expect(named("splash").map((node) => node.getAttribute("data-mat"))).toEqual(["magenta"]);
       expect(back?.getAttribute("data-mat")).toBe("green");
-      tick(1100);
+      tick(1600);
       expect(named("splash")).toHaveLength(0);
       expect(back?.hasAttribute("data-mat")).toBe(false);
     });
