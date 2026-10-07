@@ -853,7 +853,16 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   function pickOption(knob: Knob, option: Option): void {
     set(knob, option.value);
-    if (option.opens) openEditor(rowOf(knob.id).id);
+    if (!option.opens) return;
+    openEditor(rowOf(knob.id).id);
+    focusCustom(knob);
+  }
+
+  /** Custom user agent picked, its field takes the focus to be typed in. */
+  function focusCustom(knob: Knob): void {
+    if (knob.id !== "ua") return;
+    const field = viewOf(rowOf(knob.id).id)?.editor.querySelector<HTMLElement>(".field-ua");
+    field?.focus({ preventScroll: true });
   }
 
   /**
@@ -1050,7 +1059,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     ];
   }
 
-  /** The user agent in use, and editing it makes it the custom one. */
+  /** The custom user agent, shown while custom is picked, and editing it keeps it the custom one. */
   function uaExtra(): [HTMLElement, Update] {
     const custom = document.createElement("textarea");
     custom.className = "field field-ua";
@@ -1059,7 +1068,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
     custom.setAttribute("aria-label", "custom user agent");
     const commitCustom = () => commit("device", { ua: { preset: "custom", custom: custom.value } });
     custom.addEventListener("input", () => queue(commitCustom));
-    return [custom, (state) => fill(custom, userAgentOf(state.ua))];
+    return [
+      custom,
+      (state) => {
+        custom.hidden = state.ua.preset !== "custom";
+        fill(custom, userAgentOf(state.ua));
+      },
+    ];
   }
 
   /** What some knobs add under their control: free values and readouts. */
@@ -1553,6 +1568,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     set(knob, option.value);
     if (option.opens) openEditor(id);
     showRow(id, knob);
+    if (option.opens) focusCustom(knob);
   }
 
   /** A knob picked by name adds its row as it is, listed until its `×` takes it off. */
