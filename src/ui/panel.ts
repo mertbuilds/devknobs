@@ -454,6 +454,31 @@ function button(className: string, label: string): HTMLButtonElement {
   return node;
 }
 
+/**
+ * A row: its line, with the grip's column kept in the main's leading padding
+ * whether a grip is in it or not, its icon, its title and what it ends with,
+ * its value or a control, and its x after the main. The knob rows and the
+ * settings are all built here, so they line up and take the same styles.
+ */
+function rowBox(
+  main: HTMLElement,
+  glyph: Element,
+  title: string,
+  value?: HTMLElement,
+  clear?: HTMLElement,
+  grip?: HTMLElement,
+): HTMLElement {
+  const box = el("div", "row");
+  const line = el("div", "line");
+  main.append(glyph, el("span", "row-label", title));
+  if (value) main.append(value);
+  if (grip) line.append(grip);
+  line.append(main);
+  if (clear) line.append(clear);
+  box.append(line);
+  return box;
+}
+
 function field(className: string, placeholder: string, label: string): HTMLInputElement {
   const node = document.createElement("input");
   node.className = `field ${className}`;
@@ -582,27 +607,30 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const keysView = el("div", "keys pane");
   keysView.setAttribute("role", "group");
   keysView.setAttribute("aria-label", "settings");
-  const keysBack = button("back", "");
-  keysBack.append(icon("chevron-left"), "settings");
+  const keysBack = button("main", "");
   keysBack.setAttribute("aria-label", "back from settings");
-  const handleLine = el("div", "key-row");
-  const handleSwitch = button("switch", "");
+  const handleSwitch = button("switch row-control", "");
   handleSwitch.setAttribute("role", "switch");
   handleSwitch.setAttribute("aria-label", "show handle");
-  handleLine.append(el("span", "key-word", "show handle"), handleSwitch);
-  keysView.append(keysBack, handleLine, el("div", "group-label", "shortcuts"));
+  // The handle's line has no x, but keeps its room so its switch lines up with the keys.
+  const noClear = el("span", "clear");
+  noClear.hidden = true;
+  keysView.append(
+    rowBox(keysBack, icon("chevron-left"), "settings"),
+    rowBox(el("div", "main"), el("span", "glyph blank"), "show handle", handleSwitch, noClear),
+    el("div", "group-label", "shortcuts"),
+  );
   const keyViews = new Map<
     Binding,
     { set: HTMLButtonElement; back: HTMLButtonElement }
   >();
   for (const binding of bindingsHere) {
-    const line = el("div", "key-row");
-    const set = button("key-set", "");
+    const word = BINDING_WORDS[binding];
+    const set = button("key-set row-control", "");
     const back = button("clear", "");
     back.append(icon("x"));
-    back.setAttribute("aria-label", `put the ${BINDING_WORDS[binding]} key back`);
-    line.append(el("span", "key-word", BINDING_WORDS[binding]), set, back);
-    keysView.append(line);
+    back.setAttribute("aria-label", `put the ${word} key back`);
+    keysView.append(rowBox(el("div", "main"), el("span", "glyph blank"), word, set, back));
     keyViews.set(binding, { set, back });
   }
   // The rows view, which the settings slide in over.
@@ -1077,9 +1105,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   const views: RowView[] = ROWS.map((row) => {
-    const box = el("div", "row");
-    box.dataset.row = row.id;
-    const line = el("div", "line");
     const grip = button("grip", "");
     grip.append(icon("grip-vertical"));
     grip.setAttribute("aria-label", `move ${row.label}`);
@@ -1087,17 +1112,17 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const main = button("main", "");
     main.setAttribute("aria-expanded", "false");
     const value = el("span", "row-value");
-    main.append(icon(ROW_ICONS[row.id]), el("span", "row-label", row.label), value);
     const clear = button("clear", "");
     clear.append(icon("x"));
     clear.setAttribute("aria-label", `reset ${row.label}`);
-    line.append(grip, main, clear);
+    const box = rowBox(main, icon(ROW_ICONS[row.id]), row.label, value, clear, grip);
+    box.dataset.row = row.id;
     const fold = el("div", "fold");
     const editor = el("div", "editor");
     editor.hidden = true;
     fold.inert = true;
     fold.append(editor);
-    box.append(line, fold);
+    box.append(fold);
     // A folded editor leaves the layout once it is out of sight, and an open
     // one is in view once it is all out, however late its frames came.
     for (const type of ["transitionend", "transitioncancel"] as const) {

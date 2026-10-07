@@ -740,39 +740,17 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 4px;
 }
 
-/* The settings, in place of the rows: a line each, as tall as a row. The
-   handle's has a switch. A shortcut's has its key as a button that records a
-   new one and an x that puts it back. The
-   key sits 4 in from the line's edges, so 4 round. A key it cannot take
-   shakes the key and turns it red for a moment; reduced motion keeps only the
-   red. */
+/* The settings, in place of the rows: each a row as the knob rows are, its
+   grip column empty, and the way back on top of them, its chevron where a
+   row's icon is. Where a row's value is, the handle's has a switch, and a
+   shortcut's has its key as a button that records a new one, with an x that
+   puts it back. A key it cannot take shakes the key and turns it red for a
+   moment; reduced motion keeps only the red. */
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
-/* Back to the rows, on top of the settings and as tall as a row, its chevron
-   where a row's icon is and its title where a row's title is. The settings
-   keep the rows' grip column empty, so every word starts at a row's title. */
-.back {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 26px;
-  padding: 0 10px 0 22px;
-  border-radius: 8px;
-  transition: background-color 120ms ease-out;
-}
-.back .glyph { color: var(--faint); transition: color 120ms ease-out; }
-.back:hover { background: var(--card); }
-.back:hover .glyph { color: var(--fg); }
-.key-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 26px;
-  padding-left: 44px;
-  border-radius: 8px;
-}
-.keys .group-label { padding-left: 44px; }
-.key-row:hover { background: var(--card); }
-.key-word { flex: 1; min-width: 0; color: var(--faint); }
+.keys .group-label { padding-left: 22px; }
+/* Where a row with no icon keeps the room of one. */
+.glyph.blank { width: 14px; height: 14px; }
+.row-control { flex: none; align-self: center; margin-left: auto; }
 .key-set {
   flex: none;
   box-sizing: border-box;
@@ -788,8 +766,6 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 4px;
   transition: border-color 120ms ease-out, color 120ms ease-out, background-color 120ms ease-out;
 }
-.key-row .clear { margin: 2px 2px 2px -6px; }
-.key-row .switch { margin-right: 26px; }
 .key-set:hover { border-color: var(--faint); }
 .key-set.recording {
   padding-bottom: 3px;
@@ -811,5 +787,5 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   90% { transform: translateX(-0.5px); }
 }
 /* An x that is gone keeps its room, so the keys line up. */
-.key-row .clear[hidden] { display: grid !important; visibility: hidden; }
+.keys .clear[hidden] { display: grid !important; visibility: hidden; }
 `;
