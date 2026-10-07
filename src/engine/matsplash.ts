@@ -4,7 +4,6 @@ import type { Point } from "./mat";
 import type { Rect } from "./mock";
 import { type Curve, ease } from "./morph";
 import { running, still } from "./morphrun";
-import { slowed, slowness } from "./slow";
 import { turning } from "./turnrun";
 
 /**
@@ -229,7 +228,6 @@ let layers: Layer[] = [];
 /** The mat's paint, held at the color the splashes started from. */
 let base: HTMLElement | null = null;
 let frame = 0;
-let slow = 1;
 let made = 0;
 
 /** A device moves, and its mat's opening is drawn on the mat's paint itself. */
@@ -262,7 +260,6 @@ export function spreadMat(scene: MatScene, mat: MatColorValue): void {
   if (!base) {
     base = scene.back;
     base.setAttribute("data-mat", from);
-    slow = slowness();
   }
   const node = document.createElement("div");
   node.className = "splash";
@@ -287,7 +284,7 @@ function step(now: number): void {
   let done = -1;
   layers.forEach((layer, i) => {
     layer.begun ??= now;
-    const time = slowed(now - layer.begun, slow) / SPLASH_TIME;
+    const time = (now - layer.begun) / SPLASH_TIME;
     if (time >= 1) done = i;
     else layer.node.style.clipPath = `path("${pathOf(rimsAt(layer.splash, layer.plan, time))}")`;
   });

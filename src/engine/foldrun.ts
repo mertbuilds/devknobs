@@ -61,7 +61,6 @@ import type { Mock, Rect } from "./mock";
 import { drawMock, UNDER } from "./mockdraw";
 import { type Corners, lerp } from "./morph";
 import { copyPage, forgetShots } from "./pageshot";
-import { slowed, slowness } from "./slow";
 import { coverTo, darken, type TurnScene } from "./turnrun";
 import type { ViewportValue } from "./width";
 
@@ -203,11 +202,9 @@ interface Going {
   hand: boolean;
   values: Record<PostureValue, ViewportValue>;
   frame: number;
-  /** When the hinge's first step was, how long since in the hinge's own time, and how many steps it has taken. */
+  /** When the hinge's first step was, how long since, and how many steps it has taken. */
   begin: number | null;
   elapsed: number;
-  /** How many times slower than the phone's it runs. */
-  slow: number;
   steps: number;
   parts: Layer;
   unit: Unit;
@@ -775,7 +772,7 @@ function swing(going: Going): void {
   const tick = (now: number) => {
     if (fold !== going) return;
     going.begin ??= now;
-    const elapsed = slowed(now - going.begin, going.slow);
+    const elapsed = now - going.begin;
     const due = elapsed / HINGE_STEP + 1;
     const steps = Math.floor(due);
     going.hinge = hingeAfter(going.hinge, going.target, steps - going.steps);
@@ -881,7 +878,6 @@ export function foldDevice(
     frame: 0,
     begin: null,
     elapsed: 0,
-    slow: slowness(),
     steps: 0,
     parts,
     unit: measure(scene, from.posture),
