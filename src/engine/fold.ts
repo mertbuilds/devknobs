@@ -19,7 +19,8 @@ import { type Corners, fitCorners, lerp } from "./morph";
  * The hinge is a spring, stepped 60 times a second: Apple's of 0.75 s with a
  * bounce of 0.15, whose stiffness and damping follow from those, of mass 1.
  * Within `reach` of shut or open a magnet takes over, `pull` strong, and
- * snaps it there, so it never goes past.
+ * snaps it there, so it never goes past. Between them, where a hand leaves
+ * it, it rests once it is within `rest` of there and all but still.
  */
 export const HINGE = {
   stiffness: (2 * Math.PI / 0.75) ** 2,
@@ -27,6 +28,7 @@ export const HINGE = {
   step: 1 / 60,
   reach: 0.08,
   pull: { shut: 30, open: 20 },
+  rest: 1e-4,
 } as const;
 
 /** How long one step of the hinge is, in ms. */
@@ -43,16 +45,19 @@ export function openOf(posture: PostureValue): number {
   return posture === "open" ? 1 : 0;
 }
 
-/** The hinge a step on toward `target`, shut or open. */
+/** The hinge a step on toward `target`: shut, open, or anywhere between, where a hand puts it. */
 export function hingeStep(hinge: Hinge, target: number): Hinge {
   const { position, velocity } = hinge;
   const dt = HINGE.step;
   const away = position - target;
   if (away === 0) return { position, velocity: 0 };
   const off = Math.abs(away);
-  if (off > HINGE.reach) {
+  const end = target === 0 || target === 1;
+  if (!end || off > HINGE.reach) {
     const pushed = velocity + (-HINGE.stiffness * away - HINGE.damping * velocity) * dt;
-    return { position: position + pushed * dt, velocity: pushed };
+    const next = position + pushed * dt;
+    const rests = !end && Math.abs(next - target) < HINGE.rest && Math.abs(pushed) < HINGE.rest;
+    return rests ? { position: target, velocity: 0 } : { position: next, velocity: pushed };
   }
   // The magnet keeps the speed, turned toward where it pulls, and pulls the harder the nearer.
   const toward = -Math.sign(away);

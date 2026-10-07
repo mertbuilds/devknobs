@@ -199,6 +199,29 @@ describe("the hinge", () => {
     expect(home).toEqual({ position: 0, velocity: 0 });
   });
 
+  test("follows a hand anywhere between the ends through the spring alone, lagging it", () => {
+    // No magnet pulls it at a landing a hand sets, however near.
+    const step = hingeStep({ position: 0.3, velocity: 0 }, 0.333);
+    expect(step.velocity).toBeCloseTo(HINGE.stiffness * 0.033 * HINGE.step);
+    // A hand that moves on retargets it from where it is, as fast as it was going.
+    const going = hingeAfter({ position: 0, velocity: 0 }, 0.6, 6);
+    expect(going.position).toBeGreaterThan(0);
+    expect(going.position).toBeLessThan(0.6);
+    expect(hingeStep(going, 0.2).position).toBeGreaterThan(going.position);
+  });
+
+  test("let go between the ends, rests there exactly, all but without going past", () => {
+    let hinge: Hinge = { position: 1, velocity: 0 };
+    let steps = 0;
+    while (!hingeStill(hinge, 0.333) && steps < 240) {
+      hinge = hingeStep(hinge, 0.333);
+      steps++;
+      expect(hinge.position).toBeGreaterThan(0.333 - 0.01);
+    }
+    expect(hinge).toEqual({ position: 0.333, velocity: 0 });
+    expect(steps * HINGE_STEP).toBeLessThan(2000);
+  });
+
   test("a posture's opening", () => {
     expect(openOf("open")).toBe(1);
     expect(openOf("closed")).toBe(0);

@@ -618,9 +618,9 @@ function foldScene(): FoldScene | null {
   };
 }
 
-/** Fold the device to the posture `value` has, in view, and draw it that way once it is there. */
-function foldDevice(value: ViewportValue): void {
-  foldIn(current, value, foldScene(), draw);
+/** Fold the device to the posture `value` has, in view, and draw it that way once it is there, or, `held`, as a hand moves it. */
+export function foldDevice(value: ViewportValue, held = false): boolean {
+  return foldIn(current, value, foldScene(), draw, held);
 }
 
 /** Hide the window's own page under the frame, its popovers too. */

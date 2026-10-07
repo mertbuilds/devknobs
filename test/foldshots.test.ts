@@ -1,7 +1,18 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { bezelMock, bodyOf, foldShots, loadFoldShots, SHOTS_KEPT } from "../src/engine/bezels";
 import { DUO_FOLD } from "../src/engine/bezelurls";
-import { type FoldScene, folding, foldDevice, forgetFold, stopFold } from "../src/engine/foldrun";
+import {
+  type FoldScene,
+  folding,
+  foldDevice,
+  foldRest,
+  forgetFold,
+  holdFold,
+  releaseFold,
+  scrubFold,
+  stopFold,
+  watchFold,
+} from "../src/engine/foldrun";
 import { DEFAULT_STATE } from "../src/engine/store";
 import type { ViewportValue } from "../src/engine/width";
 
@@ -176,6 +187,8 @@ function wait(ms: number): void {
 const GLOBALS = ["window", "document", "Image", "createImageBitmap", "setTimeout", "clearTimeout"] as const;
 const saved = GLOBALS.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
 let frames: FrameRequestCallback[] = [];
+/** What listens to the window's resize. */
+let resizes = new Set<() => void>();
 
 /** Run the frames asked for, 16 ms apart, until none is asked for or `until` ms, seeing each. */
 function play(until: number, see: () => void = () => {}): void {
@@ -189,6 +202,8 @@ beforeAll(() => {
   const view = {
     requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(callback),
     cancelAnimationFrame: () => {},
+    addEventListener: (_type: string, listener: () => void) => resizes.add(listener),
+    removeEventListener: (_type: string, listener: () => void) => resizes.delete(listener),
   };
   const doc = { createElement: () => new FakeNode(), createElementNS: () => new FakeNode() };
   Object.defineProperty(globalThis, "window", { configurable: true, value: view });
@@ -315,6 +330,7 @@ beforeEach(() => {
   frames = [];
   drawn = [];
   stopFold();
+  resizes = new Set();
 });
 
 describe("a Duo folding in its frames", () => {
@@ -483,5 +499,153 @@ describe("a Duo folding in its frames", () => {
     expect(canvases()).toHaveLength(2);
     play(2000);
     expect(layer()).toBeUndefined();
+  });
+});
+
+describe("a hand on a foldable's hinge", () => {
+  /** A hand takes the hinge of a fold from `from` toward `to`, drawing what the knobs say. */
+  function hold(from: ViewportValue, to: ViewportValue, scene: FoldScene): boolean {
+    return foldDevice(
+      from,
+      to,
+      scene,
+      (value) => {
+        drawn.push(value);
+        unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+      },
+      true,
+    );
+  }
+
+  test("takes it where it is, and holds it there till the hand moves", () => {
+    expect(hold(SHUT, OPEN, sceneOf())).toBe(true);
+    play(1000);
+    expect(folding()).toBe(true);
+    expect(layer()).toBeDefined();
+    // The steps stop while it stays, and the device is drawn shut as the knobs have it.
+    expect(frames).toHaveLength(0);
+    expect(drawn.at(-1)).toEqual(SHUT);
+    expect(foldRest()).toBeNull();
+  });
+
+  test("takes nothing without a frame to fold in, and draws nothing", () => {
+    const scene = { ...sceneOf(), screenFor: () => null };
+    expect(hold(SHUT, OPEN, scene)).toBe(false);
+    expect(folding()).toBe(false);
+    expect(drawn).toHaveLength(0);
+  });
+
+  test("follows the hand through the spring, and lands at the end it is let go at", () => {
+    hold(SHUT, OPEN, sceneOf());
+    expect(scrubFold(0.6)).toBe(true);
+    play(48);
+    // On its way, the device is drawn open past the hand over, as a fold draws it.
+    expect(drawn.at(-1)).toEqual(OPEN);
+    play(2000);
+    expect(layer()).toBeDefined();
+    expect(frames).toHaveLength(0);
+    // Moved on, it wakes and goes there.
+    expect(scrubFold(1)).toBe(true);
+    expect(frames).toHaveLength(1);
+    expect(releaseFold(1, false)).toBe(true);
+    expect(scrubFold(0.5)).toBe(false);
+    play(2000);
+    expect(folding()).toBe(false);
+    expect(layer()).toBeUndefined();
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("let go back at the end it came from, lands there", () => {
+    hold(SHUT, OPEN, sceneOf());
+    scrubFold(0.5);
+    play(200);
+    releaseFold(0, false);
+    play(2000);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(SHUT);
+  });
+
+  test("let go between the ends, rests there half open till the knobs change", () => {
+    hold(SHUT, OPEN, sceneOf());
+    scrubFold(0.7);
+    play(100);
+    releaseFold(0.333, false);
+    expect(foldRest()).toBe(0.333);
+    play(3000);
+    expect(folding()).toBe(true);
+    expect(layer()).toBeDefined();
+    expect(frames).toHaveLength(0);
+    expect(foldRest()).toBe(0.333);
+    // Any other change of the knobs lands it as they have it, shut.
+    holdFold(SHUT);
+    expect(folding()).toBe(false);
+    expect(layer()).toBeUndefined();
+    expect(drawn.at(-1)).toEqual(SHUT);
+  });
+
+  test("resting half open, lands as the knobs have it once the window changes size", () => {
+    hold(OPEN, SHUT, sceneOf());
+    releaseFold(0.333, false);
+    play(3000);
+    expect(resizes.size).toBe(1);
+    for (const listener of Array.from(resizes)) listener();
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+    expect(resizes.size).toBe(0);
+  });
+
+  test("with less motion, lands the next frame once let go", () => {
+    hold(SHUT, OPEN, sceneOf());
+    scrubFold(0.4);
+    play(100);
+    releaseFold(1, true);
+    play(16);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("let go of by the knobs folding it, goes where they say", () => {
+    const scene = sceneOf();
+    hold(SHUT, OPEN, scene);
+    scrubFold(0.3);
+    play(100);
+    fold(SHUT, OPEN, scene);
+    expect(scrubFold(0.1)).toBe(false);
+    play(2000);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("takes a fold on its way, which then stays where the hand holds it", () => {
+    const scene = sceneOf();
+    fold(SHUT, OPEN, scene);
+    play(100);
+    expect(hold(SHUT, OPEN, scene)).toBe(true);
+    scrubFold(0.5);
+    play(3000);
+    expect(folding()).toBe(true);
+    releaseFold(0, false);
+    play(2000);
+    expect(drawn.at(-1)).toEqual(SHUT);
+  });
+
+  test("lets whoever watches know once a fold is over, however it ends", () => {
+    let told = 0;
+    const unwatch = watchFold(() => {
+      told += 1;
+    });
+    hold(SHUT, OPEN, sceneOf());
+    releaseFold(0.333, false);
+    play(3000);
+    expect(told).toBe(0);
+    holdFold(SHUT);
+    expect(told).toBe(1);
+    fold(SHUT, OPEN, sceneOf());
+    stopFold();
+    expect(told).toBe(2);
+    unwatch();
+    fold(SHUT, OPEN, sceneOf());
+    play(2000);
+    expect(told).toBe(2);
   });
 });

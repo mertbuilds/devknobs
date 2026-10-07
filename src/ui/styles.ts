@@ -556,13 +556,51 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .chip-field.on { background: var(--raised); box-shadow: var(--lift); }
 .chip-field:focus { box-shadow: inset 0 0 0 1px var(--faint); }
 .fields { display: flex; align-items: center; gap: 4px; }
-/* A device's size, set apart from the list over it. */
-.knob-list > .fields { margin-top: 5px; }
+/* A device's size and fold, set apart from the list over it. */
+.knob-list > .extra-device { margin-top: 5px; }
 .fields .field-num { flex: 1; min-width: 0; }
 .field-clock { width: 100%; }
 .field-route { width: 100%; height: 44px; padding: 3px 6px; resize: vertical; }
 .field-ua { width: 100%; height: 56px; padding: 3px 6px; resize: vertical; }
 .unit { flex: none; font-size: 11px; color: var(--faint); }
+/* The fold slider, experimental: a thumb on a track as far along as the hinge
+   is open, a tick under where it lands a third of the way. The thumb eases to
+   a stop once let go, and follows the pointer while held. */
+.fold-slider {
+  position: relative;
+  height: 22px;
+  background: var(--track);
+  border-radius: 4px;
+  cursor: grab;
+  touch-action: none;
+}
+.fold-slider:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
+.fold-tick {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: calc(16px + (100% - 32px) * 0.333);
+  width: 1px;
+  background: var(--faint);
+  opacity: 0.5;
+}
+.fold-thumb {
+  position: absolute;
+  top: 2px;
+  left: calc(2px + (100% - 32px) * var(--at, 0));
+  width: 28px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  background: var(--raised);
+  border-radius: 2px;
+  box-shadow: var(--lift);
+  transition: left 200ms ease-out;
+}
+.fold-slider.held { cursor: grabbing; }
+.fold-slider.held .fold-thumb { transition: none; }
 .extra { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .note { padding: 0 6px; font-size: 10.5px; line-height: 1.4; color: var(--faint); }
 

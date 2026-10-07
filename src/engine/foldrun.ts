@@ -193,6 +193,9 @@ interface Going {
   /** How far open the fold is drawn: between the hinge's last step and its next, by the time between. */
   open: number;
   target: number;
+  /** Does a hand hold the hinge, and the posture the knobs hold, which it lands in let go between the ends? */
+  held: boolean;
+  home: PostureValue;
   values: Record<PostureValue, ViewportValue>;
   frame: number;
   /** When the hinge's first step was, and how many it has taken since. */
@@ -206,6 +209,9 @@ interface Going {
 }
 
 let fold: Going | null = null;
+
+/** What wants to know once a fold is over. */
+const watchers = new Set<() => void>();
 
 /** Is a foldable folding? */
 export function folding(): boolean {
@@ -752,19 +758,52 @@ function show(going: Going): void {
 /** Take the fold's layer away, and leave the frame's own device as it is drawn. */
 function clear(last: Going): void {
   window.cancelAnimationFrame(last.frame);
+  window.removeEventListener("resize", settle);
   last.parts.layer.remove();
   last.scene.unit.style.clipPath = "";
   darken(last.scene.cover, 0);
   if (last.duo) endFoldShots();
+  for (const watcher of Array.from(watchers)) watcher();
 }
 
-/** The fold is over: the device is drawn the way the knobs say, and the layer goes in the same frame. */
+/** Is the hinge shut or open there? */
+function isEnd(open: number): boolean {
+  return open === 0 || open === 1;
+}
+
+/**
+ * The fold is over: the device is drawn the way the knobs say, and the layer
+ * goes in the same frame. Let go at an end, that end's knobs, else, held or
+ * left between, those of the posture the knobs hold.
+ */
 function land(): void {
   const last = fold;
   fold = null;
   if (!last) return;
-  last.draw(last.values[last.target === 1 ? "open" : "closed"]);
+  const ended = !last.held && isEnd(last.target);
+  last.draw(last.values[ended ? (last.target === 1 ? "open" : "closed") : last.home]);
   clear(last);
+}
+
+/** The window changed size while a hand left the hinge between the ends: it lands as the knobs have it. */
+function settle(): void {
+  if (foldRest() !== null) land();
+}
+
+/** The hinge got where a hand holds it, or left it between the ends: drawn there, it stops stepping till it moves on. */
+function rest(going: Going): void {
+  going.frame = 0;
+  going.begin = null;
+  going.steps = 0;
+  going.open = going.target;
+  sync(going);
+  show(going);
+  if (!going.held) window.addEventListener("resize", settle);
+}
+
+/** Step a hinge that rests again, now that it goes somewhere else. */
+function wake(going: Going): void {
+  if (going.frame === 0 && fold === going) swing(going);
 }
 
 /**
@@ -781,7 +820,8 @@ function swing(going: Going): void {
     going.hinge = hingeAfter(going.hinge, going.target, steps - going.steps);
     going.steps = Math.max(going.steps, steps);
     if (hingeStill(going.hinge, going.target)) {
-      land();
+      if (!going.held && isEnd(going.target)) land();
+      else rest(going);
       return;
     }
     const next = hingeStep(going.hinge, going.target).position;
@@ -796,28 +836,39 @@ function swing(going: Going): void {
 /**
  * Fold the device drawn as `from` to the posture `value` has, in view, and
  * `draw` the knobs once it is there. A fold back while it folds goes back
- * from where it got to, as fast as it was going. Without a scene or a place
- * to go, the knobs are drawn at once.
+ * from where it got to, as fast as it was going, and a hand on the hinge
+ * lets go of it. Without a scene or a place to go, the knobs are drawn at
+ * once. `held`, a hand takes the hinge instead, of the fold on its way or of
+ * one toward `value` that stays where it is till the hand moves it, and
+ * nothing is drawn where there is none. True where it folds in view.
  */
 export function foldDevice(
   from: ViewportValue,
   value: ViewportValue,
   scene: FoldScene | null,
   draw: (value: ViewportValue) => void,
-): void {
+  held = false,
+): boolean {
   const going = fold;
+  if (going && held) {
+    going.held = true;
+    return true;
+  }
   if (going) {
+    going.held = false;
+    going.home = value.posture;
     going.target = openOf(value.posture);
     going.values[value.posture] = value;
     going.open = going.hinge.position;
     sync(going);
     show(going);
-    return;
+    wake(going);
+    return true;
   }
   const to = scene?.screenFor(value);
   if (!scene || !to) {
-    draw(value);
-    return;
+    if (!held) draw(value);
+    return false;
   }
   // A turn's dark lifting off the page stops, and the dim goes over the bars too.
   coverTo(scene.cover, 0);
@@ -852,7 +903,9 @@ export function foldDevice(
     waiting: duo && !("model" in parts.turning),
     hinge: { position: openOf(from.posture), velocity: 0 },
     open: openOf(from.posture),
-    target: openOf(value.posture),
+    target: openOf((held ? from : value).posture),
+    held,
+    home: (held ? from : value).posture,
     values,
     frame: 0,
     begin: null,
@@ -864,11 +917,50 @@ export function foldDevice(
   };
   show(fold);
   swing(fold);
+  return true;
 }
 
-/** The fold goes on, and the frame takes these knobs once it is there. */
+/** Where the hand holding the hinge moves it to, 0 shut to 1 open, through the spring. False where none holds it. */
+export function scrubFold(target: number): boolean {
+  if (!fold?.held) return false;
+  fold.target = target;
+  wake(fold);
+  return true;
+}
+
+/** The hand lets go of the hinge, which goes on to `stop`, at once where `snap`. False where there is no fold. */
+export function releaseFold(stop: number, snap: boolean): boolean {
+  const going = fold;
+  if (!going) return false;
+  going.held = false;
+  going.target = stop;
+  if (snap) going.hinge = { position: stop, velocity: 0 };
+  wake(going);
+  return true;
+}
+
+/** Where a hand left the hinge between the ends, on its way there or resting, else null. */
+export function foldRest(): number | null {
+  return fold && !fold.held && !isEnd(fold.target) ? fold.target : null;
+}
+
+/** Hear when a fold is over, whichever way. Returns the way to stop. */
+export function watchFold(watcher: () => void): () => void {
+  watchers.add(watcher);
+  return () => {
+    watchers.delete(watcher);
+  };
+}
+
+/**
+ * The fold goes on, and the frame takes these knobs once it is there. One a
+ * hand left between the ends lands as the knobs have it, as the frame cannot
+ * draw anything else about it while it stays.
+ */
 export function holdFold(value: ViewportValue): void {
-  if (fold) fold.values[value.posture] = value;
+  if (!fold) return;
+  fold.values[value.posture] = value;
+  if (foldRest() !== null) land();
 }
 
 /** Land a fold where it goes, at once. */
@@ -888,7 +980,9 @@ export function stopFold(): void {
 /** The frame is gone, and the fold with it. */
 export function forgetFold(): void {
   if (fold) window.cancelAnimationFrame(fold.frame);
+  window.removeEventListener("resize", settle);
   fold = null;
+  for (const watcher of Array.from(watchers)) watcher();
   forgetShots();
   endFoldShots(true);
 }
