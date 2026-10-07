@@ -6,6 +6,7 @@ import {
   blurWidth,
   brightness,
   darkAt,
+  EDGE_ON,
   edgeLight,
   flatMatrix,
   foldFrame,
@@ -19,6 +20,7 @@ import {
   hingeAfter,
   hingeStep,
   hingeStill,
+  laidQuad,
   openOf,
   paneAt,
   paneLook,
@@ -34,6 +36,7 @@ import {
   seenAt,
   SHOTS_HAND_OVER,
   shotPicture,
+  shotPose,
   shotQuad,
   shotsBetween,
   shotsTransform,
@@ -514,14 +517,32 @@ describe("quadToMatrix3d", () => {
     }
     expect(quadToQuad(turned, [[10, 0], [10.01, 0], [10.01, 50], [10, 50]])).toBeNull();
   });
+
+  test("keeps w at 1 at the origin, so css draws it, laid onto a quad round the other way too", () => {
+    const [, turned, other] = QUADS;
+    if (!turned || !other) throw new Error("no quads");
+    const [a, b, c, d] = other;
+    const mirrored: Quad = [b, a, d, c];
+    for (const to of [other, mirrored]) {
+      const matrix = quadToQuad(turned, to) ?? "";
+      expect(Number(matrix.slice(0, -1).split(",").at(-1))).toBe(1);
+      turned.forEach(([x, y], index) => {
+        expect(through(matrix, x, y).x).toBeCloseTo(to[index]?.[0] ?? NaN, 4);
+        expect(laidQuad(turned, to, turned)?.[index]?.[0]).toBeCloseTo(to[index]?.[0] ?? NaN, 4);
+      });
+    }
+  });
 });
 
 describe("the Duo's fold frames", () => {
   if (!DUO_FOLD) return;
   const shots = DUO_FOLD;
 
-  test("run from open to shut every 6 degrees", () => {
-    expect(shots.frames.map((shot) => shot.deg)).toEqual(Array.from({ length: 31 }, (_, step) => step * 6));
+  test("run from open to shut every 6 degrees, and every 3 within 24 of a right angle, where the half turns edge on", () => {
+    const every = (step: number, from: number, to: number) =>
+      Array.from({ length: (to - from) / step + 1 }, (_, index) => from + index * step);
+    const degs = [...new Set([...every(6, 0, 180), ...every(3, 66, 114)])].sort((a, b) => a - b);
+    expect(shots.frames.map((shot) => shot.deg)).toEqual(degs);
   });
 
   test("go over from one to the next as the hinge turns, evenly all the way, either way", () => {
@@ -734,6 +755,60 @@ describe("the Duo's fold frames", () => {
             expect(Math.abs(shown.y - (rect.y + y))).toBeLessThan(0.25);
           }
         }
+      }
+    }
+  });
+
+  /** Where the frames are drawn, `deg` turned: the free edge where each of the two lays it, and where it shows, by how far the next is faded in. */
+  function drawnAt(deg: number) {
+    const posed = shotPose(shots, 1 - deg / 180);
+    if (!posed) throw new Error("no frames");
+    const { from, to, share, lay } = posed;
+    const under = laidQuad(lay.from, lay.onto, from.side);
+    const over = laidQuad(lay.to, lay.onto, to.side);
+    if (!under || !over) throw new Error("edge on");
+    const ghost = Math.max(...under.map(([x, y], index) => Math.hypot(x - (over[index]?.[0] ?? x), y - (over[index]?.[1] ?? y))));
+    const edge = quadBetween(under, over, from === to ? 0 : share);
+    const clock = shots.frames.indexOf(from) + (from === to ? 0 : share);
+    return { posed, ghost, edge, clock };
+  }
+
+  /** Does no step of `values` stand out of the steps next to it, by more than three times and `slack`? */
+  function smooth(values: number[], slack: number): boolean {
+    const steps = values.slice(1).map((value, index) => Math.abs(value - (values[index] ?? value)));
+    return steps.every((step, index) => step <= 3 * Math.max(steps[index - 1] ?? 0, steps[index + 1] ?? 0) + slack);
+  }
+
+  test("near edge on, lay both frames from their free edge's side, so it moves as one and never shows twice", () => {
+    for (let deg = 90 - 2 * EDGE_ON; deg <= 90 + 2 * EDGE_ON; deg += 0.25) {
+      const { posed, ghost } = drawnAt(deg);
+      const near = [posed.from, posed.to].every((shot) => Math.abs(shot.deg - 90) <= EDGE_ON);
+      if (near) expect(ghost).toBeLessThan(0.01);
+      // Else from the screen that faces the viewer, whose hole each lays on the window, exactly.
+      else expect(posed.holes).toEqual([null, null]);
+      for (const hole of posed.holes) expect(hole === null || hole.flat().every(Number.isFinite)).toBe(true);
+    }
+  });
+
+  test("pass a right angle without a step: the case, the frames' fade, the window and the page all move smoothly", () => {
+    const degs = Array.from({ length: 401 }, (_, index) => 80 + index * 0.05);
+    const seen = degs.map(drawnAt);
+    expect(smooth(seen.map(({ clock }) => clock), 0.01)).toBe(true);
+    for (const corner of [0, 1, 2, 3]) {
+      for (const axis of [0, 1]) expect(smooth(seen.map(({ edge }) => edge[corner]?.[axis] ?? NaN), 0.5)).toBe(true);
+    }
+    // The window and the page behind it, either side of the right angle, where each screen faces the viewer.
+    for (const pane of ["inner", "cover"] as const) {
+      const facing = seen.filter(({ posed }) => posed.pane === pane);
+      expect(facing.length).toBeGreaterThan(150);
+      for (const corner of [0, 1, 2, 3]) {
+        for (const axis of [0, 1]) {
+          expect(smooth(facing.map(({ posed }) => posed.quad?.[corner]?.[axis] ?? NaN), 0.5)).toBe(true);
+        }
+      }
+      const pictures = facing.map(({ posed }) => (posed.quad ? shotPicture(shots, pane, posed.quad) : null));
+      for (const key of ["x", "y", "width", "height"] as const) {
+        expect(smooth(pictures.map((picture) => picture?.[key] ?? NaN), 0.5)).toBe(true);
       }
     }
   });

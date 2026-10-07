@@ -375,6 +375,7 @@ describe("the Duo's fold frames", () => {
       ],
       inner: [[0, 0], [1, 0], [1, 1], [0, 1]],
       cover: [[0, 0], [1, 0], [1, 1], [0, 1]],
+      side: [[0, 0], [1, 0], [1, 1], [0, 1]],
     })),
   };
 
@@ -382,7 +383,7 @@ describe("the Duo's fold frames", () => {
     const shots = foldShotsIn(FOLDER);
     expect(shots).toEqual(DUO_FOLD);
     const files = (shots?.frames ?? []).map((shot) => shot.file);
-    expect(files).toHaveLength(31);
+    expect(files).toHaveLength(39);
     // The manifest stays beside the packer: only the frames ship.
     expect([...readdirSync(`${FOLDER}/${FOLD_FOLDER}`)].sort()).toEqual(
       files.map((file) => file.slice(FOLD_FOLDER.length + 1)).sort(),
@@ -415,6 +416,7 @@ describe("the Duo's fold frames", () => {
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open] })).toThrow("no frames");
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, deg: 174 }] })).toThrow("0 to 180");
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, inner: [[0, 0]] }] })).toThrow("corners");
+    expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, side: undefined }] })).toThrow("side");
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, file: "../x.webp" }] })).toThrow("file");
     expect(() => foldShotsOf({ ...MANIFEST, open: [0, 0, 1] })).toThrow("open");
     expect(() => foldShotsOf({ ...MANIFEST, scale: 0 })).toThrow("scale");

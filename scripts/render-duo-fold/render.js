@@ -193,12 +193,17 @@ const COVER = { x0: -.23396 - 7.73936, x1: -.23396, y0: .27173 - 5.8974, y1: .27
 // Corners top left, top right, bottom right, bottom left, as seen in the open pose from the front.
 function corners(a) {
   const q = (x0, x1, y0, y1, z) => [[x0, y1, z], [x1, y1, z], [x1, y0, z], [x0, y0, z]].map(p => project(foldPoint(...p, a)));
+  // The cover is rigid, as its mesh turns: none of it bends with the strip at the hinge.
+  const rigid = (x, y, z) => { const [fx, fz] = rotateHinge(x, z, a); return project([fx, y, fz]); };
   return {
     innerMoving: q(INNER.x0, 0, INNER.y0, INNER.y1, INNER.z),
     innerFixed: q(0, INNER.x1, INNER.y0, INNER.y1, INNER.z),
     // The cover's corners in its own front view (hinge on its left once shut): mirrored x.
     cover: [[COVER.x1, COVER.y1], [COVER.x0, COVER.y1], [COVER.x0, COVER.y0], [COVER.x1, COVER.y0]]
-      .map(([x, y]) => project(foldPoint(x, y, COVER.z, a))),
+      .map(([x, y]) => rigid(x, y, COVER.z)),
+    // The free edge, from the inner screen's plane to the cover's: seen face on as the half stands, where the screens are edge on.
+    side: [[INNER.y1, INNER.z], [INNER.y1, COVER.z], [INNER.y0, COVER.z], [INNER.y0, INNER.z]]
+      .map(([y, z]) => rigid(INNER.x0, y, z)),
     hinge: [project(foldPoint(0, INNER.y1, INNER.z, a)), project(foldPoint(0, INNER.y0, INNER.z, a))],
   };
 }

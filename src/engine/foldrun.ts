@@ -1,5 +1,5 @@
 import type { PostureValue } from "../types";
-import { bezelUrl, decodeFoldShots, foldShots, releaseFoldShots, SHOTS_KEPT } from "./bezels";
+import { bezelUrl, decodeFoldShots, endFoldShots, foldShots } from "./bezels";
 import {
   type FoldFrame,
   foldFrame,
@@ -17,10 +17,8 @@ import {
   hingeStill,
   openOf,
   type Pane,
-  paneAt,
   type Point,
   type Quad,
-  quadBetween,
   quadFacing,
   quadMap,
   quadToQuad,
@@ -30,8 +28,7 @@ import {
   seenAt,
   SHOTS_HAND_OVER,
   shotPicture,
-  shotQuad,
-  shotsBetween,
+  shotPose,
   shotsTransform,
   shotWindow,
 } from "./fold";
@@ -114,8 +111,10 @@ interface Leaf extends Panel {
 
 /** A screen of a frame's half that turns, a window onto the page lying flat behind it. */
 interface Glued extends Panel {
-  /** The window, dark, over every frame in the render, cut to the turned screen's outline. */
+  /** Dark, over every frame in the render, cut a little past the turned screen's outline, under the case, so no edge of it lets the mat through. */
   node: HTMLElement;
+  /** The window in it, cut to the turned screen's outline. */
+  cut: HTMLElement;
   /** The part that turns as it lies, in its own css px, laid flat where the page is seen, and its corners. */
   picture: HTMLElement;
   size: { width: number; height: number };
@@ -146,8 +145,8 @@ interface Shots {
   shots: FoldShots;
   model: HTMLElement;
   planes: [Plane, Plane];
-  /** Can the browser add the two up, so they fade one into the other as one whole case? */
-  adds: boolean;
+  /** The dark of each frame's screen, under the windows, where it is laid off them near edge on. */
+  holes: [HTMLElement, HTMLElement];
   corner: Point;
   bitmaps: ImageBitmap[];
   inner: Glued;
@@ -333,6 +332,8 @@ function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean
   const whole = screenOf(side);
   const node = placeAt(div(""), box);
   node.style.background = "#000";
+  const cut = fill(div(""));
+  node.append(cut);
   const flatly = placeAt(div(""), { ...rect, x: 0, y: 0 });
   flatly.style.transformOrigin = "0 0";
   // Cut at the hinge, but not at the ends along it, where the blurs spread the picture into the dark past it.
@@ -350,10 +351,11 @@ function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean
   const flat = darkening();
   const shade = darkening();
   flatly.append(stage, flat, shade);
-  node.append(flatly);
+  cut.append(flatly);
   const glued: Glued = {
     pane: turning.pane,
     node,
+    cut,
     picture: flatly,
     size: { width: rect.width, height: rect.height },
     radii,
@@ -408,10 +410,8 @@ function shotsOf(
     placeAt(canvas, { x: left, y: top, width: canvas.width / shots.scale, height: canvas.height / shots.scale });
     canvas.style.display = "block";
     canvas.style.transformOrigin = "0 0";
-    if (adds) canvas.style.mixBlendMode = "plus-lighter";
     return { canvas, pen, shot: null };
   };
-  const adds = typeof CSS !== "undefined" && CSS.supports("mix-blend-mode", "plus-lighter");
   const under = plane();
   const over = plane();
   if (!under || !over) return null;
@@ -421,18 +421,23 @@ function shotsOf(
   const inner = gluedOf(open, pictures.open, sides.inner, layout.across, box);
   const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across, box);
   inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
-  // Added up only with each other, not with the screens under them.
   const frames = div("");
   frames.style.position = "absolute";
-  frames.style.isolation = "isolate";
   frames.append(under.canvas, over.canvas);
-  model.append(inner.node, outer.node, frames);
+  const hole = () => {
+    const node = placeAt(div(""), box);
+    node.style.background = "#000";
+    node.style.visibility = "hidden";
+    return node;
+  };
+  const holes: [HTMLElement, HTMLElement] = [hole(), hole()];
+  model.append(...holes, inner.node, outer.node, frames);
   const { rect } = screenOf(closed);
   return {
     shots,
     model,
     planes: [under, over],
-    adds,
+    holes,
     corner: { x: left, y: top },
     bitmaps,
     inner,
@@ -558,30 +563,50 @@ function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: stri
 }
 
 /**
+ * How far the dark under the window reaches past the turned screen, in its
+ * css px, under the case all round, but for the open screen's hinge side,
+ * where the page goes on past it: so where the window's edge and the case's
+ * hole each fade out over a px, the mat never shows between them.
+ */
+const BLEED = 2;
+
+/**
+ * As the screen turns away its sides along the hinge are seen ever thinner:
+ * there the dark reaches as far as it takes to be seen at least this many px
+ * of the render past them, two thirds of a css px, up to 8 times `BLEED`.
+ */
+const SEEN_BLEED = 2;
+
+/**
  * Show the frames either side of the hinge's angle, `open` of the way open,
- * the more open one and the next faded in over it as far as the hinge has
- * gone toward it, laid on the fold, and the screen that faces the viewer a
+ * the more open one and the next over it, the one faded in and the other
+ * out as the hinge goes from one to the other, laid on the fold, and the screen that faces the viewer a
  * window onto the page lying flat, its corners as far between the two
  * frames', the whole of it `shown` of the way over the frame's own device.
- * Each frame is laid onto those corners from its own, as the half turns
- * between them, so the two outlines meet and the case never shows twice.
+ * Each frame is laid onto the corners between from its own, as `shotPose`
+ * has it, so the two outlines meet and the case never shows twice.
  */
 function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): void {
   const { shots, model } = turning;
-  const between = shotsBetween(shots, open);
-  if (!between) return;
-  const { from, to, share } = between;
-  const pane = paneAt(180 * (1 - open));
-  const quad = pane ? quadBetween(shotQuad(from, pane), shotQuad(to, pane), share) : null;
-  // Edge on, a frame's screen has no corners to be laid from, so the two only fade.
-  const laid = pane !== null && paneAt(from.deg) === pane && paneAt(to.deg) === pane ? quad : null;
+  const posed = shotPose(shots, open);
+  if (!posed) return;
+  const { from, to, share, lay, pane, quad, holes } = posed;
   const [under, over] = planesFor(turning, from, to);
-  layShot(turning, under, laid ? pane : null, laid);
-  // Added up, the two make a whole case where both have it, and one's edge fades out as the other's fades in.
-  const fade = from === to ? 0 : Math.round(share * 1000) / 1000;
-  under.canvas.style.opacity = turning.adds && fade > 0 ? String(Math.round((1 - fade) * 1000) / 1000) : "";
-  over.canvas.style.opacity = String(fade);
-  if (from !== to) layShot(turning, over, laid ? pane : null, laid);
+  layShot(turning, under, lay.from, lay.onto);
+  // The next fades in over the one under in the first half of the way, which fades out in the second, so where
+  // the two meet the case is whole all the way, and where they part neither comes or goes at once.
+  const fade = (value: number) => (value >= 1 ? "" : String(Math.round(Math.max(0, value) * 1000) / 1000));
+  under.canvas.style.opacity = fade(from === to ? 1 : 2 * (1 - share));
+  over.canvas.style.opacity = fade(from === to ? 0 : 2 * share);
+  if (from !== to) layShot(turning, over, lay.to, lay.onto);
+  holes.forEach((hole, index) => {
+    const node = turning.holes[index];
+    if (!node) return;
+    node.style.visibility = hole && (index === 0 || from !== to) ? "" : "hidden";
+    if (hole) node.style.clipPath = `path("${outline(local(turning, hole))}")`;
+    // Each as its frame shows.
+    node.style.opacity = (index === 0 ? under : over).canvas.style.opacity;
+  });
   model.style.transform = shotsTransform(shots, layout, turning.inside, turning.outside, open);
   model.style.opacity = shown < 1 ? String(shown) : "";
   for (const glued of [turning.inner, turning.outer]) {
@@ -592,11 +617,47 @@ function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): 
     glued.node.style.visibility = seen ? "" : "hidden";
     if (!seen || !picture) continue;
     // The page stays still and flat behind the turned screen, dark where the screen reaches past it.
-    glued.node.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
+    glued.cut.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
+    glued.node.style.clipPath = `path("${roundedPath(bled(rect, glued.pane, layout.across, seen), bledRadii(glued.radii), seen)}")`;
     const { x, y } = turning.corner;
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     light(glued, open);
   }
+}
+
+/** A quad as css path data. */
+function outline(quad: Quad): string {
+  return `${quad.map(([x, y], index) => `${index ? "L" : "M"}${Math.round(x * 100) / 100} ${Math.round(y * 100) / 100}`).join("")}Z`;
+}
+
+/**
+ * A screen's rect, seen as `seen` has it, bigger by `BLEED` px along the
+ * hinge and by as much as `SEEN_BLEED` takes across it, but at the open
+ * screen's hinge: its right held across, else its top.
+ */
+function bled(rect: Rect, pane: Pane, across: boolean, seen: (point: Point) => Point): Rect {
+  const { x, y, width, height } = rect;
+  const middle = { x: x + width / 2, y: y + height / 2 };
+  // How far a side has to go out to be seen `SEEN_BLEED` px of the render further on.
+  const outward = (at: Point, step: Point) => {
+    const from = seen(at);
+    const to = seen({ x: at.x + step.x, y: at.y + step.y });
+    const shown = Math.hypot(to.x - from.x, to.y - from.y);
+    return Math.max(BLEED, Math.min(8 * BLEED, shown > 0 ? SEEN_BLEED / shown : 8 * BLEED));
+  };
+  const hinge = pane === "inner";
+  const left = across ? outward({ x, y: middle.y }, { x: -1, y: 0 }) : BLEED;
+  const right = across ? (hinge ? 0 : outward({ x: x + width, y: middle.y }, { x: 1, y: 0 })) : BLEED;
+  const top = across ? BLEED : hinge ? 0 : outward({ x: middle.x, y }, { x: 0, y: -1 });
+  const bottom = across ? BLEED : outward({ x: middle.x, y: y + height }, { x: 0, y: 1 });
+  return { x: x - left, y: y - top, width: width + left + right, height: height + top + bottom };
+}
+
+/** Corners as round as a screen's, `BLEED` px further out, square ones staying square. */
+function bledRadii(radii: Corners): Corners {
+  const [a, b, c, d] = radii;
+  const out = (radius: number) => (radius > 0 ? radius + BLEED : 0);
+  return [out(a), out(b), out(c), out(d)];
 }
 
 /** Corners in the render, from where the planes and windows lie in it. */
@@ -622,10 +683,9 @@ function planesFor(turning: Shots, from: FoldShot, to: FoldShot): [Plane, Plane]
   return [under, over];
 }
 
-/** Lay the frame a plane holds onto `quad`, its screen of `pane` corner on corner, or as it was rendered. */
-function layShot(turning: Shots, plane: Plane, pane: Pane | null, quad: Quad | null): void {
-  const { shot } = plane;
-  const laid = shot && pane && quad ? quadToQuad(local(turning, shotQuad(shot, pane)), local(turning, quad)) : null;
+/** Lay the frame a plane holds from its corners `own` onto `onto`, or as it was rendered where either is edge on. */
+function layShot(turning: Shots, plane: Plane, own: Quad, onto: Quad): void {
+  const laid = plane.shot ? quadToQuad(local(turning, own), local(turning, onto)) : null;
   plane.canvas.style.transform = laid ?? "";
 }
 
@@ -667,8 +727,8 @@ function show(going: Going): void {
     stand(turning.outer, layout, frame, frame.outer, open, 1 - hand);
     turning.bend.style.opacity = String(frame.lift);
   }
-  // As the half that turns shows it, faded as it is.
-  parts.still.style.visibility = frame.inner ? "" : "hidden";
+  // As the half that turns shows it, faded as it is. Under the frames it may go on past a right angle, so it never goes at once.
+  parts.still.style.visibility = frame.inner || "model" in turning ? "" : "hidden";
   parts.still.style.opacity = String(frame.lift * (1 - hand));
   // The frame's own device moves with the fold, its folded body onto where it lies shut.
   const opened = unit.posture === "open";
@@ -695,7 +755,7 @@ function clear(last: Going): void {
   last.parts.layer.remove();
   last.scene.unit.style.clipPath = "";
   darken(last.scene.cover, 0);
-  if (last.duo) releaseFoldShots(SHOTS_KEPT);
+  if (last.duo) endFoldShots();
 }
 
 /** The fold is over: the device is drawn the way the knobs say, and the layer goes in the same frame. */
@@ -830,5 +890,5 @@ export function forgetFold(): void {
   if (fold) window.cancelAnimationFrame(fold.frame);
   fold = null;
   forgetShots();
-  releaseFoldShots();
+  endFoldShots(true);
 }

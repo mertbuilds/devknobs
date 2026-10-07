@@ -1,17 +1,19 @@
 """
 Packs the master PNGs renderAll saved into the frames devknobs ships: each
-frame of the turning half, every `step` degrees, cropped to what it draws,
-scaled from the master's 3 px per css px to `scale`, and saved as WebP, and
+frame of the turning half, every `step` degrees, and every `fine` degrees
+from `near` either side of a right angle, where the half turns edge on and
+its outline changes the most from one frame to the next, cropped to what it
+draws, scaled from the master's 3 px per css px to `scale`, and saved as WebP, and
 manifest.json beside this script with each frame's crop box and the corners
-of its two turned screens, in master px, its pieces, in frame px, and the open
-inner screen's rect.
+of its two turned screens and of its free edge's side, in master px, its
+pieces, in frame px, and the open inner screen's rect.
 
 The case is a thin outline round see-through screens, so the clear middle of
 a frame is cut out: what is left is up to four pieces round it, cut shorter
 and packed into the frame's file, each where it lies in the frame and where it
 is in the file.
 
-    uv run --python 3.12 --with pillow python pack.py <master folder> <out folder> [step] [quality] [scale]
+    uv run --python 3.12 --with pillow python pack.py <master folder> <out folder> [step] [quality] [scale] [near] [fine]
 """
 import io
 import json
@@ -27,6 +29,8 @@ step = int(sys.argv[3]) if len(sys.argv) > 3 else 6
 quality = int(sys.argv[4]) if len(sys.argv) > 4 else 80
 # Frame px per master px: a box on whole multiples of its denominator scales to whole px.
 ratio = Fraction(sys.argv[5] if len(sys.argv) > 5 else "1.5") / 3
+near = int(sys.argv[6]) if len(sys.argv) > 6 else 24
+fine = int(sys.argv[7]) if len(sys.argv) > 7 else 3
 meta = json.load(open(os.path.join(master, "corners.json")))
 os.makedirs(out, exist_ok=True)
 # The cells the clear middle is found in, the px of the frame kept round each piece in the file, and the
@@ -119,7 +123,7 @@ def pack(image, rects):
     return sheet, [[left, top, right - left, bottom - top, x, y] for (left, top, right, bottom), (x, y) in zip(cut, places)]
 
 
-angles = list(range(0, 181, step))
+angles = sorted(set(range(0, 181, step)) | set(range(90 - near, 91 + near, fine)))
 if angles[-1] != 180:
     angles.append(180)
 frames = []
@@ -135,7 +139,10 @@ for deg in angles:
     total += data.tell()
     decoded += sheet.width * sheet.height * 4
     seen = meta["angles"][str(deg)]
-    frames.append({"deg": deg, "file": file, "box": box, "pieces": cut, "inner": seen["innerMoving"], "cover": seen["cover"]})
+    frames.append({
+        "deg": deg, "file": file, "box": box, "pieces": cut,
+        "inner": seen["innerMoving"], "cover": seen["cover"], "side": seen["side"],
+    })
 opened = meta["angles"]["0"]
 (left, top), (right, bottom) = opened["innerMoving"][0], opened["innerFixed"][2]
 manifest = {

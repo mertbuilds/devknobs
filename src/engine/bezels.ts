@@ -446,6 +446,9 @@ interface ShotsLoad {
   /** The pictures under way, if any. */
   decoding: Promise<ImageBitmap[]> | null;
   release: ReturnType<typeof setTimeout> | null;
+  /** Is a fold drawing them, so they are let go of only once it ends, and were they let go of meanwhile? */
+  held: boolean;
+  pending: boolean;
 }
 
 let shotsLoad: ShotsLoad | null = null;
@@ -460,7 +463,15 @@ export const SHOTS_KEPT = 4000;
 export function loadFoldShots(): void {
   // Nothing to load or draw them with: try again later.
   if (shotsLoad || !DUO_FOLD || typeof Image === "undefined" || typeof createImageBitmap !== "function") return;
-  const started: ShotsLoad = { state: "loading", images: [], bitmaps: null, decoding: null, release: null };
+  const started: ShotsLoad = {
+    state: "loading",
+    images: [],
+    bitmaps: null,
+    decoding: null,
+    release: null,
+    held: false,
+    pending: false,
+  };
   shotsLoad = started;
   loadAll(DUO_FOLD.frames.map((shot) => shot.file)).then(
     (images) => {
@@ -474,15 +485,18 @@ export function loadFoldShots(): void {
 }
 
 /**
- * Decode every frame, once they have all loaded, for a fold that starts: the
- * pictures stay till `releaseFoldShots`. Till they are in, a fold turns
- * copies of the bezels.
+ * Decode every frame, once they have all loaded, for a fold that starts,
+ * which holds them till `endFoldShots`: the pictures stay till then, and
+ * after, till `releaseFoldShots`. Till they are in, a fold turns copies of
+ * the bezels.
  */
 export function decodeFoldShots(): void {
   const load = shotsLoad;
   if (!load || load.state !== "ready") return;
   if (load.release !== null) clearTimeout(load.release);
   load.release = null;
+  load.held = true;
+  load.pending = false;
   if (load.bitmaps || load.decoding) return;
   const decoding = Promise.all(load.images.map((image) => createImageBitmap(image)));
   load.decoding = decoding;
@@ -505,7 +519,8 @@ export function decodeFoldShots(): void {
 
 /**
  * Let go of the frames' pictures `after` ms from now, or at once, and of any
- * under way. Their files stay loaded for the next fold.
+ * under way: while a fold draws them, once it ends. Their files stay loaded
+ * for the next fold.
  */
 export function releaseFoldShots(after = 0): void {
   const load = shotsLoad;
@@ -516,9 +531,26 @@ export function releaseFoldShots(after = 0): void {
     load.release = setTimeout(() => releaseFoldShots(), after);
     return;
   }
+  if (load.held) {
+    load.pending = true;
+    return;
+  }
+  load.pending = false;
   for (const bitmap of load.bitmaps ?? []) bitmap.close();
   load.bitmaps = null;
   load.decoding = null;
+}
+
+/**
+ * A fold is done with the frames' pictures: let go of them `SHOTS_KEPT` ms
+ * from now, so the next fold has them, or at once where they were let go of
+ * while it drew them, or `now`.
+ */
+export function endFoldShots(now = false): void {
+  const load = shotsLoad;
+  if (!load) return;
+  load.held = false;
+  releaseFoldShots(now || load.pending ? 0 : SHOTS_KEPT);
 }
 
 /** The Duo's fold frames and their pictures, in the same order, while every one is decoded, or null. */

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { bezelMock, bodyOf, foldShots, loadFoldShots, releaseFoldShots, SHOTS_KEPT } from "../src/engine/bezels";
+import { bezelMock, bodyOf, foldShots, loadFoldShots, SHOTS_KEPT } from "../src/engine/bezels";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import { type FoldScene, folding, foldDevice, forgetFold, stopFold } from "../src/engine/foldrun";
 import { DEFAULT_STATE } from "../src/engine/store";
@@ -113,6 +113,8 @@ class FakePen {
   }
 
   drawImage(bitmap: FakeBitmap): void {
+    // As a browser does, drawing a picture let go of.
+    if (bitmap.closed) throw new Error("InvalidStateError: the bitmap is closed");
     const last = this.drawn.at(-1);
     // One entry for all of a frame's pieces.
     if (last?.src === bitmap.src && last.alpha === this.globalAlpha) return;
@@ -289,7 +291,7 @@ function showing(): { index: number; alpha: number }[] {
     .map(({ index, alpha }) => ({ index, alpha }));
 }
 
-/** Which frame shows whole, the more open of the two either side of the hinge's angle, by its place among the frames. */
+/** Which frame shows whole, the nearer of the two either side of the hinge's angle, by its place among the frames. */
 function nearest(): number {
   return showing().find((shown) => shown.alpha === 1)?.index ?? -1;
 }
@@ -317,6 +319,7 @@ beforeEach(() => {
 
 describe("a Duo folding in its frames", () => {
   if (!DUO_FOLD) return;
+  const FRAMES = DUO_FOLD.frames.length;
 
   test("loads the frames undecoded, turns copies of the bezels till they decode as it starts, then the frames", async () => {
     loadFoldShots();
@@ -328,8 +331,8 @@ describe("a Duo folding in its frames", () => {
     play(48);
     expect(placed()).toHaveLength(7);
     await decodeNow();
-    expect(bitmaps).toHaveLength(31);
-    expect(foldShots()?.bitmaps).toHaveLength(31);
+    expect(bitmaps).toHaveLength(FRAMES);
+    expect(foldShots()?.bitmaps).toHaveLength(FRAMES);
     play(64);
     // The bend's half that stays, under the frames.
     expect(placed()).toHaveLength(2);
@@ -344,13 +347,14 @@ describe("a Duo folding in its frames", () => {
     expect(nearest()).toBe(0);
     expect(showing()).toHaveLength(1);
     expect(style(placed()[1], "opacity")).toBe("0");
-    expect(bitmaps).toHaveLength(31);
+    expect(bitmaps).toHaveLength(FRAMES);
   });
 
   test("shows the frames either side of the hinge, the next over the last, and the page on the screen that faces the viewer", () => {
     fold(SHUT, OPEN, sceneOf());
     const model = placed()[1];
-    const [inner, outer] = model?.children ?? [];
+    // Under them, the dark of each frame's screen where it is laid off the windows.
+    const [, , inner, outer] = model?.children ?? [];
     const seen = new Set<number>();
     let glued = false;
     play(2000, () => {
@@ -358,16 +362,18 @@ describe("a Duo folding in its frames", () => {
       const shown = showing();
       expect(shown.length).toBeGreaterThanOrEqual(1);
       expect(shown.length).toBeLessThanOrEqual(2);
-      // The next one over it, faded in as the hinge gets to it, each drawn once on a canvas of its own.
-      for (const { alpha } of shown.slice(1)) expect(alpha).toBeLessThan(1);
+      // The next one over it, faded in as the hinge gets to it while the last fades out, one of them always whole, each drawn once on a canvas of its own.
+      expect(shown.some(({ alpha }) => alpha === 1)).toBe(true);
       for (const node of canvases()) expect(node.pen?.drawn.length).toBeLessThanOrEqual(1);
       seen.add(nearest());
       const facing = [inner, outer].filter((node) => style(node, "visibility") === "");
       expect(facing.length).toBeLessThanOrEqual(1);
       if (facing[0]) {
-        // A window cut to the turned screen, onto the page laid flat, which never turns.
+        // Dark a little past the turned screen, and in it a window cut to it, onto the page laid flat, which never turns.
+        const [cut] = facing[0].children;
         expect(style(facing[0], "clipPath")).toStartWith('path("M');
-        expect(style(facing[0].children[0], "transform")).toStartWith("matrix(");
+        expect(style(cut, "clipPath")).toStartWith('path("M');
+        expect(style(cut?.children[0], "transform")).toStartWith("matrix(");
         glued = true;
       }
       expect(style(model, "transform")).toStartWith("matrix(0.3");
@@ -413,7 +419,7 @@ describe("a Duo folding in its frames", () => {
     bitmaps = [];
     fold(OPEN, SHUT, sceneOf());
     await Bun.sleep(0);
-    expect(bitmaps).toHaveLength(31);
+    expect(bitmaps).toHaveLength(FRAMES);
     play(2000);
     fold(SHUT, OPEN, sceneOf());
     wait(SHOTS_KEPT);
@@ -427,9 +433,26 @@ describe("a Duo folding in its frames", () => {
     fold(SHUT, OPEN, sceneOf());
     await Bun.sleep(0);
     bodyOf({ ...BASE, mock: false, orientation: "portrait", posture: "closed" }, () => {});
-    expect(foldShots()).toBeNull();
+    // Still drawn by the fold, so kept till it ends, then let go of at once.
+    expect(foldShots()).not.toBeNull();
     stopFold();
-    releaseFoldShots();
+    expect(foldShots()).toBeNull();
+    expect(bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
+  });
+
+  test("lands a fold the mock is turned off in the middle of, and lets go of the pictures once it has", async () => {
+    bitmaps = [];
+    fold(SHUT, OPEN, sceneOf());
+    await Bun.sleep(0);
+    play(100);
+    expect(canvases()).toHaveLength(2);
+    // As the frame does drawing the knobs with the mock off, while the fold goes on.
+    bodyOf({ ...BASE, mock: false, orientation: "portrait", posture: "closed" }, () => {});
+    play(2000);
+    expect(folding()).toBe(false);
+    expect(layer()).toBeUndefined();
+    expect(foldShots()).toBeNull();
+    expect(bitmaps.length > 0 && bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
   });
 
   test("leaves nothing behind when stopped or forgotten mid fold", async () => {

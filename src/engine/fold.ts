@@ -292,6 +292,8 @@ export interface FoldShot {
   /** Where the open screen's turning half is seen, and the folded body's screen, each as it faces the viewer. */
   inner: Quad;
   cover: Quad;
+  /** Its free edge's side, from the open screen's plane to the folded one's, which faces the viewer as the screens go edge on. */
+  side: Quad;
 }
 
 /** The frames of a fold, from open to shut, and where the open screen lies in them. */
@@ -335,6 +337,88 @@ export function shotQuad(shot: FoldShot, pane: Pane): Quad {
   if (shot.deg % 180 !== 0) return quad;
   const { x, y, width, height } = boundsOf(quad);
   return [[x, y], [x + width, y], [x + width, y + height], [x, y + height]];
+}
+
+/**
+ * How near edge on, in degrees either side of a right angle, a frame's
+ * screens are too thin to lay it from: there its free edge's side is laid
+ * instead, which faces the viewer then and moves the most.
+ */
+export const EDGE_ON = 6;
+
+/** How the two frames either side of the hinge's angle are drawn. */
+export interface ShotPose {
+  from: FoldShot;
+  to: FoldShot;
+  /** How far `to` is faded in over `from`, 0 to 1. */
+  share: number;
+  /** The corners each frame is laid from, its own, and where both are laid, between them. */
+  lay: { from: Quad; to: Quad; onto: Quad };
+  /** The screen that faces the viewer, and where it is seen, or null edge on and just past it, while it is seen from behind. */
+  pane: Pane | null;
+  quad: Quad | null;
+  /**
+   * Where each frame's own hole for that screen ends up, `from`'s and `to`'s,
+   * laid from its side: off `quad`, so each is dark under its frame as that
+   * fades in, the screen it shows. Null where the frames are laid from the
+   * screen itself, their holes on `quad`, or where a frame sees it from behind.
+   */
+  holes: [Quad | null, Quad | null];
+}
+
+/**
+ * How the frames either side of how far the hinge is `open` are drawn: each
+ * laid from its own corners onto those between, of the screen they both see
+ * face on, or near edge on of their free edge's side, so the two meet as the
+ * half turns and the case never shows twice; and the screen that faces the
+ * viewer, as far between the two frames'.
+ */
+export function shotPose(shots: FoldShots, open: number): ShotPose | null {
+  const between = shotsBetween(shots, open);
+  if (!between) return null;
+  const { from, to, share } = between;
+  const near = (shot: FoldShot) => Math.abs(shot.deg - 90) <= EDGE_ON;
+  const laidBy = near(from) && near(to) ? null : (paneAt(from.deg) ?? paneAt(to.deg));
+  const own = (shot: FoldShot) => (laidBy ? shotQuad(shot, laidBy) : shot.side);
+  const lay = { from: own(from), to: own(to), onto: quadBetween(own(from), own(to), share) };
+  // A screen just past edge on is still seen from behind, its corners round the other way: none faces the viewer yet.
+  const turned = paneAt(180 * (1 - open));
+  const facing = (pane: Pane, seen: Quad | null) => seen !== null && Math.sign(quadArea(seen)) === faceOf(shots, pane);
+  const seen = turned && quadBetween(shotQuad(from, turned), shotQuad(to, turned), share);
+  const pane = turned && facing(turned, seen) ? turned : null;
+  const quad = pane ? seen : null;
+  const hole = (shot: FoldShot, laid: Quad) => {
+    const laidHole = pane && !laidBy ? laidQuad(laid, lay.onto, shotQuad(shot, pane)) : null;
+    return pane && facing(pane, laidHole) ? laidHole : null;
+  };
+  return { from, to, share, lay, pane, quad, holes: [hole(from, lay.from), hole(to, lay.to)] };
+}
+
+/** Which way a screen's corners go round as it faces the viewer: as they do lying flat, open or shut. */
+function faceOf(shots: FoldShots, pane: Pane): number {
+  const shot = pane === "inner" ? shots.frames[0] : shots.frames.at(-1);
+  return shot ? Math.sign(quadArea(shotQuad(shot, pane))) : 0;
+}
+
+/** A quad's area, above 0 where its corners go round clockwise as the page is drawn, y down. */
+export function quadArea(quad: Quad): number {
+  return quad.reduce((sum, [x, y], index) => {
+    const [nx, ny] = quad[(index + 1) % 4] ?? [x, y];
+    return sum + x * ny - nx * y;
+  }, 0) / 2;
+}
+
+/** Where the corners of `quad` are seen once the plane is laid from `from` onto `to`, as `quadToQuad` lays it. */
+export function laidQuad(from: Quad, to: Quad, quad: Quad): Quad | null {
+  const back = squareTo(from);
+  const ahead = squareTo(to);
+  if (!back || !ahead) return null;
+  const [a, b, c, d, e, f, g, h, i] = times(ahead, undo(back));
+  const [p, q, r, s] = quad.map(([x, y]): Pair => {
+    const w = g * x + h * y + i;
+    return [(a * x + b * y + c) / w, (d * x + e * y + f) / w];
+  });
+  return p && q && r && s ? [p, q, r, s] : null;
 }
 
 /** A quad `share` of the way from `from` to `to`, corner by corner. */
@@ -451,9 +535,14 @@ function undo(m: Mat3): Mat3 {
   ];
 }
 
-/** A plane's map as a css `matrix3d`, with its transform origin at 0 0. */
+/**
+ * A plane's map as a css `matrix3d`, with its transform origin at 0 0. Scaled
+ * so w is 1 at the origin: the map is the same scaled anyhow, but css draws
+ * nothing where w is below 0, as a map scaled by less than 0 has it.
+ */
 function matrix3dOf(m: Mat3): string {
-  const [a, b, c, d, e, f, g, h, i] = m;
+  const w = m[8] || 1;
+  const [a, b, c, d, e, f, g, h, i] = m.map((value) => value / w);
   const values = [a, d, 0, g, b, e, 0, h, 0, 0, 1, 0, c, f, 0, i];
   return `matrix3d(${values.map((value) => Number(value.toPrecision(12))).join(", ")})`;
 }

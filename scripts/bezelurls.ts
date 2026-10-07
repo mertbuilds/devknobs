@@ -75,6 +75,7 @@ function shotOf(value: unknown, index: number): FoldShot {
     pieces: pieces.map((piece) => pieceOf(piece, `${what} piece`)),
     inner: quadOf("inner" in value ? value.inner : null, `${what} inner`),
     cover: quadOf("cover" in value ? value.cover : null, `${what} cover`),
+    side: quadOf("side" in value ? value.side : null, `${what} side`),
   };
 }
 
@@ -117,6 +118,7 @@ function shotEntry(shot: FoldShot): string {
     `      pieces: ${list(shot.pieces)},`,
     `      inner: ${list(shot.inner)},`,
     `      cover: ${list(shot.cover)},`,
+    `      side: ${list(shot.side)},`,
     "    },",
   ].join("\n");
 }
