@@ -47,11 +47,26 @@ camera.position.set(0, 0, SCREEN_Z + D);
 camera.lookAt(0, 0, SCREEN_Z);
 camera.updateProjectionMatrix();
 
+// The camera sees what lies behind a screen a little smaller than the screen, and Apple's
+// pictures of the open and the shut Duo are flat, so each point of the case is first moved
+// out from the hinge's axis by as much as its depth behind the inner screen, seen from the
+// front, or behind the cover screen, seen once shut, takes off: whichever is less, which is
+// the one it is seen on. The screens themselves stay where they are, and both ends come out
+// flat, as Apple's pictures are, while the turn between keeps the camera's perspective.
+const COVER_Z = -.27463;
+const D_COVER = D + SCREEN_Z - 2 * HINGE_Z + COVER_Z; // the cover screen's distance once shut
+const warpShader = `
+vec3 warp(vec3 p) {
+  float s = min((${(D + SCREEN_Z).toFixed(6)} - p.z) / ${D.toFixed(6)}, (${(D_COVER - COVER_Z).toFixed(6)} + p.z) / ${D_COVER.toFixed(6)});
+  return vec3(p.xy * s, p.z);
+}
+`;
+
 const bend = { value: 0 };
 // 1 keeps the moving half (cover side), 0 the fixed half, 2 both.
 const side = { value: 2 };
 
-const foldShader = `
+const foldShader = `${warpShader}
 uniform float foldAngle;
 uniform float keepSide;
 varying float vSourceX;
@@ -84,12 +99,13 @@ const holeMaterial = new THREE.ShaderMaterial({
   vertexShader: `${foldShader}
     void main() {
       vSourceX = position.x;
+      vec3 p = warp(position);
       #ifdef FLEXIBLE_SCREEN
-      vec4 f = bendStrip(position);
+      vec4 f = bendStrip(p);
       #else
-      vec2 f = rotateHinge(position.xz);
+      vec2 f = rotateHinge(p.xz);
       #endif
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(f.x, position.y, f.y, 1.0);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(f.x, p.y, f.y, 1.0);
     }`,
   fragmentShader: `uniform float keepSide; varying float vSourceX;
     void main() {
@@ -98,6 +114,22 @@ const holeMaterial = new THREE.ShaderMaterial({
       gl_FragColor = vec4(0.0);
     }`,
 });
+
+const INNER = { x0: -7.89935, x1: 7.89935, y0: .34562 - 5.8974, y1: .34562 - 5.8974 + 11.1035, z: SCREEN_Z };
+const COVER = { x0: -.23396 - 7.73936, x1: -.23396, y0: .27173 - 5.8974, y1: .27173 - 5.8974 + 11.2513, z: COVER_Z };
+
+// The black glass round each screen, lit as Apple's pictures have it: border.py samples it, px
+// by px out from the screen's edge, as the light that tone maps to it, and the border's meshes
+// give off that light and take none, round the inner screen, both halves and the strip at the
+// hinge, and round the cover screen. Corners as round as the screens', in css px.
+const border = await (await fetch('./border.json')).json();
+const CSS = K / DPR; // css px per model unit
+const BORDERS = {
+  open: { meshes: ['JnJdTkxbQgUtLwU', 'svvOILdVxasRAOk', 'gjdjMOcCfrwBMYH', 'xdyyaajWsatVNxN'], rect: INNER, radii: [53, 53, 53, 53] },
+  // Seen from behind as the model lies open, the hinge on the right: its corners there are the small ones.
+  cover: { meshes: ['xpVpaKuQKnXQhFj'], rect: COVER, radii: [58, 8, 8, 58] },
+};
+const borderOf = name => Object.entries(BORDERS).find(([, b]) => b.meshes.includes(name));
 
 const groups = { moving: [], fixed: [], flexible: [] };
 const screenMeshes = {};
@@ -123,18 +155,52 @@ model.traverse(object => {
     if (!moving && !flexible) material.uniforms.keepSide = { value: -1 };
   } else {
     material = object.material.clone();
+    const [glass, edge] = borderOf(object.name) ?? [];
+    if (edge) {
+      material.color.setRGB(0, 0, 0);
+      material.specularIntensity = 0;
+      material.clearcoat = 0;
+      material.emissive.setRGB(1, 1, 1);
+      material.emissiveMap = null;
+    }
     material.onBeforeCompile = shader => {
       shader.uniforms.foldAngle = bend;
       shader.uniforms.keepSide = side;
+      if (edge) {
+        const { x0, y0, x1, y1 } = edge.rect;
+        shader.uniforms.borderLight = { value: border[glass].map(rgb => new THREE.Vector3(...rgb)) };
+        shader.uniforms.borderRect = { value: new THREE.Vector4(x0, y0, x1, y1) };
+        // Top left, top right, bottom right, bottom left, in model units.
+        shader.uniforms.borderRadii = { value: new THREE.Vector4(...edge.radii.map(r => r / CSS)) };
+        shader.vertexShader = `varying vec3 vSource;\n${shader.vertexShader}`
+          .replace('#include <project_vertex>', 'vSource = position;\n#include <project_vertex>');
+        const count = border[glass].length;
+        shader.fragmentShader = `varying vec3 vSource;
+          uniform vec3 borderLight[${count}];
+          uniform vec4 borderRect;
+          uniform vec4 borderRadii;
+          ${shader.fragmentShader}`.replace('#include <emissivemap_fragment>', `
+          vec2 q = vSource.xy - (borderRect.xy + borderRect.zw) * 0.5;
+          float r = q.x < 0.0 ? (q.y > 0.0 ? borderRadii.x : borderRadii.w) : (q.y > 0.0 ? borderRadii.y : borderRadii.z);
+          vec2 a = abs(q) - (borderRect.zw - borderRect.xy) * 0.5 + r;
+          float away = length(max(a, 0.0)) + min(max(a.x, a.y), 0.0) - r;
+          // In px of Apple's pictures, 3 to the css px, from the middle of the first.
+          float at = clamp(away * ${(K).toFixed(6)} - 0.5, 0.0, ${count - 1}.0);
+          int i = int(min(floor(at), ${count - 2}.0));
+          totalEmissiveRadiance = mix(borderLight[i], borderLight[i + 1], at - float(i));
+        `);
+      }
       if (moving || flexible) {
         shader.vertexShader = `${flexible ? '#define FLEXIBLE_SCREEN\n' : ''}${foldShader}\n${shader.vertexShader}`;
         shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', flexible ? `
-          vec4 folded = bendStrip(position);
-          vec3 transformed = vec3(folded.x, position.y, folded.y);
+          vec3 warped = warp(position);
+          vec4 folded = bendStrip(warped);
+          vec3 transformed = vec3(folded.x, warped.y, folded.y);
           vSourceX = position.x;
         ` : `
-          vec2 folded = rotateHinge(position.xz);
-          vec3 transformed = vec3(folded.x, position.y, folded.y);
+          vec3 warped = warp(position);
+          vec2 folded = rotateHinge(warped.xz);
+          vec3 transformed = vec3(folded.x, warped.y, folded.y);
           vSourceX = -1.0e3;
         `);
         shader.vertexShader = shader.vertexShader.replace('#include <beginnormal_vertex>', `
@@ -144,8 +210,8 @@ model.traverse(object => {
           objectNormal.z = -sin(a) * normal.x + cos(a) * normal.z;
         `);
       } else {
-        shader.vertexShader = `uniform float keepSide; varying float vSourceX;\n${shader.vertexShader}`;
-        shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\nvSourceX = 1.0e3;`);
+        shader.vertexShader = `uniform float keepSide; varying float vSourceX;\n${warpShader}\n${shader.vertexShader}`;
+        shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `vec3 transformed = warp(position);\nvSourceX = 1.0e3;`);
       }
       shader.fragmentShader = `uniform float keepSide; varying float vSourceX;\n${shader.fragmentShader}`;
       shader.fragmentShader = shader.fragmentShader.replace('void main() {', `void main() {
@@ -188,9 +254,8 @@ function project([x, y, z]) {
   const v = new THREE.Vector3(x, y, z).project(camera);
   return [+((v.x + 1) / 2 * W).toFixed(2), +((1 - v.y) / 2 * H).toFixed(2)];
 }
-const INNER = { x0: -7.89935, x1: 7.89935, y0: .34562 - 5.8974, y1: .34562 - 5.8974 + 11.1035, z: SCREEN_Z };
-const COVER = { x0: -.23396 - 7.73936, x1: -.23396, y0: .27173 - 5.8974, y1: .27173 - 5.8974 + 11.2513, z: -.27463 };
-// Corners top left, top right, bottom right, bottom left, as seen in the open pose from the front.
+// Corners top left, top right, bottom right, bottom left, as seen in the open pose from the front. `warp` leaves the
+// screens' planes where they are, so the corners need none of it.
 function corners(a) {
   const q = (x0, x1, y0, y1, z) => [[x0, y1, z], [x1, y1, z], [x1, y0, z], [x0, y0, z]].map(p => project(foldPoint(...p, a)));
   // The cover is rigid, as its mesh turns: none of it bends with the strip at the hinge.
