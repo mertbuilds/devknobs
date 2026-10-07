@@ -118,7 +118,7 @@ SOFTWARE.
 
 ## jadon7/iphone-duo
 
-https://github.com/jadon7/iphone-duo. `scripts/render-duo-fold/render.js`, the offline script that renders the Duo's fold frames, adapts its fold math, its mesh ids and its screen geometry constants. only that script uses them: nothing of it is in the package. the script runs three.js (MIT, https://github.com/mrdoob/three.js, from the clone's `vendor/three`), which the package does not ship either.
+https://github.com/jadon7/iphone-duo. `scripts/render-duo-fold/render.js`, the offline script that renders the Duo's fold frames, adapts its fold math, its mesh ids and its screen geometry constants. only that script uses them: nothing of that code is in the package. the package's fold in frames, `shotPicture` and the window around it in `src/engine/fold.ts` and `src/engine/foldrun.ts`, ports the screen projection of its `main.js`: the page lies flat as seen from the front while the turned screen is a window onto it, dark past the page's edge, the open screen's page fixed and the folded screen's slid along with its hinge side. the script runs three.js (MIT, https://github.com/mrdoob/three.js, from the clone's `vendor/three`), which the package does not ship either.
 
 ```
 MIT License

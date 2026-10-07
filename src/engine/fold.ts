@@ -483,6 +483,78 @@ export function quadToQuad(from: Quad, to: Quad): string | null {
   return back && ahead ? matrix3dOf(times(ahead, undo(back))) : null;
 }
 
+/**
+ * Where a point of the rect `from` is seen with the rect laid onto the quad
+ * `to`, as `quadToMatrix3d` lays it. Null where the quad has no room, seen
+ * edge on.
+ */
+export function quadMap(from: Rect, to: Quad): ((point: Point) => Point) | null {
+  const square = squareTo(to);
+  if (!square || from.width <= 0 || from.height <= 0) return null;
+  const [a, b, c, d, e, f, g, h, i] = square;
+  return ({ x, y }) => {
+    const u = (x - from.x) / from.width;
+    const v = (y - from.y) / from.height;
+    const w = g * u + h * v + i;
+    return { x: (a * u + b * v + c) / w, y: (d * u + e * v + f) / w };
+  };
+}
+
+/**
+ * Where the page on a screen of the half that turns lies in a frame, in the
+ * render's px, as Apple projects it and jadon7/iphone-duo after it: flat, as
+ * seen from the front, so it stays still as the half turns and the turned
+ * screen, `quad`, is a window onto it. The open screen's lies where its half
+ * past the hinge lies open. The folded screen's is as big as that screen
+ * lies shut, slid along so its hinge side stays on the turned screen's.
+ */
+export function shotPicture(shots: FoldShots, pane: Pane, quad: Quad): Rect {
+  if (pane === "inner") {
+    const [x, y, width, height] = shots.open;
+    return { x, y, width: width / 2, height };
+  }
+  const last = shots.frames.at(-1);
+  const shut = boundsOf(last ? last.cover : quad);
+  return { ...shut, x: quad[0][0] };
+}
+
+/**
+ * A frame's turned screen, `quad`, as the window onto its `picture`. The open
+ * screen's hinge side is put on the picture's, as the frames have it a px or
+ * two off the hinge, which would leave a dark line down it.
+ */
+export function shotWindow(quad: Quad, pane: Pane, picture: Rect): Quad {
+  if (pane !== "inner") return quad;
+  const hinge = picture.x + picture.width;
+  const [a, [, top], [, bottom], d] = quad;
+  return [a, [hinge, top], [hinge, bottom], d];
+}
+
+/**
+ * How far the window, `quad`, reaches past its `picture` at the turned
+ * screen's free edge, above and below, in the render's px: the dark there,
+ * which grows as the free edge comes nearer, and is none lying flat.
+ */
+export function darkAt(quad: Quad, pane: Pane, picture: Rect): { top: number; bottom: number } {
+  const [top, bottom] = pane === "inner" ? [quad[0], quad[3]] : [quad[1], quad[2]];
+  return {
+    top: Math.max(0, picture.y - top[1]),
+    bottom: Math.max(0, bottom[1] - (picture.y + picture.height)),
+  };
+}
+
+/**
+ * The css `matrix` that lays a screen `size` css px, from its top left at
+ * 0 0, flat onto `picture`, turned a quarter held upright as `quadFacing`
+ * turns a frame's screen: no perspective, so the page never turns.
+ */
+export function flatMatrix(size: { width: number; height: number }, picture: Rect, across: boolean): string {
+  const exact = (value: number) => Math.round(value * 1e6) / 1e6;
+  const { x, y, width, height } = picture;
+  if (across) return `matrix(${exact(width / size.width)}, 0, 0, ${exact(height / size.height)}, ${exact(x)}, ${exact(y)})`;
+  return `matrix(0, ${exact(height / size.width)}, ${exact(-width / size.height)}, 0, ${exact(x + width)}, ${exact(y)})`;
+}
+
 /** How far along its tangents a cubic's handles sit to draw a quarter circle, in radii. */
 const KAPPA = 0.5523;
 

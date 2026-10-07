@@ -5,7 +5,9 @@ import {
   blurLight,
   blurWidth,
   brightness,
+  darkAt,
   edgeLight,
+  flatMatrix,
   foldFrame,
   foldLayout,
   type FoldSide,
@@ -23,6 +25,7 @@ import {
   type Quad,
   quadBetween,
   quadFacing,
+  quadMap,
   quadToMatrix3d,
   quadToQuad,
   RIM,
@@ -30,9 +33,11 @@ import {
   screenDim,
   seenAt,
   SHOTS_HAND_OVER,
+  shotPicture,
   shotQuad,
   shotsBetween,
   shotsTransform,
+  shotWindow,
   uvOf,
   wipeAmount,
   wipeLight,
@@ -635,6 +640,101 @@ describe("the Duo's fold frames", () => {
       expectGlued(across, 1, "inner", half, across ? [topLeft, 0, 0, bottomLeft] : [0, 0, bottomRight, bottomLeft]);
       // Shut, its outside lies on the folded screen, its corners as the folded body's.
       expectGlued(across, 0, "cover", outside, radii.closed);
+    }
+  });
+
+  test("show the page flat and still behind the turned screen, the open one's where it lies open", () => {
+    const [x, y, width, height] = shots.open;
+    for (const shot of shots.frames.filter((frame) => paneAt(frame.deg) === "inner")) {
+      expect(shotPicture(shots, "inner", shotQuad(shot, "inner"))).toEqual({ x, y, width: width / 2, height });
+    }
+  });
+
+  test("slide the folded screen's page along with its hinge side, as big as it lies shut", () => {
+    const last = shots.frames.at(-1);
+    if (!last) throw new Error("no frames");
+    const [[left, top], , [right, bottom]] = shotQuad(last, "cover");
+    for (const shot of shots.frames.filter((frame) => paneAt(frame.deg) === "cover")) {
+      const quad = shotQuad(shot, "cover");
+      expect(shotPicture(shots, "cover", quad)).toEqual({ x: quad[0][0], y: top, width: right - left, height: bottom - top });
+    }
+  });
+
+  test("darken the turned screen past the page, above and below its free edge, the more the nearer it comes", () => {
+    const dark = (deg: number) => {
+      const shot = shots.frames.find((frame) => frame.deg === deg);
+      const pane = paneAt(deg);
+      if (!shot || !pane) throw new Error("no frame");
+      const quad = shotQuad(shot, pane);
+      return darkAt(shotWindow(quad, pane, shotPicture(shots, pane, quad)), pane, shotPicture(shots, pane, quad));
+    };
+    for (const flat of [dark(0), dark(180)]) {
+      expect(flat.top).toBeCloseTo(0, 6);
+      expect(flat.bottom).toBeCloseTo(0, 6);
+    }
+    // As much above as below, growing toward a right angle from either end.
+    for (const [nearer, further] of [[6, 30], [30, 60], [60, 84], [174, 150], [150, 120], [120, 96]] as const) {
+      const a = dark(nearer);
+      const b = dark(further);
+      expect(Math.abs(a.top - a.bottom)).toBeLessThan(0.1);
+      expect(a.top).toBeGreaterThan(0);
+      expect(b.top).toBeGreaterThan(a.top);
+    }
+    // Darkness only where the screen reaches past the page: none where it stays inside.
+    const picture = { x: 0, y: 0, width: 100, height: 100 };
+    expect(darkAt([[10, 10], [90, 10], [90, 90], [10, 90]], "inner", picture)).toEqual({ top: 0, bottom: 0 });
+    expect(darkAt([[0, -5], [100, 0], [100, 100], [0, 108]], "inner", picture)).toEqual({ top: 5, bottom: 8 });
+    expect(darkAt([[0, 0], [100, -5], [100, 108], [0, 100]], "cover", picture)).toEqual({ top: 5, bottom: 8 });
+  });
+
+  test("put the open screen's window on the page's hinge side, so no dark line runs down the hinge", () => {
+    const quad: Quad = [[100, 40], [1561.6, 60], [1561.6, 300], [100, 320]];
+    const picture = { x: 133.5, y: 50, width: 1426.5, height: 260 };
+    expect(shotWindow(quad, "inner", picture)).toEqual([[100, 40], [1560, 60], [1560, 300], [100, 320]]);
+    expect(shotWindow(quad, "cover", picture)).toBe(quad);
+  });
+
+  test("lay the page flat, never in perspective, turned a quarter held upright as the frames are", () => {
+    const size = { width: 300, height: 200 };
+    const picture = { x: 10, y: 20, width: 600, height: 800 };
+    for (const across of [true, false]) {
+      const matrix = flatMatrix(size, picture, across);
+      expect(matrix).toStartWith("matrix(");
+      const facing = quadFacing([[10, 20], [610, 20], [610, 820], [10, 820]], across);
+      const corners = [[0, 0], [300, 0], [300, 200], [0, 200]] as const;
+      corners.forEach(([x, y], index) => {
+        const seen = through(matrix, x, y);
+        expect(seen.x).toBeCloseTo(facing[index]?.[0] ?? NaN, 3);
+        expect(seen.y).toBeCloseTo(facing[index]?.[1] ?? NaN, 3);
+      });
+    }
+  });
+
+  test("lay the flat page and its window exactly where the device draws its screens, open and shut, either way it is held", () => {
+    const first = shots.frames[0];
+    const last = shots.frames.at(-1);
+    if (!first || !last) throw new Error("no frames");
+    for (const across of [true, false]) {
+      const { layout, inside, outside } = bezelled(across);
+      const half = across
+        ? { ...inside, width: layout.hinge - inside.x }
+        : { ...inside, y: layout.hinge, height: inside.y + inside.height - layout.hinge };
+      for (const [open, pane, shot, rect] of [[1, "inner", first, half], [0, "cover", last, outside]] as const) {
+        const model = shotsTransform(shots, layout, inside, outside, open);
+        const quad = shotQuad(shot, pane);
+        const picture = shotPicture(shots, pane, quad);
+        const size = { width: rect.width, height: rect.height };
+        const flat = flatMatrix(size, picture, across);
+        const seen = quadMap({ x: 0, y: 0, ...size }, quadFacing(shotWindow(quad, pane, picture), across));
+        if (!seen) throw new Error("no window");
+        for (const [x, y] of [[0, 0], [size.width, 0], [size.width, size.height], [0, size.height], [size.width / 2, size.height / 2]] as const) {
+          for (const onFrame of [through(flat, x, y), seen({ x, y })]) {
+            const shown = through(model, onFrame.x, onFrame.y);
+            expect(Math.abs(shown.x - (rect.x + x))).toBeLessThan(0.25);
+            expect(Math.abs(shown.y - (rect.y + y))).toBeLessThan(0.25);
+          }
+        }
+      }
     }
   });
 

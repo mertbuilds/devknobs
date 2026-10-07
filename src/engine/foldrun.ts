@@ -1,14 +1,13 @@
 import type { PostureValue } from "../types";
 import { bezelUrl, decodeFoldShots, foldShots, releaseFoldShots, SHOTS_KEPT } from "./bezels";
 import {
-  type BlurFade,
   type FoldFrame,
   foldFrame,
   type FoldLayout,
   foldLayout,
   type FoldShot,
   type FoldShots,
-  type FoldSide,
+  flatMatrix,
   HAND_OVER,
   handOver,
   type Hinge,
@@ -19,26 +18,43 @@ import {
   openOf,
   type Pane,
   paneAt,
-  paneLook,
   type Point,
   type Quad,
   quadBetween,
   quadFacing,
-  quadToMatrix3d,
+  quadMap,
   quadToQuad,
   RIM,
   roundedPath,
   screenDim,
   seenAt,
   SHOTS_HAND_OVER,
+  shotPicture,
   shotQuad,
   shotsBetween,
   shotsTransform,
+  shotWindow,
 } from "./fold";
+import {
+  creaseOf,
+  type Face,
+  div,
+  fill,
+  light,
+  paintLeaf,
+  type Panel,
+  type Picture,
+  type Pictures,
+  placeAt,
+  round,
+  screenOf,
+  type Turning,
+  turningOf,
+} from "./foldpage";
 import type { Mock, Rect } from "./mock";
-import { corners, drawMock, UNDER } from "./mockdraw";
+import { drawMock, UNDER } from "./mockdraw";
 import { type Corners, lerp } from "./morph";
-import { blurPictures, copyPage, forgetShots, paintPage, shootPage } from "./pageshot";
+import { copyPage, forgetShots, paintPage, shootPage } from "./pageshot";
 import { slowed, slowness } from "./slow";
 import { coverTo, darken, type TurnScene } from "./turnrun";
 import type { ViewportValue } from "./width";
@@ -61,8 +77,9 @@ import type { ViewportValue } from "./width";
  * and once they are in draws the half that turns as the two frames either
  * side of the hinge's angle instead, rendered from Apple's model, each on a
  * canvas laid onto the screen's corners between theirs, faded one into the
- * other, and the page glued onto those corners: its picture, blurs and
- * shades laid on with a `matrix3d`. They hand over to the device only when
+ * other, and the screen between those corners a window onto the page lying
+ * flat, as Apple projects it: its picture, blurs and shades stay still, and
+ * the window is dark where it reaches past them. They hand over to the device only when
  * all but flat. Till then, or where one fails, it turns the copies. The
  * frames are let go of a while after it lands.
  */
@@ -75,30 +92,6 @@ export interface FoldScene extends TurnScene {
   body(value: ViewportValue): Mock | null;
   /** Where the screen would be drawn for the knobs, in the letterbox. */
   screenFor(value: ViewportValue): Rect | null;
-}
-
-/** One side of a fold as it is drawn: its body, and the picture of it that has loaded. */
-interface Face extends FoldSide {
-  body: Mock | null;
-  href: string | null;
-}
-
-/** The page on a screen of the half that turns: its pictures, lit and blurred as it turns. */
-interface Panel {
-  pane: Pane;
-  /** The screen as it lies: the pictures of the page and the browser's bars. */
-  stage: HTMLElement;
-  /** The page, and the same blurred more and more. */
-  pictures: HTMLElement[];
-  /** The dark of the picture as it lies, and of the screen as it turns. */
-  flat: HTMLElement;
-  shade: HTMLElement;
-  /** The way from the hinge to the free edge, as a gradient goes, and where the two are on the stage, in percent. */
-  toward: string;
-  span: [number, number];
-  /** The screen's css px across the hinge, and its width. */
-  extent: number;
-  width: number;
 }
 
 /** A copy of one side of the half that turns, and the window onto the page its screen is. */
@@ -119,11 +112,16 @@ interface Leaf extends Panel {
   pivot: Point;
 }
 
-/** A screen of a frame's half that turns, the page glued onto it. */
+/** A screen of a frame's half that turns, a window onto the page lying flat behind it. */
 interface Glued extends Panel {
-  /** The part that turns as it lies, in its own css px, laid onto the frame's quad. */
+  /** The window, dark, over every frame in the render, cut to the turned screen's outline. */
   node: HTMLElement;
+  /** The part that turns as it lies, in its own css px, laid flat where the page is seen, and its corners. */
+  picture: HTMLElement;
+  /** The dark its ends along the hinge fade into toward the free edge, as the blur spreads them into the dark past them. */
+  rim: HTMLElement;
   size: { width: number; height: number };
+  radii: Corners;
 }
 
 /** The half that turns as the copies of its two sides, and the bend's half on it. */
@@ -225,71 +223,6 @@ function sideOf(scene: FoldScene, value: ViewportValue, screen: Rect): Face {
   return { body, href, size: { width, height }, screen };
 }
 
-function div(className: string): HTMLElement {
-  const node = document.createElement("div");
-  node.className = className;
-  return node;
-}
-
-/** Corners as a css border radius. */
-function round(radii: Corners): string {
-  return radii.map((radius) => `${radius}px`).join(" ");
-}
-
-/** Fill the box it is in. */
-function fill(node: HTMLElement): HTMLElement {
-  node.style.position = "absolute";
-  node.style.inset = "0";
-  node.style.width = "100%";
-  node.style.height = "100%";
-  return node;
-}
-
-/** Put a node at `rect`, in its parent's css px. */
-function placeAt(node: HTMLElement, rect: Rect): HTMLElement {
-  node.style.position = "absolute";
-  node.style.left = `${rect.x}px`;
-  node.style.top = `${rect.y}px`;
-  node.style.width = `${rect.width}px`;
-  node.style.height = `${rect.height}px`;
-  return node;
-}
-
-/** Put `shot` on a leaf's stage, and the same blurred over it, as much as was shown before. */
-function paintLeaf(leaf: Panel, shot: HTMLCanvasElement): void {
-  const next = [shot, ...blurPictures(shot, leaf.width)].map(fill);
-  next.forEach((picture, index) => {
-    const last = leaf.pictures[index];
-    if (index === 0 || !last) return;
-    picture.style.opacity = last.style.opacity;
-    picture.style.maskImage = last.style.maskImage;
-    picture.style.setProperty("-webkit-mask-image", last.style.maskImage);
-  });
-  for (const last of leaf.pictures) last.remove();
-  // Under the bars.
-  leaf.stage.prepend(...next);
-  leaf.pictures = next;
-}
-
-/** The screen of a side's body, where it is in the body, and its corners. */
-function screenOf(side: Face): { rect: Rect; radii: Corners } {
-  const { body, size } = side;
-  const rect = { x: body?.inset.left ?? 0, y: body?.inset.top ?? 0, ...size };
-  return { rect, radii: body ? corners(body.screenRadius) : [0, 0, 0, 0] };
-}
-
-/** The part of a side's screen that turns, and the way from its hinge to its free edge. */
-interface Turning {
-  pane: Pane;
-  /** Where it is in the body, and its corners, square at the hinge. */
-  rect: Rect;
-  radii: Corners;
-  toward: string;
-  /** Where the hinge and the free edge are along `toward` on the whole screen, in percent. */
-  span: [number, number];
-  pivot: Point;
-}
-
 /**
  * A copy of a side's body around its screen, in the screen's css px, as the
  * frame draws it, its screen dark, and the window onto the page, `picture`,
@@ -364,61 +297,6 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
   return leaf;
 }
 
-/** How wide the bend shows each side of the hinge, in css px of the open screen. */
-const BEND = 14;
-
-/** The two sides of the half that turns: the open screen's half, and the folded body's whole screen. */
-function turningOf(layout: FoldLayout, open: Face, closed: Face): { inner: Turning; outer: Turning } {
-  const { across, hinge, pivots } = layout;
-  const inside = screenOf(open);
-  const [topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 0] = inside.radii;
-  const half = across
-    ? { ...inside.rect, width: hinge - inside.rect.x }
-    : { ...inside.rect, y: hinge, height: inside.rect.y + inside.rect.height - hinge };
-  const outside = screenOf(closed);
-  return {
-    inner: {
-      pane: "inner",
-      rect: half,
-      radii: across ? [topLeft, 0, 0, bottomLeft] : [0, 0, bottomRight, bottomLeft],
-      toward: across ? "to left" : "to bottom",
-      span: [50, 100],
-      pivot: pivots.inner,
-    },
-    outer: {
-      pane: "cover",
-      rect: outside.rect,
-      radii: outside.radii,
-      toward: across ? "to right" : "to top",
-      span: [0, 100],
-      pivot: pivots.outer,
-    },
-  };
-}
-
-/**
- * A half of the crease down the hinge, in the open screen's body, darkest at
- * the hinge: on the half that turns, `turned`, or on the half that stays,
- * placed from `corner` of the body. Each meets the other there, the one on
- * the half that turns turned with it, so its edge at the hinge is not cut off
- * as it stands.
- */
-function creaseOf(layout: FoldLayout, open: Face, turned: boolean, corner: Point = { x: 0, y: 0 }): HTMLElement {
-  const { across, hinge } = layout;
-  const { rect } = screenOf(open);
-  const before = across === turned;
-  const from = before ? hinge - BEND : hinge;
-  const node = placeAt(
-    div(""),
-    across
-      ? { x: from - corner.x, y: rect.y - corner.y, width: BEND, height: rect.height }
-      : { x: rect.x - corner.x, y: from - corner.y, width: rect.width, height: BEND },
-  );
-  const away = across ? (before ? "to left" : "to right") : before ? "to top" : "to bottom";
-  node.style.background = `linear-gradient(${away}, rgba(0, 0, 0, 0.3), transparent)`;
-  return node;
-}
-
 /**
  * The copies of the half that turns: its inside, the open screen's half,
  * `inner`, and its outside, the folded body, `outer`, each with the window its
@@ -444,31 +322,40 @@ function copiesOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictur
 }
 
 /**
- * The page on a side's screen of the half that turns, glued to a frame: the
- * part that turns, in its own css px, black, and over it, rounded as the
- * screen is, the pictures and the browser's bars as the screen lies, the dark
- * of the picture and the shade of the turned screen.
+ * The page on a side's screen of the half that turns, seen through a frame:
+ * a window over `box`, the render's px every frame lies in, dark, and in it
+ * the part that turns, in its own css px, the pictures and the browser's bars
+ * as the screen lies, the dark of the picture and the shade of the turned
+ * screen, all laid flat. The window is cut to the turned screen, so none of
+ * its dark shows past the case.
  */
-function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean): Glued {
+function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean, box: Rect): Glued {
   const { rect, radii } = turning;
   const whole = screenOf(side);
-  const node = placeAt(div(""), { ...rect, x: 0, y: 0 });
-  node.style.transformOrigin = "0 0";
-  // Dark only inside the screen's corners, so none of it shows past the case.
-  const clip = fill(div(""));
-  clip.style.background = "#000";
-  clip.style.borderRadius = round(radii);
-  clip.style.overflow = "hidden";
+  const node = placeAt(div(""), box);
+  node.style.background = "#000";
+  const flatly = placeAt(div(""), { ...rect, x: 0, y: 0 });
+  flatly.style.transformOrigin = "0 0";
+  flatly.style.overflow = "hidden";
   const stage = placeAt(div(""), { ...whole.rect, x: whole.rect.x - rect.x, y: whole.rect.y - rect.y });
   if (picture.bars) stage.append(picture.bars);
+  const rim = fill(div(""));
+  const edge = `transparent ${RIM * 100}%, transparent ${(1 - RIM) * 100}%`;
+  rim.style.background = `linear-gradient(${across ? "to bottom" : "to right"}, #000, ${edge}, #000)`;
+  const sharp = `linear-gradient(${turning.toward}, transparent, #000)`;
+  rim.style.maskImage = sharp;
+  rim.style.setProperty("-webkit-mask-image", sharp);
   const flat = fill(div(""));
   const shade = fill(div(""));
-  clip.append(stage, flat, shade);
-  node.append(clip);
+  flatly.append(stage, rim, flat, shade);
+  node.append(flatly);
   const glued: Glued = {
     pane: turning.pane,
     node,
+    picture: flatly,
+    rim,
     size: { width: rect.width, height: rect.height },
+    radii,
     stage,
     pictures: [],
     flat,
@@ -528,8 +415,9 @@ function shotsOf(
   if (!under || !over) return null;
   const sides = turningOf(layout, open, closed);
   const model = div("");
-  const inner = gluedOf(open, pictures.open, sides.inner, layout.across);
-  const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across);
+  const box = { x: left, y: top, width: right - left, height: bottom - top };
+  const inner = gluedOf(open, pictures.open, sides.inner, layout.across, box);
+  const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across, box);
   inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
   // Added up only with each other, not with the screens under them.
   const frames = div("");
@@ -583,23 +471,6 @@ function build(
   layer.append(place);
   scene.place(layer);
   return { layer, place, turning, still };
-}
-
-/**
- * The page as laid out on a screen: a rough picture of it now, or null where
- * it is out of reach, the one the browser draws once it has, and a copy of
- * the browser's bars around it.
- */
-interface Picture {
-  shot: HTMLCanvasElement | null;
-  painted: Promise<HTMLCanvasElement | null> | null;
-  bars: HTMLElement | null;
-}
-
-/** Pictures of the page as laid out on each screen. */
-interface Pictures {
-  open: Picture;
-  closed: Picture;
 }
 
 /** The page as the frame lays it out now on a screen `size` css px, `copy` of it to draw. */
@@ -657,28 +528,6 @@ function spanOf(going: Going): number {
   return "model" in going.parts.turning ? SHOTS_HAND_OVER : HAND_OVER;
 }
 
-/** A gradient from the hinge to the free edge through the shares of dark `shades`, evenly spaced. */
-function shading(toward: string, shades: number[]): string {
-  const last = Math.max(1, shades.length - 1);
-  const stops = shades.map((dark, index) => `rgba(0, 0, 0, ${dark}) ${Math.round((index / last) * 1000) / 10}%`);
-  return `linear-gradient(${toward}, ${stops.join(", ")})`;
-}
-
-/** Where a share `t` of the way from the hinge to the free edge is on a leaf's stage, in percent. */
-function onStage(leaf: Panel, t: number): number {
-  const [hinge, free] = leaf.span;
-  return Math.round((hinge + (free - hinge) * t) * 100) / 100;
-}
-
-/** Show a blurrier picture as `fade` has it, faded in along the stage. */
-function blurTo(leaf: Panel, picture: HTMLElement, fade: BlurFade | null): void {
-  picture.style.opacity = fade ? "" : "0";
-  if (!fade) return;
-  const mask = `linear-gradient(${leaf.toward}, transparent ${onStage(leaf, fade.from)}%, rgba(0, 0, 0, ${fade.most}) ${onStage(leaf, fade.to)}%)`;
-  picture.style.maskImage = mask;
-  picture.style.setProperty("-webkit-mask-image", mask);
-}
-
 /**
  * Show a copy of a side of the half that turns as it stands, turned with
  * `transform` as `frame` has it, lit and blurred as the hinge `open` of the
@@ -706,24 +555,16 @@ function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: stri
   leaf.veil.style.opacity = fade;
 }
 
-/** Light and blur the page on a screen of the half that turns as the hinge `open` of the way open has it. */
-function light(panel: Panel, open: number): void {
-  const look = paneLook(panel.pane, open, panel.extent);
-  panel.shade.style.background = shading(panel.toward, look.turned);
-  panel.flat.style.background = shading(panel.toward, look.flat);
-  panel.pictures.slice(1).forEach((picture, index) => blurTo(panel, picture, look.blurs[index] ?? null));
-}
-
 /**
  * Show the frames either side of the hinge's angle, `open` of the way open,
  * the more open one and the next faded in over it as far as the hinge has
- * gone toward it, laid on the fold, and the page glued onto the screen that
- * faces the viewer, its corners as far between the two frames', the whole of
- * it `shown` of the way over the frame's own device. Each frame is laid onto
- * those corners from its own, as the half turns between them, so the two
- * outlines meet and the case never shows twice.
+ * gone toward it, laid on the fold, and the screen that faces the viewer a
+ * window onto the page lying flat, its corners as far between the two
+ * frames', the whole of it `shown` of the way over the frame's own device.
+ * Each frame is laid onto those corners from its own, as the half turns
+ * between them, so the two outlines meet and the case never shows twice.
  */
-function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): void {
+function pose(turning: Shots, layout: FoldLayout, open: number, lift: number, shown: number): void {
   const { shots, model } = turning;
   const between = shotsBetween(shots, open);
   if (!between) return;
@@ -742,12 +583,26 @@ function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): 
   model.style.transform = shotsTransform(shots, layout, turning.inside, turning.outside, open);
   model.style.opacity = shown < 1 ? String(shown) : "";
   for (const glued of [turning.inner, turning.outer]) {
-    const facing = quad && glued.pane === pane ? quadToMatrix3d({ x: 0, y: 0, ...glued.size }, quadFacing(quad, layout.across)) : null;
-    glued.node.style.visibility = facing ? "" : "hidden";
-    if (!facing) continue;
-    glued.node.style.transform = facing;
+    const facing = quad && glued.pane === pane ? quad : null;
+    const picture = facing && shotPicture(shots, glued.pane, facing);
+    const rect = { x: 0, y: 0, ...glued.size };
+    const seen = facing && picture && quadMap(rect, quadFacing(local(turning, shotWindow(facing, glued.pane, picture)), layout.across));
+    glued.node.style.visibility = seen ? "" : "hidden";
+    if (!seen || !picture) continue;
+    // The page stays still and flat behind the turned screen, dark where the screen reaches past it.
+    glued.node.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
+    const { x, y } = turning.corner;
+    glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
+    glued.rim.style.opacity = String(lift);
     light(glued, open);
   }
+}
+
+/** Corners in the render, from where the planes and windows lie in it. */
+function local(turning: Shots, corners: Quad): Quad {
+  const { x, y } = turning.corner;
+  const [a, b, c, d] = corners.map(([px, py]): readonly [number, number] => [px - x, py - y]);
+  return a && b && c && d ? [a, b, c, d] : corners;
 }
 
 /**
@@ -769,12 +624,7 @@ function planesFor(turning: Shots, from: FoldShot, to: FoldShot): [Plane, Plane]
 /** Lay the frame a plane holds onto `quad`, its screen of `pane` corner on corner, or as it was rendered. */
 function layShot(turning: Shots, plane: Plane, pane: Pane | null, quad: Quad | null): void {
   const { shot } = plane;
-  const { x, y } = turning.corner;
-  const local = (corners: Quad): Quad => {
-    const [a, b, c, d] = corners.map(([px, py]): readonly [number, number] => [px - x, py - y]);
-    return a && b && c && d ? [a, b, c, d] : corners;
-  };
-  const laid = shot && pane && quad ? quadToQuad(local(shotQuad(shot, pane)), local(quad)) : null;
+  const laid = shot && pane && quad ? quadToQuad(local(turning, shotQuad(shot, pane)), local(turning, quad)) : null;
   plane.canvas.style.transform = laid ?? "";
 }
 
@@ -810,7 +660,7 @@ function show(going: Going): void {
   const { x, y, scale } = frame.place;
   parts.place.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   const { turning } = parts;
-  if ("model" in turning) pose(turning, layout, open, 1 - hand);
+  if ("model" in turning) pose(turning, layout, open, frame.lift, 1 - hand);
   else {
     stand(turning.inner, layout, frame, frame.inner, open, 1 - hand);
     stand(turning.outer, layout, frame, frame.outer, open, 1 - hand);

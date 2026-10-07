@@ -365,7 +365,9 @@ describe("a Duo folding in its frames", () => {
       const facing = [inner, outer].filter((node) => style(node, "visibility") === "");
       expect(facing.length).toBeLessThanOrEqual(1);
       if (facing[0]) {
-        expect(style(facing[0], "transform")).toStartWith("matrix3d(");
+        // A window cut to the turned screen, onto the page laid flat, which never turns.
+        expect(style(facing[0], "clipPath")).toStartWith('path("M');
+        expect(style(facing[0].children[0], "transform")).toStartWith("matrix(");
         glued = true;
       }
       expect(style(model, "transform")).toStartWith("matrix(0.3");
