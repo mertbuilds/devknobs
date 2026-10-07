@@ -1,8 +1,9 @@
 import { layoutOf, layoutOptions, platformOf } from "../engine/browserui";
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
 import { DEVICES, deviceOf, formId, formOf, hasTouch, POSTURES } from "../engine/devices";
-import { frameForced } from "../engine/frame";
+import { frameForced, needsFrame } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
+import { sends } from "../engine/header";
 import { LOCALE_PRESETS } from "../engine/locale";
 import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../engine/matcolors";
 import { mockOf } from "../engine/mock";
@@ -157,6 +158,8 @@ export interface Knob {
   available?(): boolean;
   /** The option values the editor shows for this state, in order, where they depend on it. */
   offers?(state: DevknobsState): readonly string[];
+  /** False while the knob does nothing, so the editor hides it. Search still sets it. */
+  shown?(state: DevknobsState): boolean;
   /**
    * The value another knob brought, which stands in for the default while it
    * does: such a value puts the knob off nothing, and its row's `×` puts it back.
@@ -605,6 +608,7 @@ const CLOCK_MODE: Knob = {
   write: (value) => ({ clock: { mode: value as ClockMode } }),
   reset: { clock: { mode: DEFAULT_STATE.clock.mode } },
   brief: (state) => (state.clock.mode === "frozen" ? "frozen" : ""),
+  shown: (state) => state.clock.mode !== "system",
 };
 
 const CLOCK_SPEED: Knob = {
@@ -630,6 +634,8 @@ const CLOCK_SPEED: Knob = {
     const option = numberIn(text.replace(/x$/i, ""), 0.001, 1_000_000);
     return option && { ...option, label: `${option.value}x` };
   },
+  // A frozen clock has no speed to go at.
+  shown: (state) => state.clock.mode === "offset",
 };
 
 const HEADER: Knob = {
@@ -642,7 +648,9 @@ const HEADER: Knob = {
   read: (state) => flag(state.clock.header),
   write: (value) => ({ clock: { header: value === "on" } }),
   reset: { clock: { header: DEFAULT_STATE.clock.header } },
-  brief: () => "server",
+  brief: (state) => (sends(state.clock) ? "server" : ""),
+  // The real time is never sent, so the switch waits for a clock that is set.
+  shown: (state) => state.clock.mode !== "system",
 };
 
 const ONLINE: Knob = {
@@ -956,9 +964,11 @@ const ZOOM: Knob = {
   read: (state) => String(state.zoom),
   write: (value) => ({ zoom: value === "fit" ? "fit" : Number(value) }),
   reset: { zoom: DEFAULT_STATE.zoom },
-  brief: (state) => percent(Number(state.zoom)),
+  // Only a frame is zoomed. The value waits for one.
+  brief: (state) => (needsFrame(state) ? percent(Number(state.zoom)) : ""),
   name: (value) => percent(Number(value)),
   parse: parseZoom,
+  shown: needsFrame,
 };
 
 const FRAME: Knob = {
@@ -972,6 +982,8 @@ const FRAME: Knob = {
   write: (value) => ({ frame: value === "on" }),
   reset: { frame: DEFAULT_STATE.frame },
   brief: (state) => (frameForced(state) ? "" : "frame"),
+  // The switch changes nothing to see while another knob holds the frame up.
+  shown: (state) => !frameForced(state),
 };
 
 /** More words search finds each mat color by. */
@@ -995,6 +1007,9 @@ const MAT: Knob = {
   read: (state) => state.mat,
   write: (value) => ({ mat: MAT_COLOR_NAMES.find((name) => name === value) ?? DEFAULT_STATE.mat }),
   reset: { mat: DEFAULT_STATE.mat },
+  // The mat lies around a frame. The value waits for one.
+  brief: (state) => (needsFrame(state) ? state.mat : ""),
+  shown: needsFrame,
 };
 
 const VISION: Knob = {

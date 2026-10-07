@@ -8,6 +8,7 @@ import {
   hasMock,
   isActive,
   KNOBS,
+  type KnobId,
   knobOf,
   type Live,
   nameOf,
@@ -322,7 +323,8 @@ describe("summary", () => {
     };
     const live = { ...LIVE, now: real + HOUR, real };
     expect(says("clock", { clock: running }, live)).toBe("+1h · 60x · server");
-    expect(says("clock", { clock: { header: true } })).toBe("server");
+    // The real time is never sent, so the switch says nothing while the clock is on system.
+    expect(says("clock", { clock: { header: true } })).toBe("");
   });
 
   test("a clock far off says the day it shows", () => {
@@ -338,6 +340,56 @@ describe("summary", () => {
       "overflow · 0 · outlines",
     );
     expect(says("debug", { outlines: true }, { ...LIVE, overflow: 3 })).toBe("outlines");
+  });
+});
+
+describe("shown", () => {
+  const shown = (id: KnobId, patch: DevknobsStatePatch) =>
+    knobOf(id).shown?.(state(patch)) ?? true;
+  const running = { mode: "offset" as const, at: 1_000, since: 0 };
+  const frozen = { mode: "frozen" as const, at: 1_000, since: 0 };
+
+  test("the clock's mode and server switch wait for a time to be set", () => {
+    for (const id of ["clockMode", "header"] as const) {
+      expect(shown(id, {})).toBe(false);
+      expect(shown(id, { clock: running })).toBe(true);
+      expect(shown(id, { clock: frozen })).toBe(true);
+    }
+  });
+
+  test("the clock's speed shows only while it runs", () => {
+    expect(shown("clockSpeed", {})).toBe(false);
+    expect(shown("clockSpeed", { clock: frozen })).toBe(false);
+    expect(shown("clockSpeed", { clock: running })).toBe(true);
+  });
+
+  test("zoom and mat wait for the frame, whatever brings it up", () => {
+    for (const id of ["zoom", "mat"] as const) {
+      expect(shown(id, {})).toBe(false);
+      expect(shown(id, { zoom: 1.25, mat: "green" })).toBe(false);
+      expect(shown(id, { width: 390 })).toBe(true);
+      expect(shown(id, { height: 700 })).toBe(true);
+      expect(shown(id, { frame: true })).toBe(true);
+      expect(shown(id, { dpr: 2 })).toBe(true);
+      expect(shown(id, { vision: "blur" })).toBe(true);
+    }
+  });
+
+  test("the frame switch hides while another knob holds the frame up", () => {
+    expect(shown("frame", {})).toBe(true);
+    expect(shown("frame", { frame: true })).toBe(true);
+    expect(shown("frame", { width: 390 })).toBe(false);
+  });
+
+  test("a hidden knob keeps its value but leaves the summary", () => {
+    const waiting = state({ zoom: 1.25, mat: "green", clock: { header: true } });
+    expect(waiting.zoom).toBe(1.25);
+    expect(waiting.mat).toBe("green");
+    expect(summary(row("viewport"), waiting, LIVE)).toBe("");
+    expect(summary(row("clock"), waiting, LIVE)).toBe("");
+    expect(says("viewport", { zoom: 1.25, mat: "green", frame: true })).toBe(
+      "125% · frame · green",
+    );
   });
 });
 
@@ -544,9 +596,10 @@ describe("mat", () => {
     expect(merge(green, knob.reset).mat).toBe("blue");
   });
 
-  test("says the color in its row only off blue", () => {
+  test("says the color in its row only off blue, and only while the frame is up", () => {
     expect(says("viewport", { mat: "blue" })).toBe("");
-    expect(says("viewport", { mat: "green" })).toBe("green");
+    expect(says("viewport", { mat: "green" })).toBe("");
+    expect(says("viewport", { frame: true, mat: "green" })).toBe("frame · green");
     expect(says("viewport", { width: 390, mat: "graphite" })).toBe("390 · graphite");
   });
 });

@@ -434,9 +434,9 @@ export function translateOf(value: string): { x: number; y: number } {
   return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 };
 }
 
-/** What the clock note says: the time the page reads, or that it reads the real one. */
-function clockReadout(clock: ClockValue): string {
-  return clock.mode === "system" ? "clock: system" : `now: ${new Date(now()).toLocaleString()}`;
+/** What the clock note says: the time the page reads. */
+function clockReadout(): string {
+  return `now: ${new Date(now()).toLocaleString()}`;
 }
 
 function el(tag: string, className: string, text?: string): HTMLElement {
@@ -966,7 +966,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       box,
       (state) => {
         fill(at, state.clock.mode === "system" ? "" : wallInput(state.clock.at));
-        note.textContent = clockReadout(state.clock);
+        note.hidden = state.clock.mode === "system";
+        note.textContent = clockReadout();
       },
     ];
   }
@@ -1054,6 +1055,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return [
       note,
       (state) => {
+        // Only following geo leaves the zone in use unsaid.
+        note.hidden = state.timeZone !== "geo";
         note.textContent = `in use: ${resolveTimeZone(state.timeZone, state.geo) ?? "system"}`;
       },
     ];
@@ -1101,17 +1104,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
         line.append(extra[0]);
         updates.push(extra[1]);
       }
-      // The frame switch changes nothing to see while another knob holds the frame up.
-      if (knob.id === "frame") {
+      // A knob hides while it does nothing, or while its choices depend on the device and it offers none.
+      const { shown, offers } = knob;
+      if (shown || offers) {
         updates.push((state) => {
-          line.hidden = frameForced(state);
-        });
-      }
-      // A knob whose choices depend on the device hides while it offers none.
-      const offers = knob.offers;
-      if (offers) {
-        updates.push((state) => {
-          line.hidden = offers(state).length === 0;
+          line.hidden = !(shown?.(state) ?? true) || offers?.(state).length === 0;
         });
       }
       editor.append(line);

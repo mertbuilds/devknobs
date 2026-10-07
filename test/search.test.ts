@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_STATE, merge } from "../src/engine/store";
 import { KNOBS, knobOf } from "../src/ui/catalog";
 import { filterOptions, resultText, search, searchActions, words } from "../src/ui/search";
 
@@ -166,6 +167,31 @@ describe("search", () => {
     const usable = KNOBS.filter((knob) => knob.id !== "connection");
     expect(search("3g", usable)).toEqual([]);
     expect(top("3g")).toEqual(["connection 3g"]);
+  });
+});
+
+describe("a knob the editor hides", () => {
+  test("is still found, and setting it brings it back where it starts the clock", () => {
+    expect(top("frozen")).toEqual(["clockMode frozen"]);
+    expect(top("clock speed 60")).toEqual(["clockSpeed 60"]);
+    for (const [id, value] of [
+      ["clockMode", "frozen"],
+      ["clockSpeed", "60"],
+    ] as const) {
+      const knob = knobOf(id);
+      expect(knob.shown?.(DEFAULT_STATE)).toBe(false);
+      const set = merge(DEFAULT_STATE, knob.write(value, DEFAULT_STATE));
+      expect(knob.read(set)).toBe(value);
+      expect(knob.shown?.(set)).toBe(true);
+    }
+  });
+
+  test("keeps a value set while the frame is down", () => {
+    expect(top("zoom 125")).toEqual(["zoom 1.25"]);
+    const zoom = knobOf("zoom");
+    const set = merge(DEFAULT_STATE, zoom.write("1.25", DEFAULT_STATE));
+    expect(set.zoom).toBe(1.25);
+    expect(zoom.shown?.(set)).toBe(false);
   });
 });
 
