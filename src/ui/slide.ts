@@ -1,8 +1,8 @@
 /**
  * The panel's two views, the rows and the settings, and the slide between
- * them. The settings push in from the right over the rows, which give way a
- * little to the left and dim, and going back pops them off the same way, as
- * a navigation does on iOS. It goes left to right on either side of the
+ * them. The settings push in from the right and push the rows out to the
+ * left, and going back pops them off the same way, as a navigation does on
+ * iOS. The view that leaves is out of sight by the time it lands. It goes left to right on either side of the
  * window: the order is that of the views, not of the dock.
  *
  * The stylesheet holds the motion. Each view rests where the view shown puts

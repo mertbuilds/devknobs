@@ -810,7 +810,7 @@ describe("the slide between the rows and the settings", () => {
   test("moves the views by transform alone, on the iOS curve, as long as the panel waits", () => {
     const panes = body(".body[data-slide] > .pane");
     expect(panes).toContain(`transform ${SLIDE}ms ${curve}`);
-    expect(panes).toContain(`opacity ${SLIDE}ms ${curve}`);
+    expect(panes).not.toMatch(/opacity/);
     expect(panes).not.toMatch(/left|width|margin/);
   });
 
@@ -820,21 +820,21 @@ describe("the slide between the rows and the settings", () => {
     expect(slide).toMatch(/clip-path:\s*inset\(0 -4px\)/);
   });
 
-  test("pushes the settings in from the right and the rows a little to the left", () => {
+  test("pushes the settings in from the right and the rows all the way out past the clip", () => {
     expect(body('.wrap:not([data-mode="keys"]) .body[data-slide] > .keys')).toMatch(
-      /transform:\s*translateX\(100%\)/,
+      /transform:\s*translateX\(calc\(100% \+ 4px\)\)/,
     );
     const rows = body('.wrap[data-mode="keys"] .body[data-slide] > .home');
-    expect(rows).toMatch(/transform:\s*translateX\(-30%\)/);
-    expect(rows).toMatch(/opacity:\s*0\.4/);
+    expect(rows).toMatch(/transform:\s*translateX\(calc\(-100% - 4px\)\)/);
+    expect(rows).not.toMatch(/opacity/);
   });
 
   test("starts a view coming in from where it rests while away", () => {
     const starting = CSS.slice(CSS.indexOf("@starting-style"));
     const keys = starting.indexOf('.wrap[data-mode="keys"] .body[data-slide] > .keys {');
     const home = starting.indexOf('.wrap:not([data-mode="keys"]) .body[data-slide] > .home {');
-    expect(starting.slice(keys)).toMatch(/^[^}]*transform:\s*translateX\(100%\)/);
-    expect(starting.slice(home)).toMatch(/^[^}]*transform:\s*translateX\(-30%\)/);
+    expect(starting.slice(keys)).toMatch(/^[^}]*transform:\s*translateX\(calc\(100% \+ 4px\)\)/);
+    expect(starting.slice(home)).toMatch(/^[^}]*transform:\s*translateX\(calc\(-100% - 4px\)\)/);
   });
 
   test("keeps the view that leaves up, out of the flow, under the settings", () => {

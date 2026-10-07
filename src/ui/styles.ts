@@ -305,12 +305,14 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   flex-direction: column;
   gap: 4px;
 }
-/* The settings push in from the right over the rows, which give way a little
-   to the left and dim, and pop back off the same way, with the curve and the
-   time of an iOS sheet. A view coming in starts from where it rests while it
-   is away, and one turned round on its way goes back from where it is. The
-   body eases between the heights of the two and clips what is past it, out
-   to the panel's border across. The view that leaves is taken out of the
+/* The settings push in from the right and push the rows out to the left, the
+   two moving together by the body's width and the 4px out to the border, so
+   the view that leaves is clipped away whole by the time it is taken out.
+   They pop back the same way, with the curve and the time of an iOS sheet. A
+   view coming in starts from where it rests while it is away, and one turned
+   round on its way goes back from where it is. The body eases between the
+   heights of the two and clips what is past it, out to the panel's border
+   across. The view that leaves is taken out of the
    flow and the panel holds it at the height it had, and the settings ride
    above the rows. Reduced motion swaps them at once, as the panel finds no
    time on them. */
@@ -320,19 +322,15 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .body[data-slide] > .pane {
   flex: none;
-  transition: transform 500ms cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 500ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 500ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 .body[data-slide] > .keys { position: relative; z-index: 1; background: var(--bg); }
 .body[data-slide] > .pane.leaving { position: absolute; top: 0; left: 0; width: 100%; }
-.wrap[data-mode="keys"] .body[data-slide] > .home { transform: translateX(-30%); opacity: 0.4; }
-.wrap:not([data-mode="keys"]) .body[data-slide] > .keys { transform: translateX(100%); }
+.wrap[data-mode="keys"] .body[data-slide] > .home { transform: translateX(calc(-100% - 4px)); }
+.wrap:not([data-mode="keys"]) .body[data-slide] > .keys { transform: translateX(calc(100% + 4px)); }
 @starting-style {
-  .wrap[data-mode="keys"] .body[data-slide] > .keys { transform: translateX(100%); }
-  .wrap:not([data-mode="keys"]) .body[data-slide] > .home {
-    transform: translateX(-30%);
-    opacity: 0.4;
-  }
+  .wrap[data-mode="keys"] .body[data-slide] > .keys { transform: translateX(calc(100% + 4px)); }
+  .wrap:not([data-mode="keys"]) .body[data-slide] > .home { transform: translateX(calc(-100% - 4px)); }
 }
 .rows, .results {
   position: relative;
