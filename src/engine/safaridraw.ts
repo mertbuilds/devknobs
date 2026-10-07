@@ -314,7 +314,7 @@ function glyphIn(mark: Mark, origin: Rect, className: string, actions: Actions):
 }
 
 /** The minimized domain pill's box: as wide as its text and 19 px either side. */
-function pillBox(pill: Shape, host: string): Rect {
+export function pillBox(pill: Shape, host: string): Rect {
   const width = Math.round(textWidth(host, SAFARI_TEXT.pill, 400, -0.2)) + 38;
   return { x: pill.x - width / 2, y: pill.y, width, height: pill.height };
 }

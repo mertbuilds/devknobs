@@ -36,7 +36,7 @@ import {
   shotsTransform,
   shotWindow,
 } from "./fold";
-import { reachOf, screenLook, wedgeOf } from "./foldgl";
+import { freeOf, reachOf, screenLook, wedgeOf } from "./foldgl";
 import {
   creaseOf,
   type Face,
@@ -45,10 +45,12 @@ import {
   type Glued,
   gluedOf,
   light,
+  paintDrawn,
   paintLeaf,
   type Panel,
   type Picture,
   type Pictures,
+  pictureOf,
   placeAt,
   round,
   screenOf,
@@ -58,7 +60,7 @@ import {
 import type { Mock, Rect } from "./mock";
 import { drawMock, UNDER } from "./mockdraw";
 import { type Corners, lerp } from "./morph";
-import { copyPage, forgetShots, paintPage, shootPage } from "./pageshot";
+import { copyPage, forgetShots } from "./pageshot";
 import { slowed, slowness } from "./slow";
 import { coverTo, darken, type TurnScene } from "./turnrun";
 import type { ViewportValue } from "./width";
@@ -307,8 +309,8 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
   };
   if (picture.shot) paintLeaf(leaf, picture.shot);
   // The page as the browser draws it, once it has, over the rough one.
-  void picture.painted?.then((shot) => {
-    if (shot && leaf.node.isConnected) paintLeaf(leaf, shot);
+  void picture.painted?.then((drawn) => {
+    if (drawn && leaf.node.isConnected) paintDrawn(picture, drawn, (shot) => paintLeaf(leaf, shot));
   });
   return leaf;
 }
@@ -433,25 +435,6 @@ function build(
   return { layer, place, turning, still };
 }
 
-/** The page as the frame lays it out now on a screen `size` css px, `copy` of it to draw. */
-function pictureOf(
-  scene: FoldScene,
-  size: { width: number; height: number },
-  color: string,
-  copy: Element | null,
-): Picture {
-  const { frame, glass } = scene;
-  const shown = Array.from(glass.children).find((node) => node.className === "browser");
-  const bars = shown ? (shown.cloneNode(true) as HTMLElement) : null;
-  // Drawn in the screen's css px, scaled up by the frame's zoom, which the copy leaves out.
-  if (bars) bars.style.transform = "";
-  return {
-    shot: shootPage(frame, glass, size, color),
-    painted: copy ? paintPage(frame, glass, size, color, copy) : null,
-    bars,
-  };
-}
-
 /** Where the frame's own device is, now that it is drawn `posture`. */
 function measure(scene: FoldScene, posture: PostureValue): Unit {
   const box = scene.letterbox.getBoundingClientRect();
@@ -558,7 +541,8 @@ function pose(turning: Shots, layout: FoldLayout, open: number, shown: number, s
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     light(glued, open);
     const span = layout.across ? glued.size.height : glued.size.width;
-    glued.gl?.draw(screenLook(glued.pane, open, glued.extent, wedgeOf(opening, glued.pane, picture, span)));
+    const wedge = wedgeOf(opening, glued.pane, picture, span);
+    glued.gl?.draw(screenLook(glued.pane, open, glued.extent, wedge, freeOf(opening, glued.pane, picture)));
   }
 }
 
@@ -863,9 +847,9 @@ export function foldDevice(
   // Pictures of the page as it is, and as laid out for the other screen, for
   // which the frame is drawn that way a moment, unseen.
   const copy = copyPage(scene.frame);
-  const before = pictureOf(scene, now.size, color, copy);
+  const before = pictureOf(scene.frame, scene.glass, from, now.size, color, copy);
   draw(value);
-  const after = pictureOf(scene, next.size, color, copy);
+  const after = pictureOf(scene.frame, scene.glass, value, next.size, color, copy);
   draw(from);
   const closed = opening ? now : next;
   const open = opening ? next : now;

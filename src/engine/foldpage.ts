@@ -1,9 +1,10 @@
+import { type BarsKnobs, copyBars, type Drawn, withBars } from "./barshot";
 import { type BlurFade, type FoldLayout, type FoldSide, type Pane, paneLook, type Point } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners } from "./mockdraw";
 import { type ScreenGl, screenGl } from "./foldgl";
 import type { Corners } from "./morph";
-import { blurPictures, marginPlace } from "./pageshot";
+import { blurPictures, marginPlace, paintPage, shootPage } from "./pageshot";
 
 /**
  * The page on the screens of a fold's half that turns, whichever way the
@@ -170,13 +171,45 @@ export function creaseOf(layout: FoldLayout, open: Face, turned: boolean, corner
 
 /**
  * The page as laid out on a screen: a rough picture of it now, or null where
- * it is out of reach, the one the browser draws once it has, and a copy of
- * the browser's bars around it.
+ * it is out of reach, the one the browser draws once it has, with the bars
+ * drawn in where they draw, and a copy of the browser's bars to go over the
+ * pictures till then, or where they do not.
  */
 export interface Picture {
   shot: HTMLCanvasElement | null;
-  painted: Promise<HTMLCanvasElement | null> | null;
+  painted: Promise<Drawn | null> | null;
   bars: HTMLElement | null;
+}
+
+/**
+ * The page in `frame` as laid out now on a screen `size` css px, shown in
+ * `glass` for the knobs `value`, `copy` of it to draw, and its bars as shown.
+ */
+export function pictureOf(
+  frame: HTMLIFrameElement,
+  glass: HTMLElement,
+  value: BarsKnobs,
+  size: { width: number; height: number },
+  color: string,
+  copy: Element | null,
+): Picture {
+  const shown = glass.querySelector<HTMLElement>(":scope > .browser");
+  const bars = shown ? document.importNode(shown, true) : null;
+  // Drawn in the screen's css px, scaled up by the frame's zoom, which the copy leaves out.
+  if (bars) bars.style.transform = "";
+  const drawn = shown && copy ? copyBars(shown, value, size) : null;
+  return {
+    shot: shootPage(frame, glass, size, color),
+    painted: copy ? withBars(paintPage(frame, glass, size, color, copy), drawn) : null,
+    bars,
+  };
+}
+
+/** Put `drawn` on a screen with `paint`, and once its bars are in it, take their copy off the screen. */
+export function paintDrawn(picture: Picture, drawn: Drawn, paint: (shot: HTMLCanvasElement) => void): void {
+  paint(drawn.shot);
+  // The bars blur and darken with the page now, as pixels of the same screen.
+  if (drawn.bars) picture.bars?.remove();
 }
 
 /** Pictures of the page as laid out on each screen. */
@@ -298,8 +331,8 @@ export function gluedOf(
   // Under the bars.
   if (glued.gl) stage.prepend(glued.gl.canvas);
   if (picture.shot) paintGlued(glued, picture.shot);
-  void picture.painted?.then((shot) => {
-    if (shot && glued.node.isConnected) paintGlued(glued, shot);
+  void picture.painted?.then((drawn) => {
+    if (drawn && glued.node.isConnected) paintDrawn(picture, drawn, (shot) => paintGlued(glued, shot));
   });
   return glued;
 }

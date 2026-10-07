@@ -21,7 +21,8 @@ import type { Rect } from "./mock";
  * the hinge toward the free edge as the hinge sets it, and past the
  * picture's ends along the hinge, where the turned screen reaches past it,
  * blurred together with the black there, so its colour spreads into the
- * dark and the line between them never shows. The blur is the picture's
+ * dark and the line between them never shows, and so at the turned screen's
+ * free edge, where the page is cut off as it is seen. The blur is the picture's
  * mipmaps, sampled 25 times about each point as far apart as it is wide.
  * The picture goes up once as the fold starts, and each frame sets only a
  * few numbers and draws one quad. Where WebGL2 is not, the page's blurrier
@@ -52,14 +53,17 @@ export interface ScreenLook {
   most: number;
   /** How wide the blur at the picture's ends is, at the hinge and at the free edge. */
   edge: [hinge: number, free: number];
+  /** Where the turned screen's free edge is seen on the picture, as a share of the way from the hinge to its own. */
+  free: number;
 }
 
 /**
  * How the screen of `pane` is blurred with the hinge `open` of the way open,
  * the screen `extent` css px across the hinge, the turned screen reaching
- * `wedge` css px past the picture's ends at its free edge.
+ * `wedge` css px past the picture's ends at its free edge, and its free
+ * edge seen `free` of the way from the hinge to the picture's.
  */
-export function screenLook(pane: Pane, open: number, extent: number, wedge: number): ScreenLook {
+export function screenLook(pane: Pane, open: number, extent: number, wedge: number, free = 1): ScreenLook {
   const amount = wipeAmount(pane, open);
   const start = rawArea(pane, uvOf(pane, 0), amount);
   return {
@@ -67,6 +71,7 @@ export function screenLook(pane: Pane, open: number, extent: number, wedge: numb
     base: blurWidth(pane, 0) * extent,
     most: MOST,
     edge: [EDGE[0] * wedge, EDGE[1] * wedge],
+    free,
   };
 }
 
@@ -101,6 +106,20 @@ function smoothstep(from: number, to: number, value: number): number {
 export function wedgeOf(window: Quad, pane: Pane, picture: Rect, span: number): number {
   const { top, bottom } = darkAt(window, pane, picture);
   return picture.height > 0 ? (Math.max(top, bottom) * span) / picture.height : 0;
+}
+
+/**
+ * Where the turned screen of `pane`, its window `window`, is seen to end on
+ * its `picture` at its free edge, as a share of the way from the hinge to
+ * the picture's own, 1 where it reaches it: the window cuts the page lying
+ * flat there, so the page is blurred into the dark past that cut, as past
+ * its ends.
+ */
+export function freeOf(window: Quad, pane: Pane, picture: Rect): number {
+  if (picture.width <= 0) return 1;
+  const [a, b, c, d] = window;
+  const seen = pane === "inner" ? picture.x + picture.width - (a[0] + d[0]) / 2 : (b[0] + c[0]) / 2 - picture.x;
+  return Math.min(1, Math.max(0, seen / picture.width));
 }
 
 /** How far, at most, the turned screen of `pane` reaches past the picture's ends in any of the fold's frames, as a share of its length. */
@@ -169,7 +188,11 @@ void main() {
   gl_Position = vec4(corner.x * 2.0 - 1.0, 1.0 - corner.y * 2.0, 0.0, 1.0);
 }`;
 
-/** `blurAt` and `coverage`, the same, then the picture and the black past it blurred together. */
+/**
+ * `blurAt` and `coverage`, the same, then the picture and the black past it
+ * blurred together: past its ends along the hinge, and past where the turned
+ * screen's free edge cuts it.
+ */
 const FRAGMENT = `#version 300 es
 precision highp float;
 uniform sampler2D page;
@@ -180,12 +203,17 @@ uniform vec2 area;
 uniform float base;
 uniform float most;
 uniform vec2 edge;
+uniform float free;
 uniform float px;
 in vec2 pos;
 out vec4 color;
 const float WEIGHTS[3] = float[3](0.375, 0.25, 0.0625);
 float cover(float at, float span, float soft) {
   return smoothstep(-soft, soft, at) * (1.0 - smoothstep(span - soft, span + soft, at));
+}
+float seen(vec2 at, float soft) {
+  float reach = soft * length(line.xy);
+  return cover(dot(along, at), dot(along, stage), soft) * (1.0 - smoothstep(free - reach, free + reach, dot(line.xy, at) + line.z));
 }
 void main() {
   float t = clamp(dot(line.xy, pos) + line.z, 0.0, 1.0);
@@ -199,7 +227,7 @@ void main() {
   vec2 texels = vec2(textureSize(page, 0)) / stage;
   float soft = max(0.5 * px, 0.75 * gap);
   if (gap < 0.5 * px) {
-    color = vec4(texture(page, pos / stage).rgb * cover(at, span, soft), 1.0);
+    color = vec4(texture(page, pos / stage).rgb * seen(pos, soft), 1.0);
     return;
   }
   float lod = log2(max(1.0, gap * max(texels.x, texels.y)));
@@ -208,7 +236,7 @@ void main() {
     for (int x = -2; x <= 2; x++) {
       vec2 tap = pos + vec2(float(x), float(y)) * gap;
       float weight = WEIGHTS[abs(x)] * WEIGHTS[abs(y)];
-      sum += textureLod(page, tap / stage, lod).rgb * cover(dot(along, tap), span, soft) * weight;
+      sum += textureLod(page, tap / stage, lod).rgb * seen(tap, soft) * weight;
     }
   }
   color = vec4(sum, 1.0);
@@ -292,7 +320,7 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
   gl.uniform3f(at("line"), ...hingeLine(place.pane, place.across, place.part));
   gl.uniform1f(at("px"), canvas.width > 0 ? rect.width / canvas.width : 1);
   gl.uniform1i(at("page"), 0);
-  const uniforms = { area: at("area"), base: at("base"), most: at("most"), edge: at("edge") };
+  const uniforms = { area: at("area"), base: at("base"), most: at("most"), edge: at("edge"), free: at("free") };
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -309,6 +337,7 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
     gl.uniform1f(uniforms.base, next.base);
     gl.uniform1f(uniforms.most, next.most);
     gl.uniform2f(uniforms.edge, ...next.edge);
+    gl.uniform1f(uniforms.free, next.free);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   };
   canvas.addEventListener("webglcontextlost", () => {

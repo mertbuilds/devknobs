@@ -7,6 +7,7 @@ import {
   contextOf,
   coverage,
   EDGE,
+  freeOf,
   hingeLine,
   REACH,
   reachOf,
@@ -85,6 +86,37 @@ describe("coverage", () => {
     expect(coverage(0, 100, 2)).toBeCloseTo(0.5);
     expect(coverage(100, 100, 2)).toBeCloseTo(0.5);
     expect(coverage(1, 100, 2)).toBeGreaterThan(0.5);
+  });
+});
+
+describe("the turned screen's free edge", () => {
+  const picture = { x: 100, y: 50, width: 400, height: 600 };
+  const box = (left: number, right: number): Quad => [
+    [left, 50],
+    [right, 50],
+    [right, 650],
+    [left, 650],
+  ];
+
+  test("is the picture's own lying flat, so the page hands back unchanged", () => {
+    expect(freeOf(box(100, 500), "cover", picture)).toBe(1);
+    expect(freeOf(box(100, 500), "inner", picture)).toBe(1);
+  });
+
+  test("cuts the page lying flat where it is seen, from the hinge, the cover's on its right and the open screen's on its left", () => {
+    expect(freeOf(box(100, 300), "cover", picture)).toBe(0.5);
+    expect(freeOf(box(400, 500), "inner", picture)).toBe(0.25);
+  });
+
+  test("never reaches past the picture's own, nor back past the hinge", () => {
+    expect(freeOf(box(100, 560), "cover", picture)).toBe(1);
+    expect(freeOf(box(40, 500), "inner", picture)).toBe(1);
+    expect(freeOf(box(100, 80), "cover", picture)).toBe(0);
+  });
+
+  test("leaves the look's free edge at the picture's own where none is given", () => {
+    expect(screenLook("cover", 0.4, EXTENT.cover, 10).free).toBe(1);
+    expect(screenLook("cover", 0.4, EXTENT.cover, 10, 0.6).free).toBe(0.6);
   });
 });
 

@@ -96,6 +96,12 @@ class FakeNode {
     return new FakeNode();
   }
 
+  /** A child by its class, as `:scope > .name` finds one. */
+  querySelector(selector: string): FakeNode | null {
+    const name = /^:scope > \.(.+)$/.exec(selector)?.[1];
+    return this.children.find((node) => name !== undefined && node.className === name) ?? null;
+  }
+
   getContext(): FakePen {
     this.pen ??= new FakePen();
     return this.pen;
@@ -208,7 +214,11 @@ beforeAll(() => {
     addEventListener: (_type: string, listener: () => void) => resizes.add(listener),
     removeEventListener: (_type: string, listener: () => void) => resizes.delete(listener),
   };
-  const doc = { createElement: () => new FakeNode(), createElementNS: () => new FakeNode() };
+  const doc = {
+    createElement: () => new FakeNode(),
+    createElementNS: () => new FakeNode(),
+    importNode: (node: FakeNode) => node.cloneNode(),
+  };
   Object.defineProperty(globalThis, "window", { configurable: true, value: view });
   Object.defineProperty(globalThis, "document", { configurable: true, value: doc });
   Object.defineProperty(globalThis, "Image", { configurable: true, value: FakeImage });
