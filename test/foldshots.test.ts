@@ -265,21 +265,31 @@ function placed(): FakeNode[] {
 
 const style = (node: FakeNode | undefined, key: string) => String(Reflect.get(node?.style ?? {}, key) ?? "");
 
-/** The canvas the frames are drawn on, if the fold draws them. */
-function canvas(): FakeNode | undefined {
-  return placed()[1]?.children.find((node) => node.pen !== null);
+/** The canvases the frames are drawn on, if the fold draws them. */
+function canvases(): FakeNode[] {
+  const model = placed()[1]?.children ?? [];
+  return model.flatMap((node) => node.children).filter((node) => node.pen !== null);
 }
 
-/** The frames drawn, by their place among the frames, and how faded. */
+/** The frames shown, by their place among the frames, and how faded, the one under first. */
 function showing(): { index: number; alpha: number }[] {
   const frames = DUO_FOLD?.frames ?? [];
-  return (canvas()?.pen?.drawn ?? []).map(({ src, alpha }) => ({
-    index: frames.findIndex((shot) => src.endsWith(shot.file)),
-    alpha,
-  }));
+  return canvases()
+    .map((node) => {
+      const src = node.pen?.drawn.at(-1)?.src ?? "";
+      const opacity = style(node, "opacity");
+      return {
+        index: frames.findIndex((shot) => src.endsWith(shot.file)),
+        alpha: opacity === "" ? 1 : Number(opacity),
+        z: Number(style(node, "zIndex")),
+      };
+    })
+    .filter((shown) => shown.index >= 0 && shown.alpha > 0)
+    .sort((a, b) => a.z - b.z)
+    .map(({ index, alpha }) => ({ index, alpha }));
 }
 
-/** Which frame shows whole, the one nearest the hinge's angle, by its place among the frames. */
+/** Which frame shows whole, the more open of the two either side of the hinge's angle, by its place among the frames. */
 function nearest(): number {
   return showing().find((shown) => shown.alpha === 1)?.index ?? -1;
 }
@@ -323,7 +333,8 @@ describe("a Duo folding in its frames", () => {
     play(64);
     // The bend's half that stays, under the frames.
     expect(placed()).toHaveLength(2);
-    expect(canvas()?.width).toBeGreaterThan(0);
+    expect(canvases()).toHaveLength(2);
+    expect(canvases()[0]?.width).toBeGreaterThan(0);
     expect(nearest()).toBeGreaterThanOrEqual(0);
     play(2000);
     expect(layer()).toBeUndefined();
@@ -336,7 +347,7 @@ describe("a Duo folding in its frames", () => {
     expect(bitmaps).toHaveLength(31);
   });
 
-  test("shows the frame nearest the hinge and the next over it, and the page on the screen that faces the viewer", () => {
+  test("shows the frames either side of the hinge, the next over the last, and the page on the screen that faces the viewer", () => {
     fold(SHUT, OPEN, sceneOf());
     const model = placed()[1];
     const [inner, outer] = model?.children ?? [];
@@ -347,8 +358,9 @@ describe("a Duo folding in its frames", () => {
       const shown = showing();
       expect(shown.length).toBeGreaterThanOrEqual(1);
       expect(shown.length).toBeLessThanOrEqual(2);
-      // The next one over it, faded in at most half way, as the hinge gets to it.
-      for (const { alpha } of shown.slice(1)) expect(alpha).toBeLessThanOrEqual(0.5);
+      // The next one over it, faded in as the hinge gets to it, each drawn once on a canvas of its own.
+      for (const { alpha } of shown.slice(1)) expect(alpha).toBeLessThan(1);
+      for (const node of canvases()) expect(node.pen?.drawn.length).toBeLessThanOrEqual(1);
       seen.add(nearest());
       const facing = [inner, outer].filter((node) => style(node, "visibility") === "");
       expect(facing.length).toBeLessThanOrEqual(1);
@@ -443,7 +455,7 @@ describe("a Duo folding in its frames", () => {
     expect(placed()).toHaveLength(7);
     await Bun.sleep(0);
     play(32);
-    expect(canvas()).toBeDefined();
+    expect(canvases()).toHaveLength(2);
     play(2000);
     expect(layer()).toBeUndefined();
   });

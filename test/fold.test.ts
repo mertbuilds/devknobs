@@ -18,17 +18,20 @@ import {
   hingeStep,
   hingeStill,
   openOf,
+  paneAt,
   paneLook,
   type Quad,
   quadBetween,
   quadFacing,
   quadToMatrix3d,
+  quadToQuad,
   RIM,
   roundedPath,
   screenDim,
   seenAt,
-  shotAt,
-  shotsAround,
+  SHOTS_HAND_OVER,
+  shotQuad,
+  shotsBetween,
   shotsTransform,
   uvOf,
   wipeAmount,
@@ -37,6 +40,7 @@ import {
 import { bezelMock } from "../src/engine/bezels";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import { mockOf, type Rect } from "../src/engine/mock";
+import { corners } from "../src/engine/mockdraw";
 
 /** The Duo's two sides as fitted at 87% and 58%, each body where the frame draws it. */
 function sides(across: boolean): { closed: FoldSide; open: FoldSide } {
@@ -426,6 +430,11 @@ describe("handOver", () => {
     expect(handOver(0, "closed")).toBe(1);
     // Drawn open, the picture keeps the screen all the way shut.
     expect(handOver(0.02, "open")).toBe(0);
+    // The fold's frames, all but flat by then, over the last 2%.
+    expect(SHOTS_HAND_OVER).toBe(0.02);
+    expect(handOver(0.03, "closed", SHOTS_HAND_OVER)).toBe(0);
+    expect(handOver(0.01, "closed", SHOTS_HAND_OVER)).toBeCloseTo(0.5);
+    expect(handOver(0.99, "open", SHOTS_HAND_OVER)).toBeCloseTo(0.5);
   });
 });
 
@@ -485,6 +494,21 @@ describe("quadToMatrix3d", () => {
     expect(quadToMatrix3d(RECT, [[10, 0], [10.01, 0], [10.01, 50], [10, 50]])).toBeNull();
     expect(quadToMatrix3d({ ...RECT, width: 0 }, QUADS[0] ?? [[0, 0], [0, 0], [0, 0], [0, 0]])).toBeNull();
   });
+
+  test("lays a quad onto another corner on corner, as the plane they are seen on turns", () => {
+    const [flat, turned, other] = QUADS;
+    if (!flat || !turned || !other) throw new Error("no quads");
+    for (const [from, to] of [[turned, other], [other, turned], [flat, other]] as const) {
+      const matrix = quadToQuad(from, to);
+      if (!matrix) throw new Error("no matrix");
+      from.forEach(([x, y], index) => {
+        const seen = through(matrix, x, y);
+        expect(seen.x).toBeCloseTo(to[index]?.[0] ?? NaN, 4);
+        expect(seen.y).toBeCloseTo(to[index]?.[1] ?? NaN, 4);
+      });
+    }
+    expect(quadToQuad(turned, [[10, 0], [10.01, 0], [10.01, 50], [10, 50]])).toBeNull();
+  });
 });
 
 describe("the Duo's fold frames", () => {
@@ -495,26 +519,18 @@ describe("the Duo's fold frames", () => {
     expect(shots.frames.map((shot) => shot.deg)).toEqual(Array.from({ length: 31 }, (_, step) => step * 6));
   });
 
-  test("take the frame nearest the hinge's angle, opening or shutting", () => {
-    expect(shotAt(shots, 1)?.deg).toBe(0);
-    expect(shotAt(shots, 0)?.deg).toBe(180);
-    expect(shotAt(shots, 0.5)?.deg).toBe(90);
-    // 180 * (1 - 0.9) is 18, and a step on either side goes to its own nearest frame.
-    expect(shotAt(shots, 0.9)?.deg).toBe(18);
-    expect(shotAt(shots, 1 - 21.3 / 180)?.deg).toBe(24);
-    expect(shotAt(shots, 1 - 14.7 / 180)?.deg).toBe(12);
-    expect(shotAt({ ...shots, frames: [] }, 0.5)).toBeNull();
-  });
-
-  test("go over from one to the next as the hinge turns, the nearest whole, either way", () => {
-    // 20 degrees: nearest 18, a third of the way to 24.
-    expect(shotsAround(shots, 1 - 20 / 180)).toMatchObject({ near: { deg: 18 }, far: { deg: 24 } });
-    expect(shotsAround(shots, 1 - 20 / 180)?.share).toBeCloseTo(1 / 3);
-    // 16 degrees: nearest 18, a third of the way back to 12.
-    expect(shotsAround(shots, 1 - 16 / 180)).toMatchObject({ near: { deg: 18 }, far: { deg: 12 } });
-    expect(shotsAround(shots, 1 - 16 / 180)?.share).toBeCloseTo(1 / 3);
-    expect(shotsAround(shots, 1)).toMatchObject({ near: { deg: 0 }, far: { deg: 0 }, share: 0 });
-    expect(shotsAround(shots, 0)).toMatchObject({ near: { deg: 180 }, far: { deg: 180 }, share: 0 });
+  test("go over from one to the next as the hinge turns, evenly all the way, either way", () => {
+    // 20 degrees: a third of the way from 18 to 24.
+    expect(shotsBetween(shots, 1 - 20 / 180)).toMatchObject({ from: { deg: 18 }, to: { deg: 24 } });
+    expect(shotsBetween(shots, 1 - 20 / 180)?.share).toBeCloseTo(1 / 3);
+    // 23.9 degrees: all but at 24, still over 18, so nothing jumps at the middle.
+    expect(shotsBetween(shots, 1 - 23.9 / 180)).toMatchObject({ from: { deg: 18 }, to: { deg: 24 } });
+    expect(shotsBetween(shots, 1 - 23.9 / 180)?.share).toBeCloseTo(59 / 60);
+    expect(shotsBetween(shots, 0.5)).toMatchObject({ from: { deg: 90 }, to: { deg: 90 }, share: 0 });
+    expect(shotsBetween(shots, 1)).toMatchObject({ from: { deg: 0 }, to: { deg: 0 }, share: 0 });
+    expect(shotsBetween(shots, 0)).toMatchObject({ from: { deg: 180 }, to: { deg: 180 }, share: 0 });
+    expect(shotsBetween({ ...shots, frames: [] }, 0.5)).toBeNull();
+    expect([paneAt(0), paneAt(89.9), paneAt(90), paneAt(90.1), paneAt(180)]).toEqual(["inner", "inner", null, "cover", "cover"]);
     const from: Quad = [[0, 0], [10, 0], [10, 10], [0, 10]];
     const to: Quad = [[2, 2], [12, 0], [10, 14], [0, 10]];
     expect(quadBetween(from, to, 0.5)).toEqual([[1, 1], [11, 0], [10, 12], [0, 10]]);
@@ -527,7 +543,12 @@ describe("the Duo's fold frames", () => {
   });
 
   /** The Duo laid out in its bezels, and where its open and folded screens lie in the layout. */
-  function bezelled(across: boolean): { layout: ReturnType<typeof foldLayout>; inside: Rect; outside: Rect } {
+  function bezelled(across: boolean): {
+    layout: ReturnType<typeof foldLayout>;
+    inside: Rect;
+    outside: Rect;
+    radii: { open: number[]; closed: number[] };
+  } {
     const shutBody = bezelMock("iphone-duo-closed", across ? "portrait" : "landscape");
     const openBody = bezelMock("iphone-duo-open", across ? "landscape" : "portrait");
     const { closed, open } = sides(across);
@@ -541,6 +562,7 @@ describe("the Duo's fold frames", () => {
         y: layout.shut.y + shutBody.inset.top,
         ...closed.size,
       },
+      radii: { open: corners(openBody.screenRadius), closed: corners(shutBody.screenRadius) },
     };
   }
 
@@ -554,18 +576,9 @@ describe("the Duo's fold frames", () => {
     return { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top };
   }
 
-  /**
-   * That `seen` lies on `on` across the hinge, and in its middle along it,
-   * where the render's screens are 0.6 css px shorter open and 1.1 longer shut.
-   */
-  function expectOn(seen: Rect, on: Rect, across: boolean): void {
-    const [from, size, side, length] = across
-      ? (["x", "width", "y", "height"] as const)
-      : (["y", "height", "x", "width"] as const);
-    expect(seen[from]).toBeCloseTo(on[from], 1);
-    expect(seen[size]).toBeCloseTo(on[size], 1);
-    expect(seen[side] + seen[length] / 2).toBeCloseTo(on[side] + on[length] / 2, 1);
-    expect(Math.abs(seen[length] - on[length])).toBeLessThan(1.2);
+  /** That `seen` lies on `on`, each side within a quarter of a css px. */
+  function expectOn(seen: Rect, on: Rect): void {
+    for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(seen[key] - on[key])).toBeLessThan(0.25);
   }
 
   test("lie on the open screen open and on the folded one shut, exactly, either way it is held", () => {
@@ -575,10 +588,65 @@ describe("the Duo's fold frames", () => {
     const screen = [[x, y], [x + width, y], [x + width, y + height], [x, y + height]] as const;
     for (const across of [true, false]) {
       const { layout, inside, outside } = bezelled(across);
-      expectOn(boundsThrough(shotsTransform(shots, layout, inside, outside, 1), screen), inside, across);
+      expectOn(boundsThrough(shotsTransform(shots, layout, inside, outside, 1), screen), inside);
       const shut = shotsTransform(shots, layout, inside, outside, 0);
-      expectOn(boundsThrough(shut, last.cover), outside, across);
+      expectOn(boundsThrough(shut, last.cover), outside);
       expect(shut).toStartWith(across ? "matrix(0.3" : "matrix(0, -0.3");
     }
+  });
+
+  /**
+   * That the page glued onto a frame's screen of `pane`, `rect` in its own
+   * css px with corners `radii`, lies exactly where the device draws that
+   * screen, `rect` in the layout, with the hinge `open` of the way open:
+   * each corner, the middle of each side and each rounded corner's arc.
+   */
+  function expectGlued(across: boolean, open: number, pane: "inner" | "cover", rect: Rect, radii: number[]): void {
+    const { layout, inside, outside } = bezelled(across);
+    const frame = open === 1 ? shots.frames[0] : shots.frames.at(-1);
+    if (!frame) throw new Error("no frame");
+    const glued = quadToMatrix3d({ x: 0, y: 0, width: rect.width, height: rect.height }, quadFacing(shotQuad(frame, pane), across));
+    if (!glued) throw new Error("no matrix");
+    const model = shotsTransform(shots, layout, inside, outside, open);
+    const { width, height } = rect;
+    const [a = 0, b = 0, c = 0, d = 0] = radii;
+    const arc = (radius: number) => radius * (1 - Math.SQRT1_2);
+    const points: [number, number][] = [
+      [0, 0], [width, 0], [width, height], [0, height],
+      [width / 2, 0], [width, height / 2], [width / 2, height], [0, height / 2],
+      [arc(a), arc(a)], [width - arc(b), arc(b)], [width - arc(c), height - arc(c)], [arc(d), height - arc(d)],
+    ];
+    for (const [x, y] of points) {
+      const onFrame = through(glued, x, y);
+      const seen = through(model, onFrame.x, onFrame.y);
+      expect(Math.abs(seen.x - (rect.x + x))).toBeLessThan(0.25);
+      expect(Math.abs(seen.y - (rect.y + y))).toBeLessThan(0.25);
+    }
+  }
+
+  test("glue the page exactly where the device draws its screens, open and shut, either way it is held", () => {
+    for (const across of [true, false]) {
+      const { layout, inside, outside, radii } = bezelled(across);
+      const [topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 0] = radii.open;
+      // Open, the half that turns lies on the open screen's half past the hinge, square at the hinge.
+      const half = across
+        ? { ...inside, width: layout.hinge - inside.x }
+        : { ...inside, y: layout.hinge, height: inside.y + inside.height - layout.hinge };
+      expectGlued(across, 1, "inner", half, across ? [topLeft, 0, 0, bottomLeft] : [0, 0, bottomRight, bottomLeft]);
+      // Shut, its outside lies on the folded screen, its corners as the folded body's.
+      expectGlued(across, 0, "cover", outside, radii.closed);
+    }
+  });
+
+  test("lie flat open and shut, their screens the rects their corners bound", () => {
+    const first = shots.frames[0];
+    const last = shots.frames.at(-1);
+    if (!first || !last) throw new Error("no frames");
+    const [[x0, y0], , [x2, y2]] = shotQuad(last, "cover");
+    expect(shotQuad(last, "cover")).toEqual([[x0, y0], [x2, y0], [x2, y2], [x0, y2]]);
+    expect(shotQuad(first, "inner")).toEqual(first.inner);
+    const turned = shots.frames[10];
+    if (!turned) throw new Error("no frame");
+    expect(shotQuad(turned, "cover")).toBe(turned.cover);
   });
 });

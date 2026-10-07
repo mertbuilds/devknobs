@@ -18,16 +18,21 @@ import {
   hingeStill,
   openOf,
   type Pane,
+  paneAt,
   paneLook,
   type Point,
+  type Quad,
   quadBetween,
   quadFacing,
   quadToMatrix3d,
+  quadToQuad,
   RIM,
   roundedPath,
   screenDim,
   seenAt,
-  shotsAround,
+  SHOTS_HAND_OVER,
+  shotQuad,
+  shotsBetween,
   shotsTransform,
 } from "./fold";
 import type { Mock, Rect } from "./mock";
@@ -53,11 +58,13 @@ import type { ViewportValue } from "./width";
  * needs of the frame comes in a `FoldScene`, so it holds no node of its own.
  *
  * A fold of the Duo in its bezels decodes the Duo's fold frames as it starts,
- * and once they are in draws the half that turns as the frames nearest the
- * hinge's angle instead, rendered from Apple's model, onto a canvas, and the
- * page glued onto the frame's turned screen: its picture, blurs and shades
- * laid on the screen's corners with a `matrix3d`. Till then, or where one
- * fails, it turns the copies. The frames are let go of a while after it lands.
+ * and once they are in draws the half that turns as the two frames either
+ * side of the hinge's angle instead, rendered from Apple's model, each on a
+ * canvas laid onto the screen's corners between theirs, faded one into the
+ * other, and the page glued onto those corners: its picture, blurs and
+ * shades laid on with a `matrix3d`. They hand over to the device only when
+ * all but flat. Till then, or where one fails, it turns the copies. The
+ * frames are let go of a while after it lands.
  */
 
 /** What a foldable folding asks of the frame, as it starts. */
@@ -126,20 +133,27 @@ interface Copies {
   bend: HTMLElement;
 }
 
+/** A canvas a frame is drawn on, at the files' scale, and the frame drawn on it, if any. */
+interface Plane {
+  canvas: HTMLCanvasElement;
+  pen: CanvasRenderingContext2D;
+  shot: FoldShot | null;
+}
+
 /**
  * The half that turns as the Duo's fold frames: the render's px laid on the
- * fold by `model`, the canvas in it the frames are drawn on, at the files'
- * scale, from `corner` in the render, their pictures, what is drawn, and the
+ * fold by `model`, the two canvases in it the frames either side of the
+ * hinge are drawn on, from `corner` in the render, their pictures, and the
  * two screens glued on. The open screen and the folded one, where the layout lays them.
  */
 interface Shots {
   shots: FoldShots;
   model: HTMLElement;
-  canvas: HTMLCanvasElement;
-  pen: CanvasRenderingContext2D;
+  planes: [Plane, Plane];
+  /** Can the browser add the two up, so they fade one into the other as one whole case? */
+  adds: boolean;
   corner: Point;
   bitmaps: ImageBitmap[];
-  drawn: string;
   inner: Glued;
   outer: Glued;
   inside: Rect;
@@ -440,8 +454,9 @@ function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean
   const whole = screenOf(side);
   const node = placeAt(div(""), { ...rect, x: 0, y: 0 });
   node.style.transformOrigin = "0 0";
-  node.style.background = "#000";
+  // Dark only inside the screen's corners, so none of it shows past the case.
   const clip = fill(div(""));
+  clip.style.background = "#000";
   clip.style.borderRadius = round(radii);
   clip.style.overflow = "hidden";
   const stage = placeAt(div(""), { ...whole.rect, x: whole.rect.x - rect.x, y: whole.rect.y - rect.y });
@@ -471,10 +486,10 @@ function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean
 }
 
 /**
- * The half that turns as the fold's frames, `found`, laid on the fold: a
- * canvas over where every frame lies in the render, under it the screens with
- * the page glued on, and the bend's half on the open one. Null where there is
- * no canvas to draw on.
+ * The half that turns as the fold's frames, `found`, laid on the fold: two
+ * canvases over where every frame lies in the render, under them the screens
+ * with the page glued on, and the bend's half on the open one. Null where
+ * there is no canvas to draw on.
  */
 function shotsOf(
   layout: FoldLayout,
@@ -484,9 +499,6 @@ function shotsOf(
   found: { shots: FoldShots; bitmaps: ImageBitmap[] },
 ): Shots | null {
   const { shots, bitmaps } = found;
-  const canvas = document.createElement("canvas");
-  const pen = canvas.getContext("2d");
-  if (!pen) return null;
   const [first, ...rest] = shots.frames.map((shot) => shot.box);
   if (!first) return null;
   const [left, top, right, bottom] = rest.reduce(
@@ -498,25 +510,41 @@ function shotsOf(
     ],
     [...first],
   );
-  canvas.width = Math.ceil((right - left) * shots.scale);
-  canvas.height = Math.ceil((bottom - top) * shots.scale);
-  placeAt(canvas, { x: left, y: top, width: canvas.width / shots.scale, height: canvas.height / shots.scale });
-  canvas.style.display = "block";
+  const plane = (): Plane | null => {
+    const canvas = document.createElement("canvas");
+    const pen = canvas.getContext("2d");
+    if (!pen) return null;
+    canvas.width = Math.ceil((right - left) * shots.scale);
+    canvas.height = Math.ceil((bottom - top) * shots.scale);
+    placeAt(canvas, { x: left, y: top, width: canvas.width / shots.scale, height: canvas.height / shots.scale });
+    canvas.style.display = "block";
+    canvas.style.transformOrigin = "0 0";
+    if (adds) canvas.style.mixBlendMode = "plus-lighter";
+    return { canvas, pen, shot: null };
+  };
+  const adds = typeof CSS !== "undefined" && CSS.supports("mix-blend-mode", "plus-lighter");
+  const under = plane();
+  const over = plane();
+  if (!under || !over) return null;
   const sides = turningOf(layout, open, closed);
   const model = div("");
   const inner = gluedOf(open, pictures.open, sides.inner, layout.across);
   const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across);
   inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
-  model.append(inner.node, outer.node, canvas);
+  // Added up only with each other, not with the screens under them.
+  const frames = div("");
+  frames.style.position = "absolute";
+  frames.style.isolation = "isolate";
+  frames.append(under.canvas, over.canvas);
+  model.append(inner.node, outer.node, frames);
   const { rect } = screenOf(closed);
   return {
     shots,
     model,
-    canvas,
-    pen,
+    planes: [under, over],
+    adds,
     corner: { x: left, y: top },
     bitmaps,
-    drawn: "",
     inner,
     outer,
     inside: screenOf(open).rect,
@@ -620,6 +648,15 @@ function sync(going: Going): void {
   if (going.unit.posture !== posture) redraw(going, posture);
 }
 
+/**
+ * Over how much of the way the device takes over from the half that turns:
+ * the frames, all but flat by then, cover it till later, so the device under
+ * them is drawn the way it ends up a while before it shows.
+ */
+function spanOf(going: Going): number {
+  return "model" in going.parts.turning ? SHOTS_HAND_OVER : HAND_OVER;
+}
+
 /** A gradient from the hinge to the free edge through the shares of dark `shades`, evenly spaced. */
 function shading(toward: string, shades: number[]): string {
   const last = Math.max(1, shades.length - 1);
@@ -678,49 +715,79 @@ function light(panel: Panel, open: number): void {
 }
 
 /**
- * Show the frame nearest the hinge's angle, `open` of the way open, and over
- * it the next one as much as the hinge has gone toward it, laid on the fold,
- * and the page glued onto the screen that faces the viewer, its corners as
- * far between the two frames', the whole of it `shown` of the way over the
- * frame's own device.
+ * Show the frames either side of the hinge's angle, `open` of the way open,
+ * the more open one and the next faded in over it as far as the hinge has
+ * gone toward it, laid on the fold, and the page glued onto the screen that
+ * faces the viewer, its corners as far between the two frames', the whole of
+ * it `shown` of the way over the frame's own device. Each frame is laid onto
+ * those corners from its own, as the half turns between them, so the two
+ * outlines meet and the case never shows twice.
  */
 function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): void {
-  const { shots, model, canvas, pen } = turning;
-  const around = shotsAround(shots, open);
-  if (!around) return;
-  const { near, far, share } = around;
-  const fade = far === near ? 0 : Math.round(share * 1000) / 1000;
-  const drawn = `${near.deg} ${far.deg} ${fade}`;
-  if (drawn !== turning.drawn) {
-    turning.drawn = drawn;
-    pen.clearRect(0, 0, canvas.width, canvas.height);
-    drawShot(turning, near, 1);
-    if (fade > 0) drawShot(turning, far, fade);
-  }
+  const { shots, model } = turning;
+  const between = shotsBetween(shots, open);
+  if (!between) return;
+  const { from, to, share } = between;
+  const pane = paneAt(180 * (1 - open));
+  const quad = pane ? quadBetween(shotQuad(from, pane), shotQuad(to, pane), share) : null;
+  // Edge on, a frame's screen has no corners to be laid from, so the two only fade.
+  const laid = pane !== null && paneAt(from.deg) === pane && paneAt(to.deg) === pane ? quad : null;
+  const [under, over] = planesFor(turning, from, to);
+  layShot(turning, under, laid ? pane : null, laid);
+  // Added up, the two make a whole case where both have it, and one's edge fades out as the other's fades in.
+  const fade = from === to ? 0 : Math.round(share * 1000) / 1000;
+  under.canvas.style.opacity = turning.adds && fade > 0 ? String(Math.round((1 - fade) * 1000) / 1000) : "";
+  over.canvas.style.opacity = String(fade);
+  if (from !== to) layShot(turning, over, laid ? pane : null, laid);
   model.style.transform = shotsTransform(shots, layout, turning.inside, turning.outside, open);
   model.style.opacity = shown < 1 ? String(shown) : "";
-  const inside = near.deg < 90;
-  // Past a right angle the other screen faces the viewer: no corners to go between.
-  const toward = inside === far.deg < 90 ? share : 0;
   for (const glued of [turning.inner, turning.outer]) {
-    const pick = (shot: FoldShot) => (glued.pane === "inner" ? shot.inner : shot.cover);
-    const quad = (glued === turning.inner) === inside ? quadBetween(pick(near), pick(far), toward) : null;
-    const laid = quad ? quadToMatrix3d({ x: 0, y: 0, ...glued.size }, quadFacing(quad, layout.across)) : null;
-    glued.node.style.visibility = laid ? "" : "hidden";
-    if (!laid) continue;
-    glued.node.style.transform = laid;
+    const facing = quad && glued.pane === pane ? quadToMatrix3d({ x: 0, y: 0, ...glued.size }, quadFacing(quad, layout.across)) : null;
+    glued.node.style.visibility = facing ? "" : "hidden";
+    if (!facing) continue;
+    glued.node.style.transform = facing;
     light(glued, open);
   }
 }
 
-/** Draw a frame's pieces where they lie on the canvas, `alpha` of the way over what is there. */
-function drawShot(turning: Shots, shot: FoldShot, alpha: number): void {
-  const { pen, corner, shots } = turning;
+/**
+ * The planes to draw `from` on, under, and `to` over it, drawing either
+ * only where its plane does not hold it already: a plane keeps its frame as
+ * the hinge goes on to the next.
+ */
+function planesFor(turning: Shots, from: FoldShot, to: FoldShot): [Plane, Plane] {
+  const [first, second] = turning.planes;
+  const under = second.shot === from || first.shot === to ? second : first;
+  const over = under === first ? second : first;
+  if (under.shot !== from) drawShot(turning, under, from);
+  if (from !== to && over.shot !== to) drawShot(turning, over, to);
+  under.canvas.style.zIndex = "0";
+  over.canvas.style.zIndex = "1";
+  return [under, over];
+}
+
+/** Lay the frame a plane holds onto `quad`, its screen of `pane` corner on corner, or as it was rendered. */
+function layShot(turning: Shots, plane: Plane, pane: Pane | null, quad: Quad | null): void {
+  const { shot } = plane;
+  const { x, y } = turning.corner;
+  const local = (corners: Quad): Quad => {
+    const [a, b, c, d] = corners.map(([px, py]): readonly [number, number] => [px - x, py - y]);
+    return a && b && c && d ? [a, b, c, d] : corners;
+  };
+  const laid = shot && pane && quad ? quadToQuad(local(shotQuad(shot, pane)), local(quad)) : null;
+  plane.canvas.style.transform = laid ?? "";
+}
+
+/** Draw a frame's pieces on a plane, where they lie on it, in place of what was there. */
+function drawShot(turning: Shots, plane: Plane, shot: FoldShot): void {
+  const { corner, shots } = turning;
+  const { pen, canvas } = plane;
+  plane.shot = shot;
+  pen.clearRect(0, 0, canvas.width, canvas.height);
   const bitmap = turning.bitmaps[shots.frames.indexOf(shot)];
   if (!bitmap) return;
   const x = Math.round((shot.box[0] - corner.x) * shots.scale);
   const y = Math.round((shot.box[1] - corner.y) * shots.scale);
-  pen.globalAlpha = alpha;
   for (const [left, top, width, height, fileX, fileY] of shot.pieces) {
     pen.drawImage(bitmap, fileX, fileY, width, height, x + left, y + top, width, height);
   }
@@ -739,7 +806,7 @@ function show(going: Going): void {
   const { layout, parts, unit, scene } = going;
   const { open } = going;
   const frame = foldFrame(layout, open);
-  const hand = handOver(open, unit.posture);
+  const hand = handOver(open, unit.posture, spanOf(going));
   const { x, y, scale } = frame.place;
   parts.place.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   const { turning } = parts;
