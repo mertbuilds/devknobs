@@ -156,12 +156,43 @@ function keepShot(doc: Document, key: string, canvas: HTMLCanvasElement): void {
  * A picture of a screen `width` css px wide blurred as wide as each of the
  * fold's `BLURS` past the sharp one: halved over and over, then doubled back
  * up, so each step smooths what the last left. Drawn once, each is as cheap
- * to show as the picture.
+ * to show as the picture. Each lies on black past the picture's ends along
+ * the hinge, its top and bottom `across` and its sides otherwise, as far as
+ * `blurMargin` has it, so the blur spreads those ends into the dark past
+ * them, as jadon7/iphone-duo blurs the picture and black together.
  */
-export function blurPictures(shot: HTMLCanvasElement, width: number): HTMLCanvasElement[] {
+export function blurPictures(shot: HTMLCanvasElement, width: number, across: boolean): HTMLCanvasElement[] {
   // How many times finer than `RES` the picture is, so how many more halvings each blur takes.
   const finer = Math.log2(shot.width / (width * RES));
-  return BLURS.slice(1).map((wide) => blurPicture(shot, Math.max(0, Math.round(Math.log2(wide * RES) + finer))));
+  return BLURS.slice(1).map((wide) => {
+    const times = Math.max(0, Math.round(Math.log2(wide * RES) + finer));
+    const margin = blurMargin(times);
+    const padded = canvasOf(shot.width + (across ? 0 : 2 * margin), shot.height + (across ? 2 * margin : 0));
+    if (!padded) return blurPicture(shot, times);
+    padded.pen.fillStyle = "#000";
+    padded.pen.fillRect(0, 0, padded.canvas.width, padded.canvas.height);
+    padded.pen.drawImage(shot, across ? 0 : margin, across ? margin : 0);
+    return blurPicture(padded.canvas, times);
+  });
+}
+
+/**
+ * How far the black under a picture halved `times` over reaches past its
+ * ends, in its px: two of the smallest picture's px, past where the blur
+ * spreads it, so none of it is cut off.
+ */
+export function blurMargin(times: number): number {
+  return 2 ** (times + 1);
+}
+
+/**
+ * Where a blurred picture `padded` px long lies along its screen, whose
+ * picture is `shot` px long, in percent of the screen: its black reaching as
+ * far past either end, so its picture lies on the sharp one.
+ */
+export function marginPlace(shot: number, padded: number): { start: number; size: number } {
+  const exact = (value: number) => Math.round(value * 1e4) / 1e4;
+  return { start: exact(((shot - padded) / 2 / shot) * 100), size: exact((padded / shot) * 100) };
 }
 
 /** `shot` halved `times` over, then doubled back up to its size. */

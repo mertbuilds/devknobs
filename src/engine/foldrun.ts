@@ -118,8 +118,6 @@ interface Glued extends Panel {
   node: HTMLElement;
   /** The part that turns as it lies, in its own css px, laid flat where the page is seen, and its corners. */
   picture: HTMLElement;
-  /** The dark its ends along the hinge fade into toward the free edge, as the blur spreads them into the dark past them. */
-  rim: HTMLElement;
   size: { width: number; height: number };
   radii: Corners;
 }
@@ -288,6 +286,7 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     pivot: turning.pivot,
     extent: across ? size.width : size.height,
     width: size.width,
+    across,
   };
   if (picture.shot) paintLeaf(leaf, picture.shot);
   // The page as the browser draws it, once it has, over the rough one.
@@ -336,24 +335,26 @@ function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean
   node.style.background = "#000";
   const flatly = placeAt(div(""), { ...rect, x: 0, y: 0 });
   flatly.style.transformOrigin = "0 0";
-  flatly.style.overflow = "hidden";
+  // Cut at the hinge, but not at the ends along it, where the blurs spread the picture into the dark past it.
+  flatly.style.overflowX = across ? "clip" : "visible";
+  flatly.style.overflowY = across ? "visible" : "clip";
   const stage = placeAt(div(""), { ...whole.rect, x: whole.rect.x - rect.x, y: whole.rect.y - rect.y });
   if (picture.bars) stage.append(picture.bars);
-  const rim = fill(div(""));
-  const edge = `transparent ${RIM * 100}%, transparent ${(1 - RIM) * 100}%`;
-  rim.style.background = `linear-gradient(${across ? "to bottom" : "to right"}, #000, ${edge}, #000)`;
-  const sharp = `linear-gradient(${turning.toward}, transparent, #000)`;
-  rim.style.maskImage = sharp;
-  rim.style.setProperty("-webkit-mask-image", sharp);
-  const flat = fill(div(""));
-  const shade = fill(div(""));
-  flatly.append(stage, rim, flat, shade);
+  // Their dark goes over what the blurs spread past the ends too.
+  const darkening = () => {
+    const node = fill(div(""));
+    node.style[across ? "top" : "left"] = "-100%";
+    node.style[across ? "height" : "width"] = "300%";
+    return node;
+  };
+  const flat = darkening();
+  const shade = darkening();
+  flatly.append(stage, flat, shade);
   node.append(flatly);
   const glued: Glued = {
     pane: turning.pane,
     node,
     picture: flatly,
-    rim,
     size: { width: rect.width, height: rect.height },
     radii,
     stage,
@@ -364,6 +365,7 @@ function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean
     span: turning.span,
     extent: across ? side.size.width : side.size.height,
     width: side.size.width,
+    across,
   };
   if (picture.shot) paintLeaf(glued, picture.shot);
   void picture.painted?.then((shot) => {
@@ -564,7 +566,7 @@ function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: stri
  * Each frame is laid onto those corners from its own, as the half turns
  * between them, so the two outlines meet and the case never shows twice.
  */
-function pose(turning: Shots, layout: FoldLayout, open: number, lift: number, shown: number): void {
+function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): void {
   const { shots, model } = turning;
   const between = shotsBetween(shots, open);
   if (!between) return;
@@ -593,7 +595,6 @@ function pose(turning: Shots, layout: FoldLayout, open: number, lift: number, sh
     glued.node.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
     const { x, y } = turning.corner;
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
-    glued.rim.style.opacity = String(lift);
     light(glued, open);
   }
 }
@@ -660,7 +661,7 @@ function show(going: Going): void {
   const { x, y, scale } = frame.place;
   parts.place.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   const { turning } = parts;
-  if ("model" in turning) pose(turning, layout, open, frame.lift, 1 - hand);
+  if ("model" in turning) pose(turning, layout, open, 1 - hand);
   else {
     stand(turning.inner, layout, frame, frame.inner, open, 1 - hand);
     stand(turning.outer, layout, frame, frame.outer, open, 1 - hand);

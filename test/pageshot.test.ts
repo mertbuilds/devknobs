@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { copyPage, forgetShots, shootPage } from "../src/engine/pageshot";
+import { blurMargin, blurPictures, copyPage, forgetShots, marginPlace, shootPage } from "../src/engine/pageshot";
 
 /** An element as far as a copy of the page reads one, which counts what it sets off. */
 class FakeNode {
@@ -120,5 +120,68 @@ describe("forgetShots", () => {
     expect(watching).toBe(1);
     forgetShots();
     expect(watching).toBe(0);
+  });
+});
+
+describe("blurPictures", () => {
+  test("reaches the black under each blur twice its width past the picture's ends", () => {
+    expect(blurMargin(0)).toBe(2);
+    expect(blurMargin(5)).toBe(64);
+  });
+
+  test("lays a blur's picture on the sharp one, its black reaching as far past either end", () => {
+    const { start, size } = marginPlace(200, 328);
+    expect(start).toBe(-32);
+    expect(size).toBe(164);
+    // Its picture runs from 0 to 100 percent of the screen.
+    expect(start + (size * 64) / 328).toBeCloseTo(0, 6);
+    expect(start + (size * (64 + 200)) / 328).toBeCloseTo(100, 6);
+    expect(marginPlace(200, 200)).toEqual({ start: 0, size: 100 });
+  });
+
+  test("puts the picture on black past its ends along the hinge only, and blurs them together", () => {
+    /** Each canvas made, and what was drawn on it, at where. */
+    const made: { width: number; height: number; drawn: [number, number, number, number][]; fills: string[] }[] = [];
+    const before = Reflect.get(globalThis, "document");
+    Reflect.set(globalThis, "document", {
+      createElement: () => {
+        const canvas = { width: 0, height: 0, drawn: [] as [number, number, number, number][], fills: [] as string[] };
+        made.push(canvas);
+        const pen = {
+          fillStyle: "",
+          imageSmoothingQuality: "",
+          fillRect: () => canvas.fills.push(pen.fillStyle),
+          drawImage: (_from: unknown, x: number, y: number, width = Number.NaN, height = Number.NaN) =>
+            canvas.drawn.push([x, y, width, height]),
+        };
+        return Object.assign(canvas, { getContext: () => pen });
+      },
+    });
+    try {
+      const shot = document.createElement("canvas");
+      shot.width = 100;
+      shot.height = 200;
+      made.length = 0;
+      // A rough picture of a screen 400 css px wide: a quarter of its px, so each blur's width in css px is halved log2(width / 4) times.
+      const down = blurPictures(shot, 400, true);
+      expect(down.map((picture) => [picture.width, picture.height])).toEqual([
+        [100, 200 + 2 * 4],
+        [100, 200 + 2 * 16],
+        [100, 200 + 2 * 64],
+      ]);
+      const first = made[0];
+      expect(first?.fills).toEqual(["#000"]);
+      expect(first?.drawn[0]?.slice(0, 2)).toEqual([0, 4]);
+      made.length = 0;
+      const side = blurPictures(shot, 400, false);
+      expect(side.map((picture) => [picture.width, picture.height])).toEqual([
+        [100 + 2 * 4, 200],
+        [100 + 2 * 16, 200],
+        [100 + 2 * 64, 200],
+      ]);
+      expect(made[0]?.drawn[0]?.slice(0, 2)).toEqual([4, 0]);
+    } finally {
+      Reflect.set(globalThis, "document", before);
+    }
   });
 });

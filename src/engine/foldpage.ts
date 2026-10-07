@@ -2,7 +2,7 @@ import { type BlurFade, type FoldLayout, type FoldSide, type Pane, paneLook, typ
 import type { Mock, Rect } from "./mock";
 import { corners } from "./mockdraw";
 import type { Corners } from "./morph";
-import { blurPictures } from "./pageshot";
+import { blurPictures, marginPlace } from "./pageshot";
 
 /**
  * The page on the screens of a fold's half that turns, whichever way the
@@ -33,6 +33,8 @@ export interface Panel {
   /** The screen's css px across the hinge, and its width. */
   extent: number;
   width: number;
+  /** Does the hinge run down the screen, so its ends along it are its top and bottom. */
+  across: boolean;
 }
 
 export function div(className: string): HTMLElement {
@@ -67,7 +69,16 @@ export function placeAt(node: HTMLElement, rect: Rect): HTMLElement {
 
 /** Put `shot` on a leaf's stage, and the same blurred over it, as much as was shown before. */
 export function paintLeaf(leaf: Panel, shot: HTMLCanvasElement): void {
-  const next = [shot, ...blurPictures(shot, leaf.width)].map(fill);
+  const { across } = leaf;
+  const blurred = blurPictures(shot, leaf.width, across);
+  const next = [shot, ...blurred].map(fill);
+  for (const picture of blurred) {
+    // Its black past the ends along the hinge reaches past the screen's.
+    const { start, size } = across ? marginPlace(shot.height, picture.height) : marginPlace(shot.width, picture.width);
+    picture.style[across ? "top" : "left"] = `${start}%`;
+    picture.style[across ? "height" : "width"] = `${size}%`;
+    picture.style[across ? "bottom" : "right"] = "auto";
+  }
   next.forEach((picture, index) => {
     const last = leaf.pictures[index];
     if (index === 0 || !last) return;
