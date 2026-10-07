@@ -601,6 +601,28 @@ through untouched, and the pointer type stays the mouse's. while grab is on the
 mouse is a mouse again, until grab ends. the touch pointer switch in the device
 editor turns it off, and the panel never gets it.
 
+### how the iphone duo folds
+
+the Duo's case is never rendered in your browser. it is rendered once,
+offline, from Apple's own iPhone Duo model, the Star White USDZ from Apple's
+AR viewer, in a three.js scene adapted from jadon7's
+[iphone-duo](https://github.com/jadon7/iphone-duo) ([live
+demo](https://iphone-duo-tawny.vercel.app/)): one frame every 2 degrees from
+shut to open, its screens cut out, and the half that stays once. each frame is
+packed small, as its outline round a clear middle at 1.5 px per css px, and
+ships as an image. three.js runs only in that script, never in the package.
+
+in the page, Apple's hinge spring sets the angle, devknobs shows the frame
+nearest it, and the page sits in that frame's screen. the turning screen shows
+a picture of the page through a small WebGL2 blur, or plain layers where
+WebGL2 is not, and it stays still behind the turning glass, as on Apple's
+product page. the half that stays keeps the live page. only the frames round
+the current angle are decoded, and at rest the Duo is Apple's bezel picture.
+
+thanks to jadon7: the scene, the fold rig and the screen projection come from
+jadon7's iphone-duo, MIT. see THIRD_PARTY_NOTICES.md, and
+`scripts/render-duo-fold/README.md` to render the frames again.
+
 ## the clock and your server
 
 optional, and dev only. the clock lives in the page, so a server that decides
