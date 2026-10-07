@@ -1,5 +1,5 @@
 import type { PostureValue } from "../types";
-import { bezelUrl, decodeFoldShots, endFoldShots, foldShots } from "./bezels";
+import { bezelUrl, decodeFoldShots, endFoldShots, type FoldPictures, foldShots } from "./bezels";
 import {
   type FoldFrame,
   foldFrame,
@@ -129,26 +129,29 @@ interface Copies {
   bend: HTMLElement;
 }
 
-/** A canvas a frame is drawn on, at the files' scale, and the frame drawn on it, if any. */
-interface Plane {
+/**
+ * A canvas pictures are drawn on, at the files' scale, over where all of
+ * them lie in the render, from `corner` in it, and the one drawn on it, if any.
+ */
+interface Plane<Drawn extends FoldStill> {
   canvas: HTMLCanvasElement;
   pen: CanvasRenderingContext2D;
-  shot: FoldShot | null;
+  corner: Point;
+  shot: Drawn | null;
 }
 
 /**
  * The half that turns as the Duo's fold frames: the render's px laid on the
  * fold by `model`, the canvas in it the frame nearest the hinge's angle is
- * drawn on, from `corner` in the render, the case of the half that stays from
- * the same render under it, and the two screens glued on. The open screen
- * and the folded one, where the layout lays them.
+ * drawn on, the case of the half that stays from the same render under it,
+ * and the two screens glued on. The open screen and the folded one, where the
+ * layout lays them.
  */
 interface Shots {
   shots: FoldShots;
   model: HTMLElement;
-  plane: Plane;
-  still: HTMLCanvasElement;
-  corner: Point;
+  plane: Plane<FoldShot>;
+  still: Plane<FoldStill>;
   inner: Glued;
   outer: Glued;
   inside: Rect;
@@ -339,45 +342,38 @@ function copiesOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictur
   return { inner, outer, bend };
 }
 
+/** Where all of some pictures lie in the render: left, top, right, bottom. */
+function boxAround(drawn: readonly FoldStill[]): [number, number, number, number] {
+  return drawn.reduce<[number, number, number, number]>(
+    (all, { box }) => [Math.min(all[0], box[0]), Math.min(all[1], box[1]), Math.max(all[2], box[2]), Math.max(all[3], box[3])],
+    [Infinity, Infinity, -Infinity, -Infinity],
+  );
+}
+
 /**
  * The half that turns as the fold's frames, `found`, laid on the fold: a
  * canvas over where every frame lies in the render, under it the screens
- * with the page glued on, the bend's half on the open one, and under them the
- * half that stays, drawn once. Null where there is no canvas to draw on.
+ * with the page glued on, the bend's half on the open one, and under them a
+ * canvas over where every half that stays lies. Null where there is no
+ * canvas to draw on.
  */
-function shotsOf(
-  layout: FoldLayout,
-  open: Face,
-  closed: Face,
-  pictures: Pictures,
-  found: { shots: FoldShots; still: ImageBitmap },
-): Shots | null {
+function shotsOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictures, found: FoldPictures): Shots | null {
   const { shots } = found;
-  const [first, ...rest] = shots.frames.map((shot) => shot.box);
-  if (!first) return null;
-  const [left, top, right, bottom] = rest.reduce(
-    (all, box) => [
-      Math.min(all[0], box[0]),
-      Math.min(all[1], box[1]),
-      Math.max(all[2], box[2]),
-      Math.max(all[3], box[3]),
-    ],
-    [...first],
-  );
-  const canvasOver = (box: readonly [number, number, number, number]) => {
+  const planeOver = <Drawn extends FoldStill>(drawn: readonly Drawn[]): Plane<Drawn> | null => {
+    const [left, top, right, bottom] = boxAround(drawn);
     const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil((box[2] - box[0]) * shots.scale);
-    canvas.height = Math.ceil((box[3] - box[1]) * shots.scale);
-    placeAt(canvas, { x: box[0], y: box[1], width: canvas.width / shots.scale, height: canvas.height / shots.scale });
+    canvas.width = Math.ceil((right - left) * shots.scale);
+    canvas.height = Math.ceil((bottom - top) * shots.scale);
+    placeAt(canvas, { x: left, y: top, width: canvas.width / shots.scale, height: canvas.height / shots.scale });
     canvas.style.display = "block";
-    return canvas;
+    const pen = canvas.getContext("2d");
+    return pen && { canvas, pen, corner: { x: left, y: top }, shot: null };
   };
-  const canvas = canvasOver([left, top, right, bottom]);
-  const pen = canvas.getContext("2d");
-  const still = canvasOver(shots.still.box);
-  const stillPen = still.getContext("2d");
-  if (!pen || !stillPen) return null;
-  drawPieces(stillPen, found.still, shots.still, 0, 0, shots.scale);
+  const plane = planeOver(shots.frames);
+  const still = planeOver(shots.stills);
+  if (!plane || !still) return null;
+  const { canvas } = plane;
+  const [left, top, right, bottom] = boxAround(shots.frames);
   const sides = turningOf(layout, open, closed);
   const model = div("");
   const box = { x: left, y: top, width: right - left, height: bottom - top };
@@ -387,14 +383,13 @@ function shotsOf(
   const inner = gluedOf(open, pictures.open, sides.inner, layout.across, box, margin(open, "inner"), density);
   const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across, box, margin(closed, "cover"), density);
   inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
-  model.append(still, inner.node, outer.node, canvas);
+  model.append(still.canvas, inner.node, outer.node, canvas);
   const { rect } = screenOf(closed);
   return {
     shots,
     model,
-    plane: { canvas, pen, shot: null },
+    plane,
     still,
-    corner: { x: left, y: top },
     inner,
     outer,
     inside: screenOf(open).rect,
@@ -413,7 +408,7 @@ function build(
   open: Face,
   closed: Face,
   pictures: Pictures,
-  found: { shots: FoldShots; still: ImageBitmap } | null,
+  found: FoldPictures | null,
 ): Layer {
   const layer = div("fold");
   const place = div("");
@@ -515,15 +510,23 @@ const SEEN_BLEED = 2;
 function pose(turning: Shots, layout: FoldLayout, open: number, shown: number, still: number): void {
   const { shots, model, plane } = turning;
   const found = foldShots();
-  const at = found ? nearestReady(found.frames, shotAt(shots, open)) : null;
+  // Only a frame whose half that stays is in too, so both are of the same angle.
+  const ready = (found?.frames ?? []).map((bitmap, index) => {
+    const shot = shots.frames[index];
+    return shot && found?.stills[shot.still] ? bitmap : null;
+  });
+  const at = nearestReady(ready, shotAt(shots, open));
   const next = at === null ? null : shots.frames[at];
-  const bitmap = at === null ? null : found?.frames[at];
-  if (next && bitmap && next !== plane.shot) drawShot(turning, next, bitmap);
+  const bitmap = at === null ? null : ready[at];
+  const kept = next && shots.stills[next.still];
+  const keptBitmap = next && found?.stills[next.still];
+  if (next && bitmap && next !== plane.shot) drawOn(plane, next, bitmap, shots.scale);
+  if (kept && keptBitmap && kept !== turning.still.shot) drawOn(turning.still, kept, keptBitmap, shots.scale);
   const shot = plane.shot;
   model.style.transform = shotsTransform(shots, layout, turning.inside, turning.outside, open);
   const fade = (value: number) => (value >= 1 ? "" : String(Math.round(Math.max(0, value) * 1000) / 1000));
   model.style.opacity = fade(shown);
-  turning.still.style.opacity = fade(still);
+  turning.still.canvas.style.opacity = fade(still);
   const pane = shot && shotPane(shots, shot);
   const quad = shot && pane ? shotQuad(shot, pane) : null;
   for (const glued of [turning.inner, turning.outer]) {
@@ -537,7 +540,7 @@ function pose(turning: Shots, layout: FoldLayout, open: number, shown: number, s
     // The page stays still and flat behind the turned screen, dark where the screen reaches past it.
     glued.cut.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
     glued.node.style.clipPath = `path("${roundedPath(bled(rect, glued.pane, layout.across, seen), bledRadii(glued.radii), seen)}")`;
-    const { x, y } = turning.corner;
+    const { x, y } = plane.corner;
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     light(glued, open);
     const span = layout.across ? glued.size.height : glued.size.width;
@@ -578,7 +581,7 @@ function bledRadii(radii: Corners): Corners {
 
 /** Corners in the render, from where the planes and windows lie in it. */
 function local(turning: Shots, corners: Quad): Quad {
-  const { x, y } = turning.corner;
+  const { x, y } = turning.plane.corner;
   const [a, b, c, d] = corners.map(([px, py]): readonly [number, number] => [px - x, py - y]);
   return a && b && c && d ? [a, b, c, d] : corners;
 }
@@ -592,13 +595,12 @@ function drawPieces(pen: CanvasRenderingContext2D, bitmap: ImageBitmap, still: F
   }
 }
 
-/** Draw a frame on the plane, where it lies on it, in place of what was there. */
-function drawShot(turning: Shots, shot: FoldShot, bitmap: ImageBitmap): void {
-  const { corner, shots, plane } = turning;
-  const { pen, canvas } = plane;
+/** Draw a picture on a plane, where it lies on it, in place of what was there. */
+function drawOn<Drawn extends FoldStill>(plane: Plane<Drawn>, shot: Drawn, bitmap: ImageBitmap, scale: number): void {
+  const { pen, canvas, corner } = plane;
   plane.shot = shot;
   pen.clearRect(0, 0, canvas.width, canvas.height);
-  drawPieces(pen, bitmap, shot, shot.box[0] - corner.x, shot.box[1] - corner.y, shots.scale);
+  drawPieces(pen, bitmap, shot, shot.box[0] - corner.x, shot.box[1] - corner.y, scale);
 }
 
 /** Which way the hinge goes along the frames: toward shut, 1, toward open, -1, or neither, 0. */

@@ -158,7 +158,7 @@ the `iphone-*` images in `assets/bezels`, copied to `dist/bezels` by the build, 
 
 copyright Apple Inc. they are NOT covered by this project's MIT license, and Apple's own terms apply to them: the Apple Design Resources License for the 17, 18 and Duo packages and the App Store Marketing Artwork License Agreement for the 16 package and the SE.
 
-the frames in `assets/bezels/duo-fold`, the iPhone Duo's case at each angle of its fold and its half that stays, are rendered from Apple's iPhone Duo model in Star White, `iPhone_Duo_e-sim_Star-White_Variant.usdz`, by `scripts/render-duo-fold`, and converted to WebP. copyright Apple Inc., NOT covered by this project's MIT license, and Apple's own terms apply to them.
+the frames in `assets/bezels/duo-fold`, the iPhone Duo's case at each angle of its fold and its half that stays, are rendered from Apple's iPhone Duo model in Star White, `iPhone_Duo_e-sim_Star-White_Variant.usdz`, by `scripts/render-duo-fold`, their metal and screen border shaded from Apple's Duo bezel pictures above, and converted to WebP. copyright Apple Inc., NOT covered by this project's MIT license, and Apple's own terms apply to them.
 
 - https://www.apple.com/105/media/us/iphone-duo/2026/9305e4b9-72d9-4c05-9381-b572adadd5e5/ar/iPhone_Duo_e-sim_Star-White_Variant.usdz
 - https://www.apple.com/legal/internet-services/terms/site.html

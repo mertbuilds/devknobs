@@ -124,6 +124,12 @@ width, device pixel ratio, zoom and frame, and the time row the clock with its
 mode, speed, time zone and server header. the rows stand by group: look
 (scheme, contrast, transparency, vision, text), motion, locale, location,
 time, network, device, viewport and debug.
+a control that does nothing yet stays out of its editor until it does: the
+clock's mode, speed and "send to server" show once a time is set, the speed
+only while the clock runs, and zoom and mat once the frame is up. their values
+stay as set, the row's summary leaves them out while they wait, and search
+sets them all the same. the clock's "now" readout shows once a time is set,
+and the time zone's "in use" note only while it follows geo.
 a fresh session starts with four rows at their defaults, in this order: the
 device, scheme, text and locale. a row added from the panel goes to the bottom
 of the list. the `×` of the device row takes the size and device pixel ratio
@@ -461,7 +467,7 @@ held upright opens to the inner screen held across, and held across, it opens
 upright. it folds in view: the page goes under a cover in its own color, the
 half past the hinge swings toward you about it, and the page comes back laid
 out on the other screen. in its bezels the half that swings is Apple's own
-Duo, rendered offline every 6 degrees from Apple's model, with the page on its
+Duo, rendered offline every degree from Apple's model, with the page on its
 turned screen, once those frames have loaded, and a copy of the bezel till then. search finds it as `unfold`, `fold`, `open`,
 `closed` or `duo open`. a session kept from when the two screens were two
 devices, `iphone-duo-closed` and `iphone-duo-open`, comes back as the Duo in
@@ -486,7 +492,7 @@ frame, so no model is ever stretched onto another. the punch hole, the home
 button and the buttons are the image's own. it loads from `dist/bezels` the
 first time the device is shown with the mock on, the drawn mock standing in
 its place until then, and the drawn mock stays where an image does not load.
-the Duo's fold frames load with it, from `dist/bezels/duo-fold`, about 0.5 MB.
+the Duo's fold frames load with it, from `dist/bezels/duo-fold`, about 2.7 MB.
 the images are not under this project's license, see THIRD_PARTY_NOTICES.md:
 delete `assets/bezels` and run `bun run build`, which then names no image, and
 every phone draws its own mock again.
@@ -607,17 +613,22 @@ the Duo's case is never rendered in your browser. it is rendered once,
 offline, from Apple's own iPhone Duo model, the Star White USDZ from Apple's
 AR viewer, in a three.js scene adapted from jadon7's
 [iphone-duo](https://github.com/jadon7/iphone-duo) ([live
-demo](https://iphone-duo-tawny.vercel.app/)): one frame every 2 degrees from
-shut to open, its screens cut out, and the half that stays once. each frame is
-packed small, as its outline round a clear middle at 1.5 px per css px, and
-ships as an image. three.js runs only in that script, never in the package.
+demo](https://iphone-duo-tawny.vercel.app/)): one frame every degree from
+shut to open, 181 of them, its screens cut out, and the half that stays with
+each, one image of it for every angle where it differs. its metal and the
+black glass round its screens are shaded from Apple's bezel pictures, and
+shut, its hinge wraps into the spine those show, so both ends of a fold look
+as the Duo does at rest. each frame is packed small, as its outline round a
+clear middle at 1.5 px per css px, and ships as an image. three.js runs only
+in that script, never in the package.
 
 in the page, Apple's hinge spring sets the angle, devknobs shows the frame
 nearest it, and the page sits in that frame's screen. the turning screen shows
 a picture of the page through a small WebGL2 blur, or plain layers where
 WebGL2 is not, and it stays still behind the turning glass, as on Apple's
-product page. the half that stays keeps the live page. only the frames round
-the current angle are decoded, and at rest the Duo is Apple's bezel picture.
+product page. the half that stays keeps the live page. only the frames
+within about 10 degrees of the current angle, and 10 more ahead, are decoded,
+about 55 MB at most, and at rest the Duo is Apple's bezel picture.
 
 thanks to jadon7: the scene, the fold rig and the screen projection come from
 jadon7's iphone-duo, MIT. see THIRD_PARTY_NOTICES.md, and
@@ -636,7 +647,8 @@ x-devknobs-now: 2026-10-04T09:30:00.000Z
 
 a request to any other origin never gets it: a custom header there sets off a
 CORS preflight, and would hand your clock to someone else's server. nothing
-goes out while the clock is on system.
+goes out while the clock is on system, and the switch shows once a time is
+set.
 
 the server reads it with a few lines of its own, behind a dev check. generic
 `Request` (hono, remix, sveltekit, `Bun.serve`):

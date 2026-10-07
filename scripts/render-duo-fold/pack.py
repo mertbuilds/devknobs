@@ -6,9 +6,10 @@ its outline changes the most from one frame to the next, cropped to what it
 draws, scaled from the master's 3 px per css px to `scale`, and saved as WebP, and
 manifest.json beside this script with each frame's crop box and the corners
 of its two turned screens, in master px, its pieces, in frame px, and the
-open inner screen's rect. The half that stays, rendered once from the same
-camera, is packed the same way into still.webp, so during a fold both halves
-come from one render.
+open inner screen's rect. The half that stays, rendered at each angle from
+the same camera, is packed the same way, into a still-*.webp for each
+render of it that differs from the one before, which every frame names, so
+during a fold both halves come from one render.
 
 The case is a thin outline round see-through screens, so the clear middle of
 a frame is cut out: what is left is up to four pieces round it, cut shorter
@@ -17,6 +18,7 @@ is in the file.
 
     uv run --python 3.12 --with pillow python pack.py <master folder> <out folder> [step] [quality] [scale] [near] [fine]
 """
+import hashlib
 import io
 import json
 import math
@@ -46,9 +48,10 @@ def shown(image):
     return image.getchannel("A").point(lambda alpha: 255 if alpha > 2 else 0)
 
 
-def crop(name):
+def crop(name, image=None):
     """The master's frame cut to what it draws, its box widened onto whole frame px, and scaled."""
-    image = Image.open(os.path.join(master, name)).convert("RGBA")
+    if image is None:
+        image = Image.open(os.path.join(master, name)).convert("RGBA")
     q = ratio.denominator
     left, top, right, bottom = shown(image).getbbox()
     left, top = left // q * q, top // q * q
@@ -133,10 +136,10 @@ total = 0
 decoded = 0
 
 
-def save(master_name, file):
-    """A master packed into `file` in the out folder: its crop box and its pieces."""
+def save(master_name, file, image=None):
+    """A master, or its `image` read already, packed into `file` in the out folder: its crop box and its pieces."""
     global total, decoded
-    image, box = crop(master_name)
+    image, box = crop(master_name, image)
     sheet, cut = pack(image, pieces(image))
     data = io.BytesIO()
     sheet.save(data, "WEBP", quality=quality, method=6, alpha_quality=90)
@@ -146,19 +149,26 @@ def save(master_name, file):
     return {"file": file, "box": box, "pieces": cut}
 
 
+stills = []
+renders = {}
 for deg in angles:
     seen = meta["angles"][str(deg)]
+    # The half that stays changes only as the fold nears shut: a render of it the same as one packed already is that one.
+    fixed = Image.open(os.path.join(master, f"fixed-{deg:03d}.png")).convert("RGBA")
+    key = hashlib.sha256(fixed.tobytes()).hexdigest()
+    if key not in renders:
+        renders[key] = len(stills)
+        stills.append(save(None, f"still-{deg:03d}.webp", fixed))
     frames.append({"deg": deg, **save(f"moving-{deg:03d}.png", f"fold-{deg:03d}.webp"),
-                   "inner": seen["innerMoving"], "cover": seen["cover"]})
-still = save("fixed.png", "still.webp")
+                   "inner": seen["innerMoving"], "cover": seen["cover"], "still": renders[key]})
 opened = meta["angles"]["0"]
 (left, top), (right, bottom) = opened["innerMoving"][0], opened["innerFixed"][2]
 manifest = {
     "open": [left, top, round(right - left, 2), round(bottom - top, 2)],
     "scale": float(ratio),
     "frames": frames,
-    "still": still,
+    "stills": stills,
 }
 here = os.path.dirname(os.path.abspath(__file__))
 json.dump(manifest, open(os.path.join(here, "manifest.json"), "w"), separators=(",", ":"))
-print(f"{len(frames)} frames and the still half, {total / 1024:.0f} KiB, {decoded / 1e6:.1f} MB decoded")
+print(f"{len(frames)} frames and {len(stills)} of the half that stays, {total / 1024:.0f} KiB, {decoded / 1e6:.1f} MB decoded")

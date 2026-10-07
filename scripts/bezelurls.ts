@@ -72,31 +72,38 @@ function stillOf(value: unknown, what: string): FoldStill {
   };
 }
 
-function shotOf(value: unknown, index: number): FoldShot {
+function shotOf(value: unknown, index: number, stills: number): FoldShot {
   const what = `frame ${index}`;
   if (typeof value !== "object" || value === null) throw new Error(`${what}: not an object`);
   const deg = "deg" in value ? value.deg : null;
   if (typeof deg !== "number") throw new Error(`${what}: no angle`);
+  const still = "still" in value ? value.still : null;
+  if (typeof still !== "number" || !Number.isInteger(still) || still < 0 || still >= stills) {
+    throw new Error(`${what}: no half that stays`);
+  }
   return {
     deg,
     ...stillOf(value, what),
     inner: quadOf("inner" in value ? value.inner : null, `${what} inner`),
     cover: quadOf("cover" in value ? value.cover : null, `${what} cover`),
+    still,
   };
 }
 
-/** The fold frames a manifest.json names, checked, from open to shut, and the half that stays. */
+/** The fold frames a manifest.json names, checked, from open to shut, and the halves that stay they name. */
 export function foldShotsOf(json: unknown): FoldShots {
   if (typeof json !== "object" || json === null) throw new Error("manifest: not an object");
   const [x, y, width, height] = numbers("open" in json ? json.open : null, 4, "open");
   const scale = "scale" in json ? json.scale : null;
   if (typeof scale !== "number" || !(scale > 0)) throw new Error("scale: not a number above 0");
+  const kept = "stills" in json ? json.stills : null;
+  if (!Array.isArray(kept) || kept.length === 0) throw new Error("manifest: no stills");
+  const stills = kept.map((still, index) => stillOf(still, `still ${index}`));
   const list = "frames" in json ? json.frames : null;
   if (!Array.isArray(list) || list.length < 2) throw new Error("manifest: no frames");
-  const frames = list.map(shotOf).sort((a, b) => a.deg - b.deg);
+  const frames = list.map((shot, index) => shotOf(shot, index, stills.length)).sort((a, b) => a.deg - b.deg);
   if (frames[0]?.deg !== 0 || frames.at(-1)?.deg !== 180) throw new Error("manifest: not 0 to 180 degrees");
-  const still = stillOf("still" in json ? json.still : null, "still");
-  return { open: [x, y, width, height], scale, frames, still };
+  return { open: [x, y, width, height], scale, frames, stills };
 }
 
 /** The frames in the folder, or null where it or the manifest is not there. */
@@ -125,6 +132,17 @@ function shotEntry(shot: FoldShot): string {
     `      pieces: ${list(shot.pieces)},`,
     `      inner: ${list(shot.inner)},`,
     `      cover: ${list(shot.cover)},`,
+    `      still: ${shot.still},`,
+    "    },",
+  ].join("\n");
+}
+
+function stillEntry(still: FoldStill): string {
+  return [
+    "    {",
+    `      file: ${JSON.stringify(still.file)},`,
+    `      box: ${list(still.box)},`,
+    `      pieces: ${list(still.pieces)},`,
     "    },",
   ].join("\n");
 }
@@ -140,11 +158,9 @@ export function bezelUrlsModule(files: readonly string[], shots: FoldShots | nul
         "  frames: [",
         shots.frames.map(shotEntry).join("\n"),
         "  ],",
-        "  still: {",
-        `    file: ${JSON.stringify(shots.still.file)},`,
-        `    box: ${list(shots.still.box)},`,
-        `    pieces: ${list(shots.still.pieces)},`,
-        "  },",
+        "  stills: [",
+        shots.stills.map(stillEntry).join("\n"),
+        "  ],",
         "}",
       ].join("\n")
     : "null";
@@ -155,7 +171,7 @@ import type { FoldShots } from "./fold";
 /** Where each image is, beside the built module. */
 export const BEZEL_URLS: Record<string, () => string> = ${map};
 
-/** The frames of the Duo's turning half and its half that stays, in assets/bezels/${FOLD_FOLDER}, or null without them. */
+/** The frames of the Duo's turning half and its halves that stay, in assets/bezels/${FOLD_FOLDER}, or null without them. */
 export const DUO_FOLD: FoldShots | null = ${fold};
 `;
 }

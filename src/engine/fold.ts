@@ -303,6 +303,8 @@ export interface FoldShot extends FoldStill {
   /** Where the open screen's turning half is seen, and the folded body's screen, each as it faces the viewer. */
   inner: Quad;
   cover: Quad;
+  /** The half that stays at this angle, by its place among the fold's `stills`. */
+  still: number;
 }
 
 /** The frames of a fold, from open to shut, where the open screen lies in them, and the half that stays. */
@@ -312,8 +314,12 @@ export interface FoldShots {
   /** The files' px per px of the render. */
   scale: number;
   frames: readonly FoldShot[];
-  /** The half that stays, from the same render, so both halves meet at the hinge. */
-  still: FoldStill;
+  /**
+   * The half that stays, from the same render as each frame, so both halves
+   * meet at the hinge: one for each render of it that differs, which the
+   * frames name.
+   */
+  stills: readonly FoldStill[];
 }
 
 /** The frame nearest how far the hinge is open, by its place among the frames: the more open of two as near. */
@@ -337,7 +343,11 @@ export function nearestReady(ready: readonly unknown[], at: number): number | nu
   return null;
 }
 
-/** How many frames either side of the hinge's are decoded, and how many more ahead of it as it goes. */
+/**
+ * How many frames either side of the hinge's are decoded, and how many more
+ * ahead of it as it goes, with the halves that stay they name: a degree each,
+ * about 55 MB decoded at most.
+ */
 export const SHOTS_AROUND = 10;
 export const SHOTS_AHEAD = 10;
 

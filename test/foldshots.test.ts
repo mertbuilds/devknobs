@@ -351,8 +351,15 @@ beforeEach(() => {
 describe("a Duo folding in its frames", () => {
   if (!DUO_FOLD) return;
   const shots = DUO_FOLD;
-  /** The most decoded at once: the frames round the hinge and ahead of it, and the half that stays. */
-  const MOST = 2 * SHOTS_AROUND + SHOTS_AHEAD + 1 + 1;
+  /** The halves that stay the frames from `first` to `last` name. */
+  const stillsOf = (first: number, last: number) => new Set(shots.frames.slice(first, last + 1).map((shot) => shot.still)).size;
+  /** The most decoded at once: the frames round the hinge and ahead of it, and the halves that stay they name. */
+  const MOST =
+    2 * SHOTS_AROUND + SHOTS_AHEAD + 1 + Math.max(...shots.frames.map((_, at) => stillsOf(at, at + 2 * SHOTS_AROUND + SHOTS_AHEAD)));
+  /** The halves that stay a fold decodes as it leaves the open end. */
+  const OPEN_STILLS = stillsOf(0, SHOTS_AROUND + SHOTS_AHEAD);
+  /** Is a picture one of the halves that stay? */
+  const isStill = (bitmap: FakeBitmap) => shots.stills.some((still) => bitmap.src.endsWith(still.file));
 
   test("loads the frames undecoded, turns copies of the bezels till those round the hinge decode as it starts, then the frames", async () => {
     loadFoldShots();
@@ -367,7 +374,7 @@ describe("a Duo folding in its frames", () => {
     // Never all of them: those round the hinge, ahead of it toward open, and the half that stays.
     expect(live().length).toBeGreaterThan(SHOTS_AROUND);
     expect(live().length).toBeLessThanOrEqual(MOST);
-    expect(live().some((bitmap) => bitmap.src.endsWith(shots.still.file))).toBe(true);
+    expect(live().some(isStill)).toBe(true);
     expect(live().some((bitmap) => bitmap.src.endsWith(shots.frames[0]?.file ?? "-"))).toBe(false);
     play(64);
     // The bend's half that stays, under the frames.
@@ -417,10 +424,19 @@ describe("a Duo folding in its frames", () => {
       expect(style(frame, "left")).toBe(`${left}px`);
       expect(style(frame, "top")).toBe(`${top}px`);
       expect(frame?.pen?.drawn[0]?.at).toEqual([Math.round((shot.box[0] - left) * shots.scale) + px, Math.round((shot.box[1] - top) * shots.scale) + py]);
-      // The half that stays, from the same render, where it lies in it.
-      expect(style(still, "left")).toBe(`${shots.still.box[0]}px`);
-      expect(style(still, "top")).toBe(`${shots.still.box[1]}px`);
-      expect(still?.pen?.drawn[0]?.src).toEndWith(shots.still.file);
+      // The half that stays, from the same render as the frame, where it lies in it.
+      const kept = shots.stills[shot.still];
+      if (!kept) throw new Error("no half that stays");
+      const stillLeft = Math.min(...shots.stills.map((one) => one.box[0]));
+      const stillTop = Math.min(...shots.stills.map((one) => one.box[1]));
+      const [sx = 0, sy = 0] = kept.pieces[0] ?? [];
+      expect(style(still, "left")).toBe(`${stillLeft}px`);
+      expect(style(still, "top")).toBe(`${stillTop}px`);
+      expect(still?.pen?.drawn[0]?.src).toEndWith(kept.file);
+      expect(still?.pen?.drawn[0]?.at).toEqual([
+        Math.round((kept.box[0] - stillLeft) * shots.scale) + sx,
+        Math.round((kept.box[1] - stillTop) * shots.scale) + sy,
+      ]);
       const [, inner, outer] = node.children;
       const facing = [inner, outer].filter((one) => style(one, "visibility") === "");
       expect(facing.length).toBeLessThanOrEqual(1);
@@ -517,10 +533,13 @@ describe("a Duo folding in its frames", () => {
       most = Math.max(most, live().length);
     });
     expect(most).toBeLessThanOrEqual(MOST);
-    // Landed open: only those round the open end, and the half that stays.
+    // Landed open: only those round the open end, and their halves that stay.
     const left = live().map((bitmap) => shots.frames.findIndex((shot) => bitmap.src.endsWith(shot.file)));
     expect(left.filter((index) => index > SHOTS_AROUND)).toEqual([]);
-    expect(left.filter((index) => index < 0)).toHaveLength(1);
+    const stills = live().filter(isStill);
+    expect(left.filter((index) => index < 0)).toHaveLength(stills.length);
+    const open = new Set(shots.frames.slice(0, SHOTS_AROUND + 1).map((shot) => shots.stills[shot.still]?.file));
+    expect(stills.every((bitmap) => [...open].some((file) => file && bitmap.src.endsWith(file)))).toBe(true);
   });
 
   test("lets go of the pictures a while after it lands, or once the Duo is not shown, and decodes them again", async () => {
@@ -537,7 +556,7 @@ describe("a Duo folding in its frames", () => {
     bitmaps = [];
     fold(OPEN, SHUT, sceneOf());
     await Bun.sleep(0);
-    expect(bitmaps).toHaveLength(SHOTS_AROUND + SHOTS_AHEAD + 1 + 1);
+    expect(bitmaps).toHaveLength(SHOTS_AROUND + SHOTS_AHEAD + 1 + OPEN_STILLS);
     await playing(2000);
     fold(SHUT, OPEN, sceneOf());
     wait(SHOTS_KEPT);

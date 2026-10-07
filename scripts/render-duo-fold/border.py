@@ -64,11 +64,12 @@ def profile(file, opening, spans, reach):
     return [[round(float(v), 6) for v in light(linear(row))] for row in rows]
 
 
-border = {
-    "open": profile("iphone-duo-inner-open-landscape.webp", (120, 120, 2853, 2007),
-                    {"top": (400, 1300), "bottom": (1800, 2700), "left": (400, 1800), "right": (400, 1800)}, REACH["open"]),
-    "cover": profile("iphone-duo-outer-closed.webp", (88, 80, 1398, 2034),
-                     {"top": (300, 1100), "bottom": (300, 1100), "left": (400, 1800), "right": (400, 1800)}, REACH["cover"]),
-}
-json.dump(border, open(os.path.join(HERE, "border.json"), "w"), separators=(",", ":"))
-print({name: len(rows) for name, rows in border.items()})
+if __name__ == "__main__":
+    border = {
+        "open": profile("iphone-duo-inner-open-landscape.webp", (120, 120, 2853, 2007),
+                        {"top": (400, 1300), "bottom": (1800, 2700), "left": (400, 1800), "right": (400, 1800)}, REACH["open"]),
+        "cover": profile("iphone-duo-outer-closed.webp", (88, 80, 1398, 2034),
+                         {"top": (300, 1100), "bottom": (300, 1100), "left": (400, 1800), "right": (400, 1800)}, REACH["cover"]),
+    }
+    json.dump(border, open(os.path.join(HERE, "border.json"), "w"), separators=(",", ":"))
+    print({name: len(rows) for name, rows in border.items()})

@@ -524,20 +524,20 @@ describe("the Duo's fold frames", () => {
   if (!DUO_FOLD) return;
   const shots = DUO_FOLD;
 
-  test("run from open to shut every 2 degrees, 91 of them, both ends with them", () => {
-    expect(shots.frames).toHaveLength(91);
-    expect(shots.frames.map((shot) => shot.deg)).toEqual(Array.from({ length: 91 }, (_, index) => index * 2));
+  test("run from open to shut every degree, 181 of them, both ends with them", () => {
+    expect(shots.frames).toHaveLength(181);
+    expect(shots.frames.map((shot) => shot.deg)).toEqual(Array.from({ length: 181 }, (_, index) => index));
   });
 
   test("show the one nearest the hinge's angle, either way it turns, the more open of two as near", () => {
     const at = (deg: number) => shots.frames[shotAt(shots, 1 - deg / 180)]?.deg;
-    expect([at(0), at(0.9), at(1.1), at(2), at(2.9), at(3.1)]).toEqual([0, 0, 2, 2, 2, 4]);
-    expect([at(89), at(90), at(90.9), at(91.1), at(179.1), at(180)]).toEqual([88, 90, 90, 92, 180, 180]);
-    expect(at(3)).toBe(2);
+    expect([at(0), at(0.4), at(0.6), at(1), at(1.4), at(1.6)]).toEqual([0, 0, 1, 1, 1, 2]);
+    expect([at(89), at(90), at(90.4), at(90.6), at(179.6), at(180)]).toEqual([89, 90, 90, 91, 180, 180]);
+    expect(at(1.5)).toBe(1);
     // Opening or shutting, the same angle shows the same frame: no pair, no fade, no warp.
     for (let deg = 0; deg <= 180; deg += 0.37) {
       const shown = at(deg) ?? NaN;
-      expect(Math.abs(shown - deg)).toBeLessThanOrEqual(1 + 1e-9);
+      expect(Math.abs(shown - deg)).toBeLessThanOrEqual(0.5 + 1e-9);
     }
   });
 
@@ -553,13 +553,13 @@ describe("the Duo's fold frames", () => {
 
   test("decode those round the hinge and more ahead of it as it goes, none past the ends", () => {
     expect([SHOTS_AROUND, SHOTS_AHEAD]).toEqual([10, 10]);
-    expect(shotsWindow(91, 45, 0)).toEqual([35, 55]);
+    expect(shotsWindow(181, 90, 0)).toEqual([80, 100]);
     // Shutting, the angle and the frames grow: ahead is after it.
-    expect(shotsWindow(91, 45, 1)).toEqual([35, 65]);
-    expect(shotsWindow(91, 45, -1)).toEqual([25, 55]);
-    expect(shotsWindow(91, 0, 1)).toEqual([0, 20]);
-    expect(shotsWindow(91, 90, -1)).toEqual([70, 90]);
-    expect(shotsWindow(91, 88, 1)).toEqual([78, 90]);
+    expect(shotsWindow(181, 90, 1)).toEqual([80, 110]);
+    expect(shotsWindow(181, 90, -1)).toEqual([70, 100]);
+    expect(shotsWindow(181, 0, 1)).toEqual([0, 20]);
+    expect(shotsWindow(181, 180, -1)).toEqual([160, 180]);
+    expect(shotsWindow(181, 175, 1)).toEqual([165, 180]);
   });
 
   test("face the viewer by the inside up to a right angle, the outside past it, one in each frame", () => {

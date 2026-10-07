@@ -53,16 +53,23 @@ camera.updateProjectionMatrix();
 // front, or behind the cover screen, seen once shut, takes off: whichever is less, which is
 // the one it is seen on. The screens themselves stay where they are, and both ends come out
 // flat, as Apple's pictures are, while the turn between keeps the camera's perspective.
+// The half that stays lies behind the cover screen once shut, so over the last of the way it
+// goes over to as much as its depth behind the cover takes off, but along the hinge, where it
+// meets the strip, which the turning half's frames draw. Its screen is under the cover by then.
 const COVER_Z = -.27463;
 const D_COVER = D + SCREEN_Z - 2 * HINGE_Z + COVER_Z; // the cover screen's distance once shut
+const SHUTTING = [160, 180]; // the degrees the half that stays goes over in
 const warpShader = `
+uniform float shutWarp;
 vec3 warp(vec3 p) {
   float s = min((${(D + SCREEN_Z).toFixed(6)} - p.z) / ${D.toFixed(6)}, (${(D_COVER - COVER_Z).toFixed(6)} + p.z) / ${D_COVER.toFixed(6)});
+  s = mix(s, (${(D + SCREEN_Z).toFixed(6)} - p.z) / ${D_COVER.toFixed(6)}, shutWarp * smoothstep(0.35, 1.35, p.x));
   return vec3(p.xy * s, p.z);
 }
 `;
 
 const bend = { value: 0 };
+const shutWarp = { value: 0 };
 // 1 keeps the moving half (cover side), 0 the fixed half, 2 both.
 const side = { value: 2 };
 
@@ -84,8 +91,11 @@ vec4 bendStrip(vec3 p) {
   float t2 = t*t, t3 = t2*t;
   vec2 a = rotateHinge(vec2(-halfWidth, p.z));
   vec2 b = vec2(halfWidth, p.z);
-  vec2 ta = 2.0 * halfWidth * vec2(cos(foldAngle), -sin(foldAngle));
-  vec2 tb = vec2(2.0 * halfWidth, 0.0);
+  // Under the screen each layer reaches out further as the fold shuts, round the one above it, so
+  // that shut the strip wraps round the hinge into the spine Apple's closed picture shows.
+  float reach = 2.0 * halfWidth + 2.3 * (1.0 - cos(foldAngle)) * max(0.0, ${SCREEN_Z} - p.z);
+  vec2 ta = reach * vec2(cos(foldAngle), -sin(foldAngle));
+  vec2 tb = vec2(reach, 0.0);
   vec2 point = (2.0*t3-3.0*t2+1.0)*a + (t3-2.0*t2+t)*ta + (-2.0*t3+3.0*t2)*b + (t3-t2)*tb;
   vec2 tangent = normalize((6.0*t2-6.0*t)*a + (3.0*t2-4.0*t+1.0)*ta + (-6.0*t2+6.0*t)*b + (3.0*t2-2.0*t)*tb);
   return vec4(point, tangent);
@@ -94,7 +104,7 @@ vec4 bendStrip(vec3 p) {
 `;
 
 const holeMaterial = new THREE.ShaderMaterial({
-  uniforms: { foldAngle: bend, keepSide: side },
+  uniforms: { foldAngle: bend, keepSide: side, shutWarp },
   blending: THREE.NoBlending,
   vertexShader: `${foldShader}
     void main() {
@@ -131,6 +141,24 @@ const BORDERS = {
 };
 const borderOf = name => Object.entries(BORDERS).find(([, b]) => b.meshes.includes(name));
 
+// The metal, lit as Apple's pictures have it: the frame of both halves, its buttons, and the
+// strip at the hinge, which wraps into the spine once shut. With `normals` each px of it is
+// rendered as the way it faces the camera, and the rest black, at both ends; matcap.py samples
+// Apple's pictures by that into matcap.json, the light that tone maps to them for each way metal
+// can face, and without, the metal gives off that light for the way it faces and takes none.
+const NORMALS = params.has('normals');
+const METAL = ['qyiwePzfWzVHIDO', 'jJermpgmctotTSe', 'MvKPXGSdYDVvSpk', 'YhaSRqOjDUQrQTc', 'FcJBPLgEScWGyXd', 'UXtkILReLwCJaov',
+  'AjfIgUpXxKaENDl', 'tkSBzAjLTdhANqx', 'VNIQJMrwFmXgrBf', 'fbvEqfwjsAMSDkr', 'ejUvJHtjfcqjSvM'];
+let metalLight = null;
+if (!NORMALS) {
+  const { size, light } = await (await fetch('./matcap.json')).json();
+  const texture = new THREE.DataTexture(new Uint16Array(light.flatMap(rgb => [...rgb, 1].map(THREE.DataUtils.toHalfFloat))),
+    size, size, THREE.RGBAFormat, THREE.HalfFloatType);
+  texture.magFilter = texture.minFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  metalLight = { value: texture };
+}
+
 const groups = { moving: [], fixed: [], flexible: [] };
 const screenMeshes = {};
 const info = [];
@@ -150,12 +178,21 @@ model.traverse(object => {
   let material;
   if (kind) {
     material = holeMaterial.clone();
-    material.uniforms = { foldAngle: bend, keepSide: side };
+    material.uniforms = { foldAngle: bend, keepSide: side, shutWarp };
     if (flexible) material.defines = { FLEXIBLE_SCREEN: '' };
     if (!moving && !flexible) material.uniforms.keepSide = { value: -1 };
   } else {
     material = object.material.clone();
     const [glass, edge] = borderOf(object.name) ?? [];
+    const metal = METAL.includes(object.name);
+    if (metal && !NORMALS) {
+      material.color.setRGB(0, 0, 0);
+      material.metalness = 0;
+      material.specularIntensity = 0;
+      material.clearcoat = 0;
+      material.emissive.setRGB(1, 1, 1);
+      material.emissiveMap = null;
+    }
     if (edge) {
       material.color.setRGB(0, 0, 0);
       material.specularIntensity = 0;
@@ -166,6 +203,7 @@ model.traverse(object => {
     material.onBeforeCompile = shader => {
       shader.uniforms.foldAngle = bend;
       shader.uniforms.keepSide = side;
+      shader.uniforms.shutWarp = shutWarp;
       if (edge) {
         const { x0, y0, x1, y1 } = edge.rect;
         shader.uniforms.borderLight = { value: border[glass].map(rgb => new THREE.Vector3(...rgb)) };
@@ -189,6 +227,15 @@ model.traverse(object => {
           int i = int(min(floor(at), ${count - 2}.0));
           totalEmissiveRadiance = mix(borderLight[i], borderLight[i + 1], at - float(i));
         `);
+      }
+      if (metal && !NORMALS) {
+        shader.uniforms.metalLight = metalLight;
+        shader.fragmentShader = `uniform sampler2D metalLight;\n${shader.fragmentShader}`.replace('#include <emissivemap_fragment>',
+          'totalEmissiveRadiance = texture2D(metalLight, normal.xy * 0.5 + 0.5).rgb;');
+      }
+      if (NORMALS) {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>',
+          metal ? 'gl_FragColor = vec4(nonPerturbedNormal * 0.5 + 0.5, 1.0);' : 'gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);');
       }
       if (moving || flexible) {
         shader.vertexShader = `${flexible ? '#define FLEXIBLE_SCREEN\n' : ''}${foldShader}\n${shader.vertexShader}`;
@@ -246,7 +293,8 @@ function foldPoint(x, y, z, a) {
   if (x <= -h) { const [fx, fz] = rotateHinge(x, z, a); return [fx, y, fz]; }
   const t = (x + h) / (2 * h), t2 = t * t, t3 = t2 * t;
   const A = rotateHinge(-h, z, a), B = [h, z];
-  const TA = [2 * h * Math.cos(a), -2 * h * Math.sin(a)], TB = [2 * h, 0];
+  const reach = 2 * h + 2.3 * (1 - Math.cos(a)) * Math.max(0, SCREEN_Z - z);
+  const TA = [reach * Math.cos(a), -reach * Math.sin(a)], TB = [reach, 0];
   const f = (i) => (2*t3-3*t2+1)*A[i] + (t3-2*t2+t)*TA[i] + (-2*t3+3*t2)*B[i] + (t3-t2)*TB[i];
   return [f(0), y, f(1)];
 }
@@ -274,7 +322,11 @@ function corners(a) {
 }
 
 function render(a, pass) {
-  bend.value = a;
+  // The half that stays as it lies open, its screen's hole reaching the hinge line flat, but for
+  // its depth once the fold nears shut: none of it but that hole bends.
+  bend.value = pass === 'fixed' ? 0 : a;
+  const [from, to] = SHUTTING.map(deg => (deg * Math.PI) / 180);
+  shutWarp.value = THREE.MathUtils.smoothstep(a, from, to);
   side.value = pass === 'moving' ? 1 : pass === 'fixed' ? 0 : 2;
   // Still half: the screen hole reaches the hinge line, over the hinge parts in front of it.
   for (const mesh of Object.values(screenMeshes)) {
@@ -298,24 +350,27 @@ window.api = {
   },
   show(a, pass = 'full') { render(a, pass); return corners(a); },
   /**
-   * Render the turning half every `step` degrees from open to shut, the half
-   * that stays once, and every angle's corners, and save them all.
+   * Render the turning half and the half that stays every `step` degrees from
+   * open to shut, and every angle's corners, and save them all, their names
+   * led by `normals-` with `normals`.
    */
   async renderAll(step = 3) {
+    const lead = NORMALS ? 'normals-' : '';
     const angles = {};
     for (let deg = 0; deg <= 180; deg += step) {
-      const { png, corners: seen } = this.frame((deg * Math.PI) / 180, 'moving');
-      await save(`moving-${String(deg).padStart(3, '0')}.png`, await (await fetch(png)).blob());
-      angles[deg] = seen;
+      const name = String(deg).padStart(3, '0');
+      for (const pass of ['moving', 'fixed']) {
+        const { png, corners: seen } = this.frame((deg * Math.PI) / 180, pass);
+        await save(`${lead}${pass}-${name}.png`, await (await fetch(png)).blob());
+        angles[deg] = seen;
+      }
     }
-    const { png } = this.frame(0, 'fixed');
-    await save('fixed.png', await (await fetch(png)).blob());
-    await save('corners.json', JSON.stringify({ W, H, K, D, angles }));
+    await save(`${lead}corners.json`, JSON.stringify({ W, H, K, D, angles }));
     return Object.keys(angles).length;
   },
 };
 window.ready = true;
 if (params.has('run')) {
-  const count = await window.api.renderAll(Number(params.get('step') || 3));
+  const count = await window.api.renderAll(NORMALS ? 180 : Number(params.get('step') || 3));
   document.title = `rendered ${count} angles`;
 }
