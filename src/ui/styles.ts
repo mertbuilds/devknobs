@@ -748,13 +748,14 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    red. */
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 /* Back to the rows, on top of the settings and as tall as a row, its chevron
-   where a row's grip is and its title where a row's icon is. */
+   where a row's icon is and its title where a row's title is. The settings
+   keep the rows' grip column empty, so every word starts at a row's title. */
 .back {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   height: 26px;
-  padding: 0 10px 0 4px;
+  padding: 0 10px 0 22px;
   border-radius: 8px;
   transition: background-color 120ms ease-out;
 }
@@ -766,9 +767,10 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   align-items: center;
   gap: 8px;
   height: 26px;
-  padding-left: 10px;
+  padding-left: 44px;
   border-radius: 8px;
 }
+.keys .group-label { padding-left: 44px; }
 .key-row:hover { background: var(--card); }
 .key-word { flex: 1; min-width: 0; color: var(--faint); }
 .key-set {
