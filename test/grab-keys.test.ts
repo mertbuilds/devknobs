@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   defaultGrabKey,
   type GrabKeyLike,
-  grabKeyLabel,
+  grabKeyTypes,
   HOLD,
   HOLD_AFTER_COPY,
   HOLD_INPUT,
@@ -12,7 +12,9 @@ import {
   holdStep,
   isCLike,
   isGrabKey,
+  keyMatches,
   parseGrabKey,
+  pressTurnsOn,
   releasesGrabKey,
 } from "../src/grab/keys";
 
@@ -29,26 +31,37 @@ function key(patch: Partial<GrabKeyLike>): GrabKeyLike {
 }
 
 describe("parseGrabKey", () => {
-  test("defaults to meta and c on a Mac, ctrl and c elsewhere", () => {
-    expect(parseGrabKey(undefined, true)).toEqual(defaultGrabKey(true));
-    expect(parseGrabKey("", false)).toEqual({
+  test("defaults to shift and g", () => {
+    expect(parseGrabKey(undefined)).toEqual(defaultGrabKey());
+    expect(parseGrabKey("")).toEqual({
       meta: false,
-      ctrl: true,
-      shift: false,
+      ctrl: false,
+      shift: true,
       alt: false,
-      key: "c",
+      key: "g",
+    });
+  });
+
+  test("reads shift and a letter, as the default is", () => {
+    expect(parseGrabKey("shift+g")).toEqual(defaultGrabKey());
+    expect(parseGrabKey("Shift+K")).toEqual({
+      meta: false,
+      ctrl: false,
+      shift: true,
+      alt: false,
+      key: "k",
     });
   });
 
   test("reads modifiers by any of their names, and one key", () => {
-    expect(parseGrabKey("alt+shift+g", true)).toEqual({
+    expect(parseGrabKey("alt+shift+g")).toEqual({
       meta: false,
       ctrl: false,
       shift: true,
       alt: true,
       key: "g",
     });
-    expect(parseGrabKey("Cmd + Option + K", false)).toEqual({
+    expect(parseGrabKey("Cmd + Option + K")).toEqual({
       meta: true,
       ctrl: false,
       shift: false,
@@ -58,20 +71,46 @@ describe("parseGrabKey", () => {
   });
 
   test("falls back to the default for no key, or two", () => {
-    expect(parseGrabKey("alt+shift", true)).toEqual(defaultGrabKey(true));
-    expect(parseGrabKey("a+b", false)).toEqual(defaultGrabKey(false));
+    expect(parseGrabKey("alt+shift")).toEqual(defaultGrabKey());
+    expect(parseGrabKey("a+b")).toEqual(defaultGrabKey());
   });
 });
 
 describe("isGrabKey", () => {
-  const mac = defaultGrabKey(true);
+  const mac = parseGrabKey("meta+c");
 
-  test("takes the c key with only the platform modifier", () => {
+  test("takes shift and g by default, in either case for caps lock", () => {
+    const shiftG = { shiftKey: true, key: "G", code: "KeyG" };
+    expect(isGrabKey(key(shiftG), defaultGrabKey())).toBe(true);
+    expect(isGrabKey(key({ ...shiftG, key: "g" }), defaultGrabKey())).toBe(true);
+    // A layout that is not latin, with g's place still the key.
+    expect(isGrabKey(key({ ...shiftG, key: "П" }), defaultGrabKey())).toBe(true);
+  });
+
+  test("leaves a key that types another latin letter in g's place, or an IME's", () => {
+    const shiftG = { shiftKey: true, code: "KeyG" };
+    // Colemak types d there, Dvorak i and Turkish F ü.
+    for (const typed of ["D", "I", "Ü", "Process", "Dead"]) {
+      expect(isGrabKey(key({ ...shiftG, key: typed }), defaultGrabKey())).toBe(false);
+    }
+    expect(isGrabKey(key({ ...shiftG, key: "G", isComposing: true }), defaultGrabKey())).toBe(false);
+  });
+
+  test("leaves g alone without shift, or with another modifier", () => {
+    const g = { key: "g", code: "KeyG" };
+    expect(isGrabKey(key(g), defaultGrabKey())).toBe(false);
+    for (const modifier of ["altKey", "ctrlKey", "metaKey"] as const) {
+      const press = key({ ...g, key: "G", shiftKey: true, [modifier]: true });
+      expect(isGrabKey(press, defaultGrabKey())).toBe(false);
+    }
+  });
+
+  test("takes a custom c key with only its own modifier", () => {
     expect(isGrabKey(key({ metaKey: true }), mac)).toBe(true);
     expect(isGrabKey(key({ metaKey: true, shiftKey: true }), mac)).toBe(false);
     expect(isGrabKey(key({ ctrlKey: true }), mac)).toBe(false);
     expect(isGrabKey(key({}), mac)).toBe(false);
-    expect(isGrabKey(key({ ctrlKey: true }), defaultGrabKey(false))).toBe(true);
+    expect(isGrabKey(key({ ctrlKey: true }), parseGrabKey("ctrl+c"))).toBe(true);
   });
 
   test("takes a c on any layout", () => {
@@ -82,18 +121,38 @@ describe("isGrabKey", () => {
   });
 
   test("matches a custom key by what it types or where it sits", () => {
-    const custom = parseGrabKey("alt+shift+g", true);
+    const custom = parseGrabKey("alt+shift+g");
     const press = { altKey: true, shiftKey: true };
     expect(isGrabKey(key({ ...press, key: "G", code: "KeyG" }), custom)).toBe(true);
     // Option types a symbol on a Mac, and the code still says g.
     expect(isGrabKey(key({ ...press, key: "˝", code: "KeyG" }), custom)).toBe(true);
     expect(isGrabKey(key({ altKey: true, key: "g", code: "KeyG" }), custom)).toBe(false);
+    // Option types a latin letter in s's place.
+    const altS = key({ altKey: true, key: "ß", code: "KeyS" });
+    expect(isGrabKey(altS, parseGrabKey("alt+s"))).toBe(true);
+  });
+});
+
+describe("keyMatches", () => {
+  test("takes the key whatever modifiers are down", () => {
+    expect(keyMatches(key({ key: "g", code: "KeyG" }), "g")).toBe(true);
+    expect(keyMatches(key({ key: "G", code: "KeyG", shiftKey: true }), "g")).toBe(true);
+    expect(keyMatches(key({ key: "h", code: "KeyH" }), "g")).toBe(false);
+    expect(keyMatches(key({ key: "с", code: "KeyS", metaKey: true }), "c")).toBe(true);
   });
 });
 
 describe("releasesGrabKey", () => {
+  test("lets go of shift and g with either, whatever the case", () => {
+    const grab = defaultGrabKey();
+    expect(releasesGrabKey(key({ key: "g", code: "KeyG" }), grab)).toBe(true);
+    expect(releasesGrabKey(key({ key: "G", code: "KeyG" }), grab)).toBe(true);
+    expect(releasesGrabKey(key({ key: "Shift", code: "ShiftLeft" }), grab)).toBe(true);
+    expect(releasesGrabKey(key({ key: "Meta", code: "MetaLeft" }), grab)).toBe(false);
+  });
+
   test("lets go with the key or one of its modifiers", () => {
-    const mac = defaultGrabKey(true);
+    const mac = parseGrabKey("meta+c");
     expect(releasesGrabKey(key({}), mac)).toBe(true);
     expect(releasesGrabKey(key({ key: "Meta", code: "MetaLeft" }), mac)).toBe(true);
     expect(releasesGrabKey(key({ key: "Control", code: "ControlLeft" }), mac)).toBe(false);
@@ -101,12 +160,26 @@ describe("releasesGrabKey", () => {
   });
 });
 
-describe("grabKeyLabel", () => {
-  test("reads as the platform writes shortcuts", () => {
-    expect(grabKeyLabel(defaultGrabKey(true), true)).toBe("⌘C");
-    expect(grabKeyLabel(defaultGrabKey(false), false)).toBe("ctrl+C");
-    expect(grabKeyLabel(parseGrabKey("alt+shift+g", true), true)).toBe("⌥⇧G");
-    expect(grabKeyLabel(parseGrabKey("alt+shift+g", false), false)).toBe("alt+shift+G");
+describe("pressTurnsOn", () => {
+  test("shift alone or a function key turns grab on with a press", () => {
+    expect(pressTurnsOn(defaultGrabKey())).toBe(true);
+    expect(pressTurnsOn(parseGrabKey("shift+x"))).toBe(true);
+    expect(pressTurnsOn(parseGrabKey("f2"))).toBe(true);
+    expect(pressTurnsOn(parseGrabKey("alt+f2"))).toBe(true);
+  });
+
+  test("meta, ctrl or alt turns it on with a hold, so a tap stays the key it was", () => {
+    expect(pressTurnsOn(parseGrabKey("meta+c"))).toBe(false);
+    expect(pressTurnsOn(parseGrabKey("ctrl+shift+x"))).toBe(false);
+    expect(pressTurnsOn(parseGrabKey("alt+shift+g"))).toBe(false);
+  });
+});
+
+describe("grabKeyTypes", () => {
+  test("only a key with shift at most types, a function key never", () => {
+    expect(grabKeyTypes(parseGrabKey("shift+x"))).toBe(true);
+    expect(grabKeyTypes(parseGrabKey("f2"))).toBe(false);
+    expect(grabKeyTypes(parseGrabKey("alt+x"))).toBe(false);
   });
 });
 

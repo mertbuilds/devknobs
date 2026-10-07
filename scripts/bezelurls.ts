@@ -1,22 +1,115 @@
 /**
  * Writes src/engine/bezelurls.ts, where each image in assets/bezels gets its
  * own `new URL("./bezels/...", import.meta.url)`, written out so a bundler
- * finds the image and takes it along. Without the folder the map is empty, so
- * no bundle asks for a file that is not there. The build runs it first.
+ * finds the image and takes it along, and the pieces and corners of the Duo's
+ * fold frames in assets/bezels/duo-fold come from the manifest.json the
+ * packer writes beside itself, which does not ship. Without the folder the map
+ * is empty and there are no frames, so no bundle asks for a file that is not
+ * there. The build runs it first.
  *
  *   bun scripts/bezelurls.ts
  */
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { FoldShot, FoldShots, FoldStill, Pair, Piece, Quad } from "../src/engine/fold";
 
 const ROOT = join(import.meta.dir, "..");
 
-/** The images in a folder, by name, or none where there is no folder. */
+/** The folder of the Duo's fold frames, in assets/bezels. */
+export const FOLD_FOLDER = "duo-fold";
+
+/** What the packer says of the frames: their pieces and corners. */
+export const MANIFEST = join(ROOT, "scripts", "render-duo-fold", "manifest.json");
+
+/** The images in a folder and the folders in it, by name, or none where there is no folder. */
 export function bezelFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
+    .flatMap((file) =>
+      statSync(join(dir, file)).isDirectory()
+        ? bezelFiles(join(dir, file)).map((inner) => `${file}/${inner}`)
+        : [file],
+    )
     .filter((file) => file.endsWith(".webp"))
     .sort();
+}
+
+function numbers(value: unknown, length: number, what: string): number[] {
+  if (!Array.isArray(value) || value.length !== length) throw new Error(`${what}: not ${length} numbers`);
+  return value.map((item) => {
+    if (typeof item !== "number" || !Number.isFinite(item)) throw new Error(`${what}: not a number`);
+    return item;
+  });
+}
+
+function quadOf(value: unknown, what: string): Quad {
+  if (!Array.isArray(value) || value.length !== 4) throw new Error(`${what}: not 4 corners`);
+  const [a, b, c, d] = value.map((corner): Pair => {
+    const [x, y] = numbers(corner, 2, what);
+    return [x, y];
+  });
+  if (!a || !b || !c || !d) throw new Error(`${what}: not 4 corners`);
+  return [a, b, c, d];
+}
+
+function pieceOf(value: unknown, what: string): Piece {
+  const [x, y, width, height, fileX, fileY] = numbers(value, 6, what);
+  return [x, y, width, height, fileX, fileY];
+}
+
+/** A packed picture's file, crop box and pieces. */
+function stillOf(value: unknown, what: string): FoldStill {
+  if (typeof value !== "object" || value === null) throw new Error(`${what}: not an object`);
+  const file = "file" in value ? value.file : null;
+  if (typeof file !== "string" || !/^[\w.-]+\.webp$/.test(file)) throw new Error(`${what}: no file`);
+  const [left, top, right, bottom] = numbers("box" in value ? value.box : null, 4, `${what} box`);
+  const pieces = "pieces" in value ? value.pieces : null;
+  if (!Array.isArray(pieces) || pieces.length === 0) throw new Error(`${what}: no pieces`);
+  return {
+    file: `${FOLD_FOLDER}/${file}`,
+    box: [left, top, right, bottom],
+    pieces: pieces.map((piece) => pieceOf(piece, `${what} piece`)),
+  };
+}
+
+function shotOf(value: unknown, index: number, stills: number): FoldShot {
+  const what = `frame ${index}`;
+  if (typeof value !== "object" || value === null) throw new Error(`${what}: not an object`);
+  const deg = "deg" in value ? value.deg : null;
+  if (typeof deg !== "number") throw new Error(`${what}: no angle`);
+  const still = "still" in value ? value.still : null;
+  if (typeof still !== "number" || !Number.isInteger(still) || still < 0 || still >= stills) {
+    throw new Error(`${what}: no half that stays`);
+  }
+  return {
+    deg,
+    ...stillOf(value, what),
+    inner: quadOf("inner" in value ? value.inner : null, `${what} inner`),
+    cover: quadOf("cover" in value ? value.cover : null, `${what} cover`),
+    still,
+  };
+}
+
+/** The fold frames a manifest.json names, checked, from open to shut, and the halves that stay they name. */
+export function foldShotsOf(json: unknown): FoldShots {
+  if (typeof json !== "object" || json === null) throw new Error("manifest: not an object");
+  const [x, y, width, height] = numbers("open" in json ? json.open : null, 4, "open");
+  const scale = "scale" in json ? json.scale : null;
+  if (typeof scale !== "number" || !(scale > 0)) throw new Error("scale: not a number above 0");
+  const kept = "stills" in json ? json.stills : null;
+  if (!Array.isArray(kept) || kept.length === 0) throw new Error("manifest: no stills");
+  const stills = kept.map((still, index) => stillOf(still, `still ${index}`));
+  const list = "frames" in json ? json.frames : null;
+  if (!Array.isArray(list) || list.length < 2) throw new Error("manifest: no frames");
+  const frames = list.map((shot, index) => shotOf(shot, index, stills.length)).sort((a, b) => a.deg - b.deg);
+  if (frames[0]?.deg !== 0 || frames.at(-1)?.deg !== 180) throw new Error("manifest: not 0 to 180 degrees");
+  return { open: [x, y, width, height], scale, frames, stills };
+}
+
+/** The frames in the folder, or null where it or the manifest is not there. */
+export function foldShotsIn(dir: string, manifest: string = MANIFEST): FoldShots | null {
+  if (!existsSync(join(dir, FOLD_FOLDER)) || !existsSync(manifest)) return null;
+  return foldShotsOf(JSON.parse(readFileSync(manifest, "utf8")));
 }
 
 function entry(file: string): string {
@@ -26,17 +119,64 @@ function entry(file: string): string {
   return line.length <= 100 ? line : `${key}\n    ${value}`;
 }
 
-/** The module's source for these images. */
-export function bezelUrlsModule(files: readonly string[]): string {
+function list(values: readonly (number | readonly number[])[]): string {
+  return `[${values.map((value) => (typeof value === "number" ? String(value) : list(value))).join(", ")}]`;
+}
+
+function shotEntry(shot: FoldShot): string {
+  return [
+    "    {",
+    `      deg: ${shot.deg},`,
+    `      file: ${JSON.stringify(shot.file)},`,
+    `      box: ${list(shot.box)},`,
+    `      pieces: ${list(shot.pieces)},`,
+    `      inner: ${list(shot.inner)},`,
+    `      cover: ${list(shot.cover)},`,
+    `      still: ${shot.still},`,
+    "    },",
+  ].join("\n");
+}
+
+function stillEntry(still: FoldStill): string {
+  return [
+    "    {",
+    `      file: ${JSON.stringify(still.file)},`,
+    `      box: ${list(still.box)},`,
+    `      pieces: ${list(still.pieces)},`,
+    "    },",
+  ].join("\n");
+}
+
+/** The module's source for these images, and these fold frames. */
+export function bezelUrlsModule(files: readonly string[], shots: FoldShots | null = null): string {
   const map = files.length === 0 ? "{}" : `{\n${files.map(entry).join("\n")}\n}`;
+  const fold = shots
+    ? [
+        "{",
+        `  open: ${list(shots.open)},`,
+        `  scale: ${shots.scale},`,
+        "  frames: [",
+        shots.frames.map(shotEntry).join("\n"),
+        "  ],",
+        "  stills: [",
+        shots.stills.map(stillEntry).join("\n"),
+        "  ],",
+        "}",
+      ].join("\n")
+    : "null";
   return `// Written by scripts/bezelurls.ts from assets/bezels: run \`bun run build\` after changing the folder.
+
+import type { FoldShots } from "./fold";
 
 /** Where each image is, beside the built module. */
 export const BEZEL_URLS: Record<string, () => string> = ${map};
+
+/** The frames of the Duo's turning half and its halves that stay, in assets/bezels/${FOLD_FOLDER}, or null without them. */
+export const DUO_FOLD: FoldShots | null = ${fold};
 `;
 }
 
 if (import.meta.main) {
-  const files = bezelFiles(join(ROOT, "assets", "bezels"));
-  writeFileSync(join(ROOT, "src", "engine", "bezelurls.ts"), bezelUrlsModule(files));
+  const dir = join(ROOT, "assets", "bezels");
+  writeFileSync(join(ROOT, "src", "engine", "bezelurls.ts"), bezelUrlsModule(bezelFiles(dir), foldShotsIn(dir)));
 }

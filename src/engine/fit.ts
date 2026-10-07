@@ -1,5 +1,5 @@
-import type { DevknobsState } from "../types";
-import { deviceOf } from "./devices";
+import type { DevknobsState, PostureValue, SideValue } from "../types";
+import { formOf } from "./devices";
 import type { Sides } from "./mock";
 import type { Point } from "./zoom";
 
@@ -52,8 +52,9 @@ function margin(size: number): number {
  * size has none, as it is the window. To fit, a frame wider or taller than the
  * room is drawn smaller, and one without a height of its own is made taller by
  * as much, so it still fills the height. An open panel covers `aside` px of
- * the right edge, and a frame of a set width that would reach under it is
- * fitted to the room left of it, while that is most of the room. A zoom draws
+ * the window's edge on its `side`, the right by default, and a frame of a set
+ * width that would reach under it is fitted to the room beside it, while that
+ * is most of the room. A zoom draws
  * the frame at that scale instead, and none of it changes the css size. The
  * device pixel ratio's `zoom` on the frame keeps its css size too, and the
  * wrapper takes it back out of the drawing. A device's mock takes `mock` px
@@ -63,9 +64,9 @@ function margin(size: number): number {
 export function fit(
   knobs: Pick<DevknobsState, "width" | "height" | "zoom">,
   size: { width: number; height: number },
-  options: { frameZoom?: number; aside?: number; mock?: Sides } = {},
+  options: { frameZoom?: number; aside?: number; side?: SideValue; mock?: Sides } = {},
 ): Fit {
-  const { frameZoom = 1, aside = 0, mock = BARE } = options;
+  const { frameZoom = 1, aside = 0, side = "right", mock = BARE } = options;
   const room = {
     width: size.width,
     height: Math.max(0, size.height - (hasStrip(knobs) ? STRIP : 0)),
@@ -88,8 +89,10 @@ export function fit(
     (room.width + outer.width * whole) / 2 + x > room.width - aside;
   const fitted = covered ? Math.min(whole, (room.width - aside - 2 * x) / outer.width) : whole;
   const scale = knobs.zoom === "fit" ? fitted : knobs.zoom;
-  // The room under the panel stays in the box, so centering it centers the frame left of the panel.
+  // The room under the panel stays in the box, so centering it centers the
+  // frame beside the panel. A panel on the left has that room before the frame.
   const beside = knobs.zoom === "fit" && covered ? aside : 0;
+  const before = side === "left" ? beside : 0;
   return {
     width,
     height,
@@ -98,7 +101,7 @@ export function fit(
     fit: fitted,
     transform: scale / frameZoom,
     box: { width: outer.width * scale + 2 * x + beside, height: outer.height * scale + 2 * y },
-    left: x + mock.left * scale,
+    left: x + mock.left * scale + before,
     top: y + mock.top * scale,
   };
 }
@@ -122,10 +125,10 @@ export function origin(place: Fit, room: { width: number; height: number }): Poi
  */
 export function label(
   place: Fit,
-  knobs: Pick<DevknobsState, "dpr" | "height" | "device">,
+  knobs: Pick<DevknobsState, "dpr" | "height" | "device"> & { posture?: PostureValue },
   page: { width: number; height: number } = place,
 ): string {
-  const name = deviceOf(knobs.device)?.label;
+  const name = formOf(knobs.device, knobs.posture)?.label;
   let text = name ? `${name} · ${page.width}` : String(page.width);
   if (typeof knobs.height === "number") text += ` × ${page.height}`;
   if (typeof knobs.dpr === "number") text += ` · ${knobs.dpr}x`;

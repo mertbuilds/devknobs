@@ -69,6 +69,10 @@ export const SAFARI_CSS = `
   stroke-linejoin: round;
 }
 .safari .glyph .solid { fill: currentColor; stroke: none; }
+/* Reload and stop are a shade lighter than the other glyphs and thinner, as measured. */
+.safari .glyph .reload { stroke-width: 1.6; }
+.safari .glyph .stop { stroke-width: 1.82; }
+.safari.light .glyph .reload, .safari.light .glyph .stop { stroke: #191919; }
 .safari .glyph.off { color: #babac7; }
 .safari.dark .glyph.off { color: #58585b; }
 .safari .domain {
@@ -132,7 +136,32 @@ export const SAFARI_CSS = `
 .safari[data-state="min"] .side *, .safari[data-state="min"] .full * { pointer-events: none; }
 .safari[data-state="min"] .surface.tap { pointer-events: auto; cursor: pointer; }
 .browser[data-instant] * { transition: none !important; }
+/* A page loading: a blue line along the bottom of the address, as wide as the load has come. */
+.safari .progress {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  transform-origin: 0 50%;
+  background: #007aff;
+  pointer-events: none;
+}
+.safari.dark .progress { background: #0a84ff; }
 `;
+
+/**
+ * How the progress line goes, as Safari's does: a quick start, a long creep
+ * that never reaches the end, then the rest of the way and a fade once the
+ * page is in, in ms. Still, it stands at a share of the way instead.
+ */
+const PROGRESS = {
+  start: 0.25,
+  most: 0.9,
+  creep: 8000,
+  finish: 200,
+  fade: 250,
+  still: 0.3,
+} as const;
 
 function path(d: string, className?: string): SVGPathElement {
   return svgNode("path", className ? { d, class: className } : { d });
@@ -159,8 +188,11 @@ const GLYPHS: Record<Glyph, () => Shapes> = {
     path("M-5.4 5.2H-7.4A3.2 3.2 0 0 1 -10.6 2V-7.2A3.2 3.2 0 0 1 -7.4 -10.4H2.2A3.2 3.2 0 0 1 5.4 -7.2V-5.2"),
     svgNode("rect", { x: -5.4, y: -5.2, width: 16, height: 15.6, rx: 3.2 }),
   ],
-  // 15 x 18, a circle open at the top right, its arrow going round
-  reload: () => [path("M0 -5.1A6.6 6.6 0 1 0 5.06 -2.74"), path("M-2.6 -8.1L0.4 -5.1L-2.6 -2.1")],
+  // 14.9 x 17.6, a circle from 3 o'clock round to just past 12, a right angle arrow at its end
+  reload: () => [
+    path("M6.66 0.92A6.59 6.59 0 1 1 2.93 -5.02", "reload"),
+    path("M-0.15 -8.89L3.26 -5.33L-0.16 -1.93", "reload"),
+  ],
   // 15.5 x 18, a page over two lines
   page: () => [
     svgNode("rect", { x: -6.8, y: -8.1, width: 13.6, height: 8.6, rx: 2.4 }),
@@ -174,6 +206,11 @@ const GLYPHS: Record<Glyph, () => Shapes> = {
   switcher: () => [],
   menu: () => [],
 };
+
+/** Safari's stop, 13.4 x 13.4, in reload's place while a page loads. */
+function stopGlyph(): Shapes {
+  return [path("M-5.66 -5.54L5.88 6M5.88 -5.54L-5.66 6", "stop")];
+}
 
 /** A ring sector `from` to `to` px out of the corner, `angle` degrees each side of up. */
 function fan(from: number, to: number, angle: number): string {
@@ -277,7 +314,7 @@ function glyphIn(mark: Mark, origin: Rect, className: string, actions: Actions):
 }
 
 /** The minimized domain pill's box: as wide as its text and 19 px either side. */
-function pillBox(pill: Shape, host: string): Rect {
+export function pillBox(pill: Shape, host: string): Rect {
   const width = Math.round(textWidth(host, SAFARI_TEXT.pill, 400, -0.2)) + 38;
   return { x: pill.x - width / 2, y: pill.y, width, height: pill.height };
 }
@@ -368,6 +405,11 @@ export function buildSafari(full: Bars, mini: Bars, look: Look, actions: Actions
     }
     root.append(surface);
   }
+  const progress = el("div", "progress");
+  progress.hidden = true;
+  surface?.append(progress);
+  /** Each load, so a finish that a new load cut short leaves the line alone. */
+  let loads = 0;
   // Everything else leaves as a side capsule, toward the surface, or up when turned across.
   for (const shape of full.shapes) {
     if (shape === main || shape.kind === "field") continue;
@@ -414,6 +456,55 @@ export function buildSafari(full: Bars, mini: Bars, look: Look, actions: Actions
         const scale = minimized ? SAFARI_TEXT.pill / SAFARI_TEXT.field : 1;
         domain.style.transform = `translate(-50%, -50%) scale(${scale})`;
       }
+    },
+    loading(on, still) {
+      const load = ++loads;
+      for (const { node, glyph } of glyphs) {
+        if (glyph === "reload") node.replaceChildren(...(on ? stopGlyph() : GLYPHS.reload()));
+      }
+      const moving = !still && typeof progress.animate === "function";
+      // Where the line has come to, before what moves it stops.
+      const now = moving && !progress.hidden ? getComputedStyle(progress).transform : "none";
+      for (const animation of moving ? progress.getAnimations() : []) animation.cancel();
+      progress.style.opacity = "";
+      if (on) {
+        progress.hidden = false;
+        progress.style.transform = `scaleX(${moving ? PROGRESS.most : PROGRESS.still})`;
+        if (!moving) return;
+        progress.animate(
+          [
+            { transform: "scaleX(0)" },
+            { transform: `scaleX(${PROGRESS.start})`, offset: 0.06 },
+            { transform: `scaleX(${PROGRESS.most})` },
+          ],
+          { duration: PROGRESS.creep, easing: "cubic-bezier(0.1, 0.7, 0.3, 1)" },
+        );
+        return;
+      }
+      if (progress.hidden) return;
+      if (!moving) {
+        progress.hidden = true;
+        return;
+      }
+      progress.style.transform = "scaleX(1)";
+      progress.animate([{ transform: now === "none" ? "scaleX(0)" : now }, { transform: "scaleX(1)" }], {
+        duration: PROGRESS.finish,
+        easing: "ease-out",
+      });
+      const fade = progress.animate([{ opacity: 1 }, { opacity: 0 }], {
+        delay: PROGRESS.finish,
+        duration: PROGRESS.fade,
+        easing: "ease-out",
+        fill: "forwards",
+      });
+      fade.finished.then(
+        () => {
+          if (load !== loads) return;
+          progress.hidden = true;
+          fade.cancel();
+        },
+        () => {},
+      );
     },
   };
 }

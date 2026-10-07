@@ -1,5 +1,19 @@
-import { describe, expect, test } from "bun:test";
-import { DEFAULT_STATE, merge, parse } from "../src/engine/store";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  DEFAULT_PINNED,
+  DEFAULT_STATE,
+  keepPlace,
+  load,
+  merge,
+  PLACE_KEY,
+  PLACE_VERSION,
+  parse,
+  placeText,
+  STATE_VERSION,
+  STORAGE_KEY,
+  save,
+} from "../src/engine/store";
+import { MAT_COLOR_NAMES } from "../src/engine/matcolors";
 import { ZOOM_MAX, ZOOM_MIN } from "../src/engine/zoom";
 import type { ClockValue, DevknobsState } from "../src/types";
 
@@ -39,6 +53,7 @@ describe("parse", () => {
         frame: true,
         dpr: 2,
         zoom: "huge",
+        mat: "teal",
         vision: "tritanopia",
         ua: { preset: "iphone-safari", custom: 3 },
         overflow: true,
@@ -46,6 +61,7 @@ describe("parse", () => {
         grabColor: "teal",
         panel: {
           open: false,
+          side: "up",
           y: 40,
           top: 24,
           edge: "bottom",
@@ -73,6 +89,7 @@ describe("parse", () => {
       height: "full",
       device: "none",
       orientation: "portrait",
+      posture: "closed",
       mock: true,
       touchPointer: true,
       browser: "auto",
@@ -81,6 +98,7 @@ describe("parse", () => {
       frame: true,
       dpr: 2,
       zoom: "fit",
+      mat: "blue",
       vision: "tritanopia",
       ua: { preset: "iphone-safari", custom: "" },
       overflow: true,
@@ -88,6 +106,7 @@ describe("parse", () => {
       grabColor: "auto",
       panel: {
         open: false,
+        side: "right",
         y: 40,
         top: 24,
         edge: "bottom",
@@ -104,6 +123,16 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ grabColor: 3 })).grabColor).toBe("auto");
     for (const color of ["auto", "blue", "green", "pink", "orange", "purple", "cyan"] as const) {
       expect(parse(JSON.stringify({ grabColor: color })).grabColor).toBe(color);
+    }
+  });
+
+  test("lays a session stored before the mat had colors on the blue one, and keeps one stored", () => {
+    expect(DEFAULT_STATE.mat).toBe("blue");
+    expect(parse(JSON.stringify({ scheme: "dark" })).mat).toBe("blue");
+    expect(parse(JSON.stringify({ mat: "pink" })).mat).toBe("blue");
+    expect(parse(JSON.stringify({ mat: 3 })).mat).toBe("blue");
+    for (const color of MAT_COLOR_NAMES) {
+      expect(parse(JSON.stringify({ mat: color })).mat).toBe(color);
     }
   });
 
@@ -128,6 +157,30 @@ describe("parse", () => {
     for (const id of ["iphone-16", "iphone-16-pro", "iphone-16-pro-max", "iphone-se"]) {
       expect(parse(JSON.stringify({ device: id })).device).toBe(id);
     }
+  });
+
+  test("keeps a foldable's posture, closed where it has none or one it does not know", () => {
+    const open = { width: 951, height: 669, device: "iphone-duo", orientation: "landscape", posture: "open" };
+    expect(parse(JSON.stringify(open))).toMatchObject(open);
+    expect(parse(JSON.stringify({ device: "iphone-duo" })).posture).toBe("closed");
+    expect(parse(JSON.stringify({ device: "iphone-duo", posture: "ajar" })).posture).toBe("closed");
+  });
+
+  test("brings a session from when each Duo screen was a device of its own to the Duo in that posture", () => {
+    const shut = { width: 466, height: 678, device: "iphone-duo-closed", orientation: "portrait" };
+    expect(parse(JSON.stringify(shut))).toMatchObject({
+      ...shut,
+      device: "iphone-duo",
+      posture: "closed",
+    });
+    const open = { width: 951, height: 669, device: "iphone-duo-open", orientation: "landscape" };
+    expect(parse(JSON.stringify(open))).toMatchObject({
+      ...open,
+      device: "iphone-duo",
+      posture: "open",
+    });
+    // Its size is still the Duo's, so the device stays through a merge.
+    expect(merge(parse(JSON.stringify(open)), {})).toMatchObject({ device: "iphone-duo" });
   });
 
   test("draws a mock when the session predates it, and keeps one turned off", () => {
@@ -177,6 +230,7 @@ describe("parse", () => {
   test("puts the panel where the handle is when the session predates its top", () => {
     expect(parse(JSON.stringify({ panel: { y: 200 } })).panel).toEqual({
       open: DEFAULT_STATE.panel.open,
+      side: "right",
       y: 200,
       top: 200,
       edge: "none",
@@ -194,11 +248,45 @@ describe("parse", () => {
     expect(stored.tab).toBe("bottom");
   });
 
+  test("keeps the panel on the side stored, and on the right where the session predates sides", () => {
+    expect(DEFAULT_STATE.panel.side).toBe("right");
+    expect(parse(JSON.stringify({ panel: { y: 40 } })).panel.side).toBe("right");
+    expect(parse(JSON.stringify({ panel: { side: "top" } })).panel.side).toBe("right");
+    expect(parse(JSON.stringify({ panel: { side: 1 } })).panel.side).toBe("right");
+    expect(parse(JSON.stringify({ panel: { side: "left" } })).panel.side).toBe("left");
+    expect(parse(JSON.stringify({ panel: { side: "right" } })).panel.side).toBe("right");
+  });
+
   test("pins no row when the session predates pinned rows or stored junk", () => {
     expect(parse(JSON.stringify({ panel: { y: 40 } })).panel.pinned).toEqual([]);
     expect(parse(JSON.stringify({ panel: { pinned: "scheme" } })).panel.pinned).toEqual([]);
     expect(parse(JSON.stringify({ panel: { pinned: null } })).panel.pinned).toEqual([]);
     expect(parse(JSON.stringify({ panel: { pinned: ["text"] } })).panel.pinned).toEqual(["text"]);
+  });
+
+  test("lists the default rows in a fresh session, and keeps a stored list as it is", () => {
+    expect(DEFAULT_PINNED).toEqual(["device", "scheme", "text", "locale"]);
+    expect(parse(null).panel.pinned).toEqual([...DEFAULT_PINNED]);
+    expect(parse(JSON.stringify({ scheme: "dark" })).panel.pinned).toEqual([...DEFAULT_PINNED]);
+    expect(parse(JSON.stringify({ panel: { pinned: [] } })).panel.pinned).toEqual([]);
+    expect(parse(JSON.stringify({ panel: { pinned: ["grab"] } })).panel.pinned).toEqual(["grab"]);
+  });
+
+  test("lists a row an older version had as the row its knobs live in now", () => {
+    const pinned = ["speed", "pseudo", "timeZone", "ua", "grabColor", "viewport"];
+    expect(parse(JSON.stringify({ panel: { pinned } })).panel.pinned).toEqual([
+      "motion",
+      "locale",
+      "clock",
+      "device",
+      "debug",
+      "viewport",
+    ]);
+    const twice = ["motion", "speed", "locale", "pseudo"];
+    expect(parse(JSON.stringify({ panel: { pinned: twice } })).panel.pinned).toEqual([
+      "motion",
+      "locale",
+    ]);
   });
 
   test("follows geo for the time zone when the session predates the knob", () => {
@@ -261,6 +349,185 @@ describe("parse", () => {
       zoom: 1.5,
     };
     expect(parse(JSON.stringify(state))).toEqual(state);
+  });
+});
+
+describe("the place kept across sessions", () => {
+  const kept = JSON.stringify({ side: "left", y: 300, top: 240, edge: "none", tab: "none" });
+
+  test("places the panel of a session that stored none", () => {
+    for (const session of [null, "", "not json", "{}", JSON.stringify({ scheme: "dark" })]) {
+      expect(parse(session, kept).panel).toEqual({
+        ...DEFAULT_STATE.panel,
+        side: "left",
+        y: 300,
+        top: 240,
+      });
+    }
+    expect(parse(JSON.stringify({ scheme: "dark" }), kept).scheme).toBe("dark");
+  });
+
+  test("gives way to the session's own place, field by field", () => {
+    const session = JSON.stringify({ panel: { open: true, side: "right", y: 40, top: 24 } });
+    expect(parse(session, kept).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      open: true,
+      side: "right",
+      y: 40,
+      top: 24,
+      pinned: [],
+    });
+    // A session from before sides has a place, but takes the side kept.
+    expect(parse(JSON.stringify({ panel: { y: 40 } }), kept).panel).toMatchObject({
+      side: "left",
+      y: 40,
+      top: 40,
+    });
+  });
+
+  test("brings back no more than the place: never open, pins or knobs", () => {
+    const junk = JSON.stringify({
+      side: "left",
+      y: 300,
+      top: 240,
+      edge: "bottom",
+      tab: "top",
+      open: true,
+      pinned: ["scheme"],
+      scheme: "dark",
+    });
+    const state = parse(null, junk);
+    expect(state.panel.open).toBe(false);
+    expect(state.panel.pinned).toEqual([...DEFAULT_PINNED]);
+    expect(state.scheme).toBe("system");
+    expect(state.panel.edge).toBe("bottom");
+    expect(state.panel.tab).toBe("top");
+  });
+
+  test("reads a kept place as strictly as a session, falling back to the defaults", () => {
+    const place = (json: string) => parse(null, json).panel;
+    for (const json of ["", "not json", "null", "[]", "3", JSON.stringify("left")]) {
+      expect(place(json)).toEqual(DEFAULT_STATE.panel);
+    }
+    const bad = JSON.stringify({ side: "up", y: "1", top: null, edge: "middle", tab: 2 });
+    expect(place(bad)).toEqual(DEFAULT_STATE.panel);
+    expect(place(JSON.stringify({ y: 200 }))).toMatchObject({ y: 200, top: 200, side: "right" });
+    expect(place(JSON.stringify({ y: Number.NaN }))).toEqual(DEFAULT_STATE.panel);
+  });
+
+  test("writes the place alone, the way it reads back", () => {
+    const state = merge(DEFAULT_STATE, {
+      scheme: "dark",
+      panel: { open: true, side: "left", y: 120, top: 80, edge: "bottom", pinned: ["scheme"] },
+    });
+    const text = placeText(state);
+    expect(JSON.parse(text)).toEqual({
+      v: PLACE_VERSION,
+      side: "left",
+      y: 120,
+      top: 80,
+      edge: "bottom",
+      tab: "none",
+    });
+    expect(parse(null, text).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      side: "left",
+      y: 120,
+      top: 80,
+      edge: "bottom",
+    });
+  });
+});
+
+/** A window with both storages, each a map the test can look into. */
+function stubStorage(): { session: Map<string, string>; local: Map<string, string> } {
+  const session = new Map<string, string>();
+  const local = new Map<string, string>();
+  const storageFor = (map: Map<string, string>) =>
+    ({
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        map.set(key, value);
+      },
+    }) as Storage;
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { sessionStorage: storageFor(session), localStorage: storageFor(local) },
+  });
+  return { session, local };
+}
+
+describe("the kept place", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "window");
+  });
+
+  test("a save never writes it, whatever the panel does", () => {
+    const { session, local } = stubStorage();
+    const kept = { side: "left", y: 40, top: 40, edge: "none", tab: "none" };
+    local.set(PLACE_KEY, JSON.stringify(kept));
+    const state = load();
+    save(merge(state, { panel: { side: "right", y: 300, top: 280, edge: "bottom" } }));
+    expect(session.has(STORAGE_KEY)).toBe(true);
+    expect(JSON.parse(local.get(PLACE_KEY) ?? "")).toEqual(kept);
+  });
+
+  test("keeping it writes the place that reads back", () => {
+    const { local } = stubStorage();
+    const state = merge(DEFAULT_STATE, {
+      panel: { side: "left", y: 120, top: 80, edge: "bottom", tab: "top" },
+    });
+    keepPlace(state);
+    expect(local.get(PLACE_KEY)).toBe(placeText(state));
+    expect(parse(null, local.get(PLACE_KEY)).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      side: "left",
+      y: 120,
+      top: 80,
+      edge: "bottom",
+      tab: "top",
+    });
+  });
+});
+
+describe("versions", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, "window");
+  });
+
+  test("a save writes the state's version, and it reads back", () => {
+    const { session } = stubStorage();
+    const state = merge(DEFAULT_STATE, { scheme: "dark", mat: "green" });
+    save(state);
+    const stored = JSON.parse(session.get(STORAGE_KEY) ?? "");
+    expect(stored.v).toBe(STATE_VERSION);
+    expect(load()).toEqual(state);
+  });
+
+  test("a state and place kept before versions read as ever, and the next writes carry the version", () => {
+    const { session, local } = stubStorage();
+    const kept = { scheme: "dark", panel: { open: true, pinned: ["scheme"] } };
+    session.set(STORAGE_KEY, JSON.stringify(kept));
+    local.set(PLACE_KEY, JSON.stringify({ side: "left", y: 40, top: 40, edge: "none" }));
+    const state = load();
+    expect(state.scheme).toBe("dark");
+    expect(state.panel).toMatchObject({ open: true, side: "left", pinned: ["scheme"] });
+    save(state);
+    keepPlace(state);
+    expect(JSON.parse(session.get(STORAGE_KEY) ?? "").v).toBe(STATE_VERSION);
+    expect(JSON.parse(local.get(PLACE_KEY) ?? "").v).toBe(PLACE_VERSION);
+    expect(load()).toEqual(state);
+  });
+
+  test("a state or place from a newer devknobs reads as nothing kept, and stays until a write", () => {
+    const { session, local } = stubStorage();
+    const state = JSON.stringify({ v: STATE_VERSION + 1, scheme: "dark" });
+    const place = JSON.stringify({ v: PLACE_VERSION + 1, side: "left" });
+    session.set(STORAGE_KEY, state);
+    local.set(PLACE_KEY, place);
+    expect(load()).toEqual(DEFAULT_STATE);
+    expect(session.get(STORAGE_KEY)).toBe(state);
+    expect(local.get(PLACE_KEY)).toBe(place);
   });
 });
 

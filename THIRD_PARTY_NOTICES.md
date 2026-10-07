@@ -1,6 +1,6 @@
 # third party notices
 
-devknobs ships, or adapts code from, the projects below. each is under the MIT license, reproduced here. the bezel images at the end are not: Apple's are under Apple's terms, and Google's Pixel frames under the Apache License 2.0.
+devknobs ships, or adapts code from, the projects below. each is under the MIT license, or lucide under the ISC license, reproduced here. the bezel images at the end are not: Apple's are under Apple's terms, and Google's Pixel frames under the Apache License 2.0.
 
 ## bippy
 
@@ -70,6 +70,80 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## lucide
+
+https://github.com/lucide-icons/lucide. `src/ui/icons.ts` copies the shapes of a few of its icons from lucide-static 1.52.0: contrast, blend, eye, type, wind, languages, map-pin, clock, wifi, smartphone, ruler, bug, square-dashed-mouse-pointer, settings, panel-right, panel-right-open, eraser, rotate-ccw, check, chevron-left, chevrons-left-right, plus, x and grip-vertical. of these, check, chevron-left, clock, plus, smartphone, type and x come from Feather, under the MIT license after the ISC one, which the lucide license lists them for.
+
+```
+ISC License
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+```
+The MIT License (MIT) (for the icons listed above)
+
+Copyright (c) 2013-present Cole Bemis
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## jadon7/iphone-duo
+
+https://github.com/jadon7/iphone-duo. `scripts/render-duo-fold/render.js`, the offline script that renders the Duo's fold frames, adapts its fold math, its mesh ids and its screen geometry constants. only that script uses them: nothing of that code is in the package. the package's fold in frames, `shotPicture` and the window around it in `src/engine/fold.ts` and `src/engine/foldrun.ts`, ports the screen projection of its `main.js`: the page lies flat as seen from the front while the turned screen is a window onto it, dark past the page's edge, the open screen's page fixed and the folded screen's slid along with its hinge side. the script runs three.js (MIT, https://github.com/mrdoob/three.js, from the clone's `vendor/three`), which the package does not ship either.
+
+```
+MIT License
+
+Copyright (c) 2026 jadon7
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Apple product bezels
 
 the `iphone-*` images in `assets/bezels`, copied to `dist/bezels` by the build, are Apple's product bezels for the iPhone 16, 16 Plus, 16 Pro, 16 Pro Max, 17, 17 Pro, 17 Pro Max, Air, 18 Pro, 18 Pro Max and Duo, from Apple Design Resources, and Apple's image of the iPhone SE in Black from its App Store marketing artwork (`iPhone-SE.zip`, the 2020 PSD, its screen layer cut out of the hardware layer), converted to WebP by `scripts/bezels.sh` at their own size.
@@ -83,6 +157,11 @@ the `iphone-*` images in `assets/bezels`, copied to `dist/bezels` by the build, 
 - https://developer.apple.com/file/?file=iphonese
 
 copyright Apple Inc. they are NOT covered by this project's MIT license, and Apple's own terms apply to them: the Apple Design Resources License for the 17, 18 and Duo packages and the App Store Marketing Artwork License Agreement for the 16 package and the SE.
+
+the frames in `assets/bezels/duo-fold`, the iPhone Duo's case at each angle of its fold and its half that stays, are rendered from Apple's iPhone Duo model in Star White, `iPhone_Duo_e-sim_Star-White_Variant.usdz`, by `scripts/render-duo-fold`, their metal and screen border shaded from Apple's Duo bezel pictures above, and converted to WebP. copyright Apple Inc., NOT covered by this project's MIT license, and Apple's own terms apply to them.
+
+- https://www.apple.com/105/media/us/iphone-duo/2026/9305e4b9-72d9-4c05-9381-b572adadd5e5/ar/iPhone_Duo_e-sim_Star-White_Variant.usdz
+- https://www.apple.com/legal/internet-services/terms/site.html
 
 ## Google Pixel frames
 
@@ -317,4 +396,4 @@ the full text of the license:
 
 ## removing the images
 
-to remove them, delete the `assets/bezels` folder and run `bun run build`. the build writes `src/engine/bezelurls.ts`, the only module that names a file in the folder, from what is in it, so the built package then names no image, and every iPhone and Pixel draws its own svg mock, as it does wherever an image does not load.
+to remove them, delete the `assets/bezels` folder and run `bun run build`. the build writes `src/engine/bezelurls.ts`, the only module that names a file in the folder, from what is in it, so the built package then names no image, every iPhone and Pixel draws its own svg mock, as it does wherever an image does not load, and the Duo folds as copies of its body.

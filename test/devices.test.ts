@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { DEVICES, deviceOf, hasTouch, hold, turn } from "../src/engine/devices";
+import {
+  DEVICES,
+  deviceOf,
+  formOf,
+  formParent,
+  hasTouch,
+  hold,
+  SCREENS,
+  screenOf,
+  turn,
+} from "../src/engine/devices";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import { uaPreset } from "../src/engine/ua";
 import type { DevknobsState, DevknobsStatePatch } from "../src/types";
@@ -29,8 +39,7 @@ describe("DEVICES", () => {
     expect(iphones.map(({ id, width, height, dpr }) => `${id} ${width}x${height}@${dpr}`)).toEqual([
       "iphone-18-pro 402x874@3",
       "iphone-18-pro-max 440x956@3",
-      "iphone-duo-closed 466x678@3",
-      "iphone-duo-open 669x951@3",
+      "iphone-duo 466x678@3",
       "iphone-air 420x912@3",
       "iphone-17 402x874@3",
       "iphone-17-pro 402x874@3",
@@ -132,7 +141,7 @@ describe("a device", () => {
     });
   });
 
-  test("a phone or tablet after another is held the same way, anything else its usual way", () => {
+  test("a phone or tablet after another turned is turned too, anything else its usual way", () => {
     const across = state({ device: "iphone-16", orientation: "landscape" });
     expect(merge(across, { device: "ipad-mini" })).toMatchObject({
       width: 1133,
@@ -147,19 +156,142 @@ describe("a device", () => {
     });
   });
 
-  test("the open iPhone Duo comes up across, and upright after a phone held upright", () => {
-    expect(state({ device: "iphone-duo-open" })).toMatchObject({
+  test("the iPhone Duo comes up folded, and open across, or upright after a phone turned across", () => {
+    expect(state({ device: "iphone-duo" })).toMatchObject({
+      width: 466,
+      height: 678,
+      orientation: "portrait",
+      posture: "closed",
+    });
+    expect(state({ device: "iphone-duo", posture: "open" })).toMatchObject({
+      width: 951,
+      height: 669,
+      orientation: "landscape",
+      posture: "open",
+    });
+    const upright = state({ device: "iphone-16" });
+    expect(merge(upright, { device: "iphone-duo", posture: "open" })).toMatchObject({
+      device: "iphone-duo",
       width: 951,
       height: 669,
       orientation: "landscape",
     });
-    const upright = state({ device: "iphone-duo-closed" });
-    expect(upright).toMatchObject({ width: 466, height: 678, orientation: "portrait" });
-    expect(merge(upright, { device: "iphone-duo-open" })).toMatchObject({
+    const across = state({ device: "iphone-16", orientation: "landscape" });
+    expect(merge(across, { device: "iphone-duo", posture: "open" })).toMatchObject({
+      device: "iphone-duo",
       width: 669,
       height: 951,
       orientation: "portrait",
     });
+  });
+
+  test("a fold is not a turn: the next phone comes up its usual way", () => {
+    const shut = state({ device: "iphone-duo" });
+    const open = merge(shut, { posture: "open" });
+    expect(merge(open, { device: "iphone-18-pro" })).toMatchObject({
+      width: 402,
+      height: 874,
+      orientation: "portrait",
+    });
+    const folded = merge(open, { posture: "closed" });
+    expect(merge(folded, { device: "iphone-18-pro" })).toMatchObject({ orientation: "portrait" });
+    // Picked again after a reload, the state as stored does the same.
+    expect(merge(state({ device: "iphone-duo", posture: "open" }), { device: "iphone-18-pro" })).toMatchObject({
+      orientation: "portrait",
+    });
+  });
+
+  test("a turn of the iPhone Duo goes on to the next phone, in either posture", () => {
+    const shut = state({ device: "iphone-duo" });
+    const turnedShut = merge(shut, { orientation: "landscape" });
+    expect(merge(turnedShut, { device: "iphone-18-pro" })).toMatchObject({
+      width: 874,
+      height: 402,
+      orientation: "landscape",
+    });
+    // Turned shut, it opens upright, still turned from the way it is held open.
+    const turnedOpen = merge(turnedShut, { posture: "open" });
+    expect(turnedOpen).toMatchObject({ orientation: "portrait" });
+    expect(merge(turnedOpen, { device: "iphone-18-pro" })).toMatchObject({ orientation: "landscape" });
+    const open = merge(shut, { posture: "open" });
+    expect(merge(merge(open, { orientation: "portrait" }), { device: "iphone-18-pro" })).toMatchObject({
+      orientation: "landscape",
+    });
+  });
+
+  test("folds the iPhone Duo open and shut about its hinge, which turns the screen it goes to", () => {
+    const shut = state({ device: "iphone-duo" });
+    const open = merge(shut, { posture: "open" });
+    expect(open).toMatchObject({
+      device: "iphone-duo",
+      posture: "open",
+      width: 951,
+      height: 669,
+      orientation: "landscape",
+      dpr: 3,
+      ua: { preset: "iphone-safari" },
+    });
+    expect(merge(open, { posture: "closed" })).toMatchObject({
+      device: "iphone-duo",
+      posture: "closed",
+      width: 466,
+      height: 678,
+      orientation: "portrait",
+    });
+    // Held across folded, its hinge is at the bottom, and it opens upright.
+    const across = merge(shut, { orientation: "landscape" });
+    expect(across).toMatchObject({ device: "iphone-duo", width: 678, height: 466 });
+    expect(merge(across, { posture: "open" })).toMatchObject({
+      device: "iphone-duo",
+      width: 669,
+      height: 951,
+      orientation: "portrait",
+    });
+    // Picked again with a posture, it folds the same way.
+    expect(merge(shut, { device: "iphone-duo", posture: "open" })).toMatchObject({
+      width: 951,
+      height: 669,
+    });
+    // A dpr and a browser of the user's own stay as they were.
+    const own = merge(shut, { dpr: 2, ua: { preset: "android-chrome" } });
+    expect(merge(own, { posture: "open" })).toMatchObject({ dpr: 2, ua: { preset: "android-chrome" } });
+  });
+
+  test("turns the iPhone Duo in either posture, which stays", () => {
+    const shut = state({ device: "iphone-duo" });
+    expect(merge(shut, { orientation: "landscape" })).toMatchObject({
+      device: "iphone-duo",
+      posture: "closed",
+      width: 678,
+      height: 466,
+    });
+    const open = merge(shut, { posture: "open" });
+    expect(merge(open, { orientation: "portrait" })).toMatchObject({
+      device: "iphone-duo",
+      posture: "open",
+      width: 669,
+      height: 951,
+    });
+  });
+
+  test("a posture alone does nothing to a device that does not fold", () => {
+    const phone = state({ device: "iphone-16" });
+    expect(merge(phone, { posture: "open" })).toMatchObject({
+      device: "iphone-16",
+      width: 393,
+      height: 852,
+    });
+  });
+
+  test("the iPhone Duo goes once the size is no longer its posture's, and comes back folded", () => {
+    const shut = state({ device: "iphone-duo" });
+    expect(merge(shut, { width: 669, height: 951 })).toMatchObject({ device: "none" });
+    const open = merge(shut, { posture: "open" });
+    const none = merge(open, { device: "none", width: "full", height: "full" });
+    expect(none).toMatchObject({ device: "none", posture: "closed" });
+    expect(merge(none, { device: "iphone-duo" })).toMatchObject({ posture: "closed", width: 466 });
+    const phone = merge(open, { device: "iphone-16" });
+    expect(phone).toMatchObject({ device: "iphone-16", posture: "closed" });
   });
 
   test("goes once the size is no longer its own, and keeps a dpr set after it", () => {
@@ -187,6 +319,31 @@ describe("a device", () => {
 
   test("an id it does not know is no device", () => {
     expect(state({ device: "nokia-3310" })).toMatchObject({ device: "none", width: "full" });
+  });
+});
+
+describe("postures", () => {
+  test("a foldable's screens each have an id, a label and a size of their own", () => {
+    expect(SCREENS.filter((screen) => screen.id.startsWith("iphone-duo")).map(
+      ({ id, label, width, height, usual }) => `${id} ${label} ${width}x${height} ${usual ?? "-"}`,
+    )).toEqual([
+      "iphone-duo-closed iPhone Duo (closed) 466x678 -",
+      "iphone-duo-open iPhone Duo (open) 669x951 landscape",
+    ]);
+    expect(new Set(SCREENS.map((screen) => screen.id)).size).toBe(SCREENS.length);
+    expect(SCREENS.some((screen) => screen.id === "iphone-duo")).toBe(false);
+  });
+
+  test("finds the screen a device shows in a posture, and the foldable a screen belongs to", () => {
+    expect(formOf("iphone-duo", "open")?.id).toBe("iphone-duo-open");
+    expect(formOf("iphone-duo")?.id).toBe("iphone-duo-closed");
+    expect(formOf("iphone-16", "open")?.id).toBe("iphone-16");
+    expect(formOf("nokia-3310")).toBeUndefined();
+    expect(formParent("iphone-duo-open")).toEqual({ device: "iphone-duo", posture: "open" });
+    expect(formParent("iphone-duo-closed")).toEqual({ device: "iphone-duo", posture: "closed" });
+    expect(formParent("iphone-16")).toBeUndefined();
+    expect(screenOf("iphone-duo-open")?.touch).toBe(true);
+    expect(deviceOf("iphone-duo-open")).toBeUndefined();
   });
 });
 

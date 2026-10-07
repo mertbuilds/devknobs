@@ -1,4 +1,9 @@
-import type { DevknobsState, DevknobsStatePatch, OrientationValue } from "../types";
+import type {
+  DevknobsState,
+  DevknobsStatePatch,
+  OrientationValue,
+  PostureValue,
+} from "../types";
 
 export type DeviceKind = "phone" | "tablet" | "laptop" | "desktop";
 
@@ -19,14 +24,37 @@ export interface DevicePreset {
   kind: DeviceKind;
   /** The way it is held when picked fresh, where that is not the way its size stands. */
   usual?: OrientationValue;
+  /** Turned to be held across, its top goes to the right, where most go to the left. */
+  clockwise?: boolean;
+  /**
+   * A device that folds: the screen it shows in each posture, which takes the
+   * place of the fields above where it has its own. Held upright folded, its
+   * hinge is on its left, so the screen it opens to is held the other way.
+   */
+  postures?: Readonly<Record<PostureValue, DeviceForm>>;
 }
+
+/**
+ * The screen a foldable shows in a posture: its own id, which its body, its
+ * picture and its browser are kept under, what the readout calls it, and what
+ * it has of its own.
+ */
+export interface DeviceForm extends Partial<
+  Pick<DevicePreset, "width" | "height" | "dpr" | "ua" | "usual" | "clockwise">
+> {
+  id: string;
+  label: string;
+}
+
+/** The postures a foldable takes, the one it is picked in first. */
+export const POSTURES: readonly PostureValue[] = ["closed", "open"];
 
 /**
  * Popular devices in 2026, by kind, iPhones and Pixels newest first. A
  * Pixel's size is its panel in px over its density, rounded up as Chrome
- * rounds the screen, so 2992 px at 3 is 998. The iPhone Duo is
- * two screens, so two devices: the cover screen of the folded phone, and the
- * inner screen of the open one, which is held across.
+ * rounds the screen, so 2992 px at 3 is 998. The iPhone Duo folds: its
+ * size is the cover screen of the folded phone, and open it shows its inner
+ * screen, which is held across.
  */
 export const DEVICES: readonly DevicePreset[] = [
   {
@@ -50,25 +78,26 @@ export const DEVICES: readonly DevicePreset[] = [
     kind: "phone",
   },
   {
-    id: "iphone-duo-closed",
-    label: "iPhone Duo (closed)",
+    id: "iphone-duo",
+    label: "iPhone Duo",
     width: 466,
     height: 678,
     dpr: 3,
     ua: "iphone-safari",
     touch: true,
     kind: "phone",
-  },
-  {
-    id: "iphone-duo-open",
-    label: "iPhone Duo (open)",
-    width: 669,
-    height: 951,
-    dpr: 3,
-    ua: "iphone-safari",
-    touch: true,
-    kind: "phone",
-    usual: "landscape",
+    postures: {
+      closed: { id: "iphone-duo-closed", label: "iPhone Duo (closed)" },
+      open: {
+        id: "iphone-duo-open",
+        label: "iPhone Duo (open)",
+        width: 669,
+        height: 951,
+        usual: "landscape",
+        // As Apple turns its picture of it.
+        clockwise: true,
+      },
+    },
   },
   {
     id: "iphone-air",
@@ -296,6 +325,45 @@ export function deviceOf(id: string): DevicePreset | undefined {
   return DEVICES.find((device) => device.id === id);
 }
 
+/**
+ * The device as it stands in a posture, its first where none is said: a
+ * foldable as the screen of that posture, under that screen's id and label,
+ * and any other device as it is.
+ */
+export function formOf(id: string, posture: PostureValue = "closed"): DevicePreset | undefined {
+  const device = deviceOf(id);
+  const form = device?.postures?.[posture];
+  return device && form ? { ...device, ...form } : device;
+}
+
+/** The id of the screen a device shows in a posture, or the id as it is. */
+export function formId(id: string, posture?: PostureValue): string {
+  return formOf(id, posture)?.id ?? id;
+}
+
+/** The foldable and the posture a screen of it belongs to, by the screen's id. */
+export function formParent(id: string): { device: string; posture: PostureValue } | undefined {
+  for (const device of DEVICES) {
+    const posture = POSTURES.find((posture) => device.postures?.[posture].id === id);
+    if (posture) return { device: device.id, posture };
+  }
+  return undefined;
+}
+
+/**
+ * Every screen the devices show, each under its own id: a foldable as the
+ * screen of each of its postures, and any other device as it is.
+ */
+export const SCREENS: readonly DevicePreset[] = DEVICES.flatMap((device) => {
+  const { postures } = device;
+  return postures ? POSTURES.map((posture) => ({ ...device, ...postures[posture] })) : [device];
+});
+
+/** A device, or a foldable's screen, by its id. */
+export function screenOf(id: string): DevicePreset | undefined {
+  return SCREENS.find((screen) => screen.id === id);
+}
+
 /** Does the device's screen take touch? */
 export function hasTouch(id: string): boolean {
   return deviceOf(id)?.touch === true;
@@ -303,6 +371,16 @@ export function hasTouch(id: string): boolean {
 
 function handheld(device: DevicePreset): boolean {
   return device.kind === "phone" || device.kind === "tablet";
+}
+
+/** The other way to hold a device. */
+function flip(orientation: OrientationValue): OrientationValue {
+  return orientation === "portrait" ? "landscape" : "portrait";
+}
+
+/** The way a device, or a foldable's screen, is usually held. */
+function usualOf(device: DevicePreset): OrientationValue {
+  return device.usual ?? (device.width > device.height ? "landscape" : "portrait");
 }
 
 /** A size held one way: landscape puts the long side across, portrait up. */
@@ -333,19 +411,43 @@ function withoutUa(state: DevknobsState, patch: DevknobsStatePatch): DevknobsSta
 }
 
 /**
+ * A foldable folded open or shut: its hinge stays where it is, so the screen
+ * it goes to is held the other way, at that screen's size. A dpr and a browser
+ * the last screen brought go with it. Null for a patch that does not fold it.
+ */
+function fold(state: DevknobsState, patch: DevknobsStatePatch): DevknobsStatePatch | null {
+  const { posture } = patch;
+  const same = patch.device === undefined || patch.device === state.device;
+  if (!same || posture === undefined || posture === state.posture) return null;
+  const from = formOf(state.device, state.posture);
+  const to = formOf(state.device, posture);
+  if (!from || !to || !deviceOf(state.device)?.postures) return null;
+  const orientation = patch.orientation ?? flip(state.orientation);
+  const dpr = state.dpr === from.dpr ? to.dpr : state.dpr;
+  const next = { ...turn(to, orientation), dpr, ...patch, orientation };
+  return state.ua.preset === from.ua ? withUa(next, to.ua) : next;
+}
+
+/**
  * What a patch does to the frame's size. A device brings its width, height,
- * dpr and browser. A phone or tablet picked after another is held the same
- * way, anything else the way it usually is, unless the patch says how. A new
- * orientation alone turns a frame that has both a width and a height. What the
- * patch sets itself wins over all of it.
+ * dpr and browser, a foldable those of the screen it shows in its posture. A
+ * phone or tablet picked after another one turned from its usual way is
+ * turned from its own too, anything else held the way it usually is, unless
+ * the patch says how. A new orientation alone turns a frame that has both a
+ * width and a height. What the patch sets itself wins over all of it.
  */
 export function hold(state: DevknobsState, patch: DevknobsStatePatch): DevknobsStatePatch {
-  const device = patch.device === undefined ? undefined : deviceOf(patch.device);
+  const folded = fold(state, patch);
+  if (folded) return folded;
+  const picked = patch.device === undefined ? undefined : deviceOf(patch.device);
+  const device = picked && formOf(picked.id, patch.posture ?? state.posture);
   if (device) {
-    const before = deviceOf(state.device);
-    const keep = before !== undefined && handheld(before) && handheld(device);
-    const usual = device.usual ?? (device.width > device.height ? "landscape" : "portrait");
-    const orientation = patch.orientation ?? (keep ? state.orientation : usual);
+    // Turned from the way the last one is usually held, the next is turned
+    // from its own. Folding turns a foldable's screen, which is not a turn.
+    const before = formOf(state.device, state.posture);
+    const turned = before !== undefined && handheld(before) && state.orientation !== usualOf(before);
+    const usual = usualOf(device);
+    const orientation = patch.orientation ?? (turned && handheld(device) ? flip(usual) : usual);
     const size = turn(device, orientation);
     return withUa({ ...size, dpr: device.dpr, ...patch, orientation }, device.ua);
   }
@@ -361,19 +463,22 @@ export function hold(state: DevknobsState, patch: DevknobsStatePatch): DevknobsS
 /**
  * Keep the device fields true to the size: the orientation is the way the
  * frame stands, portrait while it has no width or height to turn, and a size
- * that is no longer the device's leaves no device behind.
+ * that is no longer the device's leaves no device behind. Without a foldable,
+ * the posture is the first, so one picked next comes up in it.
  */
 export function settle(state: DevknobsState): DevknobsState {
   const { width, height } = state;
   const sized = typeof width === "number" && typeof height === "number";
   const orientation: OrientationValue = sized && width > height ? "landscape" : "portrait";
-  const device = deviceOf(state.device);
+  const device = formOf(state.device, state.posture);
   const fits =
     device !== undefined &&
     sized &&
     ((width === device.width && height === device.height) ||
       (width === device.height && height === device.width));
   const id = fits ? state.device : "none";
-  if (orientation === state.orientation && id === state.device) return state;
-  return { ...state, orientation, device: id };
+  const posture = deviceOf(id)?.postures ? state.posture : "closed";
+  const same = orientation === state.orientation && posture === state.posture;
+  if (same && id === state.device) return state;
+  return { ...state, orientation, posture, device: id };
 }

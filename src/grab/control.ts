@@ -1,32 +1,37 @@
 // adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
 import * as engine from "../engine";
 import { isDevknobsFrame, needsFrame, post, readMessage } from "../engine/frame";
-import { isMac } from "../engine/ua";
 import { frameWindow } from "../engine/width";
+import { typesInField } from "../ui/keys";
 import {
-  grabKeyLabel,
+  defaultGrabKey,
+  type GrabKey,
+  grabKeyTypes,
   type Hold,
   type HoldEvent,
   holdDuration,
   holdStep,
   isGrabKey,
-  parseGrabKey,
+  keyMatches,
+  pressTurnsOn,
   releasesGrabKey,
 } from "./keys";
 import type { Mode, ModeOptions } from "./mode";
 import { type GrabPlace, grabStep } from "./place";
 
 export interface GrabControlOptions {
-  /** The key held to grab, such as `alt+shift+g`. Defaults to meta or ctrl with c. */
-  key?: string;
+  /**
+   * The key that grabs as it is now, read on each key so a new one takes at
+   * once, or null while there is none, as while the panel records a key.
+   * Defaults to shift and g.
+   */
+  key?: () => GrabKey | null;
 }
 
 /** Loads grab's mode, the overlay and the context, the first time grab turns on. */
 export type LoadMode = () => Promise<{ startMode: (options: ModeOptions) => Mode }>;
 
 export interface GrabControl {
-  /** The grab key as the panel shows it, such as `⌘C`. */
-  readonly label: string;
   isOn(): boolean;
   /** Turn grab on or off, in the frame while it is up. */
   set(on: boolean): void;
@@ -80,7 +85,7 @@ function systemScheme(): "light" | "dark" {
 }
 
 /**
- * Grab's switch, in every bundle: the held key that turns it on, the panel's
+ * Grab's switch, in every bundle: the key that turns it on, the panel's
  * view of it, and the way into the width knob's frame. Grab has to run in the
  * page that owns React, so while the frame is up, the page above hands grab
  * to the frame and only shows it as on. The overlay and the context load the
@@ -90,8 +95,7 @@ export function createGrab(
   options: GrabControlOptions = {},
   loadMode: LoadMode = () => import("./index"),
 ): GrabControl {
-  const mac = isMac();
-  const key = parseGrabKey(options.key, mac);
+  const keyNow = options.key ?? defaultGrabKey;
   const inFrame = isDevknobsFrame();
   const listeners = new Set<(on: boolean) => void>();
   /** Where grab runs. Only `move` changes it. */
@@ -116,6 +120,10 @@ export function createGrab(
       mode = startMode({
         pointer,
         scheme,
+        heldKey: (event) => {
+          const key = keyNow();
+          return key !== null && keyMatches(event, key.key);
+        },
         onExit: () => {
           mode = null;
           move("off");
@@ -164,6 +172,17 @@ export function createGrab(
   }
 
   function onKeydown(event: KeyboardEvent): void {
+    const key = keyNow();
+    const press = key !== null && pressTurnsOn(key);
+    const grabKey =
+      key !== null && isGrabKey(event, key) && !(grabKeyTypes(key) && typesInField(event));
+    if (grabKey && press) {
+      // Where it is grab's, a key that types is not typed. A press turns grab
+      // on, or off while it is on or loading, and a repeat does nothing.
+      event.preventDefault();
+      if (!event.repeat) set(place === "off");
+      return;
+    }
     if (mode) {
       mode.keydown(event);
       return;
@@ -177,12 +196,13 @@ export function createGrab(
       }
       return;
     }
-    if (isGrabKey(event, key)) {
+    if (grabKey) {
       if (event.repeat) {
         step({ type: "repeat" });
         return;
       }
       if (hold) return;
+      // The key may be a copy, so it waits longer in a field or on a selection.
       const duration = holdDuration(holdScene());
       step({ type: "down", at: Date.now(), duration });
       clearTimeout(holdTimer);
@@ -194,7 +214,8 @@ export function createGrab(
   }
 
   function onKeyup(event: KeyboardEvent): void {
-    if (hold && releasesGrabKey(event, key)) step({ type: "release", at: Date.now() });
+    const key = keyNow();
+    if (hold && key && releasesGrabKey(event, key)) step({ type: "release", at: Date.now() });
   }
 
   function onCopy(): void {
@@ -236,7 +257,6 @@ export function createGrab(
   document.addEventListener("copy", onCopy, true);
 
   return {
-    label: grabKeyLabel(key, mac),
     isOn: () => place !== "off",
     set,
     subscribe(listener) {

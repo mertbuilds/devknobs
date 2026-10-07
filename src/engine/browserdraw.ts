@@ -165,11 +165,27 @@ export interface BrowserLayer {
   refresh(): void;
   /** Has the page's scroll minimized the bars? */
   minimized(): boolean;
+  /**
+   * Blank the screen in the page's color and show the page loading, as
+   * Safari shows a reload, until the frame's page can paint. While it loads
+   * the bars keep what they showed, or `seed`, over the blank page.
+   */
+  startLoading(seed: Look | null): void;
+  /** Show the page as far as it got, and the bars done loading. */
+  stopLoading(): void;
+  /** What the bars show for the page now. */
+  look(): Look | null;
   remove(): void;
 }
 
 /** How long after a knob moves the page has had to restyle, in ms. */
 const RESTYLE = 120;
+
+/**
+ * How long a reloading page keeps the screen blank at most, in ms. One that
+ * never finishes loading shows as far as it got.
+ */
+const LOAD_WAIT = 5000;
 
 function same(a: Rect | null, b: Rect | null): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -179,12 +195,20 @@ function same(a: Rect | null, b: Rect | null): boolean {
  * The bars over the frame in `glass`, which fills with the page's background
  * around the frame, as Safari and Chrome tint the screen around their bars.
  * The page's scroll moves `minimized()`, and `onChange` hears when it does.
+ * `onReload` hears the reload button before the page reloads, and `ready`
+ * says when the frame's page is in and ready to paint, with no reload on its way.
  */
 export function createBrowser(
   glass: HTMLElement,
   frame: HTMLIFrameElement,
   onChange: () => void,
+  onReload: () => void = () => {},
+  ready: () => boolean = () => true,
 ): BrowserLayer {
+  /** Blanks the screen while its page reloads. */
+  const blank = el("div", "screenblank");
+  blank.hidden = true;
+  glass.append(blank);
   const layer = el("div", "browser");
   layer.setAttribute("aria-hidden", "true");
   let view: BrowserView | null = null;
@@ -201,6 +225,11 @@ export function createBrowser(
   let watched: Document | null = null;
   let href = "";
   let motion: BarsMotion = BARS_START;
+  /** A page is loading, and the bars keep the look they had. */
+  let busy = false;
+  /** The wait for the reloaded page to paint. */
+  let loadWait = 0;
+  const still = () => baseMatchMedia("(prefers-reduced-motion: reduce)").matches;
   const step = (event: BarsEvent) => {
     const before = motion.minimized;
     motion = barsStep(motion, event);
@@ -214,7 +243,16 @@ export function createBrowser(
   const actions: Actions = {
     back: () => frame.contentWindow?.history.back(),
     forward: () => frame.contentWindow?.history.forward(),
-    reload: () => frame.contentWindow?.location.reload(),
+    reload: () => {
+      // While a page loads the button is Safari's stop, and the page shows as far as it got.
+      if (busy) {
+        frame.contentWindow?.stop();
+        stopLoading();
+        return;
+      }
+      onReload();
+      frame.contentWindow?.location.reload();
+    },
     expand: () => step({ type: "tap" }),
   };
   /**
@@ -237,8 +275,7 @@ export function createBrowser(
       step({ type: "resize", time: performance.now() });
       const end = doc.documentElement.scrollHeight - page.innerHeight;
       if (room < had || page.scrollY <= 1 || page.scrollY < end - (room - had) - 1) return;
-      const still = baseMatchMedia("(prefers-reduced-motion: reduce)").matches;
-      page.scrollTo({ top: end, behavior: still ? "instant" : "smooth" });
+      page.scrollTo({ top: end, behavior: still() ? "instant" : "smooth" });
     } catch {
       // Another origin: no page there to give room.
     }
@@ -292,7 +329,7 @@ export function createBrowser(
     const { platform, layout, screen, orientation, edge } = bars;
     const base = JSON.stringify([platform, layout, screen, orientation, edge, view.follow]);
     const fresh = base !== built || !painted;
-    const instant = fresh || baseMatchMedia("(prefers-reduced-motion: reduce)").matches;
+    const instant = fresh || still();
     if (fresh) {
       const other = barsOf(screen, orientation, layout, !bars.minimized, edge);
       const full = bars.minimized ? other : bars;
@@ -302,6 +339,7 @@ export function createBrowser(
       painted = BUILDERS[bars.platform](full, mini, look, shown);
       layer.replaceChildren(painted.root);
       built = base;
+      if (busy) painted.loading?.(true, true);
     }
     // A first drawing, or reduced motion, takes the state without a transition.
     if (instant) layer.setAttribute("data-instant", "");
@@ -311,6 +349,46 @@ export function createBrowser(
       layer.removeAttribute("data-instant");
     }
     placeFrame(instant);
+  };
+  /** The page in the frame, or null once it is on another origin, or an error page. */
+  const pageOf = (): Document | null => {
+    try {
+      return frame.contentDocument;
+    } catch {
+      return null;
+    }
+  };
+  const showLoading = (on: boolean, seed: Look | null) => {
+    busy = on;
+    if (seed) {
+      look = seed;
+      draw();
+    }
+    painted?.loading?.(on, still());
+    if (!on) browser.refresh();
+  };
+  const stopLoading = () => {
+    if (loadWait) window.cancelAnimationFrame(loadWait);
+    loadWait = 0;
+    if (!busy) return;
+    blank.hidden = true;
+    showLoading(false, null);
+  };
+  const startLoading = (seed: Look | null) => {
+    blank.style.background = (seed ?? look ?? readLook(frame)).background;
+    blank.hidden = false;
+    showLoading(true, seed);
+    if (loadWait) window.cancelAnimationFrame(loadWait);
+    const end = performance.now() + LOAD_WAIT;
+    // The page that asked for the reload stays ready to paint until the next one takes its place.
+    const gone = pageOf();
+    const check = () => {
+      loadWait = 0;
+      const next = gone === null || pageOf() !== gone;
+      if ((next && ready()) || performance.now() >= end) stopLoading();
+      else loadWait = window.requestAnimationFrame(check);
+    };
+    loadWait = window.requestAnimationFrame(check);
   };
   const read = () => {
     try {
@@ -333,10 +411,10 @@ export function createBrowser(
     } catch {
       query = null;
     }
-    look = readLook(frame);
+    if (!busy || !look) look = readLook(frame);
     draw();
   };
-  return {
+  const browser: BrowserLayer = {
     show(next) {
       view = next;
       if (next.bars && !layer.isConnected) glass.append(layer);
@@ -351,7 +429,7 @@ export function createBrowser(
       const again = view.bars
         ? read
         : () => {
-            look = readLook(frame);
+            if (!busy || !look) look = readLook(frame);
             back();
           };
       again();
@@ -360,8 +438,13 @@ export function createBrowser(
       later = window.setTimeout(again, RESTYLE);
     },
     minimized: () => motion.minimized,
+    startLoading,
+    stopLoading,
+    look: () => look,
     remove() {
       clearTimeout(later);
+      if (loadWait) window.cancelAnimationFrame(loadWait);
+      loadWait = 0;
       clearTimeout(shrinking);
       query?.removeEventListener("change", read);
       try {
@@ -372,6 +455,8 @@ export function createBrowser(
       query = null;
       watched = null;
       layer.remove();
+      blank.remove();
     },
   };
+  return browser;
 }

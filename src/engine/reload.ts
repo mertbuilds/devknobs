@@ -18,6 +18,8 @@ export interface Frame {
   page(): Document | null;
   /** The frame's page has loaded, so what it reports can be trusted. */
   loaded(): boolean;
+  /** The frame's page is about to reload for the knobs. */
+  reloading(): void;
 }
 
 let frame: Frame | null = null;
@@ -30,6 +32,13 @@ let reloading = 0;
 let leaving = 0;
 /** The frame's page loaded unpatched, and was reloaded once to patch it. */
 let repatched = false;
+/** A reload went out, and the page it brings has not taken over yet. */
+let renewing = false;
+
+/** Is a reload due or on its way, so the page in the frame now is not the one to show? */
+export function pending(): boolean {
+  return reloading !== 0 || renewing;
+}
 
 /** Follow the pages of `next`, the frame that just came up. */
 export function track(next: Frame): void {
@@ -44,6 +53,7 @@ export function untrack(): void {
   reloading = 0;
   leaving = 0;
   repatched = false;
+  renewing = false;
   identity = null;
   frame = null;
 }
@@ -134,6 +144,7 @@ function onLeave(): void {
  */
 export function settle(): void {
   leaving = 0;
+  renewing = false;
   clearTimeout(reloading);
   reloading = 0;
   follow();
@@ -198,6 +209,8 @@ function reload(): void {
   }
   leaving = 0;
   identity = null;
+  renewing = true;
+  frame.reloading();
   try {
     frame.view()?.location.reload();
   } catch {

@@ -1,22 +1,20 @@
 // adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
+import { type Combo, isFunctionKey, keyIs, parseCombo, withShift } from "../ui/keys";
 
 /** The parts of a key event that decide whether it is the grab key. */
 export type GrabKeyLike = Pick<
   KeyboardEvent,
   "key" | "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"
->;
+> &
+  Partial<Pick<KeyboardEvent, "isComposing">>;
 
-/** The keys that start a grab when held, with only these modifiers down. */
-export interface GrabKey {
-  meta: boolean;
-  ctrl: boolean;
-  shift: boolean;
-  alt: boolean;
-  /** Lower case. `c` takes every key that reads as a c on some layout. */
-  key: string;
-}
+/**
+ * The keys that start a grab, with only these modifiers down. `c` takes every
+ * key that reads as a c on some layout.
+ */
+export type GrabKey = Combo;
 
-/** How long the grab key is held before grab turns on, in ms. */
+/** How long a grab key that copies is held before grab turns on, in ms. */
 export const HOLD = 100;
 
 /** Longer while a field has the focus, where the key is likely a copy. */
@@ -60,50 +58,44 @@ export function isCLike(key: string, code?: string): boolean {
   return key.length === 1 && C_LIKE.has(key);
 }
 
-const MODIFIERS: Record<string, "meta" | "ctrl" | "shift" | "alt"> = {
-  meta: "meta",
-  cmd: "meta",
-  command: "meta",
-  ctrl: "ctrl",
-  control: "ctrl",
-  shift: "shift",
-  alt: "alt",
-  option: "alt",
-  opt: "alt",
-};
-
-/** Meta and c on a Mac, ctrl and c elsewhere. */
-export function defaultGrabKey(mac: boolean): GrabKey {
-  return { meta: mac, ctrl: !mac, shift: false, alt: false, key: "c" };
+/** Shift and g. */
+export function defaultGrabKey(): GrabKey {
+  return withShift("g");
 }
 
 /**
  * Read a key such as `alt+shift+g`. One that names no key, or more than one,
  * is the default.
  */
-export function parseGrabKey(spec: string | undefined, mac: boolean): GrabKey {
-  if (!spec?.trim()) return defaultGrabKey(mac);
-  const parsed: GrabKey = { meta: false, ctrl: false, shift: false, alt: false, key: "" };
-  for (const raw of spec.split("+")) {
-    const part = raw.trim().toLowerCase();
-    const modifier = MODIFIERS[part];
-    if (modifier) parsed[modifier] = true;
-    else if (part && !parsed.key) parsed.key = part;
-    else return defaultGrabKey(mac);
-  }
-  return parsed.key ? parsed : defaultGrabKey(mac);
+export function parseGrabKey(spec: string | undefined): GrabKey {
+  return parseCombo(spec) ?? defaultGrabKey();
 }
 
-function keyMatches(event: GrabKeyLike, key: string): boolean {
-  if (key === "c") return isCLike(event.key, event.code);
-  if (event.key.toLowerCase() === key) return true;
-  if (/^[a-z]$/.test(key)) return event.code === `Key${key.toUpperCase()}`;
-  return /^[0-9]$/.test(key) && event.code === `Digit${key}`;
+/** The key alone, whatever modifiers are down. */
+export function keyMatches(event: GrabKeyLike, key: string): boolean {
+  return key === "c" ? isCLike(event.key, event.code) : keyIs(event, key);
 }
 
-/** The grab key with exactly its own modifiers down. */
+/**
+ * A key with no modifier but shift, or a function key, copies nothing, so a
+ * press turns grab on, and off again. One with meta, ctrl or alt is held.
+ */
+export function pressTurnsOn(key: GrabKey): boolean {
+  return isFunctionKey(key.key) || (!key.meta && !key.ctrl && !key.alt);
+}
+
+/**
+ * A key with no modifier but shift types, so it is a field's, the panel's
+ * search aside, and never grab's there. A function key types nothing.
+ */
+export function grabKeyTypes(key: GrabKey): boolean {
+  return !isFunctionKey(key.key) && !key.meta && !key.ctrl && !key.alt;
+}
+
+/** The grab key with exactly its own modifiers down, never while an IME composes. */
 export function isGrabKey(event: GrabKeyLike, key: GrabKey): boolean {
   return (
+    event.isComposing !== true &&
     event.metaKey === key.meta &&
     event.ctrlKey === key.ctrl &&
     event.shiftKey === key.shift &&
@@ -121,17 +113,6 @@ export function releasesGrabKey(event: GrabKeyLike, key: GrabKey): boolean {
     (key.shift && event.key === "Shift") ||
     (key.alt && event.key === "Alt")
   );
-}
-
-/** What the grab key reads as in the panel: `⌘C` on a Mac, `ctrl+C` elsewhere. */
-export function grabKeyLabel(key: GrabKey, mac: boolean): string {
-  const letter = key.key.length === 1 ? key.key.toUpperCase() : key.key;
-  if (mac) {
-    const marks = `${key.ctrl ? "⌃" : ""}${key.alt ? "⌥" : ""}${key.shift ? "⇧" : ""}${key.meta ? "⌘" : ""}`;
-    return `${marks}${letter}`;
-  }
-  const names = [key.ctrl && "ctrl", key.alt && "alt", key.shift && "shift", key.meta && "meta"];
-  return [...names.filter((name): name is string => Boolean(name)), letter].join("+");
 }
 
 /** How long the key is held before grab turns on, by what it might be copying. */

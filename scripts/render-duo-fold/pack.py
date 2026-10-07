@@ -1,0 +1,174 @@
+"""
+Packs the master PNGs renderAll saved into the frames devknobs ships: each
+frame of the turning half, every `step` degrees, and every `fine` degrees
+from `near` either side of a right angle, where the half turns edge on and
+its outline changes the most from one frame to the next, cropped to what it
+draws, scaled from the master's 3 px per css px to `scale`, and saved as WebP, and
+manifest.json beside this script with each frame's crop box and the corners
+of its two turned screens, in master px, its pieces, in frame px, and the
+open inner screen's rect. The half that stays, rendered at each angle from
+the same camera, is packed the same way, into a still-*.webp for each
+render of it that differs from the one before, which every frame names, so
+during a fold both halves come from one render.
+
+The case is a thin outline round see-through screens, so the clear middle of
+a frame is cut out: what is left is up to four pieces round it, cut shorter
+and packed into the frame's file, each where it lies in the frame and where it
+is in the file.
+
+    uv run --python 3.12 --with pillow python pack.py <master folder> <out folder> [step] [quality] [scale] [near] [fine]
+"""
+import hashlib
+import io
+import json
+import math
+import os
+import sys
+from fractions import Fraction
+
+from PIL import Image
+
+master, out = sys.argv[1], sys.argv[2]
+step = int(sys.argv[3]) if len(sys.argv) > 3 else 6
+quality = int(sys.argv[4]) if len(sys.argv) > 4 else 80
+# Frame px per master px: a box on whole multiples of its denominator scales to whole px.
+ratio = Fraction(sys.argv[5] if len(sys.argv) > 5 else "1.5") / 3
+near = int(sys.argv[6]) if len(sys.argv) > 6 else 24
+fine = int(sys.argv[7]) if len(sys.argv) > 7 else 3
+meta = json.load(open(os.path.join(master, "corners.json")))
+os.makedirs(out, exist_ok=True)
+# The cells the clear middle is found in, the px of the frame kept round each piece in the file, and the
+# tallest a piece is, in frame px.
+CELL = 4
+MARGIN = 4
+SEGMENT = 128
+
+
+def shown(image):
+    return image.getchannel("A").point(lambda alpha: 255 if alpha > 2 else 0)
+
+
+def crop(name, image=None):
+    """The master's frame cut to what it draws, its box widened onto whole frame px, and scaled."""
+    if image is None:
+        image = Image.open(os.path.join(master, name)).convert("RGBA")
+    q = ratio.denominator
+    left, top, right, bottom = shown(image).getbbox()
+    left, top = left // q * q, top // q * q
+    right, bottom = min(-(-right // q) * q, image.width), min(-(-bottom // q) * q, image.height)
+    box = [left, top, right, bottom]
+    size = ((right - left) * ratio.numerator // q, (bottom - top) * ratio.numerator // q)
+    return image.crop(box).resize(size, Image.LANCZOS), box
+
+
+def hole(image):
+    """The biggest clear rect in the frame, on whole cells, as left, top, right, bottom in frame px."""
+    cells = shown(image).reduce(CELL)
+    width, height = cells.size
+    clear = [value == 0 for value in cells.get_flattened_data()]
+    heights = [0] * width
+    best = (0, 0, 0, 0, 0)
+    for row in range(height):
+        heights = [heights[col] + 1 if clear[row * width + col] else 0 for col in range(width)]
+        stack = []
+        for col in range(width + 1):
+            tall = heights[col] if col < width else 0
+            start = col
+            while stack and stack[-1][1] >= tall:
+                begin, high = stack.pop()
+                if high * (col - begin) > best[0]:
+                    best = (high * (col - begin), begin, row - high + 1, col, row + 1)
+                start = begin
+            stack.append((start, tall))
+    _, left, top, right, bottom = best
+    # A part cell at the right or bottom edge is cut short.
+    return left * CELL, top * CELL, min(right * CELL, image.width), min(bottom * CELL, image.height)
+
+
+def pieces(image):
+    """Up to four rects round the clear middle, each cut to what it draws, or the whole frame where the middle is small."""
+    width, height = image.size
+    left, top, right, bottom = hole(image)
+    if (right - left) * (bottom - top) < width * height / 4:
+        return [(0, 0, width, height)]
+    around = [(0, 0, width, top), (0, bottom, width, height), (0, top, left, bottom), (right, top, width, bottom)]
+    cut = []
+    for x0, y0, x1, y1 in around:
+        if x1 <= x0 or y1 <= y0:
+            continue
+        drawn = shown(image.crop((x0, y0, x1, y1))).getbbox()
+        if drawn:
+            cut.append((x0 + drawn[0], y0 + drawn[1], x0 + drawn[2], y0 + drawn[3]))
+    return cut
+
+
+def pack(image, rects):
+    """
+    The pieces in one image, and where each lies in the frame and is in it.
+    A tall piece is cut into short ones, and they all go in rows, tallest
+    first, as wide as the widest piece or the square they would fill.
+    """
+    cut = []
+    for left, top, right, bottom in rects:
+        cut += [(left, y, right, min(y + SEGMENT, bottom)) for y in range(top, bottom, SEGMENT)]
+    cut.sort(key=lambda rect: rect[1] - rect[3])
+    sizes = [(right - left + 2 * MARGIN, bottom - top + 2 * MARGIN) for left, top, right, bottom in cut]
+    width = max(max(w for w, _ in sizes), math.ceil(math.sqrt(sum(w * h for w, h in sizes))))
+    places = []
+    x = y = row = 0
+    for w, h in sizes:
+        if x + w > width:
+            x, y, row = 0, y + row, 0
+        places.append((x + MARGIN, y + MARGIN))
+        x, row = x + w, max(row, h)
+    sheet = Image.new("RGBA", (width, y + row))
+    for (left, top, right, bottom), (x, y) in zip(cut, places):
+        # The px round each piece go with it, so the WebP's blocks at its edge do not take in another piece.
+        sheet.paste(image.crop((left - MARGIN, top - MARGIN, right + MARGIN, bottom + MARGIN)), (x - MARGIN, y - MARGIN))
+    return sheet, [[left, top, right - left, bottom - top, x, y] for (left, top, right, bottom), (x, y) in zip(cut, places)]
+
+
+angles = sorted(set(range(0, 181, step)) | set(range(90 - near, 91 + near, fine)))
+if angles[-1] != 180:
+    angles.append(180)
+frames = []
+total = 0
+decoded = 0
+
+
+def save(master_name, file, image=None):
+    """A master, or its `image` read already, packed into `file` in the out folder: its crop box and its pieces."""
+    global total, decoded
+    image, box = crop(master_name, image)
+    sheet, cut = pack(image, pieces(image))
+    data = io.BytesIO()
+    sheet.save(data, "WEBP", quality=quality, method=6, alpha_quality=90)
+    open(os.path.join(out, file), "wb").write(data.getvalue())
+    total += data.tell()
+    decoded += sheet.width * sheet.height * 4
+    return {"file": file, "box": box, "pieces": cut}
+
+
+stills = []
+renders = {}
+for deg in angles:
+    seen = meta["angles"][str(deg)]
+    # The half that stays changes only as the fold nears shut: a render of it the same as one packed already is that one.
+    fixed = Image.open(os.path.join(master, f"fixed-{deg:03d}.png")).convert("RGBA")
+    key = hashlib.sha256(fixed.tobytes()).hexdigest()
+    if key not in renders:
+        renders[key] = len(stills)
+        stills.append(save(None, f"still-{deg:03d}.webp", fixed))
+    frames.append({"deg": deg, **save(f"moving-{deg:03d}.png", f"fold-{deg:03d}.webp"),
+                   "inner": seen["innerMoving"], "cover": seen["cover"], "still": renders[key]})
+opened = meta["angles"]["0"]
+(left, top), (right, bottom) = opened["innerMoving"][0], opened["innerFixed"][2]
+manifest = {
+    "open": [left, top, round(right - left, 2), round(bottom - top, 2)],
+    "scale": float(ratio),
+    "frames": frames,
+    "stills": stills,
+}
+here = os.path.dirname(os.path.abspath(__file__))
+json.dump(manifest, open(os.path.join(here, "manifest.json"), "w"), separators=(",", ":"))
+print(f"{len(frames)} frames and {len(stills)} of the half that stays, {total / 1024:.0f} KiB, {decoded / 1e6:.1f} MB decoded")

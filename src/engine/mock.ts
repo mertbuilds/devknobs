@@ -1,5 +1,5 @@
 import type { OrientationValue } from "../types";
-import { deviceOf, turn } from "./devices";
+import { screenOf, turn } from "./devices";
 import { BODIES, type Button, type Front } from "./mockdata";
 
 /** A length on each side of a box, in css px of the screen. */
@@ -81,21 +81,29 @@ function keyOf(front: Front): Rect | null {
   return { x: front.x + gap, y: front.y + gap, width: front.key, height: front.key };
 }
 
-/** A rect of a portrait mock `width` wide, turned a quarter so its top is on the left. */
-function turnRect<T extends Rect>(rect: T, width: number): T {
+/**
+ * A rect of a portrait mock `width` wide and `height` tall, turned a quarter
+ * so its top is on the left, or `clockwise`, on the right.
+ */
+function turnRect<T extends Rect>(rect: T, width: number, height: number, clockwise: boolean): T {
   const { x, y } = rect;
-  return { ...rect, x: y, y: width - x - rect.width, width: rect.height, height: rect.width };
+  const turned = { width: rect.height, height: rect.width };
+  return clockwise
+    ? { ...rect, ...turned, x: height - y - rect.height, y: x }
+    : { ...rect, ...turned, x: y, y: width - x - rect.width };
 }
 
-export function turnSides(sides: Sides): Sides {
-  return { top: sides.right, right: sides.bottom, bottom: sides.left, left: sides.top };
+export function turnSides(sides: Sides, clockwise = false): Sides {
+  return clockwise
+    ? { top: sides.left, right: sides.top, bottom: sides.right, left: sides.bottom }
+    : { top: sides.right, right: sides.bottom, bottom: sides.left, left: sides.top };
 }
 
-/** The corners after the same turn: the top right one comes to the top left. */
-export function turnRadius(radius: Radius): Radius {
+/** The corners after the same turn: the top right one comes to the top left, or the bottom left one, clockwise. */
+export function turnRadius(radius: Radius, clockwise = false): Radius {
   if (typeof radius === "number") return radius;
   const [topLeft, topRight, bottomRight, bottomLeft] = radius;
-  return [topRight, bottomRight, bottomLeft, topLeft];
+  return clockwise ? [bottomLeft, topLeft, topRight, bottomRight] : [topRight, bottomRight, bottomLeft, topLeft];
 }
 
 /**
@@ -111,11 +119,12 @@ export function placeIn(mock: Mock, room: Mock): Mock {
 }
 
 /**
- * The mock of a device held one way, or null for one that has none. A turn
- * puts the top of the phone on the left, island and all.
+ * The mock of a device, or a foldable's screen, held one way, or null for one
+ * that has none. A turn puts the top of the phone on the left, island and all,
+ * or on the right for one that turns clockwise.
  */
 export function mockOf(id: string, orientation: OrientationValue): Mock | null {
-  const device = deviceOf(id);
+  const device = screenOf(id);
   const shape = BODIES[id];
   if (!device || !shape) return null;
   const { bezel, screenRadius, bodyRadius } = shape;
@@ -151,14 +160,15 @@ export function mockOf(id: string, orientation: OrientationValue): Mock | null {
   ];
   const upright: Mock = { width, height, inset, body, screenRadius, bodyRadius, parts };
   if (orientation === "portrait") return upright;
+  const clockwise = device.clockwise === true;
   return {
     ...upright,
     width: height,
     height: width,
-    inset: turnSides(inset),
-    body: turnRect(body, width),
-    screenRadius: turnRadius(screenRadius),
-    bodyRadius: turnRadius(bodyRadius),
-    parts: upright.parts.map((part) => turnRect(part, width)),
+    inset: turnSides(inset, clockwise),
+    body: turnRect(body, width, height, clockwise),
+    screenRadius: turnRadius(screenRadius, clockwise),
+    bodyRadius: turnRadius(bodyRadius, clockwise),
+    parts: upright.parts.map((part) => turnRect(part, width, height, clockwise)),
   };
 }

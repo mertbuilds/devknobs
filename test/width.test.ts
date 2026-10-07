@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { DEVICES, turn } from "../src/engine/devices";
+import { SCREENS, turn } from "../src/engine/devices";
 import { UNFRAMED } from "../src/engine/frame";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
+import { holeAt, holePath, MORPH_TIME, rounded, windowRect } from "../src/engine/morph";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import {
   apply,
@@ -89,7 +90,7 @@ describe("fit", () => {
       { width: 800, height: 600 },
       { width: 390, height: 700 },
     ];
-    for (const device of DEVICES) {
+    for (const device of SCREENS) {
       for (const way of ["portrait", "landscape"] as const) {
         const size = turn(device, way);
         for (const letterbox of windows) {
@@ -154,6 +155,17 @@ describe("fit", () => {
     expect(place.width * place.scale + 2 * place.left).toBeCloseTo(1200 - PANEL);
   });
 
+  test("fits a frame a panel on the left would cover into the room right of it", () => {
+    const right = fit(DESKTOP, BOX, { aside: PANEL });
+    const left = fit(DESKTOP, BOX, { aside: PANEL, side: "left" });
+    expect(left).toEqual({ ...right, left: right.left + PANEL });
+    expect(left.box.width - (left.left + left.width * left.scale)).toBeCloseTo(right.left);
+    expect(fit(PHONE, BOX, { aside: PANEL, side: "left" })).toEqual(fit(PHONE, BOX));
+    expect(fit({ ...DESKTOP, zoom: 1 }, BOX, { aside: PANEL, side: "left" })).toEqual(
+      fit({ ...DESKTOP, zoom: 1 }, BOX, { aside: PANEL }),
+    );
+  });
+
   test("leaves a frame clear of the panel where it is, a zoom too", () => {
     expect(fit(PHONE, BOX, { aside: PANEL })).toEqual(fit(PHONE, BOX));
     expect(fit({ ...DESKTOP, zoom: 1 }, BOX, { aside: PANEL }).box.width).toBe(1968);
@@ -202,7 +214,7 @@ describe("fit", () => {
       { width: 800, height: 600 },
       { width: 390, height: 700 },
     ];
-    for (const device of DEVICES) {
+    for (const device of SCREENS) {
       for (const way of ["portrait", "landscape"] as const) {
         const mock = mockOf(device.id, way);
         if (!mock) continue;
@@ -305,6 +317,13 @@ class FakeElement extends EventTarget {
   shadowRoot: FakeElement | null = null;
   readonly style = new FakeStyle();
   textContent = "";
+  readonly dataset: Record<string, string> = {};
+  private readonly classes = new Set<string>();
+  readonly classList = {
+    add: (name: string) => this.classes.add(name),
+    toggle: (name: string, on: boolean) => (on ? this.classes.add(name) : this.classes.delete(name)),
+    contains: (name: string) => this.classes.has(name),
+  };
   clientWidth = 0;
   clientHeight = 0;
 
@@ -362,15 +381,63 @@ class FakeElement extends EventTarget {
     this.parent = null;
   }
 
+  insertBefore(node: FakeElement, before: FakeElement | null): FakeElement {
+    node.remove();
+    node.parent = this;
+    const at = before ? this.children.indexOf(before) : -1;
+    if (at < 0) this.children.push(node);
+    else this.children.splice(at, 0, node);
+    return node;
+  }
+
   appendChild(node: FakeElement): FakeElement {
     this.append(node);
     return node;
+  }
+
+  after(node: FakeElement): void {
+    const siblings = this.parent?.children;
+    this.parent?.insertBefore(node, siblings?.[siblings.indexOf(this) + 1] ?? null);
+  }
+
+  /** A copy with the same attributes, and copies of the children when `deep`. */
+  cloneNode(deep = false): FakeElement {
+    const copy = new FakeElement(this.tagName);
+    for (const [name, value] of this.attributes) copy.setAttribute(name, value);
+    if (deep) copy.append(...this.children.map((child) => child.cloneNode(true)));
+    return copy;
+  }
+
+  /** A tag name such as `pattern`, the only kind the mat's splash asks for. */
+  querySelector(selector: string): FakeElement | null {
+    return [...this.descendants()].find((node) => node.tagName === selector) ?? null;
   }
 
   remove(): void {
     const siblings = this.parent?.children;
     siblings?.splice(siblings.indexOf(this), 1);
     this.parent = null;
+  }
+
+  /** An animation that runs until it is cancelled. */
+  animate(_keyframes?: Keyframe[]): {
+    finished: Promise<void>;
+    currentTime: number;
+    cancel: () => void;
+  } {
+    return { finished: new Promise(() => {}), currentTime: 0, cancel: () => {} };
+  }
+
+  getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
+    return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight };
+  }
+
+  /** A class selector such as `.domain`, the only kind the browser's bars ask for. */
+  querySelectorAll(selector: string): FakeElement[] {
+    const name = selector.slice(1);
+    return [...this.descendants()].filter((node) =>
+      String(Reflect.get(node, "className") ?? node.getAttribute("class")).split(" ").includes(name),
+    );
   }
 
   attachShadow(): FakeElement {
@@ -426,12 +493,14 @@ const KNOBS = {
   scheme: "system",
   device: "none",
   orientation: "portrait",
+  posture: "closed",
   mock: true,
   browser: "auto",
   bars: "auto",
   edgeToEdge: true,
   zoom: "fit",
-  panel: { open: false },
+  mat: "blue",
+  panel: { open: false, side: "right" },
 } as const;
 const VIEWPORT = { ...KNOBS, width: 390 } as const;
 const NATIVE_SHOW_MODAL = FakeDialog.prototype.showModal;
@@ -441,8 +510,9 @@ let head: FakeElement;
 let location: { href: string; origin: string; assign: (url: string) => void };
 /** Where the window was sent, and every `scrollTo`. */
 let assigned: string[];
-/** How many times the frame's page was reloaded. */
+/** How many times the frame's page was reloaded, and stopped loading. */
 let reloads: number;
+let stops: number;
 let scrolls: ScrollToOptions[];
 
 function define(name: string, value: unknown): void {
@@ -517,6 +587,10 @@ class FakeView extends EventTarget {
 
   postMessage(): void {}
 
+  stop(): void {
+    stops++;
+  }
+
   /** The page sets off for `href`, a cross-document navigation unless `same`. */
   navigate(href: string, same = false): void {
     const event = Object.assign(new Event("navigate", { cancelable: true }), {
@@ -573,6 +647,7 @@ beforeEach(() => {
   assigned = [];
   scrolls = [];
   reloads = 0;
+  stops = 0;
   location = { href: PAGE, origin: "http://localhost:3000", assign: (url) => assigned.push(url) };
   define("window", {
     location,
@@ -625,6 +700,8 @@ afterEach(() => {
     "SVGElement",
     "HTMLDialogElement",
     "MutationObserver",
+    "Element",
+    "getComputedStyle",
   ]) {
     Reflect.deleteProperty(globalThis, name);
   }
@@ -677,6 +754,280 @@ describe("the frame over the page", () => {
     expect(Reflect.get(frameElement().style, "height")).toBe("700px");
     const readout = everything().find((element) => Reflect.get(element, "className") === "size");
     expect(readout && Reflect.get(readout, "hidden")).toBe(false);
+  });
+
+  test("lies on the mat color picked, and takes a new one in place", () => {
+    apply(VIEWPORT);
+    const letterbox = everything().find(
+      (element) => Reflect.get(element, "className") === "viewport",
+    );
+    const frame = frameElement();
+    expect(letterbox?.getAttribute("data-mat")).toBe("blue");
+    apply({ ...VIEWPORT, mat: "green" });
+    expect(letterbox?.getAttribute("data-mat")).toBe("green");
+    expect(frameElement()).toBe(frame);
+  });
+
+  test("takes a new mat color at once while a device change runs", () => {
+    apply({ ...VIEWPORT, mock: false });
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+    const letterbox = everything().find(
+      (element) => Reflect.get(element, "className") === "viewport",
+    );
+    const back = everything().find((element) => Reflect.get(element, "className") === "back");
+    const phone = { ...VIEWPORT, mock: false, device: "iphone-16-pro" } as const;
+    apply(phone);
+    const opening = back && Reflect.get(back.style, "clipPath");
+    expect(opening).toStartWith("path(evenodd");
+    apply({ ...phone, mat: "green" });
+    expect(letterbox?.getAttribute("data-mat")).toBe("green");
+    expect(back && Reflect.get(back.style, "clipPath")).toBe(opening);
+  });
+
+  describe("a new mat color splashing out", () => {
+    let frames: FrameRequestCallback[];
+    let cancelled: number;
+    const named = (name: string) =>
+      everything().filter((element) => Reflect.get(element, "className") === name);
+    /** Run the frames asked for at `now` ms. */
+    const tick = (now: number) => {
+      for (const frame of frames.splice(0)) frame(now);
+    };
+
+    beforeEach(() => {
+      apply({ ...VIEWPORT, mock: false });
+      define("Element", FakeElement);
+      define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+      Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+      frames = [];
+      cancelled = 0;
+      Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+        frames.push(callback),
+      );
+      Reflect.set(window, "cancelAnimationFrame", () => cancelled++);
+    });
+
+    test("comes over the old color from the screen, behind the device, and leaves nothing once it covers the mat", () => {
+      const [letterbox] = named("viewport");
+      const [back] = named("back");
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      expect(letterbox?.getAttribute("data-mat")).toBe("green");
+      // The mat's paint keeps the old color under the splash.
+      expect(back?.getAttribute("data-mat")).toBe("blue");
+      const [splash] = named("splash");
+      expect(splash?.getAttribute("data-mat")).toBe("green");
+      expect(splash && letterbox?.children.indexOf(splash)).toBe(
+        back && (letterbox?.children.indexOf(back) ?? 0) + 1,
+      );
+      // Its own lines, on a grid of its own, so they take its color.
+      const grid = splash?.querySelector("pattern")?.getAttribute("id");
+      expect(grid).toStartWith("mat-grid-");
+      expect(splash?.querySelector("rect")?.getAttribute("fill")).toBe(`url(#${grid})`);
+      tick(0);
+      tick(200);
+      expect(String(splash && Reflect.get(splash.style, "clipPath"))).toStartWith('path("M');
+      tick(1200);
+      expect(named("splash")).toHaveLength(0);
+      expect(back?.hasAttribute("data-mat")).toBe(false);
+      expect(frames).toHaveLength(0);
+    });
+
+    test("stacks a color picked mid splash over the one on its way, and lands each in turn", () => {
+      const [back] = named("back");
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      tick(0);
+      tick(300);
+      apply({ ...VIEWPORT, mock: false, mat: "magenta" });
+      expect(named("splash").map((node) => node.getAttribute("data-mat"))).toEqual([
+        "green",
+        "magenta",
+      ]);
+      tick(400);
+      tick(1200);
+      expect(named("splash").map((node) => node.getAttribute("data-mat"))).toEqual(["magenta"]);
+      expect(back?.getAttribute("data-mat")).toBe("green");
+      tick(1600);
+      expect(named("splash")).toHaveLength(0);
+      expect(back?.hasAttribute("data-mat")).toBe(false);
+    });
+
+    test("lands at once when a device change starts", () => {
+      const [back] = named("back");
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      tick(0);
+      apply({ ...VIEWPORT, mock: false, mat: "green", device: "iphone-16-pro" });
+      tick(100);
+      expect(named("splash")).toHaveLength(0);
+      expect(back?.hasAttribute("data-mat")).toBe(false);
+      expect(named("viewport")[0]?.getAttribute("data-mat")).toBe("green");
+    });
+
+    test("leaves no layer and no frame when the frame goes mid splash", () => {
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      tick(0);
+      reset();
+      expect(cancelled).toBeGreaterThan(0);
+      expect(named("splash")).toHaveLength(0);
+      tick(100);
+      expect(frames).toHaveLength(0);
+    });
+
+    test("is instant with less motion", () => {
+      Reflect.set(window, "matchMedia", (query: string) => ({
+        matches: query.includes("reduce"),
+        media: query,
+      }));
+      apply({ ...VIEWPORT, mock: false, mat: "green" });
+      expect(named("splash")).toHaveLength(0);
+      expect(named("viewport")[0]?.getAttribute("data-mat")).toBe("green");
+      expect(named("back")[0]?.hasAttribute("data-mat")).toBe(false);
+    });
+  });
+
+  test("rounds the mat's opening, then moves it a frame at a time onto a fitted screen, and back", async () => {
+    apply(KNOBS);
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+    const frames: FrameRequestCallback[] = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    const keyframes: Keyframe[][] = [];
+    const animate = FakeElement.prototype.animate;
+    FakeElement.prototype.animate = (frames: Keyframe[]) => {
+      keyframes.push(frames);
+      return { finished: Promise.resolve(), currentTime: 0, cancel: () => {} };
+    };
+    // The drawn browser's loading line asks what moves it as the frame goes.
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+    // The letterbox sits off the window's corner, and the phone's screen is drawn fitted, at 85%,
+    // its corners as round as the Duo's cover screen: the hinge's two far less.
+    const box = { left: 10, top: 20, width: 1500, height: 850 };
+    const place = fit({ ...PHONE, height: 874 }, box);
+    expect(place.transform).toBeLessThan(1);
+    const fitted = [8, 58, 58, 8].map((radius) => radius * place.transform);
+    const [a = 0, b = 0, c = 0, d = 0] = fitted;
+    const screen = { x: 579, y: 69, width: 342, height: 744, radius: [a, b, c, d] as const };
+    const whole = windowRect(box);
+    const create = document.createElement;
+    Reflect.set(document, "createElement", (tag: string) => {
+      const element = new FakeElement(tag.toUpperCase());
+      Object.assign(element, { clientWidth: box.width, clientHeight: box.height });
+      const glass = { ...screen, left: box.left + screen.x, top: box.top + screen.y };
+      const isGlass = () => Reflect.get(element, "className") === "glass";
+      element.getBoundingClientRect = () => (isGlass() ? glass : box);
+      // The screen's corners as a mock rounds them, at the frame's own size.
+      Object.defineProperty(element.style, "borderRadius", {
+        get: () => (isGlass() ? "8px 58px 58px 8px" : ""),
+        set: () => {},
+      });
+      return element;
+    });
+    /** Run the frames asked for, 40 ms apart, `rounds` times, and say where the opening was. */
+    const play = async (rounds: number) => {
+      const seen: string[] = [];
+      for (let now = 0; now < rounds * 40; now += 40) {
+        await Bun.sleep(0);
+        for (const frame of frames.splice(0)) frame(now);
+        seen.push(String(Reflect.get(back?.style ?? {}, "clipPath")));
+      }
+      return seen;
+    };
+    let back: FakeElement | undefined;
+    try {
+      apply({ ...KNOBS, mock: false, device: "iphone-16-pro", width: 402, height: 874 });
+      back = everything().find((element) => Reflect.get(element, "className") === "back");
+      const picked = await play(20);
+      const round = rounded(whole);
+      expect(picked).toContain(holePath(whole));
+      expect(picked).toContain(holePath(holeAt(whole, round, 40, MORPH_TIME.round)));
+      expect(picked).toContain(holePath(round));
+      expect(picked).toContain(holePath(holeAt(round, screen, 40, MORPH_TIME.mat)));
+      expect(picked.at(-1)).toBe(holePath(screen));
+      expect(picked.at(-1)).toContain(`A${Math.round(b * 100) / 100} `);
+      // A picture of the body that loads late moves the screen as the case comes in, and the opening goes with it.
+      const glass = everything().find((element) => Reflect.get(element, "className") === "glass");
+      const moved = { ...screen, x: screen.x + 3, y: screen.y - 2 };
+      const stood = glass?.getBoundingClientRect;
+      if (glass) glass.getBoundingClientRect = () => ({ ...moved, left: box.left + moved.x, top: box.top + moved.y });
+      expect((await play(2)).at(-1)).toBe(holePath(moved));
+      if (glass && stood) glass.getBoundingClientRect = stood;
+      expect((await play(2)).at(-1)).toBe(holePath(screen));
+      apply(KNOBS);
+      const removed = await play(20);
+      expect(removed[0]).toBe(holePath(screen));
+      expect(removed).toContain(holePath(holeAt(screen, round, 40, MORPH_TIME.mat)));
+      expect(removed).toContain(holePath(round));
+      expect(removed.at(-1)).toBe(holePath(whole));
+      expect(keyframes.length).toBeGreaterThan(0);
+      expect(keyframes.flat().some((frame) => "clipPath" in frame)).toBe(false);
+    } finally {
+      Reflect.set(document, "createElement", create);
+      FakeElement.prototype.animate = animate;
+      Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+    }
+  });
+
+  test("turns a device in view, case and page as one, and draws it the other way once there", () => {
+    apply(KNOBS);
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    // Less movement asked for, so the phone comes up at once.
+    let reduce = true;
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: reduce, media: query }));
+    const frames: FrameRequestCallback[] = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+    const phone = { ...KNOBS, mock: false, device: "iphone-16-pro", width: 402, height: 874 } as const;
+    try {
+      apply(phone);
+      frames.splice(0);
+      reduce = false;
+      const unit = everything().find((element) => Reflect.get(element, "className") === "screen");
+      const back = everything().find((element) => Reflect.get(element, "className") === "back");
+      const frame = frameElement();
+      expect(Reflect.get(frame.style, "width")).toBe("402px");
+      apply({ ...phone, orientation: "landscape", width: 874, height: 402 });
+      const glass = everything().find((element) => Reflect.get(element, "className") === "glass");
+      const cover = glass?.children.at(-1);
+      expect(cover?.getAttribute("class") ?? Reflect.get(cover ?? {}, "className")).toBe("screenblank");
+      const seen: string[] = [];
+      const covers: number[] = [];
+      for (let now = 0; now <= MORPH_TIME.turn + 40; now += 40) {
+        for (const callback of frames.splice(0)) callback(now);
+        seen.push(String(Reflect.get(unit?.style ?? {}, "transform")));
+        covers.push(Number(Reflect.get(cover?.style ?? {}, "opacity") || 0));
+        expect(Reflect.get(cover?.style ?? {}, "backdropFilter") || "").toBe("");
+        if (now < MORPH_TIME.turn) {
+          // Held the old way all through the turn, in view, the mat whole behind it.
+          expect(Reflect.get(frame.style, "width")).toBe("402px");
+          expect(Reflect.get(back?.style ?? {}, "clipPath") || "").toBe("");
+        }
+      }
+      // The page goes dark in the turn's last part, a black cover over it, and is laid out the other way unseen.
+      expect(covers[1]).toBe(0);
+      expect(covers.at(-1)).toBe(1);
+      expect(Reflect.get(cover?.style ?? {}, "background")).toBe("#000");
+      for (let now = 0; now <= MORPH_TIME.uncover + 160; now += 40) {
+        for (const callback of frames.splice(0)) callback(MORPH_TIME.turn + 80 + now);
+      }
+      expect(Reflect.get(cover ?? {}, "hidden")).toBe(true);
+      expect(Reflect.get(cover?.style ?? {}, "opacity")).toBe("");
+      expect(Reflect.get(cover?.style ?? {}, "background")).toBe("");
+      expect(seen[1]).toMatch(/rotate\(-\d+(\.\d+)?deg\)/);
+      // Once there, it is drawn held across, its own transform no more than its scale.
+      expect(Number.parseFloat(Reflect.get(frame.style, "width"))).toBeGreaterThan(700);
+      expect(seen.at(-1)).not.toContain("rotate");
+    } finally {
+      Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+    }
   });
 
   test("offers fit, the presets and a zoom of the wheel's own, and stores a pick", () => {
@@ -751,6 +1102,228 @@ describe("the frame over the page", () => {
     apply(KNOBS);
     expect(assigned).toEqual([]);
     expect(location.href).toBe(EARLIER);
+  });
+});
+
+describe("a foldable folding", () => {
+  const DUO = { ...KNOBS, device: "iphone-duo", dpr: "system", browser: "off" } as const;
+  const SHUT = { ...DUO, posture: "closed", orientation: "portrait", width: 466, height: 678 } as const;
+  const OPEN = { ...DUO, posture: "open", orientation: "landscape", width: 951, height: 669 } as const;
+  let frames: FrameRequestCallback[] = [];
+  let reduce = true;
+
+  beforeEach(() => {
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    reduce = true;
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: reduce, media: query }));
+    frames = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+  });
+
+  const byClass = (name: string) =>
+    everything().find((element) => String(Reflect.get(element, "className")).split(" ").includes(name));
+
+  /** How the device is drawn: the frame's size, the screen's corners and place, the body. */
+  function drawnAs(): string[] {
+    const style = (name: string, key: string) => String(Reflect.get(byClass(name)?.style ?? {}, key) ?? "");
+    return [
+      style("glass", "borderRadius"),
+      style("glass", "left"),
+      style("glass", "top"),
+      style("screen", "left"),
+      style("screen", "top"),
+      style("screen", "transform"),
+      String(Reflect.get(frameElement().style, "width")),
+      String(Reflect.get(frameElement().style, "height")),
+      byClass("mock")?.getAttribute("viewBox") ?? "",
+    ];
+  }
+
+  /** Run the frames asked for, 16 ms apart, until none is asked for or `until` ms. */
+  function play(until = 2000): void {
+    for (let now = 0; now <= until && frames.length > 0; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+  }
+
+  /** How the device is drawn for `value` when it comes up that way. */
+  function shown(value: typeof SHUT | typeof OPEN): string[] {
+    apply(value);
+    const drawn = drawnAs();
+    reset();
+    return drawn;
+  }
+
+  test("folds open in view onto the open screen as it is drawn picked open, and shut onto the folded one", () => {
+    const open = shown(OPEN);
+    const shut = shown(SHUT);
+    expect(open[0]).toBe("55px 55px 55px 55px");
+    expect(shut[0]).toBe("8px 59px 59px 8px");
+    apply(SHUT);
+    expect(drawnAs()).toEqual(shut);
+    reduce = false;
+    apply(OPEN);
+    // Live and shut for the first of the way, a copy of the half that turns fading in over it, then
+    // laid out open, the half that stays live under a dim, the copy turning over it.
+    const style = (name: string, key: string) => String(Reflect.get(byClass(name)?.style ?? {}, key) ?? "");
+    // Each side of the half that turns is its body, the window onto the page its screen is, and the shade over
+    // it, then the bend's half on the half that stays.
+    const leaves = () => byClass("fold")?.children[0]?.children ?? [];
+    expect(Reflect.get(frameElement().style, "width")).toBe("466px");
+    expect(leaves()).toHaveLength(7);
+    // Its body whole, only its screen faded, so nothing behind the device shows through.
+    expect(Reflect.get(leaves()[3]?.style ?? {}, "opacity") || "").toBe("");
+    expect(Reflect.get(leaves()[3]?.children[0]?.style ?? {}, "opacity")).toBe("0");
+    expect(String(Reflect.get(leaves()[3]?.style ?? {}, "transform"))).toEndWith("rotateY(0deg)");
+    // It moves on the first frame after the click.
+    for (const callback of frames.splice(0)) callback(1000);
+    expect(String(Reflect.get(leaves()[3]?.style ?? {}, "transform"))).toMatch(/rotateY\(-\d+(\.\d+)?deg\)/);
+    for (let now = 1016; now < 1200; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    expect(Reflect.get(frameElement().style, "width")).toBe("951px");
+    expect(style("screen", "visibility")).toBe("");
+    expect(style("screen", "clipPath")).toStartWith("polygon(");
+    expect(style("screen", "transform")).toStartWith("translate(");
+    expect(style("screen", "filter")).toBe("");
+    const cover = byClass("glass")?.children.at(-1);
+    expect(Reflect.get(cover ?? {}, "hidden")).toBe(false);
+    expect(Reflect.get(cover?.style ?? {}, "background")).toBe("#000");
+    expect(Number(Reflect.get(cover?.style ?? {}, "opacity"))).toBeGreaterThan(0);
+    expect(Reflect.get(cover?.style ?? {}, "backdropFilter") || "").toBe("");
+    expect(style("back", "clipPath")).toBe("");
+    play();
+    // Nothing left at rest: no layer, clip, transform of its own, dim or filter.
+    expect(byClass("fold")).toBeUndefined();
+    expect(drawnAs()).toEqual(open);
+    expect(style("screen", "clipPath")).toBe("");
+    expect(Reflect.get(cover ?? {}, "hidden")).toBe(true);
+    expect(Reflect.get(cover?.style ?? {}, "opacity")).toBe("");
+    expect(Reflect.get(cover?.style ?? {}, "background")).toBe("");
+    // Shutting, it stays laid out open, live, till the last of the way, where the copy hands over.
+    apply(SHUT);
+    const widths: string[] = [];
+    let handing = false;
+    for (let now = 0; now <= 2000 && byClass("fold"); now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+      widths.push(String(Reflect.get(frameElement().style, "width")));
+      const fading = Number(Reflect.get(leaves()[3]?.children[0]?.style ?? {}, "opacity") || 1);
+      if (byClass("fold") && widths.at(-1) === "466px" && fading < 1) handing = true;
+    }
+    expect(widths.slice(0, 20).every((width) => width === "951px")).toBe(true);
+    expect(handing).toBe(true);
+    // Shut, sharp and lit, in under half a second.
+    expect(widths.length * 16).toBeLessThan(520);
+    expect(byClass("fold")).toBeUndefined();
+    expect(drawnAs()).toEqual(shut);
+  });
+
+  test("never lets the mat show inside the device: whole bodies, each screen's own corners, start to end", () => {
+    const open = shown(OPEN);
+    const shut = shown(SHUT);
+    apply(SHUT);
+    reduce = false;
+    for (const [to, end] of [
+      [OPEN, open],
+      [SHUT, shut],
+    ] as const) {
+      apply(to);
+      let seen = 0;
+      for (let now = 0; now <= 2000 && byClass("fold"); now += 16) {
+        const leaves = byClass("fold")?.children[0]?.children ?? [];
+        const [inner, , , outer] = leaves;
+        // Neither copy of the half that turns is ever see-through, only its screen fades.
+        expect(Reflect.get(inner?.style ?? {}, "opacity") || "").toBe("");
+        expect(Reflect.get(outer?.style ?? {}, "opacity") || "").toBe("");
+        expect(Reflect.get(inner?.children[0]?.style ?? {}, "borderRadius")).toBe(open[0]);
+        expect(Reflect.get(outer?.children[0]?.style ?? {}, "borderRadius")).toBe(shut[0]);
+        // The pictures each window shows are rounded as their screen, the window cut with true curves, and
+        // the shade over the turned screen rounded as it is, square only at the hinge.
+        const [, innerWindow, innerVeil, , outerWindow, outerVeil] = leaves;
+        expect(Reflect.get(innerWindow?.children[1]?.style ?? {}, "borderRadius")).toBe(open[0]);
+        expect(Reflect.get(outerWindow?.children[1]?.style ?? {}, "borderRadius")).toBe(shut[0]);
+        expect(Reflect.get(innerVeil?.children[0]?.style ?? {}, "borderRadius")).toBe("55px 0px 0px 55px");
+        expect(Reflect.get(outerVeil?.children[0]?.style ?? {}, "borderRadius")).toBe(shut[0]);
+        for (const window of [innerWindow, outerWindow]) {
+          const clip = String(Reflect.get(window?.style ?? {}, "clipPath") ?? "");
+          if (Reflect.get(window?.style ?? {}, "visibility") !== "hidden") expect(clip).toStartWith('path("M');
+        }
+        // The device itself is drawn whole and opaque, its screen with its own corners, the mat uncut.
+        const glass = String(Reflect.get(byClass("glass")?.style ?? {}, "borderRadius"));
+        expect([open[0], shut[0]]).toContain(glass);
+        expect(Reflect.get(byClass("screen")?.style ?? {}, "visibility") || "").toBe("");
+        expect(Reflect.get(byClass("screen")?.style ?? {}, "opacity") || "").toBe("");
+        expect(Reflect.get(byClass("back")?.style ?? {}, "clipPath") || "").toBe("");
+        for (const callback of frames.splice(0)) callback(now);
+        seen++;
+      }
+      expect(seen).toBeGreaterThan(20);
+      expect(drawnAs()).toEqual(end);
+    }
+  });
+
+  test("folds back from where it got to, and lands at once for a turn", () => {
+    const shut = shown(SHUT);
+    apply(SHUT);
+    reduce = false;
+    apply(OPEN);
+    for (let now = 0; now < 250; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    expect(byClass("fold")).toBeDefined();
+    apply(SHUT);
+    play();
+    expect(byClass("fold")).toBeUndefined();
+    expect(drawnAs()).toEqual(shut);
+    apply(OPEN);
+    for (let now = 0; now < 250; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    // A turn while it folds lands the fold, and turns from there.
+    apply({ ...OPEN, orientation: "portrait", width: 669, height: 951 });
+    expect(byClass("fold")).toBeUndefined();
+    expect(Reflect.get(byClass("screen")?.style ?? {}, "clipPath")).toBe("");
+    expect(Reflect.get(frameElement().style, "width")).toBe("951px");
+    play();
+    expect(Reflect.get(frameElement().style, "width")).toBe("669px");
+  });
+
+  test("turns in either posture", () => {
+    apply(OPEN);
+    reduce = false;
+    apply({ ...OPEN, orientation: "portrait", width: 669, height: 951 });
+    expect(byClass("fold")).toBeUndefined();
+    play();
+    expect(Reflect.get(frameElement().style, "width")).toBe("669px");
+    apply({ ...SHUT, orientation: "landscape", width: 678, height: 466 });
+    play();
+    expect(Reflect.get(frameElement().style, "width")).toBe("678px");
+  });
+
+  test("leaves nothing behind when the frame goes mid fold, and swaps at once with less movement", () => {
+    apply(SHUT);
+    reduce = false;
+    apply(OPEN);
+    for (let now = 0; now < 250; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    reset();
+    expect(everything().some((element) => Reflect.get(element, "className") === "fold")).toBe(false);
+    frames.splice(0);
+    reduce = true;
+    apply(SHUT);
+    apply(OPEN);
+    expect(byClass("fold")).toBeUndefined();
+    expect(Reflect.get(frameElement().style, "width")).toBe("951px");
   });
 });
 
@@ -945,5 +1518,95 @@ describe("a new identity", () => {
     await load(PAGE);
     await Bun.sleep(5);
     expect(reloads).toBe(1);
+  });
+});
+
+describe("the drawn browser's reload button", () => {
+  /** The frames asked for, by id, which `frames` runs. */
+  let queued: Map<number, () => void>;
+  let ids: number;
+
+  beforeEach(() => {
+    queued = new Map();
+    ids = 0;
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "", transform: "none" }));
+    Object.assign(window, {
+      // Reduced motion, so the bars draw with no animation the fakes cannot run.
+      matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
+      requestAnimationFrame: (callback: () => void) => {
+        queued.set(++ids, callback);
+        return ids;
+      },
+      cancelAnimationFrame: (id: number) => queued.delete(id),
+    });
+  });
+
+  /** Run `count` frames, each with what was asked for before it. */
+  function frames(count: number): void {
+    for (let i = 0; i < count; i++) {
+      const due = [...queued.values()];
+      queued.clear();
+      for (const callback of due) callback();
+    }
+  }
+
+  /** The page in the frame has loaded all of itself. */
+  function complete(): void {
+    Reflect.set(view.document, "readyState", "complete");
+  }
+
+  function blank(): FakeElement {
+    const found = everything().find((element) => Reflect.get(element, "className") === "screenblank");
+    if (!found) throw new Error("no blank screen");
+    return found;
+  }
+
+  /**
+   * The one glyph that does anything on a fresh page: reload, or stop while it
+   * loads. The fakes have no `isConnected`, so the bars' layer is in twice.
+   */
+  function reloadGlyph(): FakeElement {
+    const pressable = new Set(everything().filter((element) => element.classList.contains("press")));
+    const [glyph, ...rest] = pressable;
+    if (!glyph || rest.length > 0) throw new Error("no reload glyph");
+    return glyph;
+  }
+
+  async function framePhone(): Promise<void> {
+    apply(merge(DEFAULT_STATE, { device: "iphone-16-pro", dpr: "system" }));
+    await load(FRAMED);
+    complete();
+    frames(2);
+    expect(Reflect.get(blank(), "hidden")).toBe(true);
+  }
+
+  test("keeps the screen blank until the reloaded page takes the old one's place", async () => {
+    await framePhone();
+    reloadGlyph().dispatchEvent(new Event("click"));
+    expect(reloads).toBe(1);
+    expect(Reflect.get(blank(), "hidden")).toBe(false);
+    // The old page is still there, loaded, while the new one is on its way.
+    frames(3);
+    expect(Reflect.get(blank(), "hidden")).toBe(false);
+    view.commit(FRAMED);
+    complete();
+    frames(1);
+    expect(Reflect.get(blank(), "hidden")).toBe(true);
+  });
+
+  test("is Safari's stop while the page loads, which shows the page as far as it got", async () => {
+    await framePhone();
+    const glyph = reloadGlyph();
+    const drawn = glyph.children.length;
+    glyph.dispatchEvent(new Event("click"));
+    expect(glyph.children.length).not.toBe(drawn);
+    glyph.dispatchEvent(new Event("click"));
+    expect(reloads).toBe(1);
+    expect(stops).toBe(1);
+    expect(Reflect.get(blank(), "hidden")).toBe(true);
+    expect(glyph.children.length).toBe(drawn);
+    glyph.dispatchEvent(new Event("click"));
+    expect(reloads).toBe(2);
   });
 });

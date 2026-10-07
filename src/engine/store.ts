@@ -10,20 +10,58 @@ import type {
   EdgeValue,
   GeoErrorValue,
   GrabColorValue,
+  MatColorValue,
   MotionValue,
   OnlineValue,
   OrientationValue,
+  PanelValue,
   SaveDataValue,
   SchemeValue,
+  SideValue,
   TransparencyValue,
   VisionValue,
 } from "../types";
 import { mergeClock } from "./clock";
-import { deviceOf, hold, settle } from "./devices";
+import { deviceOf, formParent, hold, POSTURES, settle } from "./devices";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
+import { newer, stamped } from "./stored";
 import { clampZoom } from "./zoom";
 
 export const STORAGE_KEY = "devknobs";
+
+/** The version of the state `STORAGE_KEY` keeps. Bump it with a change of shape, see stored.ts. */
+export const STATE_VERSION = 1;
+
+/**
+ * Where the panel's place is kept beside the session, in `localStorage`, so
+ * a new tab or session starts with the panel where the user last put it.
+ */
+export const PLACE_KEY = "devknobs:place";
+
+/** The version of the place `PLACE_KEY` keeps. Bump it with a change of shape, see stored.ts. */
+export const PLACE_VERSION = 1;
+
+/** What of the panel outlives the session: its side and where it sits on it. */
+export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">;
+
+/**
+ * The rows a fresh panel lists, in the order they stand: the device, the
+ * scheme, the text size and the locale.
+ */
+export const DEFAULT_PINNED: readonly string[] = ["device", "scheme", "text", "locale"];
+
+/**
+ * Rows an older version had, by the row their knobs live in now. The old
+ * viewport row keeps its id: its width, dpr, zoom and frame are the viewport
+ * row still, and its device shows in the device row while one is set.
+ */
+const MOVED_ROWS = new Map([
+  ["speed", "motion"],
+  ["pseudo", "locale"],
+  ["timeZone", "clock"],
+  ["ua", "device"],
+  ["grabColor", "debug"],
+]);
 
 export const DEFAULT_STATE: DevknobsState = {
   scheme: "system",
@@ -52,6 +90,7 @@ export const DEFAULT_STATE: DevknobsState = {
   height: "full",
   device: "none",
   orientation: "portrait",
+  posture: "closed",
   mock: true,
   touchPointer: true,
   browser: "auto",
@@ -60,13 +99,22 @@ export const DEFAULT_STATE: DevknobsState = {
   frame: false,
   dpr: "system",
   zoom: "fit",
+  mat: "blue",
   vision: "none",
   ua: { preset: "system", custom: "" },
   overflow: false,
   outlines: false,
   grabColor: "auto",
   // Closed, the handle alone, until the user opens it.
-  panel: { open: false, y: 16, top: 16, edge: "none", tab: "none", pinned: [] },
+  panel: {
+    open: false,
+    side: "right",
+    y: 16,
+    top: 16,
+    edge: "none",
+    tab: "none",
+    pinned: [...DEFAULT_PINNED],
+  },
 };
 
 const SCHEMES: SchemeValue[] = ["light", "dark", "system"];
@@ -83,6 +131,7 @@ const BARS: BarsValue[] = ["auto", "expanded", "minimized"];
 const BROWSERS: BrowserValue[] = ["auto", "compact", "bottom", "top", "off"];
 const ORIENTATIONS: OrientationValue[] = ["portrait", "landscape"];
 const EDGES: EdgeValue[] = ["top", "bottom", "none"];
+const SIDES: SideValue[] = ["left", "right"];
 const VISIONS: VisionValue[] = [
   "none",
   "protanopia",
@@ -91,6 +140,8 @@ const VISIONS: VisionValue[] = [
   "achromatopsia",
   "blur",
 ];
+
+const MAT_COLORS: MatColorValue[] = ["blue", "green", "magenta", "purple", "red", "graphite"];
 
 const GRAB_COLORS: GrabColorValue[] = [
   "auto",
@@ -134,31 +185,73 @@ function rate(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-/** The strings of a list, each once. Anything but a list reads as an empty one. */
-function strings(value: unknown): string[] {
+/**
+ * The row ids of a stored list, a moved row under its row of today, each
+ * once. Anything but a list reads as an empty one.
+ */
+function rowIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.filter((item): item is string => typeof item === "string")));
+  const ids = value.filter((item): item is string => typeof item === "string");
+  return Array.from(new Set(ids.map((id) => MOVED_ROWS.get(id) ?? id)));
 }
 
-/** Read a stored state, falling back to the defaults field by field. */
-export function parse(json: string | null | undefined): DevknobsState {
-  if (!json) return { ...DEFAULT_STATE };
-  let raw: unknown;
+/**
+ * Stored json as a value, or null where there is none, it does not read, or
+ * a newer devknobs than one at `version` kept it.
+ */
+function read(json: string | null | undefined, version: number): unknown {
+  if (!json) return null;
   try {
-    raw = JSON.parse(json);
+    const value: unknown = JSON.parse(json);
+    return newer(value, version) ? null : value;
   } catch {
-    return { ...DEFAULT_STATE };
+    return null;
   }
-  if (typeof raw !== "object" || raw === null) return { ...DEFAULT_STATE };
-  const state = raw as Record<string, unknown>;
+}
+
+/**
+ * The place fields of a stored panel, each one that is not valid taken from
+ * `fallback`. One stored before the panel had a top of its own only has `y`,
+ * and one stored before it had sides lives on the right, unless `fallback`
+ * says otherwise.
+ */
+function placeOf(value: unknown, fallback: PanelPlace): PanelPlace {
+  const panel = record(value);
+  return {
+    side: oneOf(panel.side, SIDES, fallback.side),
+    y: num(panel.y, fallback.y),
+    top: num(panel.top, num(panel.y, fallback.top)),
+    // One stored before the panel stuck to edges sticks to none, until the
+    // panel next lays itself out and finds the edges it sits flush with.
+    edge: oneOf(panel.edge, EDGES, fallback.edge),
+    tab: oneOf(panel.tab, EDGES, fallback.tab),
+  };
+}
+
+/** The place of a state's panel, as `PLACE_KEY` keeps it. */
+export function placeText(state: DevknobsState): string {
+  const { side, y, top, edge, tab } = state.panel;
+  return JSON.stringify(stamped({ side, y, top, edge, tab }, PLACE_VERSION));
+}
+
+/**
+ * Read a stored state, falling back to the defaults field by field. The
+ * panel's place falls back to `place`, the one kept across sessions, before
+ * the defaults, so the session's own place wins where it has one.
+ */
+export function parse(json: string | null | undefined, place?: string | null): DevknobsState {
+  const home = placeOf(read(place, PLACE_VERSION), DEFAULT_STATE.panel);
+  const state = record(read(json, STATE_VERSION));
   const locale = record(state.locale);
   const geo = record(state.geo);
   const clock = record(state.clock);
   const network = record(state.network);
   const ua = record(state.ua);
   const panel = record(state.panel);
-  const panelY = num(panel.y, DEFAULT_STATE.panel.y);
   const device = text(state.device, DEFAULT_STATE.device);
+  // A session stored when each of a foldable's screens was a device of its own
+  // has that foldable, standing the way the screen does.
+  const folded = formParent(device);
   const zoom = numberOr(state.zoom, "fit", DEFAULT_STATE.zoom);
   return {
     scheme: oneOf(state.scheme, SCHEMES, DEFAULT_STATE.scheme),
@@ -200,8 +293,9 @@ export function parse(json: string | null | undefined): DevknobsState {
     spacing: bool(state.spacing, DEFAULT_STATE.spacing),
     width: numberOr(state.width, "full", DEFAULT_STATE.width),
     height: numberOr(state.height, "full", DEFAULT_STATE.height),
-    device: deviceOf(device) ? device : DEFAULT_STATE.device,
+    device: folded?.device ?? (deviceOf(device) ? device : DEFAULT_STATE.device),
     orientation: oneOf(state.orientation, ORIENTATIONS, DEFAULT_STATE.orientation),
+    posture: folded?.posture ?? oneOf(state.posture, [...POSTURES], DEFAULT_STATE.posture),
     // A session stored before the mock draws one.
     mock: bool(state.mock, DEFAULT_STATE.mock),
     // A session stored before the touch pointer has the mouse act as a finger.
@@ -216,6 +310,8 @@ export function parse(json: string | null | undefined): DevknobsState {
     dpr: numberOr(state.dpr, "system", DEFAULT_STATE.dpr),
     // A session stored before the zoom knob fits the frame, as it did then.
     zoom: zoom === "fit" ? zoom : clampZoom(zoom),
+    // A session stored before the mat had colors lies on the blue one.
+    mat: oneOf(state.mat, MAT_COLORS, DEFAULT_STATE.mat),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
     ua: {
       preset: text(ua.preset, DEFAULT_STATE.ua.preset),
@@ -227,25 +323,21 @@ export function parse(json: string | null | undefined): DevknobsState {
     grabColor: oneOf(state.grabColor, GRAB_COLORS, DEFAULT_STATE.grabColor),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),
-      y: panelY,
-      // A session stored before the panel had a place of its own only has `y`.
-      top: num(panel.top, panelY),
-      // One stored before the panel stuck to edges sticks to none, until the
-      // panel next lays itself out and finds the edges it sits flush with.
-      edge: oneOf(panel.edge, EDGES, DEFAULT_STATE.panel.edge),
-      tab: oneOf(panel.tab, EDGES, DEFAULT_STATE.panel.tab),
-      // One stored before rows stayed listed has none pinned.
-      pinned: strings(panel.pinned),
+      ...placeOf(panel, home),
+      // A stored panel keeps its list as it is, an empty one too, and one stored
+      // before rows stayed listed has none pinned. With no panel stored, a
+      // fresh session, the default rows are listed.
+      pinned: state.panel === undefined ? [...DEFAULT_PINNED] : rowIds(panel.pinned),
     },
   };
 }
 
 /**
- * What reset all leaves: every knob at its default and no row pinned, with
- * the panel where it is.
+ * What reset all leaves: every knob at its default and the default rows
+ * listed, with the panel where it is.
  */
 export function resetState(state: DevknobsState): DevknobsState {
-  return { ...DEFAULT_STATE, panel: { ...state.panel, pinned: [] } };
+  return { ...DEFAULT_STATE, panel: { ...state.panel, pinned: [...DEFAULT_PINNED] } };
 }
 
 /**
@@ -267,26 +359,44 @@ export function merge(state: DevknobsState, patch: DevknobsStatePatch): Devknobs
   });
 }
 
-function storage(): Storage | null {
+function storage(kind: "session" | "local"): Storage | null {
   try {
-    return window.sessionStorage;
+    return kind === "session" ? window.sessionStorage : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Either storage's value under a key, or null where it cannot be read. */
+function item(kind: "session" | "local", key: string): string | null {
+  try {
+    return storage(kind)?.getItem(key) ?? null;
   } catch {
     return null;
   }
 }
 
 export function load(): DevknobsState {
-  try {
-    return parse(storage()?.getItem(STORAGE_KEY));
-  } catch {
-    return { ...DEFAULT_STATE };
-  }
+  return parse(item("session", STORAGE_KEY), item("local", PLACE_KEY));
 }
 
 export function save(state: DevknobsState): void {
   try {
-    storage()?.setItem(STORAGE_KEY, JSON.stringify(state));
+    storage("session")?.setItem(STORAGE_KEY, JSON.stringify(stamped(state, STATE_VERSION)));
   } catch {
     // Private mode, disabled storage: knobs still work, they just do not stick.
+  }
+}
+
+/**
+ * Keep the panel's place across sessions. Only a move the user makes writes
+ * it, so a tab that merely lays the panel out again leaves the place another
+ * tab put there alone.
+ */
+export function keepPlace(state: DevknobsState): void {
+  try {
+    storage("local")?.setItem(PLACE_KEY, placeText(state));
+  } catch {
+    // The same: the panel just starts on the right in a new session.
   }
 }

@@ -1,7 +1,7 @@
 import { getState, subscribe } from "../engine";
 import { baseMatchMedia } from "../engine/matchmedia";
 import { GRAB_COLOR_NAMES, GRAB_COLORS, grabColor } from "./colors";
-import { createThemeReader, type GrabTone, invertTheme } from "./theme";
+import { createThemeReader, type GrabTone, invertTheme, type Theme } from "./theme";
 
 /** Over everything, the panel too. It never takes a pointer. */
 const Z_INDEX = 2147483647;
@@ -25,7 +25,7 @@ const SNAP = 0.5;
 /** How long the box and the label take to fade, in ms. */
 const FADE = 125;
 /** How long the box waits on its element once nothing is under the pointer, in ms. */
-const HIDE_WAIT = 100;
+export const HIDE_WAIT = 100;
 /** How often the bounds are read again, to catch the page's layout moving, in ms. */
 const SYNC_EVERY = 100;
 /** How long the toast stays, and the box with it, in ms. */
@@ -34,6 +34,11 @@ export const TOAST_TIME = 1500;
 const TOAST_FADE = 100;
 /** The most the label is wide, in px. Longer text is cut short. */
 const MAX_WIDTH = 280;
+
+/** How solid two layers of one color are, the first over the second, each in percent. */
+function over(top: number, under: number): number {
+  return 100 - ((100 - top) * (100 - under)) / 100;
+}
 
 function colorRules(gamut: "srgb" | "p3"): string {
   return GRAB_COLOR_NAMES.map(
@@ -52,6 +57,7 @@ const CSS = `
   position: fixed;
   inset: 0;
   overflow: hidden;
+  contain: strict;
   pointer-events: none;
   direction: ltr;
   --grab: ${GRAB_COLORS.blue.srgb};
@@ -73,30 +79,67 @@ ${colorRules("p3")}
   transition: opacity ${FADE}ms ease-out, box-shadow ${FADE}ms ease-out;
 }
 .glow.on { opacity: 1; }
+.glide, .part {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.fills > .part, .lines > .part {
+  width: var(--unit);
+  height: var(--unit);
+  background-color: currentColor;
+}
 .box {
+  opacity: 0;
+  will-change: opacity;
+  --line: color-mix(in srgb, var(--grab) 50%, transparent);
+  --fill: color-mix(in srgb, var(--grab) 8%, transparent);
+  --edge: color-mix(in srgb, var(--grab) ${over(50, 8)}%, transparent);
+  transition: opacity ${FADE}ms ease-out;
+}
+.box.on { opacity: 1; }
+.box.copied {
+  --line: color-mix(in srgb, var(--grab) 60%, transparent);
+  --fill: color-mix(in srgb, var(--grab) 20%, transparent);
+  --edge: color-mix(in srgb, var(--grab) ${over(60, 20)}%, transparent);
+}
+.fills, .lines, .corners { transition: color ${FADE}ms ease-out; }
+.fills { color: var(--fill); }
+.lines { color: var(--edge); }
+.corners { color: var(--line); }
+.corner {
+  box-sizing: border-box;
+  width: var(--corner-width);
+  height: var(--corner-height);
+  border: 0 solid;
+  background-color: var(--fill);
+  transition: background-color ${FADE}ms ease-out;
+}
+.top > .corner { border-top-width: 1px; }
+.bottom > .corner { border-bottom-width: 1px; }
+.left > .corner { border-left-width: 1px; }
+.right > .corner { border-right-width: 1px; }
+.top.left > .corner { border-top-left-radius: var(--corner-radius); }
+.top.right > .corner { border-top-right-radius: var(--corner-radius); }
+.bottom.left > .corner { border-bottom-left-radius: var(--corner-radius); }
+.bottom.right > .corner { border-bottom-right-radius: var(--corner-radius); }
+.pick {
   position: absolute;
   top: 0;
   left: 0;
   box-sizing: border-box;
-  opacity: 0;
-  border: 1px solid color-mix(in srgb, var(--grab) 50%, transparent);
+  will-change: transform;
+  border: 1px solid color-mix(in srgb, var(--grab) 30%, transparent);
   border-radius: ${MIN_RADIUS}px;
-  background: color-mix(in srgb, var(--grab) 8%, transparent);
-  transition:
-    opacity ${FADE}ms ease-out,
-    border-color ${FADE}ms ease-out,
-    background-color ${FADE}ms ease-out;
-}
-.box.on { opacity: 1; }
-.box.copied {
-  border-color: color-mix(in srgb, var(--grab) 60%, transparent);
-  background: color-mix(in srgb, var(--grab) 20%, transparent);
-}
-.box.pick {
-  opacity: 1;
-  border-color: color-mix(in srgb, var(--grab) 30%, transparent);
   background: color-mix(in srgb, var(--grab) 5%, transparent);
   transition: border-color ${FADE}ms ease-out, background-color ${FADE}ms ease-out;
+}
+.tip {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
 }
 .pill {
   position: absolute;
@@ -204,6 +247,88 @@ export function boxRadius(radius: number, width: number, height: number): number
   return Math.max(MIN_RADIUS, Math.min(radius, Math.min(width, height) / 2));
 }
 
+/** The corners of the box that move. The top left one stays where the box is. */
+const CORNERS = ["top right", "bottom left", "bottom right"] as const;
+/** The lines along the sides of the box. */
+const LINES = ["top", "bottom", "left", "right"] as const;
+/** The fill of the box: between the corners from top to bottom, and at each side of that. */
+const FILLS = ["middle", "west", "east"] as const;
+
+/** A piece of the box that is moved, and stretched where it is not a corner. */
+export type Piece = (typeof CORNERS | typeof LINES | typeof FILLS)[number];
+
+/**
+ * What the box is drawn with: where it is, the px in a device pixel, the size
+ * of its corners, and each piece's transform.
+ */
+export interface BoxParts {
+  at: string;
+  unit: number;
+  corner: { width: number; height: number; radius: number };
+  pieces: Record<Piece, string>;
+}
+
+/** A length on whole device pixels, `ratio` of them to a px. */
+export function snap(value: number, ratio: number): number {
+  return Math.round(value * ratio) / ratio;
+}
+
+/** A shape with its sides on whole device pixels: x, y, width and height. */
+function onPixels(shape: readonly number[], ratio: number): [number, number, number, number] {
+  const [x = 0, y = 0, width = 0, height = 0] = shape;
+  const left = snap(x, ratio);
+  const top = snap(y, ratio);
+  return [left, top, snap(x + width, ratio) - left, snap(y + height, ratio) - top];
+}
+
+/**
+ * The box in pieces that only ever take a transform, so a glide is laid out
+ * and painted by nobody: a corner in each corner, a line along each side, and
+ * the fill between them in three. The corners keep their size and only move.
+ * The lines and the fills are one device pixel of one color, stretched by
+ * whole ones: the browser puts a box on device pixels before it scales it, so
+ * one px stretched leaves gaps where a px is not a whole number of them. No
+ * two pieces overlap, and every side is on a whole device pixel, so they meet
+ * with no seam. The radius is not the shape's own, which is on its way: each
+ * new one paints the corners again, so the box takes its element's at once.
+ */
+export function boxParts(shape: readonly number[], radius: number, ratio: number): BoxParts {
+  const [x, y, wide, tall] = onPixels(shape, ratio);
+  // A border is whole device pixels wide, and at least one.
+  const line = Math.max(1, Math.floor(ratio)) / ratio;
+  const width = Math.max(wide, 2 * line);
+  const height = Math.max(tall, 2 * line);
+  const round = Math.min(radius, width / 2, height / 2);
+  const reach = Math.max(Math.ceil(round * ratio - 1e-6) / ratio, line);
+  const cornerWidth = Math.min(reach, Math.floor((width / 2) * ratio + 1e-6) / ratio);
+  const cornerHeight = Math.min(reach, Math.floor((height / 2) * ratio + 1e-6) / ratio);
+  const right = width - cornerWidth;
+  const bottom = height - cornerHeight;
+  const acrossBy = width - 2 * cornerWidth;
+  const downBy = height - 2 * cornerHeight;
+  const sideBy = cornerWidth - line;
+  const whole = (length: number) => Math.round(length * ratio);
+  const part = (left: number, top: number, across: number, down: number) =>
+    `translate(${left}px, ${top}px) scale(${whole(across)}, ${whole(down)})`;
+  return {
+    at: `translate(${x}px, ${y}px)`,
+    unit: 1 / ratio,
+    corner: { width: cornerWidth, height: cornerHeight, radius: round },
+    pieces: {
+      "top right": `translate(${right}px, 0px)`,
+      "bottom left": `translate(0px, ${bottom}px)`,
+      "bottom right": `translate(${right}px, ${bottom}px)`,
+      top: part(cornerWidth, 0, acrossBy, line),
+      bottom: part(cornerWidth, height - line, acrossBy, line),
+      left: part(0, cornerHeight, line, downBy),
+      right: part(width - line, cornerHeight, line, downBy),
+      middle: part(cornerWidth, line, acrossBy, height - 2 * line),
+      west: part(line, cornerHeight, sideBy, downBy),
+      east: part(right, cornerHeight, sideBy, downBy),
+    },
+  };
+}
+
 export interface Overlay {
   /**
    * Box the current element, with its label, and every gathered one lighter.
@@ -250,11 +375,27 @@ function checkIcon(): SVGSVGElement {
   return icon;
 }
 
-function place(node: HTMLElement, [x, y, width, height, radius]: readonly number[]): void {
-  node.style.transform = `translate(${x}px, ${y}px)`;
-  node.style.width = `${width}px`;
-  node.style.height = `${height}px`;
-  node.style.borderRadius = `${radius}px`;
+const written = new WeakMap<HTMLElement, Map<string, string>>();
+
+/** Set a style only where it changed, so a frame that moves nothing costs nothing. */
+function write(node: HTMLElement, name: string, value: string): void {
+  let styles = written.get(node);
+  if (!styles) {
+    styles = new Map();
+    written.set(node, styles);
+  }
+  if (styles.get(name) === value) return;
+  styles.set(name, value);
+  node.style.setProperty(name, value);
+}
+
+/** Put a gathered box on its element. One that only moved takes a transform and no more. */
+function place(node: HTMLElement, shape: readonly number[], ratio: number): void {
+  const [x, y, width, height] = onPixels(shape, ratio);
+  write(node, "transform", `translate(${x}px, ${y}px)`);
+  write(node, "width", `${width}px`);
+  write(node, "height", `${height}px`);
+  write(node, "border-radius", `${shape[4] ?? 0}px`);
 }
 
 /** The layer grab draws on, in a shadow root of its own on this document. */
@@ -269,32 +410,72 @@ export function createOverlay(): Overlay {
   layer.className = "layer";
   const glow = document.createElement("div");
   glow.className = "glow";
+  const glide = document.createElement("div");
+  glide.className = "glide";
   const box = document.createElement("div");
   box.className = "box";
+  glide.append(box);
+  /**
+   * The pieces, each kind in a group that gives it its color. A piece is
+   * written on every frame of a glide, so it has no color and no transition
+   * of its own to work out again. A corner's are on a node inside it.
+   */
+  const pieces: { piece: Piece; node: HTMLElement }[] = [];
+  function group(name: string, names: readonly (Piece | "top left")[]): void {
+    const parent = document.createElement("div");
+    parent.className = name;
+    for (const piece of names) {
+      const node = document.createElement("div");
+      node.className = `part ${piece}`;
+      if (name === "corners") {
+        const corner = document.createElement("div");
+        corner.className = "corner";
+        node.append(corner);
+      }
+      parent.append(node);
+      if (piece !== "top left") pieces.push({ piece, node });
+    }
+    box.append(parent);
+  }
+  group("fills", FILLS);
+  group("lines", LINES);
+  group("corners", ["top left", ...CORNERS]);
+  /** The label is moved by a node around it, which has no style to work out again as it moves. */
+  const tip = document.createElement("div");
+  tip.className = "tip";
   const label = document.createElement("div");
   label.className = "pill";
+  tip.append(label);
   const check = checkIcon();
   const tag = document.createElement("span");
   tag.className = "tag";
   const name = document.createElement("span");
   label.append(check, tag, name);
   const picks: HTMLElement[] = [];
-  layer.append(glow, box, label);
+  layer.append(glow, glide, tip);
   root.append(style, layer);
   (document.body ?? document.documentElement).append(host);
 
   /** The real setting, under the motion knob: the layer is devknobs' own. */
   const reduce = baseMatchMedia("(prefers-reduced-motion: reduce)");
+  /** Kept from the last change, as a frame asks twice. */
+  let reduced = reduce.matches;
   const radii = new WeakMap<Element, number>();
   const read = createThemeReader();
+  /** The label's size for each text it had, so one seen before is not laid out to be read again. */
+  const sizes = new Map<string, { width: number; height: number }>();
   /** The color picked in the panel, and the tone the page asks for where it is `auto`. */
   let color = getState().grabColor;
   let tone: GrabTone = "blue";
+  /** The theme the label takes, once the page was read. */
+  let bar: Theme | null = null;
   /** The element the box is on, or on its way to. */
   let element: Element | null = null;
   /** The element the target was last read from. */
   let measured: Element | null = null;
   let picked: Element[] = [];
+  /** Where each gathered element was last read, or null for one that is gone. */
+  let shapes: (Shape | null)[] = [];
   let at: readonly number[] | null = null;
   let target: Shape | null = null;
   let labelAt: readonly number[] | null = null;
@@ -318,15 +499,18 @@ export function createOverlay(): Overlay {
   let fadeTimer = 0;
 
   function fade(): number {
-    return reduce.matches ? 0 : FADE;
+    return reduced ? 0 : FADE;
   }
 
   function still(): void {
-    layer.toggleAttribute("data-still", reduce.matches);
+    reduced = reduce.matches;
+    layer.toggleAttribute("data-still", reduced);
   }
 
   function paint(): void {
-    layer.dataset.grab = grabColor(color, tone);
+    const name = grabColor(color, tone);
+    if (layer.dataset.grab !== name) layer.dataset.grab = name;
+    if (bar && label.dataset.bar !== bar) label.dataset.bar = bar;
   }
 
   function schedule(): void {
@@ -354,32 +538,41 @@ export function createOverlay(): Overlay {
     return [rect.left, rect.top, rect.width, rect.height, radius];
   }
 
-  function drawPicks(): void {
-    while (picks.length < picked.length) {
+  function drawPicks(ratio: number): void {
+    while (picks.length < shapes.length) {
       const node = document.createElement("div");
-      node.className = "box pick";
-      layer.insertBefore(node, box);
+      node.className = "pick";
+      layer.insertBefore(node, glide);
       picks.push(node);
     }
     picks.forEach((node, index) => {
-      const pick = picked[index];
-      node.hidden = !pick?.isConnected;
-      if (pick && !node.hidden) place(node, shapeOf(pick));
+      const shape = shapes[index] ?? null;
+      if (node.hidden !== (shape === null)) node.hidden = shape === null;
+      if (shape) place(node, shape, ratio);
     });
   }
 
+  function drawBox(parts: BoxParts): void {
+    write(glide, "transform", parts.at);
+    write(box, "--unit", `${parts.unit}px`);
+    write(box, "--corner-width", `${parts.corner.width}px`);
+    write(box, "--corner-height", `${parts.corner.height}px`);
+    write(box, "--corner-radius", `${parts.corner.radius}px`);
+    for (const { piece, node } of pieces) write(node, "transform", parts.pieces[piece]);
+  }
+
   /**
-   * Read the bounds. A new element is glided to, and one that moved takes the
-   * box and the label with it.
+   * Read the bounds, and write nothing: the frame writes after all of its
+   * reads. A new element is glided to, and one that moved takes the box and
+   * the label with it.
    */
   function measure(): void {
     if (element && !element.isConnected) element = null;
-    drawPicks();
+    shapes = picked.map((pick) => (pick.isConnected ? shapeOf(pick) : null));
     if (element || toasting) {
       const { theme, grab } = read(element);
-      label.dataset.bar = invertTheme(theme);
+      bar = invertTheme(theme);
       tone = grab;
-      paint();
     }
     if (!element) {
       measured = null;
@@ -409,13 +602,26 @@ export function createOverlay(): Overlay {
     tag.hidden = !text.tag;
     name.textContent = text.name ?? "";
     name.hidden = !text.name;
-    size = { width: label.offsetWidth, height: label.offsetHeight };
+    let known = sizes.get(key);
+    if (!known) {
+      known = { width: label.offsetWidth, height: label.offsetHeight };
+      sizes.set(key, known);
+    }
+    size = known;
     sized = key;
+  }
+
+  /** The label can be no wider than the window lets it, so its sizes are read again. */
+  function resize(): void {
+    sizes.clear();
+    sync();
   }
 
   function draw(now: number): void {
     frame = 0;
     if (removed) return;
+    // The reads come first and the writes after, so the page is laid out once at most.
+    const fresh = stale;
     if (stale) {
       stale = false;
       measure();
@@ -424,7 +630,13 @@ export function createOverlay(): Overlay {
       width: document.documentElement.clientWidth,
       height: document.documentElement.clientHeight,
     };
+    const ratio = window.devicePixelRatio || 1;
     shown = at !== null && target !== null;
+    if (shown || toasting) writeLabel();
+    if (fresh) {
+      paint();
+      drawPicks(ratio);
+    }
     box.classList.toggle("on", shown);
     label.classList.toggle("toast", toasting);
     label.classList.toggle("on", shown || toasting);
@@ -432,16 +644,14 @@ export function createOverlay(): Overlay {
       last = 0;
       labelAt = null;
       if (!toasting) return;
-      writeLabel();
       const x = Math.round((view.width - size.width) / 2);
-      label.style.transform = `translate(${x}px, ${MARGIN * 2}px)`;
+      write(tip, "transform", `translate(${x}px, ${MARGIN * 2}px)`);
       return;
     }
     const elapsed = last ? now - last : FRAME;
-    const step = tweenStep(at, target, elapsed, reduce.matches);
+    const step = tweenStep(at, target, elapsed, reduced);
     at = step.values;
-    place(box, at);
-    writeLabel();
+    drawBox(boxParts(at, target[4], ratio));
     const spot = labelPlace(
       {
         top: target[1],
@@ -454,9 +664,10 @@ export function createOverlay(): Overlay {
       pointerX,
     );
     const goal = [Math.round(spot.x), Math.round(spot.y)];
-    const move = tweenStep(labelAt ?? goal, goal, elapsed, reduce.matches);
+    const move = tweenStep(labelAt ?? goal, goal, elapsed, reduced);
     labelAt = move.values;
-    label.style.transform = `translate(${labelAt[0]}px, ${labelAt[1]}px)`;
+    const [x = 0, y = 0] = labelAt;
+    write(tip, "transform", `translate(${snap(x, ratio)}px, ${snap(y, ratio)}px)`);
     const done = step.done && move.done;
     last = done ? 0 : now;
     if (!done) schedule();
@@ -481,7 +692,7 @@ export function createOverlay(): Overlay {
     clearInterval(ticker);
     if (frame) window.cancelAnimationFrame(frame);
     window.removeEventListener("scroll", sync, true);
-    window.removeEventListener("resize", sync);
+    window.removeEventListener("resize", resize);
     reduce.removeEventListener("change", still);
     stopColor();
     host.remove();
@@ -495,7 +706,7 @@ export function createOverlay(): Overlay {
   });
   reduce.addEventListener("change", still);
   window.addEventListener("scroll", sync, { capture: true, passive: true });
-  window.addEventListener("resize", sync);
+  window.addEventListener("resize", resize);
   const ticker = window.setInterval(sync, SYNC_EVERY);
   // The styles are worked out once with the glow off, so that it fades in.
   void getComputedStyle(glow).opacity;
@@ -549,7 +760,8 @@ export function createOverlay(): Overlay {
       clearTimeout(hideTimer);
       glow.classList.remove("on");
       picked = [];
-      drawPicks();
+      shapes = [];
+      drawPicks(1);
       if (toasting) return;
       hide();
       fadeTimer = window.setTimeout(remove, fade());

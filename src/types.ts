@@ -95,6 +95,9 @@ export type HeightValue = number | "full";
 /** Which way the frame is held. Landscape puts its long side across. */
 export type OrientationValue = "portrait" | "landscape";
 
+/** How a foldable stands: folded shut on its cover screen, or open on its inner one. */
+export type PostureValue = "closed" | "open";
+
 /**
  * Where a phone's browser keeps its bars: `auto` for the browser's own
  * default, Safari's compact or Chrome's top, or `off` for none.
@@ -132,6 +135,9 @@ export type VisionValue =
  */
 export type GrabColorValue = "auto" | "blue" | "green" | "pink" | "orange" | "purple" | "cyan";
 
+/** The color of the cutting mat the frame lies on. */
+export type MatColorValue = "blue" | "green" | "magenta" | "purple" | "red" | "graphite";
+
 export interface UaValue {
   /**
    * A preset id such as `iphone-safari`, `custom` to use the custom string, or
@@ -145,8 +151,13 @@ export interface UaValue {
 /** An edge a box sits flush with and follows when sizes change, or `none`. */
 export type EdgeValue = "top" | "bottom" | "none";
 
+/** The edge of the window the panel lives on. */
+export type SideValue = "left" | "right";
+
 export interface PanelValue {
   open: boolean;
+  /** The edge of the window the panel and its handle live on. */
+  side: SideValue;
   /** Handle offset from the top of the viewport, in px. */
   y: number;
   /** Panel offset from the top of the viewport, in px. */
@@ -157,7 +168,8 @@ export interface PanelValue {
   tab: EdgeValue;
   /**
    * Ids of the rows set from the panel. Each stays in the list, back at its
-   * default too, until its `×` or reset all takes it off.
+   * default too, until its `×` takes it off. Reset all lists the default rows
+   * again.
    */
   pinned: string[];
 }
@@ -187,6 +199,8 @@ export interface DevknobsState {
    * holds a device that way.
    */
   orientation: OrientationValue;
+  /** How a device that folds stands. Folding it sets the width and height. */
+  posture: PostureValue;
   /** Draw a phone's or a tablet's body around its frame. */
   mock: boolean;
   /** On a device with a touch screen, the mouse acts as a finger inside its frame. */
@@ -205,6 +219,7 @@ export interface DevknobsState {
   frame: boolean;
   dpr: DprValue;
   zoom: ZoomValue;
+  mat: MatColorValue;
   vision: VisionValue;
   ua: UaValue;
   /** Mark the boxes that stick out of the viewport sideways. */

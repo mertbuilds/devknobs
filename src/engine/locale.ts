@@ -1,6 +1,7 @@
 import type { LocaleValue } from "../types";
 import { realNow } from "./clock";
 import { setDefaultLocale } from "./intl";
+import { newer, stamped } from "./stored";
 
 export const LOCALE_PRESETS = [
   "en",
@@ -26,8 +27,14 @@ export const PARAGLIDE_COOKIE = "PARAGLIDE_LOCALE";
  */
 export const OWNER_KEY = "devknobs:locale-stores";
 
+/** The version of the record `OWNER_KEY` keeps. Bump it with a change of shape, see stored.ts. */
+export const OWNER_VERSION = 1;
+
 /** Where the last reload devknobs asked for is timed. */
 export const RELOAD_KEY = "devknobs:locale-reload";
+
+/** The version of the timing `RELOAD_KEY` keeps. Bump it with a change of shape, see stored.ts. */
+export const RELOAD_VERSION = 1;
 
 /** How long after a reload another one is read as a loop, in ms. */
 const RELOAD_THROTTLE = 5000;
@@ -188,6 +195,7 @@ export function parseOwned(json: string | null): Owned | null {
   } catch {
     return null;
   }
+  if (newer(raw, OWNER_VERSION)) return null;
   const record = raw as Partial<Owned> | null;
   if (typeof record?.lang !== "string" || !Array.isArray(record.writes)) return null;
   const writes = (record.writes as Partial<Written>[]).filter(
@@ -213,7 +221,7 @@ function readOwned(): Owned | null {
 /** Remember the writes. False when storage refused, so nothing can be proven. */
 function writeOwned(owned: Owned): boolean {
   try {
-    window.sessionStorage.setItem(OWNER_KEY, JSON.stringify(owned));
+    window.sessionStorage.setItem(OWNER_KEY, JSON.stringify(stamped(owned, OWNER_VERSION)));
     return true;
   } catch {
     // Same.
@@ -230,6 +238,24 @@ function clearOwned(): void {
 }
 
 /**
+ * When the last reload devknobs asked for was, from its record, or 0 for none.
+ * One kept before records had a version is the time alone.
+ */
+export function parseReload(text: string | null): number {
+  if (!text) return 0;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return 0;
+  }
+  if (typeof raw === "number") return raw;
+  if (typeof raw !== "object" || raw === null || newer(raw, RELOAD_VERSION)) return 0;
+  const at: unknown = Reflect.get(raw, "at");
+  return typeof at === "number" ? at : 0;
+}
+
+/**
  * How long until a reload asked for is not a loop, in ms: 0 for now, and
  * Infinity for never. Two reloads in a row are one, and a loop is worse than a
  * locale that lags the knob. Storage carries the timing across the reload, so
@@ -239,7 +265,7 @@ function clearOwned(): void {
  */
 function reloadWait(): number {
   try {
-    const previous = Number(window.sessionStorage.getItem(RELOAD_KEY));
+    const previous = parseReload(window.sessionStorage.getItem(RELOAD_KEY));
     if (!(previous > 0)) return 0;
     // A time ahead of the clock waits one window at a time, not until the clock catches up.
     return Math.min(RELOAD_THROTTLE, Math.max(0, previous + RELOAD_THROTTLE - realNow()));
@@ -257,7 +283,8 @@ function reloadBlocked(): boolean {
 /** Time this reload, so the next ask moments from now reads as a loop. */
 function reloadOnce(): boolean {
   try {
-    window.sessionStorage.setItem(RELOAD_KEY, String(realNow()));
+    const record = stamped({ at: realNow() }, RELOAD_VERSION);
+    window.sessionStorage.setItem(RELOAD_KEY, JSON.stringify(record));
   } catch {
     // Storage answered a moment ago and refuses now: nothing would time this
     // reload, so do not start it.

@@ -1,10 +1,20 @@
 import { svgNode } from "./browserkit";
+import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "./matcolors";
 
-/** The light blue the mat's lines and numbers are drawn in. */
-const LINE = "rgb(170, 205, 255)";
+/**
+ * Each color as variables on the element whose `data-mat` names it: `--mat`
+ * and `--mat-p3` for the background, `--mat-line` for the lines and numbers.
+ */
+function colorRules(): string {
+  return MAT_COLOR_NAMES.map((name) => {
+    const paint = MAT_COLORS[name];
+    return `[data-mat="${name}"] { --mat: ${matGradient(paint.srgb)}; --mat-p3: ${matGradient(paint.p3)}; --mat-line: ${paint.line}; }`;
+  }).join("\n");
+}
 
 /** The mat in the letterbox's shadow root, under the strip and the stage, and never in the way of a pointer. */
 export const MAT_CSS = `
+${colorRules()}
 .mat {
   position: absolute;
   top: 0;
@@ -12,12 +22,12 @@ export const MAT_CSS = `
   width: 100%;
   height: 100%;
   pointer-events: none;
-  fill: ${LINE};
+  fill: var(--mat-line);
 }
 .mat .cell { opacity: 0.07; }
 .mat .major { opacity: 0.14; }
 .mat .span { opacity: 0.26; }
-.mat .angle { fill: none; stroke: ${LINE}; }
+.mat .angle { fill: none; stroke: var(--mat-line); }
 .mat .mark, .mat .tick { opacity: 0.55; }
 .mat text {
   font: 9px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

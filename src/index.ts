@@ -9,6 +9,7 @@ import { createGrab, type GrabControl } from "./grab/control";
 import type { GrabOptions, GrabPayload } from "./grab/types";
 import { claim, free, superseded } from "./instance";
 import type { GrabColorValue } from "./types";
+import { createKeys, type LiveKeys } from "./ui/bindings";
 import { forwardKeys } from "./ui/keys";
 import { createPanel, type Panel } from "./ui/panel";
 
@@ -37,6 +38,7 @@ export type {
   PanelValue,
   SaveDataValue,
   SchemeValue,
+  SideValue,
   SpeedValue,
   TextValue,
   TimeZoneValue,
@@ -53,19 +55,31 @@ export type { EngineOptions } from "./engine";
 export type { GrabEntry, GrabFrame, GrabOptions, GrabPayload, ResolvedSource } from "./grab/types";
 
 export interface MountOptions extends engine.EngineOptions {
-  /** Key that toggles the panel. Defaults to `d`. */
+  /**
+   * The letter that with shift toggles the panel. Defaults to `k`. A key the
+   * user sets in the panel wins over it.
+   */
   hotkey?: string;
   /** Start the panel open or closed. Defaults to the stored state, closed at first. */
   open?: boolean;
-  /** Hold a key to grab elements for an agent. Defaults to true. */
+  /** Press a key to grab elements for an agent. Defaults to true. */
   grab?: boolean;
-  /** The key held to grab, such as `alt+shift+g`. Defaults to meta or ctrl with c. */
+  /**
+   * The key that grabs, such as `alt+shift+g`. Defaults to `shift+g`. A key
+   * the user sets in the panel wins over it.
+   */
   grabKey?: string;
   /**
    * The color grab draws its boxes in. Defaults to the stored one, `auto` at
    * first: blue, and green where the page behind the element is blue.
    */
   grabColor?: GrabColorValue;
+  /**
+   * Show the handle on the window's edge while the panel is closed. Defaults
+   * to true. With false, the panel key opens it. What the user sets in the
+   * panel's settings wins over it.
+   */
+  handle?: boolean;
 }
 
 export const PRESETS = {
@@ -79,6 +93,7 @@ export const PRESETS = {
 let panel: Panel | null = null;
 let stopKeys: (() => void) | null = null;
 let grabControl: GrabControl | null = null;
+let keys: LiveKeys | null = null;
 
 /**
  * Start the knobs and put the panel on the page. Patches go in right away, even
@@ -92,15 +107,25 @@ export function mount(options: MountOptions = {}): void {
   if (panel || stopKeys) return;
   claim(window, unmount);
   engine.start(options);
+  // The mount's keys, with the ones the user set in the panel on top.
+  const live = createKeys({
+    hotkey: options.hotkey,
+    grabKey: options.grabKey,
+    grab: options.grab !== false,
+  });
+  keys = live;
   // Ahead of the panel's keys, so escape ends grab before it closes the panel.
-  if (options.grab !== false) grabControl = createGrab({ key: options.grabKey });
+  // A key the panel records is never grab's.
+  if (options.grab !== false) {
+    grabControl = createGrab({ key: () => (live.recording ? null : live.get().grab) });
+  }
   if (isDevknobsFrame()) {
-    stopKeys = forwardKeys(options.hotkey, () => engine.getState().panel.open);
+    stopKeys = forwardKeys(live.get, () => engine.getState().panel.open);
     return;
   }
   if (options.open !== undefined) engine.setState({ panel: { open: options.open } });
   if (options.grabColor !== undefined) engine.setState({ grabColor: options.grabColor });
-  panel = createPanel({ hotkey: options.hotkey, grab: grabControl });
+  panel = createPanel({ keys: live, grab: grabControl, handle: options.handle });
 }
 
 /** Remove the panel and undo every knob. A copy that was taken over has done so already. */
@@ -112,6 +137,8 @@ export function unmount(): void {
   grabControl = null;
   stopKeys?.();
   stopKeys = null;
+  keys?.destroy();
+  keys = null;
   engine.stop();
   free(window, unmount);
 }

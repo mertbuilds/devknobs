@@ -1,9 +1,11 @@
 import { layoutOf, layoutOptions, platformOf } from "../engine/browserui";
 import { CLOCK_PRESETS, realNow } from "../engine/clock";
-import { DEVICES, deviceOf, hasTouch } from "../engine/devices";
-import { frameForced } from "../engine/frame";
+import { DEVICES, deviceOf, formId, formOf, hasTouch, POSTURES } from "../engine/devices";
+import { frameForced, needsFrame } from "../engine/frame";
 import { GEO_PRESETS, resolveGeo } from "../engine/geo";
+import { sends } from "../engine/header";
 import { LOCALE_PRESETS } from "../engine/locale";
+import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../engine/matcolors";
 import { mockOf } from "../engine/mock";
 import { DEFAULT_STATE } from "../engine/store";
 import { canonicalZone, TIME_ZONE_PRESETS } from "../engine/time";
@@ -41,8 +43,8 @@ export type Category =
   | "language"
   | "location and time"
   | "network"
-  | "viewport"
   | "device"
+  | "viewport"
   | "debug";
 
 export const CATEGORIES: readonly Category[] = [
@@ -51,8 +53,8 @@ export const CATEGORIES: readonly Category[] = [
   "language",
   "location and time",
   "network",
-  "viewport",
   "device",
+  "viewport",
   "debug",
 ];
 
@@ -120,6 +122,7 @@ export type KnobId =
   | "dpr"
   | "zoom"
   | "frame"
+  | "mat"
   | "vision"
   | "ua"
   | "overflow"
@@ -155,25 +158,29 @@ export interface Knob {
   available?(): boolean;
   /** The option values the editor shows for this state, in order, where they depend on it. */
   offers?(state: DevknobsState): readonly string[];
+  /** False while the knob does nothing, so the editor hides it. Search still sets it. */
+  shown?(state: DevknobsState): boolean;
+  /**
+   * The value another knob brought, which stands in for the default while it
+   * does: such a value puts the knob off nothing, and its row's `×` puts it back.
+   */
+  base?(state: DevknobsState): string | undefined;
 }
 
 export type RowId =
   | "scheme"
   | "contrast"
   | "transparency"
+  | "vision"
   | "text"
   | "motion"
-  | "speed"
   | "locale"
-  | "pseudo"
   | "location"
-  | "timeZone"
   | "clock"
   | "network"
+  | "device"
   | "viewport"
-  | "ua"
-  | "debug"
-  | "grabColor";
+  | "debug";
 
 /** One line of the active list, with the knobs that read best together. */
 export interface Row {
@@ -601,6 +608,7 @@ const CLOCK_MODE: Knob = {
   write: (value) => ({ clock: { mode: value as ClockMode } }),
   reset: { clock: { mode: DEFAULT_STATE.clock.mode } },
   brief: (state) => (state.clock.mode === "frozen" ? "frozen" : ""),
+  shown: (state) => state.clock.mode !== "system",
 };
 
 const CLOCK_SPEED: Knob = {
@@ -626,6 +634,8 @@ const CLOCK_SPEED: Knob = {
     const option = numberIn(text.replace(/x$/i, ""), 0.001, 1_000_000);
     return option && { ...option, label: `${option.value}x` };
   },
+  // A frozen clock has no speed to go at.
+  shown: (state) => state.clock.mode === "offset",
 };
 
 const HEADER: Knob = {
@@ -638,7 +648,9 @@ const HEADER: Knob = {
   read: (state) => flag(state.clock.header),
   write: (value) => ({ clock: { header: value === "on" } }),
   reset: { clock: { header: DEFAULT_STATE.clock.header } },
-  brief: () => "server",
+  brief: (state) => (sends(state.clock) ? "server" : ""),
+  // The real time is never sent, so the switch waits for a clock that is set.
+  shown: (state) => state.clock.mode !== "system",
 };
 
 const ONLINE: Knob = {
@@ -696,6 +708,25 @@ function parseSize(text: string): Option | null {
 
 const ORIENTATIONS = options("portrait", "landscape");
 
+/** What search finds each posture by, beside its name. */
+const POSTURE_ALIASES = { closed: ["fold", "folded", "shut"], open: ["unfold", "unfolded"] } as const;
+
+/** A foldable in each of its postures, as search finds them: `iphone-duo:open` unfolds the Duo. */
+const POSTURE_OPTIONS: readonly Option[] = DEVICES.flatMap((device) =>
+  device.postures
+    ? POSTURES.map((posture) => ({
+        value: `${device.id}:${posture}`,
+        label: `${device.label} ${posture}`,
+        aliases: POSTURE_ALIASES[posture],
+      }))
+    : [],
+);
+
+/** The screen in use, a foldable's in its posture. */
+function screenNow(state: DevknobsState): string {
+  return formId(state.device, state.posture);
+}
+
 /** The frame's size as the device knob reads it, such as `390x844` or `fullx700`. */
 function sizeValue(state: DevknobsState): string {
   return typeof state.height === "number" ? `${state.width}x${state.height}` : "none";
@@ -719,31 +750,42 @@ const DEVICE: Knob = {
   read: (state) => (state.device === "none" ? sizeValue(state) : state.device),
   write: (value, state) => {
     if (value === "portrait" || value === "landscape") return { orientation: value };
+    const posture = POSTURES.find((name) => value.endsWith(`:${name}`));
+    if (posture) return { device: value.slice(0, -posture.length - 1), posture };
     const size = /^(\d+|full)x(\d+)$/.exec(value);
     if (size) {
       return { width: size[1] === "full" ? "full" : Number(size[1]), height: Number(size[2]) };
     }
     if (value !== "none") return { device: value };
     // None takes away what the device brought, a dpr set since too.
-    const device = deviceOf(state.device);
+    const device = formOf(state.device, state.posture);
     return device && state.dpr === device.dpr
       ? { device: "none", width: "full", height: "full", dpr: "system" }
       : { device: "none", width: "full", height: "full" };
   },
-  reset: { device: DEFAULT_STATE.device, height: DEFAULT_STATE.height },
+  // Back to no device, without the size and dpr the device brought.
+  reset: {
+    device: DEFAULT_STATE.device,
+    width: DEFAULT_STATE.width,
+    height: DEFAULT_STATE.height,
+    dpr: DEFAULT_STATE.dpr,
+    posture: DEFAULT_STATE.posture,
+  },
   brief: (state) => {
     const device = deviceOf(state.device);
-    return device ? `${device.label} · ${state.orientation}` : nameOf(DEVICE, sizeValue(state));
+    if (!device) return nameOf(DEVICE, sizeValue(state));
+    const posture = device.postures ? ` · ${state.posture}` : "";
+    return `${device.label}${posture} · ${state.orientation}`;
   },
   name: (value) => value.replace("x", " × "),
   parse: parseSize,
   bare: true,
-  extra: () => ORIENTATIONS,
+  extra: () => [...ORIENTATIONS, ...POSTURE_OPTIONS],
 };
 
 /** Does the device in use have a mock to draw? */
 export function hasMock(state: DevknobsState): boolean {
-  return mockOf(state.device, state.orientation) !== null;
+  return mockOf(screenNow(state), state.orientation) !== null;
 }
 
 const MOCK: Knob = {
@@ -779,7 +821,7 @@ const TOUCH_POINTER: Knob = {
 
 /** The layout of the phone's browser in use, or off for a device without one. */
 function layoutNow(state: DevknobsState): string {
-  return layoutOf(state.device, state.browser) ?? "off";
+  return layoutOf(screenNow(state), state.browser) ?? "off";
 }
 
 const BROWSER: Knob = {
@@ -799,8 +841,9 @@ const BROWSER: Knob = {
   write: (value) => ({ browser: value as BrowserValue }),
   reset: { browser: DEFAULT_STATE.browser },
   // The browser's own default says nothing.
-  brief: (state) => (layoutNow(state) === layoutOptions(state.device)[0] ? "" : layoutNow(state)),
-  offers: (state) => layoutOptions(state.device),
+  brief: (state) =>
+    layoutNow(state) === layoutOptions(screenNow(state))[0] ? "" : layoutNow(state),
+  offers: (state) => layoutOptions(screenNow(state)),
 };
 
 /** Are the browser's bars drawn, so they can be minimized? */
@@ -827,7 +870,7 @@ const BARS: Knob = {
 
 /** Is Safari drawn, so its page can run under its bars? */
 function safariShown(state: DevknobsState): boolean {
-  return platformOf(state.device) === "safari" && barsShown(state);
+  return platformOf(screenNow(state)) === "safari" && barsShown(state);
 }
 
 const EDGE_TO_EDGE: Knob = {
@@ -860,6 +903,8 @@ const WIDTH: Knob = {
   read: (state) => String(state.width),
   write: (value) => ({ width: value === "full" ? "full" : Number(value) }),
   reset: { width: DEFAULT_STATE.width },
+  // A device's size is the device row's.
+  base: (state) => (deviceOf(state.device) ? String(state.width) : undefined),
   // With a height too, the device knob says the size.
   brief: (state) => (typeof state.height === "number" ? "" : String(state.width)),
   parse: (text) => {
@@ -884,8 +929,12 @@ const DPR: Knob = {
   read: (state) => String(state.dpr),
   write: (value) => ({ dpr: value === "system" ? "system" : Number(value) }),
   reset: { dpr: DEFAULT_STATE.dpr },
-  // A device says its own.
-  brief: (state) => (deviceOf(state.device)?.dpr === state.dpr ? "" : `dpr ${state.dpr}`),
+  // A device's dpr is the device row's.
+  base: (state) => {
+    const device = formOf(state.device, state.posture);
+    return device ? String(device.dpr) : undefined;
+  },
+  brief: (state) => `dpr ${state.dpr}`,
   parse: (text) => numberIn(text, 0.25, 5),
 };
 
@@ -915,9 +964,11 @@ const ZOOM: Knob = {
   read: (state) => String(state.zoom),
   write: (value) => ({ zoom: value === "fit" ? "fit" : Number(value) }),
   reset: { zoom: DEFAULT_STATE.zoom },
-  brief: (state) => percent(Number(state.zoom)),
+  // Only a frame is zoomed. The value waits for one.
+  brief: (state) => (needsFrame(state) ? percent(Number(state.zoom)) : ""),
   name: (value) => percent(Number(value)),
   parse: parseZoom,
+  shown: needsFrame,
 };
 
 const FRAME: Knob = {
@@ -931,12 +982,40 @@ const FRAME: Knob = {
   write: (value) => ({ frame: value === "on" }),
   reset: { frame: DEFAULT_STATE.frame },
   brief: (state) => (frameForced(state) ? "" : "frame"),
+  // The switch changes nothing to see while another knob holds the frame up.
+  shown: (state) => !frameForced(state),
+};
+
+/** More words search finds each mat color by. */
+const MAT_ALIASES: Partial<Record<string, readonly string[]>> = {
+  green: ["classic"],
+  graphite: ["black", "gray", "grey", "dark"],
+};
+
+const MAT: Knob = {
+  id: "mat",
+  label: "mat",
+  category: "viewport",
+  control: "swatches",
+  options: MAT_COLOR_NAMES.map((name) => ({
+    value: name,
+    label: name,
+    aliases: MAT_ALIASES[name],
+    swatch: matGradient(MAT_COLORS[name].srgb),
+  })),
+  aliases: ["background", "cutting mat", "mat color", "letterbox"],
+  read: (state) => state.mat,
+  write: (value) => ({ mat: MAT_COLOR_NAMES.find((name) => name === value) ?? DEFAULT_STATE.mat }),
+  reset: { mat: DEFAULT_STATE.mat },
+  // The mat lies around a frame. The value waits for one.
+  brief: (state) => (needsFrame(state) ? state.mat : ""),
+  shown: needsFrame,
 };
 
 const VISION: Knob = {
   id: "vision",
   label: "vision",
-  category: "viewport",
+  category: "look",
   control: "list",
   options: [
     { value: "none", label: "none" },
@@ -981,6 +1060,9 @@ const UA: Knob = {
     return { ua: { preset: "custom", custom } };
   },
   reset: { ua: { preset: DEFAULT_STATE.ua.preset } },
+  // A device says its own.
+  brief: (state) =>
+    formOf(state.device, state.posture)?.ua === state.ua.preset ? "" : nameOf(UA, state.ua.preset),
   parse: parseUserAgent,
 };
 
@@ -1077,6 +1159,7 @@ export const KNOBS: readonly Knob[] = [
   DPR,
   ZOOM,
   FRAME,
+  MAT,
   VISION,
   UA,
   OVERFLOW,
@@ -1088,35 +1171,24 @@ export const ROWS: readonly Row[] = [
   { id: "scheme", label: "scheme", knobs: ["scheme"] },
   { id: "contrast", label: "contrast", knobs: ["contrast"] },
   { id: "transparency", label: "transparency", knobs: ["transparency"] },
+  { id: "vision", label: "vision", knobs: ["vision"] },
   { id: "text", label: "text", knobs: ["text", "spacing"] },
-  { id: "motion", label: "motion", knobs: ["motion"] },
-  { id: "speed", label: "speed", knobs: ["speed"] },
-  { id: "locale", label: "locale", knobs: ["locale", "direction"] },
-  { id: "pseudo", label: "pseudo", knobs: ["pseudo"] },
+  { id: "motion", label: "motion", knobs: ["motion", "speed"] },
+  { id: "locale", label: "locale", knobs: ["locale", "direction", "pseudo"] },
   { id: "location", label: "location", knobs: ["geo", "geoError"] },
-  { id: "timeZone", label: "time zone", knobs: ["timeZone"] },
-  { id: "clock", label: "clock", knobs: ["clock", "clockMode", "clockSpeed", "header"] },
+  {
+    id: "clock",
+    label: "time",
+    knobs: ["clock", "clockMode", "clockSpeed", "timeZone", "header"],
+  },
   { id: "network", label: "network", knobs: ["online", "connection", "saveData"] },
   {
-    id: "viewport",
-    label: "viewport",
-    knobs: [
-      "device",
-      "mock",
-      "touchPointer",
-      "browser",
-      "bars",
-      "edgeToEdge",
-      "width",
-      "dpr",
-      "zoom",
-      "frame",
-      "vision",
-    ],
+    id: "device",
+    label: "device",
+    knobs: ["device", "mock", "touchPointer", "browser", "bars", "edgeToEdge", "ua"],
   },
-  { id: "ua", label: "user agent", knobs: ["ua"] },
-  { id: "debug", label: "debug", knobs: ["overflow", "outlines"] },
-  { id: "grabColor", label: "grab color", knobs: ["grabColor"] },
+  { id: "viewport", label: "viewport", knobs: ["width", "dpr", "zoom", "frame", "mat"] },
+  { id: "debug", label: "debug", knobs: ["overflow", "outlines", "grabColor"] },
 ];
 
 export function knobOf(id: KnobId): Knob {
@@ -1148,7 +1220,7 @@ export function nameOf(knob: Knob, value: string): string {
 }
 
 export function offDefault(knob: Knob, state: DevknobsState): boolean {
-  return knob.read(state) !== knob.read(DEFAULT_STATE);
+  return knob.read(state) !== (knob.base?.(state) ?? knob.read(DEFAULT_STATE));
 }
 
 /** The knob's part of a row summary, empty while it is at its default. */

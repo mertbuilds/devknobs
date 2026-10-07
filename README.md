@@ -78,24 +78,36 @@ setState({ ua: { preset: "iphone-safari" } });
 
 | option | default | what it does |
 | --- | --- | --- |
-| `hotkey` | `d` | key that toggles the panel |
+| `hotkey` | `k` | letter that with shift toggles the panel. a key set in the panel wins, see shortcuts |
 | `open` | the stored state, closed at first | start the panel open or closed |
 | `persist` | `true` | keep the knobs in `sessionStorage` |
 | `state` | none | knobs to apply on top of the stored state |
-| `grab` | `true` | hold a key to grab elements, see grab below |
-| `grabKey` | `meta+c` on a Mac, `ctrl+c` elsewhere | the key to hold, such as `alt+shift+g` |
+| `grab` | `true` | press a key to grab elements, see grab below |
+| `grabKey` | `shift+g` | the key that grabs, such as `alt+shift+g`. a key set in the panel wins |
 | `grabColor` | the stored one, `auto` at first | the color of grab's boxes: `auto`, `blue`, `green`, `pink`, `orange`, `purple` or `cyan` |
+| `handle` | `true` | show the handle on the window's edge while the panel is closed. a choice made in the panel's settings wins, see settings |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 
-the panel starts closed, as a handle on the edge of the window. click it or
-press the hotkey to open it, and it stays open across reloads.
+the panel starts closed, as a handle on the right edge of the window. click it
+or press shift and the hotkey (`⇧K`) to open it, and it stays open across
+reloads. opening it puts the focus on its add knob button, where typing a
+knob's name opens the search with it, so `⇧K` then `dark` works in one go, and
+closing it gives the focus back to what had it before. a panel that comes back
+open after a reload leaves the focus on the page.
 
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
 panel. with the panel closed, a drag moves the handle, and the panel opens
 beside it where it left it.
+
+the handle follows the pointer sideways too. let go past the middle of the
+window, or fling it toward the other edge, and the panel moves to the left or
+the right edge; anywhere else it glides back to its own. each time you let go of
+it, its side and where it sits on it are also kept in `localStorage` under
+`devknobs:place`, so a new tab starts with the panel where you last put it. a
+tab you did not drag in never writes it.
 
 within 24px of an edge, the panel snaps flush with the top or the bottom of the
 window, and the handle with the top or the bottom corner of the panel, or of the
@@ -105,45 +117,106 @@ bottom when the window resizes.
 
 ## the panel
 
-the panel lists only the knobs that are off their default, one row each, with
-related knobs together: device, width, device pixel ratio, zoom, frame and
-vision are one viewport row, the clock with its mode, speed and server header
-is another.
-click a row to open its editor, and `×` puts that row back to its default.
-a row set from the panel stays in the list, back at its default too, until its
-`×` takes it off or reset clears the list.
+the panel lists the knobs that are off their default, one row each, with
+related knobs together: the device row holds the device, its mock, touch
+pointer, browser, bars, edge to edge and user agent, the viewport row the
+width, device pixel ratio, zoom and frame, and the time row the clock with its
+mode, speed, time zone and server header. the rows stand by group: look
+(scheme, contrast, transparency, vision, text), motion, locale, location,
+time, network, device, viewport and debug.
+a control that does nothing yet stays out of its editor until it does: the
+clock's mode, speed and "send to server" show once a time is set, the speed
+only while the clock runs, and zoom and mat once the frame is up. their values
+stay as set, the row's summary leaves them out while they wait, and search
+sets them all the same. the clock's "now" readout shows once a time is set,
+and the time zone's "in use" note only while it follows geo.
+a fresh session starts with four rows at their defaults, in this order: the
+device, scheme, text and locale. a row added from the panel goes to the bottom
+of the list. the `×` of the device row takes the size and device pixel ratio
+the device brought along with it. that size and ratio are the device row's, so
+the viewport row lists only for a value set on it, and its `×` leaves the
+device as it is, its own pixel ratio included.
+click a row to open its editor in place under it, pushing the rows below it
+down, and click it again to close it. one editor is open at a time. `×` puts
+that row back to its default.
+a knob named the same as its row shows no label of its own under the row's
+title. a row set or added from the panel stays in the list, at its default
+too, until its `×` takes it off. a default row's `×` takes it off for the session
+too, and reset all puts every knob back to its default and the four rows back
+in the list, in their order. with every row taken off the panel says nothing
+emulated, over the add knob button.
 
-the field at the top finds knobs and values. type `dark`, `390`, `+2d`, `tr`,
-`tokyo`, `rtl`, `pause` or `offline` and enter sets the first result and shows
-its row. a value typed out in full works too: `500` for a width, `3d` for the
+drag a row by the six dots at its leading edge, which show on hover and focus
+and always on a touch screen, to put it elsewhere in the list. with the dots
+focused, the up and down arrows move the row a place. the order is kept with
+the rest of the session.
+
+the rows stay on top. the add knob button under them opens a field in its
+place that finds knobs and values, and the results show under the field, the
+rows and the results each scrolling in its own room. type `dark`, `390`,
+`+2d`, `tr`, `tokyo`, `rtl`, `pause` or `offline` and enter sets the first
+result and shows its row. a value typed out in full works too: `500` for a width, `3d` for the
 clock, `pt-BR`, `Europe/Paris`, or `36.9, 30.7` for a position. a knob's name
-opens its editor, and with nothing typed the list shows every knob by
-category. arrows move through the results. escape leaves the search, query and
-all, then closes an open editor, and then the panel. a click anywhere outside
-the search and its results, or on the `×` at its end, leaves it too.
+adds its row and opens its editor, with no value to set, and with nothing
+typed the list shows every knob by category. arrows move through the results. a value or knob picked adds its row
+at the bottom, if it is not listed yet, and gives it the focus. escape leaves
+the search, query and all, back to the add knob button, then closes an open
+editor, and then the panel. a click anywhere outside the search and its
+results, or on the `×` at its end, leaves it too. with the focus on any of the
+panel's buttons, typing a character opens the search with it typed in.
 
-while the panel is out and the focus is in no field, `/` focuses the search,
-`r` replays the page's animations and shift backspace (or shift delete) resets
+while the panel is out and the focus is in no field, `/` opens the search,
+`⇧R` replays the page's animations and shift backspace (or shift delete) resets
 every knob, from the frame too.
 while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
 and with `0` fit it again, from the frame too, unless the focus is in a field.
-every other key goes to the page as it would without the panel. the hotkey
-toggles the panel everywhere except in a field, the search included, so in the
-search `d` is just a letter.
+every other key goes to the page as it would without the panel. `⇧K` toggles
+the panel everywhere except in a field of the page, where shift types a capital
+as ever. in the panel's search, which finds in lower case anyway, `⇧K`, `⇧R` and
+`⇧G` are the panel's keys and are not typed, so `⇧K` closes the panel from it,
+and a plain `k` is just a letter. the panel's other fields, a list's filter and
+the user agent and route boxes, take every letter.
 
-the footer lists the keys, most used first: the hotkey for the panel, `/` for
-search, the grab key, `r` for replay animations and `⇧⌫` (`Shift Backspace`
-off a Mac) for reset. each one is a button too, so a click does what its key does. with
+the footer lists the keys, most used first: `⇧K` for the panel, `/` for search,
+the grab key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
+`Shift R` and `Shift Backspace` off a Mac. each one is a button too, so a click does what its key does. with
 the overflow knob on, the count of overflowing boxes sits above them.
+
+### settings
+
+the gear button at the end of the footer opens the settings, in place of the
+rows. the show handle switch there hides the handle while the panel is closed,
+so nothing of devknobs sits on the edge of the page; the panel key (`⇧K`)
+still opens it, and an open panel shows its handle as ever, to drag it or
+click it closed. turning the switch off says which key brings the panel back.
+the choice is kept in `localStorage` under `devknobs:prefs`, for every tab of
+the origin, and wins over the `handle` option. reset all leaves it.
+
+### shortcuts
+
+the panel, grab, replay and reset keys above are the defaults, and each can be
+set from the panel: the settings list them under shortcuts,
+click one and press the new key, escape to cancel. a key needs shift, alt
+(option), ctrl or meta (⌘) with it, as a key alone types, except F1 to F12,
+which work alone too. the browser's own keys (meta or ctrl with c, v, x, z,
+a, w, r, t, q, l, n, f, p, s, h, m, a digit or the zoom keys, F5, F11, F12),
+`/` and a key another shortcut has are refused, with the reason under the
+row. a key with shift alone, like the defaults, is the panel's in its search
+and the page's in a field of the page, and so is one with alt, ctrl or meta;
+a function key works in fields too. a grab key with meta, ctrl or alt turns
+grab on with a hold, as above, and any other with a press. the keys set are
+kept in `localStorage` under `devknobs:keys`, for every tab of the origin,
+the width knob's frame included at once, and win over the `hotkey` and
+`grabKey` options. reset all leaves them; the x by a key puts that one back.
 
 the panel keeps the real color scheme and motion preference of the browser,
 whatever the knobs emulate for the page.
 
 ## grab
 
-hold `⌘C` on a Mac, or `ctrl+C` elsewhere, to grab an element for a coding
-agent. hover it, click it, and its html, the components that rendered it and
-where they live are on the clipboard, one line per element:
+press `⇧G` (`Shift G` off a Mac) to grab an element for a coding agent. hover
+it, click it, and its html, the components that rendered it and where they live
+are on the clipboard, one line per element:
 
 ```
 [<button type="button" data-testid="save">Save</button> in SaveButton (at src/App.jsx:5:5) in App (at src/App.jsx:28:7)]
@@ -153,12 +226,17 @@ paste that into the agent and it can find the code. the clipboard also carries
 the same context as json, under `application/x-devknobs-grab` and react-grab's
 own `application/x-react-grab`.
 
-a quick `⌘C` is still a copy: grab only turns on once the key is held for
-100ms, 500ms while a field has the focus and 700ms while text is selected. a
-key that copied something waits for the key to repeat, or to be let go after
-200ms. grab then stays on until a copy or escape. the search finds it too:
-`grab`, `inspect` or `pick`, and while it is on the panel shows a grab row with
-an `×` to stop.
+grab turns on with the press, and stays on until a copy, escape or `⇧G` again.
+holding the key down does not turn it off. in a field of the page `⇧G` types a
+capital and grab stays off, and in the panel's search it is grab's. a grab key
+with meta, ctrl or alt, such as `alt+shift+g` or a copy shortcut like
+`meta+c`, turns on once it is held for 100ms, and a quick press of a copy
+shortcut is still a copy. the hold is 500ms while a field has
+the focus and 700ms while text is selected, and a key that copied something
+waits for the key to repeat, or to be let go after 200ms. grab then stays on
+until a copy or escape. the search finds it too:
+`grab`, `inspect` or `pick`. grab is an action, not a row: it is never
+listed, and never kept, so a reload starts with it off.
 
 while it is on:
 
@@ -184,8 +262,8 @@ where it is not ready yet, the click copies it without lines and columns, by
 component names, and the rest is worked out for the next copy.
 
 grab runs in the page that owns React. with the width knob's frame up, the
-page above hands grab to the frame, the box and the copy happen there, and the
-panel shows grab as on. escape in the frame ends it.
+page above hands grab to the frame, and the box and the copy happen there.
+escape in the frame ends it.
 
 pass `grabKey: "alt+shift+g"` for another key, or `grab: false` to leave it out.
 `grab(elements)` copies elements from code. the overlay and the context load
@@ -213,8 +291,9 @@ both by Aiden Bai and MIT, see
 
 ### migrating from react-grab
 
-devknobs covers it: the same hold to grab, the same line format, the same
+devknobs covers it: the same grab, the same line format, the same
 clipboard type. remove the `react-grab` script or package, and mount devknobs.
+pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
 
 ## early script
 
@@ -243,6 +322,16 @@ leaves the scheme to the browser, as the full script does. it also puts a
 React devtools hook in place for grab, when the page has none, so React
 reports to it from its first render.
 
+when the stored knobs put the page in a frame, the early script also hides
+the page under the frame's mat from the first paint, so a reload never shows
+it full width while devknobs loads. the frame as the last page left it (the
+mat, the case and the phone's browser, its screen blank in the page's color)
+is kept in `sessionStorage` as the page unloads, and put back as it was, when
+the device, the way it is held and the window's size are the same. otherwise
+the bare mat stands in. the full script takes it over without a jump, and the
+screen shows the page loading as Safari does a reload. without devknobs after
+3 seconds, the page shows again.
+
 ## knobs
 
 | knob | values | how it is emulated |
@@ -266,6 +355,7 @@ reports to it from its first render.
 | viewport height | px, full | makes the frame that tall, centered in the window both ways, so `innerHeight`, `100vh`, `svh`, `dvh` and height media queries see it. a frame taller or wider than the window is scaled down to fit both ways |
 | device | a preset, none | sets the width, height and device pixel ratio of a phone, tablet, laptop or desktop together, and a touch screen where it has one. see devices below |
 | orientation | portrait, landscape | turns a frame that has a width and a height, a device's or a custom one. it follows the size, so a size set across reads as landscape |
+| posture | closed, open | folds a foldable shut on its cover screen or open on its inner one, which turns the frame as its hinge stays put. only the iPhone Duo folds. see devices below |
 | mock | on, off | draws a phone's or tablet's body around its frame. on by default, and only offered while a phone or tablet is picked. see devices below |
 | touch pointer | on, off | the mouse acts as a finger inside a touch device's frame, like the devtools device toolbar: a round cursor, touch events, `pointerType: "touch"`, no hover, drag to scroll. on by default, and only offered while a device with a touch screen is picked. see devices below |
 | browser | compact, bottom, top, off on an iPhone; top, bottom, off on an Android phone | draws the phone's browser in its screen around the page, Safari on an iPhone and Chrome on an Android phone, and makes the frame the viewport that browser leaves the page. on by default with the browser's own default layout, and only offered while a phone is picked. see devices below |
@@ -274,12 +364,13 @@ reports to it from its first render.
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
-| user agent | iphone safari, android chrome, ipad safari, mac safari, mac chrome, windows chrome, windows edge, linux firefox, googlebot, a custom string, system | patches `userAgent`, `appVersion`, `platform`, `vendor` and `maxTouchPoints` on `Navigator.prototype`, and `navigator.userAgentData`: its brands, `mobile`, `platform`, `toJSON` and `getHighEntropyValues` (platform version, model, architecture, bitness, full version list), all from the same browser. safari and firefox have no `userAgentData`, so their presets take it away. the ipad is the one iPadOS shows sites by default, a mac with touch points. a custom string sets `userAgent` and `appVersion` alone, as chrome devtools does: platform, vendor and touch points stay the browser's, and a `userAgentData` the browser has reports no brands. the field under the list shows the string in use, and editing it makes it the custom one. back to system, every property is the browser's own again. in a device's frame a new user agent reloads the frame, see devices |
+| mat | blue, green, magenta, purple, red, graphite | the color of the cutting mat the frame lies on, its lines and numbers in a light tint of the same hue, wider on a p3 screen. green is the classic cutting mat green. it changes in place, with no reload |
+| user agent | iphone safari, android chrome, ipad safari, mac safari, mac chrome, windows chrome, windows edge, linux firefox, googlebot, a custom string, system | patches `userAgent`, `appVersion`, `platform`, `vendor` and `maxTouchPoints` on `Navigator.prototype`, and `navigator.userAgentData`: its brands, `mobile`, `platform`, `toJSON` and `getHighEntropyValues` (platform version, model, architecture, bitness, full version list), all from the same browser. safari and firefox have no `userAgentData`, so their presets take it away. the ipad is the one iPadOS shows sites by default, a mac with touch points. a custom string sets `userAgent` and `appVersion` alone, as chrome devtools does: platform, vendor and touch points stay the browser's, and a `userAgentData` the browser has reports no brands. the field under the list shows while custom is picked, starting from the string in use, and editing it keeps it the custom one. back to system, every property is the browser's own again. in a device's frame a new user agent reloads the frame, see devices |
 | vision | protanopia, deuteranopia, tritanopia, achromatopsia, blur, none | an svg color matrix (machado et al. 2009, as chromium devtools uses) or a 2px blur, as a `filter` on the frame, so fixed elements inside keep their place and the panel stays readable. brings the frame up |
 | overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count in its debug row and footer. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
 | outlines | on, off | injects one style rule that outlines every element |
 | grab color | auto, blue, green, pink, orange, purple, cyan | the color of grab's boxes and glow, wider on a p3 screen. auto is blue, and green on an element with blue behind it, so the box shows. a picked color stays whatever the page. the frame's grab follows |
-| replay animations | action, `r` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
+| replay animations | action, `⇧R` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.
@@ -335,8 +426,7 @@ platform (`iphone`, `pixel`, `ipad`, `macbook`, `phone`, `tablet`,
 | --- | --- | --- | --- |
 | iPhone 18 Pro | 402 × 874 | 3 | yes |
 | iPhone 18 Pro Max | 440 × 956 | 3 | yes |
-| iPhone Duo (closed) | 466 × 678 | 3 | yes |
-| iPhone Duo (open) | 669 × 951 | 3 | yes |
+| iPhone Duo | 466 × 678, open 951 × 669 | 3 | yes |
 | iPhone Air | 420 × 912 | 3 | yes |
 | iPhone 17 | 402 × 874 | 3 | yes |
 | iPhone 17 Pro | 402 × 874 | 3 | yes |
@@ -370,6 +460,19 @@ comes up its usual way, unless the patch names an orientation. a width or
 height set by hand that is no longer the device's drops the device and keeps
 the size, and a device pixel ratio set by hand keeps the device.
 
+the iPhone Duo folds. it comes up closed, on its cover screen, and the device
+row's `unfold` and `fold`, or `posture`, open it onto its inner screen and
+shut it again. like a book, its hinge stays where it is, so the cover screen
+held upright opens to the inner screen held across, and held across, it opens
+upright. it folds in view: the page goes under a cover in its own color, the
+half past the hinge swings toward you about it, and the page comes back laid
+out on the other screen. in its bezels the half that swings is Apple's own
+Duo, rendered offline every degree from Apple's model, with the page on its
+turned screen, once those frames have loaded, and a copy of the bezel till then. search finds it as `unfold`, `fold`, `open`,
+`closed` or `duo open`. a session kept from when the two screens were two
+devices, `iphone-duo-closed` and `iphone-duo-open`, comes back as the Duo in
+that posture.
+
 a phone or tablet comes up in a mock of its body, drawn in svg around the
 frame: the front glass in its band, the dynamic island, the punch hole, the
 camera or the home button, and the side buttons. each device has its own
@@ -389,6 +492,7 @@ frame, so no model is ever stretched onto another. the punch hole, the home
 button and the buttons are the image's own. it loads from `dist/bezels` the
 first time the device is shown with the mock on, the drawn mock standing in
 its place until then, and the drawn mock stays where an image does not load.
+the Duo's fold frames load with it, from `dist/bezels/duo-fold`, about 2.7 MB.
 the images are not under this project's license, see THIRD_PARTY_NOTICES.md:
 delete `assets/bezels` and run `bun run build`, which then names no image, and
 every phone draws its own mock again.
@@ -503,6 +607,33 @@ through untouched, and the pointer type stays the mouse's. while grab is on the
 mouse is a mouse again, until grab ends. the touch pointer switch in the device
 editor turns it off, and the panel never gets it.
 
+### how the iphone duo folds
+
+the Duo's case is never rendered in your browser. it is rendered once,
+offline, from Apple's own iPhone Duo model, the Star White USDZ from Apple's
+AR viewer, in a three.js scene adapted from jadon7's
+[iphone-duo](https://github.com/jadon7/iphone-duo) ([live
+demo](https://iphone-duo-tawny.vercel.app/)): one frame every degree from
+shut to open, 181 of them, its screens cut out, and the half that stays with
+each, one image of it for every angle where it differs. its metal and the
+black glass round its screens are shaded from Apple's bezel pictures, and
+shut, its hinge wraps into the spine those show, so both ends of a fold look
+as the Duo does at rest. each frame is packed small, as its outline round a
+clear middle at 1.5 px per css px, and ships as an image. three.js runs only
+in that script, never in the package.
+
+in the page, Apple's hinge spring sets the angle, devknobs shows the frame
+nearest it, and the page sits in that frame's screen. the turning screen shows
+a picture of the page through a small WebGL2 blur, or plain layers where
+WebGL2 is not, and it stays still behind the turning glass, as on Apple's
+product page. the half that stays keeps the live page. only the frames
+within about 10 degrees of the current angle, and 10 more ahead, are decoded,
+about 55 MB at most, and at rest the Duo is Apple's bezel picture.
+
+thanks to jadon7: the scene, the fold rig and the screen projection come from
+jadon7's iphone-duo, MIT. see THIRD_PARTY_NOTICES.md, and
+`scripts/render-duo-fold/README.md` to render the frames again.
+
 ## the clock and your server
 
 optional, and dev only. the clock lives in the page, so a server that decides
@@ -516,7 +647,8 @@ x-devknobs-now: 2026-10-04T09:30:00.000Z
 
 a request to any other origin never gets it: a custom header there sets off a
 CORS preflight, and would hand your clock to someone else's server. nothing
-goes out while the clock is on system.
+goes out while the clock is on system, and the switch shows once a time is
+set.
 
 the server reads it with a few lines of its own, behind a dev check. generic
 `Request` (hono, remix, sveltekit, `Bun.serve`):
