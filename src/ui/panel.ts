@@ -1889,7 +1889,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
         moved = true;
         focused.blur();
         const back = focusBefore;
-        if (back instanceof HTMLElement && back !== document.body && back.isConnected) {
+        // A hidden handle hides once the panel has slid away, which would drop the focus.
+        const shown = back !== handle || prefs.get().handle;
+        if (back instanceof HTMLElement && back !== document.body && back.isConnected && shown) {
           back.focus({ preventScroll: true });
         }
       }

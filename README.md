@@ -486,7 +486,7 @@ frame, so no model is ever stretched onto another. the punch hole, the home
 button and the buttons are the image's own. it loads from `dist/bezels` the
 first time the device is shown with the mock on, the drawn mock standing in
 its place until then, and the drawn mock stays where an image does not load.
-the Duo's fold frames load with it, from `dist/bezels/duo-fold`, about 0.8 MB.
+the Duo's fold frames load with it, from `dist/bezels/duo-fold`, about 0.5 MB.
 the images are not under this project's license, see THIRD_PARTY_NOTICES.md:
 delete `assets/bezels` and run `bun run build`, which then names no image, and
 every phone draws its own mock again.
