@@ -85,6 +85,8 @@ export function foldChip(posture: PostureValue): { label: string; posture: Postu
 export interface FoldSlider {
   node: HTMLElement;
   update(state: DevknobsState): void;
+  /** Stop listening to the fold and the hinge. */
+  destroy(): void;
 }
 
 /** The slider, which hands a posture let go at an end to `commit`. */
@@ -222,6 +224,10 @@ export function createFoldSlider(commit: (posture: PostureValue) => void): FoldS
     update(state) {
       node.hidden = !deviceOf(state.device)?.postures;
       if (pointer === null) settled();
+    },
+    destroy() {
+      unwatch();
+      unhinge();
     },
   };
 }

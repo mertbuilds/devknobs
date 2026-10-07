@@ -240,6 +240,15 @@ export function copyPage(frame: HTMLIFrameElement): Element | null {
   return root;
 }
 
+/** Half of an emoji or other pair of utf-16 units, its other half cut off. */
+const LONE_HALF = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/** `svg` as a data url, any lone half of a pair made U+FFFD first, as encoding one throws. */
+export function svgUrl(svg: string): string {
+  const whole = typeof svg.toWellFormed === "function" ? svg.toWellFormed() : svg.replace(LONE_HALF, "\uFFFD");
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(whole)}`;
+}
+
 /**
  * A picture of the page in `frame` as the browser draws it, from `copy`, laid
  * out and scrolled as the frame is now, on a canvas of the screen `glass`
@@ -282,8 +291,8 @@ export async function paintPage(
     `<foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
   const image = new Image();
   // As data, not a blob: Chrome marks a drawing from a blob as foreign, and its canvas could not go to the GPU.
-  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   try {
+    image.src = svgUrl(svg);
     await image.decode();
   } catch {
     return null;

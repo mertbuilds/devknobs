@@ -2,6 +2,7 @@ import { BARS_CSS } from "./browserdraw";
 import { type Bars, barsOf, layoutOf } from "./browserui";
 import { formOf } from "./devices";
 import type { Rect } from "./mock";
+import { svgUrl } from "./pageshot";
 import { pillBox } from "./safaridraw";
 import type { ViewportValue } from "./width";
 
@@ -99,7 +100,7 @@ export function copyBars(shown: HTMLElement, value: BarsKnobs, size: { width: nu
     `<foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
   const image = new Image();
   // As data, as the page's is, so the picture they go on can still go to the GPU.
-  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  image.src = svgUrl(svg);
   const drawing = image.decode().then(
     () => image,
     () => null,

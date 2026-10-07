@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { blurMargin, blurPictures, copyPage, forgetShots, marginPlace, shootPage } from "../src/engine/pageshot";
+import {
+  blurMargin,
+  blurPictures,
+  copyPage,
+  forgetShots,
+  marginPlace,
+  paintPage,
+  shootPage,
+  svgUrl,
+} from "../src/engine/pageshot";
 
 /** An element as far as a copy of the page reads one, which counts what it sets off. */
 class FakeNode {
@@ -182,6 +191,69 @@ describe("blurPictures", () => {
       expect(made[0]?.drawn[0]?.slice(0, 2)).toEqual([4, 0]);
     } finally {
       Reflect.set(globalThis, "document", before);
+    }
+  });
+});
+
+describe("svgUrl", () => {
+  test("makes half an emoji U+FFFD, which encoding would throw on", () => {
+    const half = "\u{1F680}".slice(0, 1);
+    expect(svgUrl(`<p>${half}</p>`)).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent("<p>\uFFFD</p>")}`);
+    expect(svgUrl("<p>\u{1F680}</p>")).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent("<p>\u{1F680}</p>")}`);
+  });
+
+  test("does so without toWellFormed too", () => {
+    const own = Object.getOwnPropertyDescriptor(String.prototype, "toWellFormed");
+    Reflect.deleteProperty(String.prototype, "toWellFormed");
+    try {
+      const url = svgUrl("a\uD83D b\uDE80 \u{1F680}");
+      expect(decodeURIComponent(url.slice(url.indexOf(",") + 1))).toBe("a\uFFFD b\uFFFD \u{1F680}");
+    } finally {
+      if (own) Object.defineProperty(String.prototype, "toWellFormed", own);
+    }
+  });
+});
+
+describe("paintPage", () => {
+  test("paints a page with half an emoji in it, and does not reject", async () => {
+    const rect = { left: 0, top: 0, width: 100, height: 200, right: 100, bottom: 200 };
+    const doc = { querySelectorAll: () => [] };
+    const view = { innerWidth: 100, innerHeight: 200, scrollX: 0, scrollY: 0 };
+    const frame = { contentDocument: doc, contentWindow: view, getBoundingClientRect: () => rect };
+    const glass = { getBoundingClientRect: () => rect };
+    const root = { getAttribute: () => null, setAttribute() {} };
+    const copy = { cloneNode: () => root };
+    const pen = { fillStyle: "", fillRect() {}, setTransform() {}, drawImage() {} };
+    const canvas = { width: 0, height: 0, getContext: () => pen };
+    const sources: string[] = [];
+    class FakeImage {
+      set src(url: string) {
+        sources.push(url);
+      }
+      decode(): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+    const before = ["document", "Image", "XMLSerializer"].map((name) => Reflect.get(globalThis, name));
+    Reflect.set(globalThis, "document", { createElement: () => canvas });
+    Reflect.set(globalThis, "Image", FakeImage);
+    Reflect.set(globalThis, "XMLSerializer", class {
+      serializeToString(): string {
+        return `<p>${"\u{1F680}".slice(0, 1)}</p>`;
+      }
+    });
+    try {
+      const painted = await paintPage(
+        frame as unknown as HTMLIFrameElement,
+        glass as unknown as HTMLElement,
+        { width: 100, height: 200 },
+        "#fff",
+        copy as unknown as Element,
+      );
+      expect(painted).toBe(canvas as unknown as HTMLCanvasElement);
+      expect(sources[0]).toContain(encodeURIComponent("\uFFFD"));
+    } finally {
+      for (const [index, name] of ["document", "Image", "XMLSerializer"].entries()) Reflect.set(globalThis, name, before[index]);
     }
   });
 });

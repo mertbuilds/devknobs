@@ -200,7 +200,7 @@ export function pictureOf(
   const drawn = shown && copy ? copyBars(shown, value, size) : null;
   return {
     shot: shootPage(frame, glass, size, color),
-    painted: copy ? withBars(paintPage(frame, glass, size, color, copy), drawn) : null,
+    painted: copy ? withBars(paintPage(frame, glass, size, color, copy), drawn).catch(() => null) : null,
     bars,
   };
 }

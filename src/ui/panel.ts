@@ -33,7 +33,7 @@ import {
   wallInput,
 } from "./catalog";
 import { BINDING_WORDS, BINDINGS, createKeys, type LiveKeys, recordStep } from "./bindings";
-import { createFoldSlider, foldChip } from "./foldslider";
+import { createFoldSlider, type FoldSlider, foldChip } from "./foldslider";
 import { ACTION_ICONS, BINDING_ICONS, icon, type IconName, ROW_ICONS } from "./icons";
 import {
   type Binding,
@@ -1015,6 +1015,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     ];
   }
 
+  /** The device row's fold slider, which stops listening to the fold with the panel. */
+  let foldSlider: FoldSlider | null = null;
+
   /** A width and a height of the frame's own, a turn of it, and a fold of a foldable, by a chip and by a slider. */
   function deviceExtra(): [HTMLElement, Update] {
     const extra = el("div", "extra extra-device");
@@ -1025,6 +1028,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const fold = button("chip", "unfold");
     box.append(width, el("span", "unit", "×"), height, rotate, fold);
     const slider = createFoldSlider((posture) => commit("device", { posture }));
+    foldSlider = slider;
     extra.append(box, slider.node);
     // An empty field is the window's own size.
     const size = (input: HTMLInputElement) => {
@@ -2412,6 +2416,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       clearTimeout(refusedTimer);
       cancelAnimationFrame(following);
       slide.destroy();
+      foldSlider?.destroy();
       for (const timer of pending.values()) clearTimeout(timer);
       window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("pointerdown", onPointerDown, true);

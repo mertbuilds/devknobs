@@ -1,6 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { foldRest, moveHinge } from "../src/engine/foldhand";
+import * as foldrun from "../src/engine/foldrun";
 import {
+  createFoldSlider,
   FOLD_MAGNET,
   FOLD_STOPS,
   foldChip,
@@ -116,5 +118,45 @@ describe("the fold chip beside the slider", () => {
   test("folds to the posture opposite the one the knobs hold, also from half open", () => {
     expect(foldChip("closed").posture).toBe("open");
     expect(foldChip("open").posture).toBe("closed");
+  });
+});
+
+describe("the fold slider, destroyed", () => {
+  test("stops listening to the fold and the hinge, so none stay behind a mount after another", () => {
+    let listening = 0;
+    const listen =
+      <T>(watch: (watcher: T) => () => void) =>
+      (watcher: T) => {
+        const stop = watch(watcher);
+        listening++;
+        return () => {
+          listening--;
+          stop();
+        };
+      };
+    const { watchFold, watchHinge } = foldrun;
+    const fold = spyOn(foldrun, "watchFold").mockImplementation(listen(watchFold));
+    const hinge = spyOn(foldrun, "watchHinge").mockImplementation(listen(watchHinge));
+    const element = () => ({
+      style: { setProperty() {} },
+      classList: { toggle() {} },
+      setAttribute() {},
+      append() {},
+      addEventListener() {},
+    });
+    const before = Reflect.get(globalThis, "document");
+    Reflect.set(globalThis, "document", { createElement: element, createElementNS: element });
+    try {
+      for (let mount = 0; mount < 3; mount++) {
+        const slider = createFoldSlider(() => {});
+        expect(listening).toBe(2);
+        slider.destroy();
+        expect(listening).toBe(0);
+      }
+    } finally {
+      Reflect.set(globalThis, "document", before);
+      fold.mockRestore();
+      hinge.mockRestore();
+    }
   });
 });
