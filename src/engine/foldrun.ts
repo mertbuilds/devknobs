@@ -32,11 +32,14 @@ import {
   shotsTransform,
   shotWindow,
 } from "./fold";
+import { reachOf, screenLook, wedgeOf } from "./foldgl";
 import {
   creaseOf,
   type Face,
   div,
   fill,
+  type Glued,
+  gluedOf,
   light,
   paintLeaf,
   type Panel,
@@ -107,18 +110,6 @@ interface Leaf extends Panel {
   rect: Rect;
   radii: Corners;
   pivot: Point;
-}
-
-/** A screen of a frame's half that turns, a window onto the page lying flat behind it. */
-interface Glued extends Panel {
-  /** Dark, over every frame in the render, cut a little past the turned screen's outline, under the case, so no edge of it lets the mat through. */
-  node: HTMLElement;
-  /** The window in it, cut to the turned screen's outline. */
-  cut: HTMLElement;
-  /** The part that turns as it lies, in its own css px, laid flat where the page is seen, and its corners. */
-  picture: HTMLElement;
-  size: { width: number; height: number };
-  radii: Corners;
 }
 
 /** The half that turns as the copies of its two sides, and the bend's half on it. */
@@ -331,63 +322,6 @@ function copiesOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictur
 }
 
 /**
- * The page on a side's screen of the half that turns, seen through a frame:
- * a window over `box`, the render's px every frame lies in, dark, and in it
- * the part that turns, in its own css px, the pictures and the browser's bars
- * as the screen lies, the dark of the picture and the shade of the turned
- * screen, all laid flat. The window is cut to the turned screen, so none of
- * its dark shows past the case.
- */
-function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean, box: Rect): Glued {
-  const { rect, radii } = turning;
-  const whole = screenOf(side);
-  const node = placeAt(div(""), box);
-  node.style.background = "#000";
-  const cut = fill(div(""));
-  node.append(cut);
-  const flatly = placeAt(div(""), { ...rect, x: 0, y: 0 });
-  flatly.style.transformOrigin = "0 0";
-  // Cut at the hinge, but not at the ends along it, where the blurs spread the picture into the dark past it.
-  flatly.style.overflowX = across ? "clip" : "visible";
-  flatly.style.overflowY = across ? "visible" : "clip";
-  const stage = placeAt(div(""), { ...whole.rect, x: whole.rect.x - rect.x, y: whole.rect.y - rect.y });
-  if (picture.bars) stage.append(picture.bars);
-  // Their dark goes over what the blurs spread past the ends too.
-  const darkening = () => {
-    const node = fill(div(""));
-    node.style[across ? "top" : "left"] = "-100%";
-    node.style[across ? "height" : "width"] = "300%";
-    return node;
-  };
-  const flat = darkening();
-  const shade = darkening();
-  flatly.append(stage, flat, shade);
-  cut.append(flatly);
-  const glued: Glued = {
-    pane: turning.pane,
-    node,
-    cut,
-    picture: flatly,
-    size: { width: rect.width, height: rect.height },
-    radii,
-    stage,
-    pictures: [],
-    flat,
-    shade,
-    toward: turning.toward,
-    span: turning.span,
-    extent: across ? side.size.width : side.size.height,
-    width: side.size.width,
-    across,
-  };
-  if (picture.shot) paintLeaf(glued, picture.shot);
-  void picture.painted?.then((shot) => {
-    if (shot && glued.node.isConnected) paintLeaf(glued, shot);
-  });
-  return glued;
-}
-
-/**
  * The half that turns as the fold's frames, `found`, laid on the fold: two
  * canvases over where every frame lies in the render, under them the screens
  * with the page glued on, and the bend's half on the open one. Null where
@@ -429,8 +363,11 @@ function shotsOf(
   const sides = turningOf(layout, open, closed);
   const model = div("");
   const box = { x: left, y: top, width: right - left, height: bottom - top };
-  const inner = gluedOf(open, pictures.open, sides.inner, layout.across, box);
-  const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across, box);
+  // As far past the page's ends as the turned screen ever reaches, and a few px more, and as fine as the screen is shown.
+  const margin = (side: Face, pane: Pane) => reachOf(shots, pane) * (layout.across ? side.size.height : side.size.width) + 4;
+  const density = (window.devicePixelRatio || 1) * Math.max(layout.folded.scale, layout.unfolded.scale);
+  const inner = gluedOf(open, pictures.open, sides.inner, layout.across, box, margin(open, "inner"), density);
+  const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across, box, margin(closed, "cover"), density);
   inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
   const frames = div("");
   frames.style.position = "absolute";
@@ -624,15 +561,18 @@ function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): 
     const facing = quad && glued.pane === pane ? quad : null;
     const picture = facing && shotPicture(shots, glued.pane, facing);
     const rect = { x: 0, y: 0, ...glued.size };
-    const seen = facing && picture && quadMap(rect, quadFacing(local(turning, shotWindow(facing, glued.pane, picture)), layout.across));
+    const opening = facing && picture && shotWindow(facing, glued.pane, picture);
+    const seen = opening && quadMap(rect, quadFacing(local(turning, opening), layout.across));
     glued.node.style.visibility = seen ? "" : "hidden";
-    if (!seen || !picture) continue;
+    if (!seen || !picture || !opening) continue;
     // The page stays still and flat behind the turned screen, dark where the screen reaches past it.
     glued.cut.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
     glued.node.style.clipPath = `path("${roundedPath(bled(rect, glued.pane, layout.across, seen), bledRadii(glued.radii), seen)}")`;
     const { x, y } = turning.corner;
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     light(glued, open);
+    const span = layout.across ? glued.size.height : glued.size.width;
+    glued.gl?.draw(screenLook(glued.pane, open, glued.extent, wedgeOf(opening, glued.pane, picture, span)));
   }
 }
 
@@ -722,7 +662,7 @@ function show(going: Going): void {
   if (found) {
     going.waiting = false;
     const { open, closed } = going.faces;
-    going.parts.layer.remove();
+    drop(going.parts);
     going.parts = build(going.scene, going.layout, open, closed, going.pictures, found);
   }
   const { layout, parts, unit, scene } = going;
@@ -761,11 +701,21 @@ function show(going: Going): void {
   for (const watcher of Array.from(hinges)) watcher(open, going.hand);
 }
 
+/** Take a fold's layer away, and let go of what draws its screens. */
+function drop(parts: Layer): void {
+  parts.layer.remove();
+  if (!("model" in parts.turning)) return;
+  for (const glued of [parts.turning.inner, parts.turning.outer]) {
+    glued.gl?.release();
+    glued.gl = null;
+  }
+}
+
 /** Take the fold's layer away, and leave the frame's own device as it is drawn. */
 function clear(last: Going): void {
   window.cancelAnimationFrame(last.frame);
   window.removeEventListener("resize", settle);
-  last.parts.layer.remove();
+  drop(last.parts);
   last.scene.unit.style.clipPath = "";
   darken(last.scene.cover, 0);
   if (last.duo) endFoldShots();
@@ -1003,7 +953,10 @@ export function stopFold(): void {
 
 /** The frame is gone, and the fold with it. */
 export function forgetFold(): void {
-  if (fold) window.cancelAnimationFrame(fold.frame);
+  if (fold) {
+    window.cancelAnimationFrame(fold.frame);
+    drop(fold.parts);
+  }
   window.removeEventListener("resize", settle);
   fold = null;
   for (const watcher of Array.from(watchers)) watcher();

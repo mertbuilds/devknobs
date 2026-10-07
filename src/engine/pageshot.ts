@@ -280,15 +280,13 @@ export async function paintPage(
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
     `<foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
-  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
   const image = new Image();
-  image.src = url;
+  // As data, not a blob: Chrome marks a drawing from a blob as foreign, and its canvas could not go to the GPU.
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   try {
     await image.decode();
   } catch {
     return null;
-  } finally {
-    URL.revokeObjectURL(url);
   }
   const drawn = canvasOf(size.width, size.height);
   if (!drawn) return null;

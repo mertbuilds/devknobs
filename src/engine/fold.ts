@@ -748,7 +748,7 @@ export function wipeLight(pane: Pane, uv: number, amount: number): number {
 }
 
 /** Apple's `blurArea` at `uv` before it is held to its range, which runs evenly along the half. */
-function rawArea(pane: Pane, uv: number, amount: number): number {
+export function rawArea(pane: Pane, uv: number, amount: number): number {
   const { at, blur } = WIPE[pane];
   return (((Math.abs(uv - at) - blur[0]) / (blur[1] - blur[0])) * amount * 2.5) / 0.75;
 }
