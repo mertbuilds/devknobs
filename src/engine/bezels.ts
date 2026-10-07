@@ -23,7 +23,8 @@ import {
  * the mock on. Delete assets/bezels and build, and every device draws its own
  * mock again, as it does where an image does not load. The Duo's fold has
  * frames of its own in assets/bezels/duo-fold, rendered from Apple's model,
- * which all load and decode once the Duo is first shown with the mock on.
+ * which all load once the Duo is first shown with the mock on, decode as a
+ * fold starts, and are let go of a while after it, or once the Duo is not shown.
  */
 
 /** One image, measured in its own px, at its own density: see `densityOf`. */
@@ -415,44 +416,53 @@ export function bezelUrl(file: string): string | null {
 }
 
 /**
- * Load and decode each of `files`, each from the first of its addresses that
- * decodes, in order. Rejects where one of them decodes from none.
+ * Load each of `files`, each from the first of its addresses that loads, in
+ * order, without decoding it. Rejects where one of them loads from none.
  */
-export async function decodeAll(files: readonly string[]): Promise<HTMLImageElement[]> {
-  const decoded = async (file: string) => {
+export async function loadAll(files: readonly string[]): Promise<HTMLImageElement[]> {
+  const loaded = async (file: string) => {
     for (const url of urlsOf(file)) {
       const image = new Image();
-      image.src = url;
-      try {
-        await image.decode();
-        return image;
-      } catch {
-        // Not there, or no picture: the next address.
-      }
+      const ok = await new Promise<boolean>((resolve) => {
+        image.onload = () => resolve(true);
+        image.onerror = () => resolve(false);
+        image.src = url;
+      });
+      if (ok) return image;
     }
     throw new Error(`devknobs: ${file} did not load`);
   };
-  return Promise.all(files.map(decoded));
+  return Promise.all(files.map(loaded));
 }
 
-/** The Duo's fold frames as they load, and their images once all are in. */
+/**
+ * The Duo's fold frames: their files as they load, which then wait in the
+ * browser undecoded, and their pictures while a fold wants them.
+ */
 interface ShotsLoad {
   state: Load["state"];
   images: HTMLImageElement[];
+  bitmaps: ImageBitmap[] | null;
+  /** The pictures under way, if any. */
+  decoding: Promise<ImageBitmap[]> | null;
+  release: ReturnType<typeof setTimeout> | null;
 }
 
 let shotsLoad: ShotsLoad | null = null;
 
+/** How long the pictures stay once a fold is over, in ms, so one fold after another needs them only once. */
+export const SHOTS_KEPT = 4000;
+
 /**
- * Load and decode every frame of the Duo's fold, once. Until all of them are
- * in, and for good where one fails, a fold turns copies of the bezels instead.
+ * Load every frame of the Duo's fold, once, so it is in the browser when a
+ * fold wants it. Where one fails, a fold turns copies of the bezels for good.
  */
 export function loadFoldShots(): void {
-  // Nothing to decode with: try again later.
-  if (shotsLoad || !DUO_FOLD || typeof Image === "undefined" || typeof Image.prototype.decode !== "function") return;
-  const started: ShotsLoad = { state: "loading", images: [] };
+  // Nothing to load or draw them with: try again later.
+  if (shotsLoad || !DUO_FOLD || typeof Image === "undefined" || typeof createImageBitmap !== "function") return;
+  const started: ShotsLoad = { state: "loading", images: [], bitmaps: null, decoding: null, release: null };
   shotsLoad = started;
-  decodeAll(DUO_FOLD.frames.map((shot) => shot.file)).then(
+  loadAll(DUO_FOLD.frames.map((shot) => shot.file)).then(
     (images) => {
       started.images = images;
       started.state = "ready";
@@ -463,9 +473,58 @@ export function loadFoldShots(): void {
   );
 }
 
-/** The Duo's fold frames and their images, in the same order, once every one has decoded, or null. */
-export function foldShots(): { shots: FoldShots; images: HTMLImageElement[] } | null {
-  return DUO_FOLD && shotsLoad?.state === "ready" ? { shots: DUO_FOLD, images: shotsLoad.images } : null;
+/**
+ * Decode every frame, once they have all loaded, for a fold that starts: the
+ * pictures stay till `releaseFoldShots`. Till they are in, a fold turns
+ * copies of the bezels.
+ */
+export function decodeFoldShots(): void {
+  const load = shotsLoad;
+  if (!load || load.state !== "ready") return;
+  if (load.release !== null) clearTimeout(load.release);
+  load.release = null;
+  if (load.bitmaps || load.decoding) return;
+  const decoding = Promise.all(load.images.map((image) => createImageBitmap(image)));
+  load.decoding = decoding;
+  decoding.then(
+    (bitmaps) => {
+      // Let go of while they decoded.
+      if (load.decoding !== decoding) {
+        for (const bitmap of bitmaps) bitmap.close();
+        return;
+      }
+      load.decoding = null;
+      load.bitmaps = bitmaps;
+    },
+    () => {
+      load.decoding = null;
+      load.state = "failed";
+    },
+  );
+}
+
+/**
+ * Let go of the frames' pictures `after` ms from now, or at once, and of any
+ * under way. Their files stay loaded for the next fold.
+ */
+export function releaseFoldShots(after = 0): void {
+  const load = shotsLoad;
+  if (!load) return;
+  if (load.release !== null) clearTimeout(load.release);
+  load.release = null;
+  if (after > 0) {
+    load.release = setTimeout(() => releaseFoldShots(), after);
+    return;
+  }
+  for (const bitmap of load.bitmaps ?? []) bitmap.close();
+  load.bitmaps = null;
+  load.decoding = null;
+}
+
+/** The Duo's fold frames and their pictures, in the same order, while every one is decoded, or null. */
+export function foldShots(): { shots: FoldShots; bitmaps: ImageBitmap[] } | null {
+  const bitmaps = shotsLoad?.bitmaps;
+  return DUO_FOLD && bitmaps ? { shots: DUO_FOLD, bitmaps } : null;
 }
 
 /** What picks the body drawn around the frame. */
@@ -477,7 +536,10 @@ export type BodyKnobs = Pick<DevknobsState, "mock" | "device" | "orientation" | 
  * frames of its fold.
  */
 function loadOther(knobs: BodyKnobs): void {
-  if (!deviceOf(knobs.device)?.postures) return;
+  if (!deviceOf(knobs.device)?.postures) {
+    releaseFoldShots();
+    return;
+  }
   loadFoldShots();
   const other = formId(knobs.device, knobs.posture === "open" ? "closed" : "open");
   const image = bezelMock(other, knobs.orientation === "portrait" ? "landscape" : "portrait")?.image;
@@ -491,7 +553,10 @@ function loadOther(knobs: BodyKnobs): void {
  * as it comes in, and `settled` hears once it is in.
  */
 export function bodyOf(knobs: BodyKnobs, settled: () => void): Mock | null {
-  if (!knobs.mock) return null;
+  if (!knobs.mock) {
+    releaseFoldShots();
+    return null;
+  }
   const id = formId(knobs.device, knobs.posture);
   const drawn = mockOf(id, knobs.orientation);
   const bezel = bezelMock(id, knobs.orientation);

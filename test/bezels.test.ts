@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { bezelFiles, bezelUrlsModule, FOLD_FOLDER, foldShotsIn, foldShotsOf } from "../scripts/bezelurls";
-import { BEZELS, type Bezel, bezelMock, bezelUrl, decodeAll, densityOf, loadBezel } from "../src/engine/bezels";
+import { BEZELS, type Bezel, bezelMock, bezelUrl, densityOf, loadAll, loadBezel } from "../src/engine/bezels";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import { SCREENS, screenOf, turn } from "../src/engine/devices";
 import { mockOf, placeIn } from "../src/engine/mock";
@@ -364,10 +364,15 @@ describe("bezelUrlsModule", () => {
 describe("the Duo's fold frames", () => {
   const MANIFEST = {
     open: [133.5, 377.45, 2853, 2005.12],
+    scale: 0.5,
     frames: [180, 0].map((deg) => ({
       deg,
       file: `fold-${String(deg).padStart(3, "0")}.webp`,
-      box: [76, 319, 1623, 2441],
+      box: [76, 318, 1624, 2442],
+      pieces: [
+        [0, 0, 774, 44, 4, 4],
+        [0, 44, 64, 972, 4, 56],
+      ],
       inner: [[0, 0], [1, 0], [1, 1], [0, 1]],
       cover: [[0, 0], [1, 0], [1, 1], [0, 1]],
     })),
@@ -378,8 +383,9 @@ describe("the Duo's fold frames", () => {
     expect(shots).toEqual(DUO_FOLD);
     const files = (shots?.frames ?? []).map((shot) => shot.file);
     expect(files).toHaveLength(31);
+    // The manifest stays beside the packer: only the frames ship.
     expect([...readdirSync(`${FOLDER}/${FOLD_FOLDER}`)].sort()).toEqual(
-      [...files.map((file) => file.slice(FOLD_FOLDER.length + 1)), "manifest.json"].sort(),
+      files.map((file) => file.slice(FOLD_FOLDER.length + 1)).sort(),
     );
     expect(bezelFiles(FOLDER).filter((file) => file.startsWith(`${FOLD_FOLDER}/`))).toEqual(files);
   });
@@ -387,10 +393,19 @@ describe("the Duo's fold frames", () => {
   test("are read from the manifest, from open to shut, each file in their folder", () => {
     const shots = foldShotsOf(MANIFEST);
     expect(shots.open).toEqual([133.5, 377.45, 2853, 2005.12]);
+    expect(shots.scale).toBe(0.5);
     expect(shots.frames.map((shot) => [shot.deg, shot.file])).toEqual([
       [0, "duo-fold/fold-000.webp"],
       [180, "duo-fold/fold-180.webp"],
     ]);
+    expect(shots.frames[0]?.pieces).toEqual([
+      [0, 0, 774, 44, 4, 4],
+      [0, 44, 64, 972, 4, 56],
+    ]);
+  });
+
+  test("are none without their folder, whatever the manifest says", () => {
+    expect(foldShotsIn(new URL("../assets/nothing-here", import.meta.url).pathname)).toBeNull();
   });
 
   test("are refused where the manifest is not whole", () => {
@@ -402,43 +417,64 @@ describe("the Duo's fold frames", () => {
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, inner: [[0, 0]] }] })).toThrow("corners");
     expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, file: "../x.webp" }] })).toThrow("file");
     expect(() => foldShotsOf({ ...MANIFEST, open: [0, 0, 1] })).toThrow("open");
+    expect(() => foldShotsOf({ ...MANIFEST, scale: 0 })).toThrow("scale");
+    expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, pieces: [] }] })).toThrow("pieces");
+    expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, pieces: [[0, 0, 1]] }] })).toThrow("piece");
   });
 
   test("are none in a module written without them", () => {
     expect(bezelUrlsModule([])).toContain("DUO_FOLD: FoldShots | null = null;");
-    expect(bezelUrlsModule([], foldShotsOf(MANIFEST))).toContain('file: "duo-fold/fold-180.webp",');
+    const source = bezelUrlsModule([], foldShotsOf(MANIFEST));
+    expect(source).toContain('file: "duo-fold/fold-180.webp",');
+    expect(source).toContain("scale: 0.5,");
+    expect(source).toContain("pieces: [[0, 0, 774, 44, 4, 4], [0, 44, 64, 972, 4, 56]],");
   });
 
-  /** An image that decodes from the addresses `ok` says. */
-  function fakeDecoding(ok: (src: string) => boolean, asked: string[]): void {
+  /** An image that loads from the addresses `ok` says, and never decodes. */
+  function fakeLoading(ok: (src: string) => boolean, asked: string[]): void {
     class FakeImage {
-      src = "";
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      decoded = false;
+      #src = "";
+
+      get src(): string {
+        return this.#src;
+      }
+
+      set src(url: string) {
+        this.#src = url;
+        asked.push(url);
+        queueMicrotask(() => (ok(url) ? this.onload : this.onerror)?.());
+      }
+
       decode(): Promise<void> {
-        asked.push(this.src);
-        return ok(this.src) ? Promise.resolve() : Promise.reject(new Error("no picture"));
+        this.decoded = true;
+        return Promise.resolve();
       }
     }
     Object.defineProperty(globalThis, "Image", { configurable: true, value: FakeImage });
   }
 
-  test("decode each from the first address that does, in order", async () => {
+  test("load each from the first address that does, in order, without decoding it", async () => {
     Object.defineProperty(globalThis, "location", {
       configurable: true,
       value: { href: "https://app.test/" },
     });
     const asked: string[] = [];
-    fakeDecoding((src) => src.includes("node_modules") || src.endsWith("fold-006.webp"), asked);
-    const images = await decodeAll(["duo-fold/fold-000.webp", "duo-fold/fold-006.webp"]);
+    fakeLoading((src) => src.includes("node_modules") || src.endsWith("fold-006.webp"), asked);
+    const images = await loadAll(["duo-fold/fold-000.webp", "duo-fold/fold-006.webp"]);
     expect(images.map((image) => image.src)).toEqual([
       "https://app.test/node_modules/devknobs/dist/bezels/duo-fold/fold-000.webp",
       new URL("../src/engine/bezels/duo-fold/fold-006.webp", import.meta.url).href,
     ]);
     expect(asked).toHaveLength(3);
+    expect(images.map((image) => Reflect.get(image, "decoded"))).toEqual([false, false]);
   });
 
-  test("fail together where one decodes from nowhere", async () => {
-    fakeDecoding((src) => !src.endsWith("fold-012.webp"), []);
-    await expect(decodeAll(["duo-fold/fold-000.webp", "duo-fold/fold-012.webp"])).rejects.toThrow("fold-012.webp");
-    await expect(decodeAll(["duo-fold/nothing.webp"])).rejects.toThrow();
+  test("fail together where one loads from nowhere", async () => {
+    fakeLoading((src) => !src.endsWith("fold-012.webp"), []);
+    await expect(loadAll(["duo-fold/fold-000.webp", "duo-fold/fold-012.webp"])).rejects.toThrow("fold-012.webp");
+    await expect(loadAll(["duo-fold/nothing.webp"])).rejects.toThrow();
   });
 });

@@ -263,16 +263,25 @@ export type Pair = readonly [x: number, y: number];
 export type Quad = readonly [Pair, Pair, Pair, Pair];
 
 /**
+ * A piece of a frame: where it lies in the frame, left, top, width and
+ * height, and its left and top in the frame's file, all in the file's px.
+ */
+export type Piece = readonly [x: number, y: number, width: number, height: number, fileX: number, fileY: number];
+
+/**
  * One frame of the iPhone Duo's turning half, rendered offline from Apple's
  * model by scripts/render-duo-fold: its case alone, its screens see-through,
- * as seen from the fold's own distance. Everything is in the render's px.
+ * as seen from the fold's own distance. Everything but its pieces is in the
+ * render's px.
  */
 export interface FoldShot {
   /** How far the half has turned, 0 open to 180 shut. */
   deg: number;
   file: string;
-  /** Where the image lies in the render: left, top, right, bottom. */
+  /** Where the frame lies in the render: left, top, right, bottom. */
   box: readonly [number, number, number, number];
+  /** The pieces of the frame its file holds: all of it but its clear middle. */
+  pieces: readonly Piece[];
   /** Where the open screen's turning half is seen, and the folded body's screen, each as it faces the viewer. */
   inner: Quad;
   cover: Quad;
@@ -282,6 +291,8 @@ export interface FoldShot {
 export interface FoldShots {
   /** The open screen: left, top, width, height. */
   open: readonly [number, number, number, number];
+  /** The files' px per px of the render. */
+  scale: number;
   frames: readonly FoldShot[];
 }
 

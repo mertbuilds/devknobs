@@ -1,5 +1,5 @@
 import type { PostureValue } from "../types";
-import { bezelUrl, foldShots } from "./bezels";
+import { bezelUrl, decodeFoldShots, foldShots, releaseFoldShots, SHOTS_KEPT } from "./bezels";
 import {
   type BlurFade,
   type FoldFrame,
@@ -52,11 +52,12 @@ import type { ViewportValue } from "./width";
  * transforms, the window's outline, gradients, masks and opacities. What it
  * needs of the frame comes in a `FoldScene`, so it holds no node of its own.
  *
- * Once the Duo's fold frames have all decoded, a fold of the Duo in its bezels
- * draws the half that turns as the frames nearest the hinge's angle instead,
- * rendered from Apple's model, and the page glued onto the frame's turned
- * screen: its picture, blurs and shades laid on the screen's corners with a
- * `matrix3d`. Till then, or where one fails, it turns the copies.
+ * A fold of the Duo in its bezels decodes the Duo's fold frames as it starts,
+ * and once they are in draws the half that turns as the frames nearest the
+ * hinge's angle instead, rendered from Apple's model, onto a canvas, and the
+ * page glued onto the frame's turned screen: its picture, blurs and shades
+ * laid on the screen's corners with a `matrix3d`. Till then, or where one
+ * fails, it turns the copies. The frames are let go of a while after it lands.
  */
 
 /** What a foldable folding asks of the frame, as it starts. */
@@ -127,14 +128,18 @@ interface Copies {
 
 /**
  * The half that turns as the Duo's fold frames: the render's px laid on the
- * fold by `model`, the frames' images in it, the frame shown, and the two
- * screens glued on. The open screen and the folded one, where the layout lays them.
+ * fold by `model`, the canvas in it the frames are drawn on, at the files'
+ * scale, from `corner` in the render, their pictures, what is drawn, and the
+ * two screens glued on. The open screen and the folded one, where the layout lays them.
  */
 interface Shots {
   shots: FoldShots;
   model: HTMLElement;
-  cases: HTMLImageElement[];
-  shown: number[];
+  canvas: HTMLCanvasElement;
+  pen: CanvasRenderingContext2D;
+  corner: Point;
+  bitmaps: ImageBitmap[];
+  drawn: string;
   inner: Glued;
   outer: Glued;
   inside: Rect;
@@ -168,6 +173,14 @@ interface Going {
   scene: FoldScene;
   layout: FoldLayout;
   hinge: Hinge;
+  /**
+   * Its sides and pictures of the page, is it the Duo's, and does it wait
+   * for the Duo's frames to take over from the copies?
+   */
+  faces: { open: Face; closed: Face };
+  pictures: Pictures;
+  duo: boolean;
+  waiting: boolean;
   /** How far open the fold is drawn: between the hinge's last step and its next, by the time between. */
   open: number;
   target: number;
@@ -458,37 +471,52 @@ function gluedOf(side: Face, picture: Picture, turning: Turning, across: boolean
 }
 
 /**
- * The half that turns as the fold's frames, `found`, laid on the fold: each
- * frame's image where it lies in the render, all hidden till shown, under
- * them the screens with the page glued on, and the bend's half on the open one.
+ * The half that turns as the fold's frames, `found`, laid on the fold: a
+ * canvas over where every frame lies in the render, under it the screens with
+ * the page glued on, and the bend's half on the open one. Null where there is
+ * no canvas to draw on.
  */
 function shotsOf(
   layout: FoldLayout,
   open: Face,
   closed: Face,
   pictures: Pictures,
-  found: { shots: FoldShots; images: HTMLImageElement[] },
-): Shots {
+  found: { shots: FoldShots; bitmaps: ImageBitmap[] },
+): Shots | null {
+  const { shots, bitmaps } = found;
+  const canvas = document.createElement("canvas");
+  const pen = canvas.getContext("2d");
+  if (!pen) return null;
+  const [first, ...rest] = shots.frames.map((shot) => shot.box);
+  if (!first) return null;
+  const [left, top, right, bottom] = rest.reduce(
+    (all, box) => [
+      Math.min(all[0], box[0]),
+      Math.min(all[1], box[1]),
+      Math.max(all[2], box[2]),
+      Math.max(all[3], box[3]),
+    ],
+    [...first],
+  );
+  canvas.width = Math.ceil((right - left) * shots.scale);
+  canvas.height = Math.ceil((bottom - top) * shots.scale);
+  placeAt(canvas, { x: left, y: top, width: canvas.width / shots.scale, height: canvas.height / shots.scale });
+  canvas.style.display = "block";
   const sides = turningOf(layout, open, closed);
   const model = div("");
   const inner = gluedOf(open, pictures.open, sides.inner, layout.across);
   const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across);
   inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
-  const cases = found.images.map((image, index) => {
-    const [left, top, right, bottom] = found.shots.frames[index]?.box ?? [0, 0, 0, 0];
-    placeAt(image, { x: left, y: top, width: right - left, height: bottom - top });
-    image.style.display = "block";
-    image.style.maxWidth = "none";
-    image.style.visibility = "hidden";
-    return image;
-  });
-  model.append(inner.node, outer.node, ...cases);
+  model.append(inner.node, outer.node, canvas);
   const { rect } = screenOf(closed);
   return {
-    shots: found.shots,
+    shots,
     model,
-    cases,
-    shown: [],
+    canvas,
+    pen,
+    corner: { x: left, y: top },
+    bitmaps,
+    drawn: "",
     inner,
     outer,
     inside: screenOf(open).rect,
@@ -507,14 +535,14 @@ function build(
   open: Face,
   closed: Face,
   pictures: Pictures,
-  found: { shots: FoldShots; images: HTMLImageElement[] } | null,
+  found: { shots: FoldShots; bitmaps: ImageBitmap[] } | null,
 ): Layer {
   const layer = div("fold");
   const place = div("");
   const still = creaseOf(layout, open, false);
   let turning: Copies | Shots;
-  if (found) {
-    const shots = shotsOf(layout, open, closed, pictures, found);
+  const shots = found && shotsOf(layout, open, closed, pictures, found);
+  if (shots) {
     // Under the frames, which draw the hinge over it.
     place.append(still, shots.model);
     turning = shots;
@@ -657,23 +685,18 @@ function light(panel: Panel, open: number): void {
  * frame's own device.
  */
 function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): void {
-  const { shots, model, cases } = turning;
+  const { shots, model, canvas, pen } = turning;
   const around = shotsAround(shots, open);
   if (!around) return;
   const { near, far, share } = around;
-  const showing = [shots.frames.indexOf(near), shots.frames.indexOf(far)];
-  for (const index of turning.shown) {
-    const last = cases[index];
-    if (last && !showing.includes(index)) last.style.visibility = "hidden";
+  const fade = far === near ? 0 : Math.round(share * 1000) / 1000;
+  const drawn = `${near.deg} ${far.deg} ${fade}`;
+  if (drawn !== turning.drawn) {
+    turning.drawn = drawn;
+    pen.clearRect(0, 0, canvas.width, canvas.height);
+    drawShot(turning, near, 1);
+    if (fade > 0) drawShot(turning, far, fade);
   }
-  showing.forEach((index, which) => {
-    const image = cases[index];
-    if (!image) return;
-    image.style.visibility = "";
-    image.style.zIndex = which === 0 ? "" : "1";
-    image.style.opacity = which === 0 || index === showing[0] ? "" : String(Math.round(share * 1000) / 1000);
-  });
-  turning.shown = showing;
   model.style.transform = shotsTransform(shots, layout, turning.inside, turning.outside, open);
   model.style.opacity = shown < 1 ? String(shown) : "";
   const inside = near.deg < 90;
@@ -690,8 +713,29 @@ function pose(turning: Shots, layout: FoldLayout, open: number, shown: number): 
   }
 }
 
+/** Draw a frame's pieces where they lie on the canvas, `alpha` of the way over what is there. */
+function drawShot(turning: Shots, shot: FoldShot, alpha: number): void {
+  const { pen, corner, shots } = turning;
+  const bitmap = turning.bitmaps[shots.frames.indexOf(shot)];
+  if (!bitmap) return;
+  const x = Math.round((shot.box[0] - corner.x) * shots.scale);
+  const y = Math.round((shot.box[1] - corner.y) * shots.scale);
+  pen.globalAlpha = alpha;
+  for (const [left, top, width, height, fileX, fileY] of shot.pieces) {
+    pen.drawImage(bitmap, fileX, fileY, width, height, x + left, y + top, width, height);
+  }
+}
+
 /** Draw the fold with the hinge where it has got to. */
 function show(going: Going): void {
+  const found = going.waiting ? foldShots() : null;
+  // The frames came in as it folds: they take over from the copies, once.
+  if (found) {
+    going.waiting = false;
+    const { open, closed } = going.faces;
+    going.parts.layer.remove();
+    going.parts = build(going.scene, going.layout, open, closed, going.pictures, found);
+  }
   const { layout, parts, unit, scene } = going;
   const { open } = going;
   const frame = foldFrame(layout, open);
@@ -733,6 +777,7 @@ function clear(last: Going): void {
   last.parts.layer.remove();
   last.scene.unit.style.clipPath = "";
   darken(last.scene.cover, 0);
+  if (last.duo) releaseFoldShots(SHOTS_KEPT);
 }
 
 /** The fold is over: the device is drawn the way the knobs say, and the layer goes in the same frame. */
@@ -818,9 +863,15 @@ export function foldDevice(
   const duo = [open, closed].every((side) => side.body?.image?.file.startsWith("iphone-duo-"));
   const pictures = opening ? { open: after, closed: before } : { open: before, closed: after };
   const values = { [from.posture]: from, [value.posture]: value } as Record<PostureValue, ViewportValue>;
+  if (duo) decodeFoldShots();
+  const parts = build(scene, layout, open, closed, pictures, duo ? foldShots() : null);
   fold = {
     scene,
     layout,
+    faces: { open, closed },
+    pictures,
+    duo,
+    waiting: duo && !("model" in parts.turning),
     hinge: { position: openOf(from.posture), velocity: 0 },
     open: openOf(from.posture),
     target: openOf(value.posture),
@@ -829,7 +880,7 @@ export function foldDevice(
     begin: null,
     slow: slowness(),
     steps: 0,
-    parts: build(scene, layout, open, closed, pictures, duo ? foldShots() : null),
+    parts,
     unit: measure(scene, from.posture),
     draw,
   };
@@ -861,4 +912,5 @@ export function forgetFold(): void {
   if (fold) window.cancelAnimationFrame(fold.frame);
   fold = null;
   forgetShots();
+  releaseFoldShots();
 }

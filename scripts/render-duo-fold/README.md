@@ -2,8 +2,11 @@
 
 renders the frames in `assets/bezels/duo-fold`: the iPhone Duo's turning half,
 case only, its screens see-through, every 6 degrees from open to shut, as seen
-from the fold's own camera, and `manifest.json` with each frame's crop box and
-the corners of its two turned screens. offline only: nothing here is part of
+from the fold's own camera, at 1.5 px per css px, each its outline cut into
+pieces round its clear middle and packed into one WebP, and `manifest.json`
+beside this README with each frame's crop box, its pieces and the corners of
+its two turned screens. the manifest never ships: the build writes what it
+says into `src/engine/bezelurls.ts`. offline only: nothing here is part of
 the package, its build or its runtime, and three.js never ships.
 
 the scene, its lights, the mesh ids, the screen geometry and the fold's bend
@@ -34,19 +37,20 @@ downloads from apple.com. see THIRD_PARTY_NOTICES.md.
    saves them into the master folder; the tab's title says `rendered 61
    angles` when it is done. `?run&step=6` renders fewer.
 
-4. pack every 6 degrees into the package's folder, at WebP quality 80:
+4. pack every 6 degrees into the package's folder, at WebP quality 80 and 1.5
+   px per css px, and the manifest beside this README:
 
    ```sh
-   uv run --python 3.12 --with pillow python scripts/render-duo-fold/pack.py ~/devknobs-duo-fold/master assets/bezels/duo-fold 6 80
+   uv run --python 3.12 --with pillow python scripts/render-duo-fold/pack.py ~/devknobs-duo-fold/master assets/bezels/duo-fold 6 80 1.5
    ```
 
-5. `bun run build`, which writes `src/engine/bezelurls.ts` from the folder,
-   frames and corners included, and copies the folder to `dist/bezels`.
+5. `bun run build`, which writes `src/engine/bezelurls.ts` from the folder and
+   the manifest, and copies the folder to `dist/bezels`.
 
 ## master PNGs
 
 the masters are 3120 by 2760 px each, about 36 MB for a render every 3
 degrees. keep them outside the repo and the package, in
 `~/devknobs-duo-fold/master` as above or any folder you pass to `serve.ts` and
-`pack.py`. only the packed WebP frames and `manifest.json` go in
-`assets/bezels/duo-fold`.
+`pack.py`. only the packed WebP frames go in `assets/bezels/duo-fold`, and
+`manifest.json` here.

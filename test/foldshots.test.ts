@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { bezelMock, foldShots, loadFoldShots } from "../src/engine/bezels";
+import { bezelMock, bodyOf, foldShots, loadFoldShots, releaseFoldShots, SHOTS_KEPT } from "../src/engine/bezels";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import { type FoldScene, folding, foldDevice, forgetFold, stopFold } from "../src/engine/foldrun";
 import { DEFAULT_STATE } from "../src/engine/store";
@@ -9,6 +9,10 @@ import type { ViewportValue } from "../src/engine/width";
 class FakeNode {
   className = "";
   hidden = false;
+  /** A canvas's size, and what is drawn on it. */
+  width = 0;
+  height = 0;
+  pen: FakePen | null = null;
   children: FakeNode[] = [];
   parent: FakeNode | null = null;
   /** The letterbox, which is in the page. */
@@ -78,26 +82,96 @@ class FakeNode {
     return new FakeNode();
   }
 
+  getContext(): FakePen {
+    this.pen ??= new FakePen();
+    return this.pen;
+  }
+
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
     return { left: 0, top: 0, width: 400, height: 600 };
   }
 }
 
-/** Decodes when the test lets it: each waits on `release`. */
-let release: () => void = () => {};
-let decoded = new Promise<void>((resolve) => {
-  release = resolve;
-});
+/** A frame's picture, which knows its file and whether it was let go of. */
+class FakeBitmap {
+  closed = false;
 
-class FakeImage extends FakeNode {
-  src = "";
+  constructor(readonly src: string) {}
 
-  decode(): Promise<void> {
-    return decoded;
+  close(): void {
+    this.closed = true;
   }
 }
 
-const GLOBALS = ["window", "document", "Image"] as const;
+/** What a canvas draws: each frame's picture since it was last cleared, and how faded. */
+class FakePen {
+  globalAlpha = 1;
+  drawn: { src: string; alpha: number }[] = [];
+
+  clearRect(): void {
+    this.drawn = [];
+  }
+
+  drawImage(bitmap: FakeBitmap): void {
+    const last = this.drawn.at(-1);
+    // One entry for all of a frame's pieces.
+    if (last?.src === bitmap.src && last.alpha === this.globalAlpha) return;
+    this.drawn.push({ src: bitmap.src, alpha: this.globalAlpha });
+  }
+}
+
+/** Loads at once, and never decodes. */
+class FakeImage extends FakeNode {
+  onload: (() => void) | null = null;
+  #src = "";
+
+  get src(): string {
+    return this.#src;
+  }
+
+  set src(url: string) {
+    this.#src = url;
+    queueMicrotask(() => this.onload?.());
+  }
+}
+
+/** Pictures decode when the test lets them: each waits on `letDecode`. */
+let letDecode: () => void = () => {};
+let decodes = new Promise<void>((resolve) => {
+  letDecode = resolve;
+});
+let bitmaps: FakeBitmap[] = [];
+
+function createBitmap(image: FakeImage): Promise<FakeBitmap> {
+  return decodes.then(() => {
+    const bitmap = new FakeBitmap(image.src);
+    bitmaps.push(bitmap);
+    return bitmap;
+  });
+}
+
+/** Timers, which the test runs. */
+let timers: { run: () => void; ms: number; id: number }[] = [];
+let timer = 0;
+
+function later(run: () => void, ms: number): number {
+  timer += 1;
+  timers.push({ run, ms, id: timer });
+  return timer;
+}
+
+function cancel(id: number): void {
+  timers = timers.filter((one) => one.id !== id);
+}
+
+/** Run the timers due by `ms`. */
+function wait(ms: number): void {
+  const due = timers.filter((one) => one.ms <= ms);
+  timers = timers.filter((one) => one.ms > ms);
+  for (const one of due) one.run();
+}
+
+const GLOBALS = ["window", "document", "Image", "createImageBitmap", "setTimeout", "clearTimeout"] as const;
 const saved = GLOBALS.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
 let frames: FrameRequestCallback[] = [];
 
@@ -118,6 +192,9 @@ beforeAll(() => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: view });
   Object.defineProperty(globalThis, "document", { configurable: true, value: doc });
   Object.defineProperty(globalThis, "Image", { configurable: true, value: FakeImage });
+  Object.defineProperty(globalThis, "createImageBitmap", { configurable: true, value: createBitmap });
+  Object.defineProperty(globalThis, "setTimeout", { configurable: true, value: later });
+  Object.defineProperty(globalThis, "clearTimeout", { configurable: true, value: cancel });
 });
 
 afterAll(() => {
@@ -188,16 +265,30 @@ function placed(): FakeNode[] {
 
 const style = (node: FakeNode | undefined, key: string) => String(Reflect.get(node?.style ?? {}, key) ?? "");
 
-/** The frames' images that show. */
-function showing(): FakeNode[] {
-  return (placed()[1]?.children ?? []).filter((node) => node instanceof FakeImage && style(node, "visibility") === "");
+/** The canvas the frames are drawn on, if the fold draws them. */
+function canvas(): FakeNode | undefined {
+  return placed()[1]?.children.find((node) => node.pen !== null);
+}
+
+/** The frames drawn, by their place among the frames, and how faded. */
+function showing(): { index: number; alpha: number }[] {
+  const frames = DUO_FOLD?.frames ?? [];
+  return (canvas()?.pen?.drawn ?? []).map(({ src, alpha }) => ({
+    index: frames.findIndex((shot) => src.endsWith(shot.file)),
+    alpha,
+  }));
 }
 
 /** Which frame shows whole, the one nearest the hinge's angle, by its place among the frames. */
 function nearest(): number {
-  const model = placed()[1];
-  const whole = showing().find((node) => style(node, "opacity") === "");
-  return whole && model ? model.children.indexOf(whole) - 2 : -1;
+  return showing().find((shown) => shown.alpha === 1)?.index ?? -1;
+}
+
+/** Let the pictures decode, and see them in. */
+async function decodeNow(): Promise<void> {
+  letDecode();
+  await decodes;
+  await Bun.sleep(0);
 }
 
 /** Fold from `from` to `to`, drawing what the knobs say, which puts the device back at rest as the frame does. */
@@ -217,27 +308,32 @@ beforeEach(() => {
 describe("a Duo folding in its frames", () => {
   if (!DUO_FOLD) return;
 
-  test("turns copies of the bezels while the frames load, and the frames once they are in", async () => {
+  test("loads the frames undecoded, turns copies of the bezels till they decode as it starts, then the frames", async () => {
     loadFoldShots();
+    await Bun.sleep(0);
     expect(foldShots()).toBeNull();
     fold(SHUT, OPEN, sceneOf());
     // The copies: each side's body, window and shade, then the bend's half that stays.
     expect(placed()).toHaveLength(7);
-    play(2000);
-    expect(layer()).toBeUndefined();
-    release();
-    await decoded;
-    await Bun.sleep(0);
-    expect(foldShots()?.images).toHaveLength(31);
-    fold(OPEN, SHUT, sceneOf());
+    play(48);
+    expect(placed()).toHaveLength(7);
+    await decodeNow();
+    expect(bitmaps).toHaveLength(31);
+    expect(foldShots()?.bitmaps).toHaveLength(31);
+    play(64);
     // The bend's half that stays, under the frames.
     expect(placed()).toHaveLength(2);
-    const model = placed()[1];
-    expect(model?.children.filter((node) => node instanceof FakeImage)).toHaveLength(31);
-    // The open end's frame, under the device till the fold leaves it.
-    expect(showing().map((node) => model?.children.indexOf(node))).toEqual([2]);
+    expect(canvas()?.width).toBeGreaterThan(0);
+    expect(nearest()).toBeGreaterThanOrEqual(0);
+    play(2000);
+    expect(layer()).toBeUndefined();
+    // Kept a while, so the next fold has them from its first frame.
+    fold(OPEN, SHUT, sceneOf());
+    expect(placed()).toHaveLength(2);
     expect(nearest()).toBe(0);
-    expect(style(model, "opacity")).toBe("0");
+    expect(showing()).toHaveLength(1);
+    expect(style(placed()[1], "opacity")).toBe("0");
+    expect(bitmaps).toHaveLength(31);
   });
 
   test("shows the frame nearest the hinge and the next over it, and the page on the screen that faces the viewer", () => {
@@ -252,8 +348,7 @@ describe("a Duo folding in its frames", () => {
       expect(shown.length).toBeGreaterThanOrEqual(1);
       expect(shown.length).toBeLessThanOrEqual(2);
       // The next one over it, faded in at most half way, as the hinge gets to it.
-      const over = shown.filter((node) => style(node, "opacity") !== "");
-      for (const node of over) expect(Number(style(node, "opacity"))).toBeLessThanOrEqual(0.5);
+      for (const { alpha } of shown.slice(1)) expect(alpha).toBeLessThanOrEqual(0.5);
       seen.add(nearest());
       const facing = [inner, outer].filter((node) => style(node, "visibility") === "");
       expect(facing.length).toBeLessThanOrEqual(1);
@@ -291,8 +386,42 @@ describe("a Duo folding in its frames", () => {
     expect(angles.at(-1)).toBeLessThan(furthest);
   });
 
-  test("leaves nothing behind when stopped or forgotten mid fold", () => {
+  test("lets go of the pictures a while after it lands, or once the Duo is not shown, and decodes them again", async () => {
     fold(SHUT, OPEN, sceneOf());
+    play(2000);
+    expect(layer()).toBeUndefined();
+    wait(SHOTS_KEPT - 1);
+    expect(foldShots()).not.toBeNull();
+    wait(SHOTS_KEPT);
+    expect(foldShots()).toBeNull();
+    expect(bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
+    // A fold decodes them again, and one in the while after it keeps them.
+    bitmaps = [];
+    fold(OPEN, SHUT, sceneOf());
+    await Bun.sleep(0);
+    expect(bitmaps).toHaveLength(31);
+    play(2000);
+    fold(SHUT, OPEN, sceneOf());
+    wait(SHOTS_KEPT);
+    expect(foldShots()).not.toBeNull();
+    play(2000);
+    // Another device, or the mock off: let go of at once.
+    bodyOf({ ...BASE, device: "iphone-16-pro", orientation: "portrait", posture: "closed" }, () => {});
+    expect(foldShots()).toBeNull();
+    expect(bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
+    bitmaps = [];
+    fold(SHUT, OPEN, sceneOf());
+    await Bun.sleep(0);
+    bodyOf({ ...BASE, mock: false, orientation: "portrait", posture: "closed" }, () => {});
+    expect(foldShots()).toBeNull();
+    stopFold();
+    releaseFoldShots();
+  });
+
+  test("leaves nothing behind when stopped or forgotten mid fold", async () => {
+    bitmaps = [];
+    fold(SHUT, OPEN, sceneOf());
+    await Bun.sleep(0);
     play(150);
     expect(layer()).toBeDefined();
     stopFold();
@@ -303,12 +432,18 @@ describe("a Duo folding in its frames", () => {
     play(150);
     forgetFold();
     expect(folding()).toBe(false);
+    // Forgotten, the frame lets go of the pictures at once.
+    expect(foldShots()).toBeNull();
+    expect(bitmaps.length > 0 && bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
     const before = drawn.length;
     play(2000);
     expect(drawn).toHaveLength(before);
-    // A new fold takes the frames' images back from the one forgotten.
+    // A new fold decodes them again, and turns the copies till they are in.
     fold(SHUT, OPEN, sceneOf());
-    expect(placed()[1]?.children.filter((node) => node instanceof FakeImage)).toHaveLength(31);
+    expect(placed()).toHaveLength(7);
+    await Bun.sleep(0);
+    play(32);
+    expect(canvas()).toBeDefined();
     play(2000);
     expect(layer()).toBeUndefined();
   });
