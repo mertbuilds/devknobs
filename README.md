@@ -85,6 +85,7 @@ setState({ ua: { preset: "iphone-safari" } });
 | `grab` | `true` | press a key to grab elements, see grab below |
 | `grabKey` | `shift+g` | the key that grabs, such as `alt+shift+g`. a key set in the panel wins |
 | `grabColor` | the stored one, `auto` at first | the color of grab's boxes: `auto`, `blue`, `green`, `pink`, `orange`, `purple` or `cyan` |
+| `handle` | `true` | show the handle on the window's edge while the panel is closed. a choice made in the panel's settings wins, see settings |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
@@ -175,10 +176,20 @@ the grab key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
 `Shift R` and `Shift Backspace` off a Mac. each one is a button too, so a click does what its key does. with
 the overflow knob on, the count of overflowing boxes sits above them.
 
+### settings
+
+the gear button at the end of the footer opens the settings, in place of the
+rows. the show handle switch there hides the handle while the panel is closed,
+so nothing of devknobs sits on the edge of the page; the panel key (`⇧K`)
+still opens it, and an open panel shows its handle as ever, to drag it or
+click it closed. turning the switch off says which key brings the panel back.
+the choice is kept in `localStorage` under `devknobs:prefs`, for every tab of
+the origin, and wins over the `handle` option. reset all leaves it.
+
 ### shortcuts
 
 the panel, grab, replay and reset keys above are the defaults, and each can be
-set from the panel: the keyboard button at the end of the footer lists them,
+set from the panel: the settings list them under shortcuts,
 click one and press the new key, escape to cancel. a key needs shift, alt
 (option), ctrl or meta (⌘) with it, as a key alone types, except F1 to F12,
 which work alone too. the browser's own keys (meta or ctrl with c, v, x, z,

@@ -61,6 +61,7 @@ import {
   rowText,
   showsLabel,
 } from "./list";
+import { createPrefs } from "./prefs";
 import { filterOptions, type Result, resultText, search, searchActions } from "./search";
 import { CSS } from "./styles";
 
@@ -74,6 +75,11 @@ export interface PanelOptions {
   keys?: LiveKeys;
   /** Grab, where it is on, to show and to turn on from the search. */
   grab?: GrabControl | null;
+  /**
+   * Show the handle while the panel is closed. Defaults to true. What the
+   * user sets in the panel wins over it.
+   */
+  handle?: boolean;
 }
 
 export interface Panel {
@@ -163,6 +169,9 @@ export const TIP_MARGIN = 8;
 const REFUSED_RED = 1000;
 const REFUSED_TIP = 1800;
 
+/** How long the way back to a panel whose handle was just hidden shows, in ms. */
+const HANDLE_HINT = 4000;
+
 /**
  * The host's own style. It is as wide and as tall as an open panel whatever
  * the panel is doing, so it never takes a pointer: the stylesheet hands that
@@ -208,6 +217,14 @@ export function keyChips(keys: Keys, grab: boolean, mac: boolean): KeyChip[] {
     { command: "reset", key: comboLabel(keys.reset, mac), word: BINDING_WORDS.reset },
   );
   return chips;
+}
+
+/**
+ * What the panel says as the user hides the handle, so the way back to a
+ * closed panel is never lost: the panel's key, as `comboLabel` shows it.
+ */
+export function handleHint(keys: Keys, mac: boolean): string {
+  return `press ${comboLabel(keys.panel, mac)} to open knobs`;
 }
 
 /**
@@ -503,6 +520,7 @@ function center(node: HTMLElement, box: HTMLElement): void {
  */
 export function createPanel(options: PanelOptions = {}): Panel {
   const keys = options.keys ?? createKeys();
+  const prefs = createPrefs({ handle: options.handle });
   const grab = options.grab ?? null;
   const mac = isMac();
   /** The actions search finds: grab only where there is one. */
@@ -555,12 +573,22 @@ export function createPanel(options: PanelOptions = {}): Panel {
   // Says where a row moved to, and why a key was not taken, for assistive tech.
   const said = el("div", "said");
   said.setAttribute("aria-live", "polite");
-  // The shortcuts, in place of the rows: each binding's key, to set or put back.
-  // A key that is not taken shakes its chip and says why in the tooltip.
+  // The settings, in place of the rows: whether the handle shows while the
+  // panel is closed, then each binding's key, to set or put back. A key that
+  // is not taken shakes its chip and says why in the tooltip.
   const keysView = el("div", "keys");
   keysView.setAttribute("role", "group");
-  keysView.setAttribute("aria-label", "shortcuts");
-  keysView.append(el("div", "group-label", "shortcuts"));
+  keysView.setAttribute("aria-label", "settings");
+  const handleLine = el("div", "key-row");
+  const handleSwitch = button("switch", "");
+  handleSwitch.setAttribute("role", "switch");
+  handleSwitch.setAttribute("aria-label", "show handle");
+  handleLine.append(el("span", "key-word", "show handle"), handleSwitch);
+  keysView.append(
+    el("div", "group-label", "settings"),
+    handleLine,
+    el("div", "group-label", "shortcuts"),
+  );
   const keyViews = new Map<
     Binding,
     { set: HTMLButtonElement; back: HTMLButtonElement }
@@ -592,10 +620,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     hints.set(chip.command, node);
     hintKeys.set(chip.command, key);
   }
-  // Opens the shortcuts, where the keys are set.
+  // Opens the settings, where the keys are set.
   const keysToggle = button("hint keys-toggle", "");
-  keysToggle.append(icon("keyboard", 12));
-  keysToggle.setAttribute("aria-label", "modify shortcuts");
+  keysToggle.append(icon("settings", 12));
+  keysToggle.setAttribute("aria-label", "settings");
   meta.append(keysToggle);
   foot.append(badge, meta);
   // The tooltip the icon-only controls share. Their aria-label already says
@@ -1502,6 +1530,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const state = engine.getState();
     const open = state.panel.open;
     wrap.dataset.open = open ? "true" : "false";
+    const handleShown = prefs.get().handle;
+    wrap.dataset.handle = handleShown ? "shown" : "hidden";
+    mark(handleSwitch, handleShown, "aria-checked");
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     const live = liveOf(state);
@@ -1704,7 +1735,20 @@ export function createPanel(options: PanelOptions = {}): Panel {
   }
 
   keysToggle.addEventListener("click", () => (editingKeys ? leaveKeys() : openKeys()));
-  tooltip(keysToggle, "modify shortcuts");
+  tooltip(keysToggle, "settings");
+  // Hiding the handle says how to bring the closed panel back, so nobody is shut out.
+  handleSwitch.addEventListener("click", () => {
+    const on = !prefs.get().handle;
+    prefs.setHandle(on);
+    if (on) {
+      if (tipFor === handleSwitch) hideTip();
+      return;
+    }
+    const hint = handleHint(keys.get(), mac);
+    showTip(handleSwitch, hint);
+    tipTimer = window.setTimeout(hideTip, HANDLE_HINT);
+    said.textContent = hint;
+  });
   for (const [binding, view] of keyViews) {
     view.set.addEventListener("click", () => {
       if (recording === binding) stopRecording();
@@ -2263,6 +2307,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const ticker = window.setInterval(tick, 1000);
   const unsubscribe = engine.subscribe(render);
   const stopKeys = keys.subscribe(renderKeys);
+  const stopPrefs = prefs.subscribe(render);
   const stopGrab = grab?.subscribe(onGrab);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
@@ -2292,6 +2337,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       unsubscribe();
       stopKeys();
       if (!options.keys) keys.destroy();
+      stopPrefs();
+      prefs.destroy();
       stopGrab?.();
       stopCount();
       clearInterval(ticker);

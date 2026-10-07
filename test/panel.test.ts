@@ -15,6 +15,7 @@ import {
   GLIDE_SPEED,
   glideTime,
   HOST_STYLE,
+  handleHint,
   keyChips,
   landSide,
   overflowBadge,
@@ -625,6 +626,37 @@ describe("closed panel", () => {
     expect(body('.wrap[data-tab="bottom"] .panel')).toMatch(/border-bottom-left-radius:\s*0/);
     const radii = rules(CSS).filter((rule) => /border-(top|bottom)-left-radius:/.test(rule.body));
     for (const rule of radii) expect(rule.selector).not.toContain("data-open");
+  });
+});
+
+describe("a hidden handle", () => {
+  const closed = '.wrap[data-handle="hidden"][data-open="false"]';
+
+  test("leaves nothing of a closed panel on the edge, on either side", () => {
+    expect(body(closed)).toMatch(/visibility:\s*hidden/);
+    expect(body(closed)).toMatch(/transform:\s*translateX\(100%\)/);
+    expect(body(`${closed}[data-side="left"]`)).toMatch(/transform:\s*translateX\(-100%\)/);
+    // It hides once the slide is over, so the close still shows.
+    expect(body(closed)).toMatch(/visibility 0s linear 150ms/);
+  });
+
+  test("takes no pointer while closed", () => {
+    expect(body(`${closed} .handle`)).toMatch(/pointer-events:\s*none/);
+    expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+  });
+
+  test("shows as ever while the panel is open", () => {
+    const hiding = rules(CSS).filter((rule) => rule.selector.includes('data-handle="hidden"'));
+    expect(hiding.length).toBeGreaterThan(0);
+    for (const rule of hiding) expect(rule.selector).toContain('[data-open="false"]');
+    // The open slide comes after, so it wins once the panel opens.
+    const order = rules(CSS).map((rule) => rule.selector);
+    expect(order.indexOf('.wrap[data-open="true"]')).toBeGreaterThan(order.indexOf(closed));
+  });
+
+  test("says how to bring the panel back, with the key in force", () => {
+    expect(handleHint(defaultKeys(), true)).toBe("press ⇧K to open knobs");
+    expect(handleHint(defaultKeys({ hotkey: "d" }), false)).toBe("press Shift D to open knobs");
   });
 });
 

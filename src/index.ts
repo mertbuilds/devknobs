@@ -74,6 +74,12 @@ export interface MountOptions extends engine.EngineOptions {
    * first: blue, and green where the page behind the element is blue.
    */
   grabColor?: GrabColorValue;
+  /**
+   * Show the handle on the window's edge while the panel is closed. Defaults
+   * to true. With false, the panel key opens it. What the user sets in the
+   * panel's settings wins over it.
+   */
+  handle?: boolean;
 }
 
 export const PRESETS = {
@@ -119,7 +125,7 @@ export function mount(options: MountOptions = {}): void {
   }
   if (options.open !== undefined) engine.setState({ panel: { open: options.open } });
   if (options.grabColor !== undefined) engine.setState({ grabColor: options.grabColor });
-  panel = createPanel({ keys: live, grab: grabControl });
+  panel = createPanel({ keys: live, grab: grabControl, handle: options.handle });
 }
 
 /** Remove the panel and undo every knob. A copy that was taken over has done so already. */

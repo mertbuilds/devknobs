@@ -77,6 +77,17 @@ export const CSS = `
   }
 }
 .wrap[data-side="left"] { flex-direction: row-reverse; transform: translateX(-239px); }
+/* With the handle hidden, a closed panel slides all the way off its edge,
+   handle and all, and once there nothing of it paints or takes a pointer. The
+   panel key brings it back, and an open panel shows its handle as ever. */
+.wrap[data-handle="hidden"][data-open="false"] {
+  visibility: hidden;
+  transform: translateX(100%);
+  transition: transform 150ms ease-out, translate var(--glide) ease-out,
+    visibility 0s linear 150ms;
+}
+.wrap[data-handle="hidden"][data-open="false"][data-side="left"] { transform: translateX(-100%); }
+.wrap[data-handle="hidden"][data-open="false"] .handle { pointer-events: none; }
 .wrap[data-open="true"] { transform: translateX(0); }
 @media (prefers-reduced-motion: reduce) {
   .wrap, .wrap *, .wrap *::before, .wrap *::after {
@@ -626,7 +637,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .hint:focus-visible { outline-offset: 2px; }
 .hint:disabled { cursor: default; opacity: 0.5; }
 .hint:disabled:hover { color: inherit; }
-/* Opens the shortcuts, at the end of the last line. */
+/* Opens the settings, at the end of the last line. */
 .keys-toggle { margin-left: auto; }
 .keys-toggle[aria-pressed="true"] { color: var(--fg); }
 /* The tooltip of an icon-only control, set over it by the panel. */
@@ -661,8 +672,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 4px;
 }
 
-/* The shortcuts, in place of the rows: a line each, as tall as a row, with
-   its key as a button that records a new one and an x that puts it back. The
+/* The settings, in place of the rows: a line each, as tall as a row. The
+   handle's has a switch. A shortcut's has its key as a button that records a
+   new one and an x that puts it back. The
    key sits 4 in from the line's edges, so 4 round. A key it cannot take
    shakes the key and turns it red for a moment; reduced motion keeps only the
    red. */
@@ -693,6 +705,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: border-color 120ms ease-out, color 120ms ease-out, background-color 120ms ease-out;
 }
 .key-row .clear { margin: 2px 2px 2px -6px; }
+.key-row .switch { margin-right: 26px; }
 .key-set:hover { border-color: var(--faint); }
 .key-set.recording {
   padding-bottom: 3px;
