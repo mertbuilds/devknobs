@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { bezelFiles, bezelUrlsModule } from "../scripts/bezelurls";
-import { BEZELS, type Bezel, bezelMock, bezelUrl, densityOf, loadBezel } from "../src/engine/bezels";
+import { bezelFiles, bezelUrlsModule, FOLD_FOLDER, foldShotsIn, foldShotsOf } from "../scripts/bezelurls";
+import { BEZELS, type Bezel, bezelMock, bezelUrl, decodeAll, densityOf, loadBezel } from "../src/engine/bezels";
+import { DUO_FOLD } from "../src/engine/bezelurls";
 import { SCREENS, screenOf, turn } from "../src/engine/devices";
 import { mockOf, placeIn } from "../src/engine/mock";
 import { fit, STRIP } from "../src/engine/width";
@@ -102,7 +103,7 @@ describe("BEZELS", () => {
 
   test.skipIf(!existsSync(FOLDER))("every image is in assets/bezels, and nothing else is", () => {
     const files = SHOTS.map(([, , shot]) => shot.file).sort();
-    expect(readdirSync(FOLDER).sort()).toEqual(files);
+    expect(readdirSync(FOLDER).filter((file) => file !== FOLD_FOLDER).sort()).toEqual(files);
   });
 });
 
@@ -353,9 +354,91 @@ describe("bezelUrlsModule", () => {
 
   test("the committed module is the one the folder writes, every image in it", () => {
     const committed = readFileSync(new URL("../src/engine/bezelurls.ts", import.meta.url), "utf8");
-    expect(committed).toBe(bezelUrlsModule(bezelFiles(FOLDER)));
+    expect(committed).toBe(bezelUrlsModule(bezelFiles(FOLDER), foldShotsIn(FOLDER)));
     for (const { file } of SHOTS.map(([, , bezel]) => bezel)) {
       expect(committed).toContain(`"./bezels/${file}"`);
     }
+  });
+});
+
+describe("the Duo's fold frames", () => {
+  const MANIFEST = {
+    open: [133.5, 377.45, 2853, 2005.12],
+    frames: [180, 0].map((deg) => ({
+      deg,
+      file: `fold-${String(deg).padStart(3, "0")}.webp`,
+      box: [76, 319, 1623, 2441],
+      inner: [[0, 0], [1, 0], [1, 1], [0, 1]],
+      cover: [[0, 0], [1, 0], [1, 1], [0, 1]],
+    })),
+  };
+
+  test.skipIf(!existsSync(FOLDER))("are each a file in assets/bezels/duo-fold, named in the module, with its corners", () => {
+    const shots = foldShotsIn(FOLDER);
+    expect(shots).toEqual(DUO_FOLD);
+    const files = (shots?.frames ?? []).map((shot) => shot.file);
+    expect(files).toHaveLength(31);
+    expect([...readdirSync(`${FOLDER}/${FOLD_FOLDER}`)].sort()).toEqual(
+      [...files.map((file) => file.slice(FOLD_FOLDER.length + 1)), "manifest.json"].sort(),
+    );
+    expect(bezelFiles(FOLDER).filter((file) => file.startsWith(`${FOLD_FOLDER}/`))).toEqual(files);
+  });
+
+  test("are read from the manifest, from open to shut, each file in their folder", () => {
+    const shots = foldShotsOf(MANIFEST);
+    expect(shots.open).toEqual([133.5, 377.45, 2853, 2005.12]);
+    expect(shots.frames.map((shot) => [shot.deg, shot.file])).toEqual([
+      [0, "duo-fold/fold-000.webp"],
+      [180, "duo-fold/fold-180.webp"],
+    ]);
+  });
+
+  test("are refused where the manifest is not whole", () => {
+    const [shut, open] = MANIFEST.frames;
+    if (!shut || !open) throw new Error("no frames");
+    expect(() => foldShotsOf(null)).toThrow();
+    expect(() => foldShotsOf({ ...MANIFEST, frames: [open] })).toThrow("no frames");
+    expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, deg: 174 }] })).toThrow("0 to 180");
+    expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, inner: [[0, 0]] }] })).toThrow("corners");
+    expect(() => foldShotsOf({ ...MANIFEST, frames: [open, { ...shut, file: "../x.webp" }] })).toThrow("file");
+    expect(() => foldShotsOf({ ...MANIFEST, open: [0, 0, 1] })).toThrow("open");
+  });
+
+  test("are none in a module written without them", () => {
+    expect(bezelUrlsModule([])).toContain("DUO_FOLD: FoldShots | null = null;");
+    expect(bezelUrlsModule([], foldShotsOf(MANIFEST))).toContain('file: "duo-fold/fold-180.webp",');
+  });
+
+  /** An image that decodes from the addresses `ok` says. */
+  function fakeDecoding(ok: (src: string) => boolean, asked: string[]): void {
+    class FakeImage {
+      src = "";
+      decode(): Promise<void> {
+        asked.push(this.src);
+        return ok(this.src) ? Promise.resolve() : Promise.reject(new Error("no picture"));
+      }
+    }
+    Object.defineProperty(globalThis, "Image", { configurable: true, value: FakeImage });
+  }
+
+  test("decode each from the first address that does, in order", async () => {
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: { href: "https://app.test/" },
+    });
+    const asked: string[] = [];
+    fakeDecoding((src) => src.includes("node_modules") || src.endsWith("fold-006.webp"), asked);
+    const images = await decodeAll(["duo-fold/fold-000.webp", "duo-fold/fold-006.webp"]);
+    expect(images.map((image) => image.src)).toEqual([
+      "https://app.test/node_modules/devknobs/dist/bezels/duo-fold/fold-000.webp",
+      new URL("../src/engine/bezels/duo-fold/fold-006.webp", import.meta.url).href,
+    ]);
+    expect(asked).toHaveLength(3);
+  });
+
+  test("fail together where one decodes from nowhere", async () => {
+    fakeDecoding((src) => !src.endsWith("fold-012.webp"), []);
+    await expect(decodeAll(["duo-fold/fold-000.webp", "duo-fold/fold-012.webp"])).rejects.toThrow("fold-012.webp");
+    await expect(decodeAll(["duo-fold/nothing.webp"])).rejects.toThrow();
   });
 });

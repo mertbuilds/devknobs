@@ -19,15 +19,24 @@ import {
   hingeStill,
   openOf,
   paneLook,
+  type Quad,
+  quadBetween,
+  quadFacing,
+  quadToMatrix3d,
   RIM,
   roundedPath,
   screenDim,
   seenAt,
+  shotAt,
+  shotsAround,
+  shotsTransform,
   uvOf,
   wipeAmount,
   wipeLight,
 } from "../src/engine/fold";
-import { mockOf } from "../src/engine/mock";
+import { bezelMock } from "../src/engine/bezels";
+import { DUO_FOLD } from "../src/engine/bezelurls";
+import { mockOf, type Rect } from "../src/engine/mock";
 
 /** The Duo's two sides as fitted at 87% and 58%, each body where the frame draws it. */
 function sides(across: boolean): { closed: FoldSide; open: FoldSide } {
@@ -417,5 +426,159 @@ describe("handOver", () => {
     expect(handOver(0, "closed")).toBe(1);
     // Drawn open, the picture keeps the screen all the way shut.
     expect(handOver(0.02, "open")).toBe(0);
+  });
+});
+
+/** Where a css `matrix3d` or `matrix` with its origin at 0 0 puts a point. */
+function through(transform: string, x: number, y: number): { x: number; y: number } {
+  const m = (/\(([^)]*)\)/.exec(transform)?.[1] ?? "").split(",").map(Number);
+  if (m.length === 6) {
+    const [a = 0, b = 0, c = 0, d = 0, e = 0, f = 0] = m;
+    return { x: a * x + c * y + e, y: b * x + d * y + f };
+  }
+  const at = (row: number) => (m[row] ?? 0) * x + (m[row + 4] ?? 0) * y + (m[row + 12] ?? 0);
+  const w = at(3);
+  return { x: at(0) / w, y: at(1) / w };
+}
+
+describe("quadToMatrix3d", () => {
+  const RECT = { x: 20, y: 10, width: 300, height: 200 };
+  const QUADS: Quad[] = [
+    [[0, 0], [300, 0], [300, 200], [0, 200]],
+    [[113.33, 358.02], [1559.84, 377.23], [1559.84, 2382.78], [113.33, 2401.99]],
+    [[40, 30], [500, 80], [420, 600], [10, 380]],
+  ];
+
+  test("lays each corner of the rect on its corner of the quad, exactly", () => {
+    for (const quad of QUADS) {
+      const matrix = quadToMatrix3d(RECT, quad);
+      if (!matrix) throw new Error("no matrix");
+      expect(matrix).toStartWith("matrix3d(");
+      const corners = [
+        [RECT.x, RECT.y],
+        [RECT.x + RECT.width, RECT.y],
+        [RECT.x + RECT.width, RECT.y + RECT.height],
+        [RECT.x, RECT.y + RECT.height],
+      ];
+      corners.forEach(([x = 0, y = 0], index) => {
+        const seen = through(matrix, x, y);
+        expect(seen.x).toBeCloseTo(quad[index]?.[0] ?? NaN, 4);
+        expect(seen.y).toBeCloseTo(quad[index]?.[1] ?? NaN, 4);
+      });
+    }
+  });
+
+  test("keeps the middle where the quad's diagonals cross, as a flat screen in perspective", () => {
+    const quad = QUADS[2];
+    if (!quad) throw new Error("no quad");
+    const matrix = quadToMatrix3d(RECT, quad) ?? "";
+    const middle = through(matrix, RECT.x + RECT.width / 2, RECT.y + RECT.height / 2);
+    const [[x0, y0], , [x2, y2]] = quad;
+    const [, [x1, y1], , [x3, y3]] = quad;
+    // Where the lines from corner 0 to 2 and from 1 to 3 cross.
+    const t = ((x1 - x0) * (y3 - y1) - (y1 - y0) * (x3 - x1)) / ((x2 - x0) * (y3 - y1) - (y2 - y0) * (x3 - x1));
+    expect(middle.x).toBeCloseTo(x0 + (x2 - x0) * t, 4);
+    expect(middle.y).toBeCloseTo(y0 + (y2 - y0) * t, 4);
+  });
+
+  test("is none for a screen seen edge on", () => {
+    expect(quadToMatrix3d(RECT, [[10, 0], [10.01, 0], [10.01, 50], [10, 50]])).toBeNull();
+    expect(quadToMatrix3d({ ...RECT, width: 0 }, QUADS[0] ?? [[0, 0], [0, 0], [0, 0], [0, 0]])).toBeNull();
+  });
+});
+
+describe("the Duo's fold frames", () => {
+  if (!DUO_FOLD) return;
+  const shots = DUO_FOLD;
+
+  test("run from open to shut every 6 degrees", () => {
+    expect(shots.frames.map((shot) => shot.deg)).toEqual(Array.from({ length: 31 }, (_, step) => step * 6));
+  });
+
+  test("take the frame nearest the hinge's angle, opening or shutting", () => {
+    expect(shotAt(shots, 1)?.deg).toBe(0);
+    expect(shotAt(shots, 0)?.deg).toBe(180);
+    expect(shotAt(shots, 0.5)?.deg).toBe(90);
+    // 180 * (1 - 0.9) is 18, and a step on either side goes to its own nearest frame.
+    expect(shotAt(shots, 0.9)?.deg).toBe(18);
+    expect(shotAt(shots, 1 - 21.3 / 180)?.deg).toBe(24);
+    expect(shotAt(shots, 1 - 14.7 / 180)?.deg).toBe(12);
+    expect(shotAt({ ...shots, frames: [] }, 0.5)).toBeNull();
+  });
+
+  test("go over from one to the next as the hinge turns, the nearest whole, either way", () => {
+    // 20 degrees: nearest 18, a third of the way to 24.
+    expect(shotsAround(shots, 1 - 20 / 180)).toMatchObject({ near: { deg: 18 }, far: { deg: 24 } });
+    expect(shotsAround(shots, 1 - 20 / 180)?.share).toBeCloseTo(1 / 3);
+    // 16 degrees: nearest 18, a third of the way back to 12.
+    expect(shotsAround(shots, 1 - 16 / 180)).toMatchObject({ near: { deg: 18 }, far: { deg: 12 } });
+    expect(shotsAround(shots, 1 - 16 / 180)?.share).toBeCloseTo(1 / 3);
+    expect(shotsAround(shots, 1)).toMatchObject({ near: { deg: 0 }, far: { deg: 0 }, share: 0 });
+    expect(shotsAround(shots, 0)).toMatchObject({ near: { deg: 180 }, far: { deg: 180 }, share: 0 });
+    const from: Quad = [[0, 0], [10, 0], [10, 10], [0, 10]];
+    const to: Quad = [[2, 2], [12, 0], [10, 14], [0, 10]];
+    expect(quadBetween(from, to, 0.5)).toEqual([[1, 1], [11, 0], [10, 12], [0, 10]]);
+  });
+
+  test("start each screen's corners from its top left as the layout shows it, held upright", () => {
+    const quad: Quad = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    expect(quadFacing(quad, true)).toBe(quad);
+    expect(quadFacing(quad, false)).toEqual([[1, 0], [1, 1], [0, 1], [0, 0]]);
+  });
+
+  /** The Duo laid out in its bezels, and where its open and folded screens lie in the layout. */
+  function bezelled(across: boolean): { layout: ReturnType<typeof foldLayout>; inside: Rect; outside: Rect } {
+    const shutBody = bezelMock("iphone-duo-closed", across ? "portrait" : "landscape");
+    const openBody = bezelMock("iphone-duo-open", across ? "landscape" : "portrait");
+    const { closed, open } = sides(across);
+    if (!shutBody || !openBody) throw new Error("no bezels");
+    const layout = foldLayout({ ...closed, body: shutBody }, { ...open, body: openBody }, across);
+    return {
+      layout,
+      inside: { x: openBody.inset.left, y: openBody.inset.top, ...open.size },
+      outside: {
+        x: layout.shut.x + shutBody.inset.left,
+        y: layout.shut.y + shutBody.inset.top,
+        ...closed.size,
+      },
+    };
+  }
+
+  /** The bounds of points as a transform puts them. */
+  function boundsThrough(transform: string, points: readonly (readonly [number, number])[]): Rect {
+    const seen = points.map(([px, py]) => through(transform, px, py));
+    const xs = seen.map((point) => point.x);
+    const ys = seen.map((point) => point.y);
+    const left = Math.min(...xs);
+    const top = Math.min(...ys);
+    return { x: left, y: top, width: Math.max(...xs) - left, height: Math.max(...ys) - top };
+  }
+
+  /**
+   * That `seen` lies on `on` across the hinge, and in its middle along it,
+   * where the render's screens are 0.6 css px shorter open and 1.1 longer shut.
+   */
+  function expectOn(seen: Rect, on: Rect, across: boolean): void {
+    const [from, size, side, length] = across
+      ? (["x", "width", "y", "height"] as const)
+      : (["y", "height", "x", "width"] as const);
+    expect(seen[from]).toBeCloseTo(on[from], 1);
+    expect(seen[size]).toBeCloseTo(on[size], 1);
+    expect(seen[side] + seen[length] / 2).toBeCloseTo(on[side] + on[length] / 2, 1);
+    expect(Math.abs(seen[length] - on[length])).toBeLessThan(1.2);
+  }
+
+  test("lie on the open screen open and on the folded one shut, exactly, either way it is held", () => {
+    const [x, y, width, height] = shots.open;
+    const last = shots.frames.at(-1);
+    if (!last) throw new Error("no frames");
+    const screen = [[x, y], [x + width, y], [x + width, y + height], [x, y + height]] as const;
+    for (const across of [true, false]) {
+      const { layout, inside, outside } = bezelled(across);
+      expectOn(boundsThrough(shotsTransform(shots, layout, inside, outside, 1), screen), inside, across);
+      const shut = shotsTransform(shots, layout, inside, outside, 0);
+      expectOn(boundsThrough(shut, last.cover), outside, across);
+      expect(shut).toStartWith(across ? "matrix(0.3" : "matrix(0, -0.3");
+    }
   });
 });

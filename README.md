@@ -449,7 +449,9 @@ shut it again. like a book, its hinge stays where it is, so the cover screen
 held upright opens to the inner screen held across, and held across, it opens
 upright. it folds in view: the page goes under a cover in its own color, the
 half past the hinge swings toward you about it, and the page comes back laid
-out on the other screen. search finds it as `unfold`, `fold`, `open`,
+out on the other screen. in its bezels the half that swings is Apple's own
+Duo, rendered offline every 6 degrees from Apple's model, with the page on its
+turned screen, once those frames have loaded, and a copy of the bezel till then. search finds it as `unfold`, `fold`, `open`,
 `closed` or `duo open`. a session kept from when the two screens were two
 devices, `iphone-duo-closed` and `iphone-duo-open`, comes back as the Duo in
 that posture.
@@ -473,6 +475,7 @@ frame, so no model is ever stretched onto another. the punch hole, the home
 button and the buttons are the image's own. it loads from `dist/bezels` the
 first time the device is shown with the mock on, the drawn mock standing in
 its place until then, and the drawn mock stays where an image does not load.
+the Duo's fold frames load with it, from `dist/bezels/duo-fold`, about 0.8 MB.
 the images are not under this project's license, see THIRD_PARTY_NOTICES.md:
 delete `assets/bezels` and run `bun run build`, which then names no image, and
 every phone draws its own mock again.

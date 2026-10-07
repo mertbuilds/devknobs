@@ -116,6 +116,34 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## jadon7/iphone-duo
+
+https://github.com/jadon7/iphone-duo. `scripts/render-duo-fold/render.js`, the offline script that renders the Duo's fold frames, adapts its fold math, its mesh ids and its screen geometry constants. only that script uses them: nothing of it is in the package. the script runs three.js (MIT, https://github.com/mrdoob/three.js, from the clone's `vendor/three`), which the package does not ship either.
+
+```
+MIT License
+
+Copyright (c) 2026 jadon7
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Apple product bezels
 
 the `iphone-*` images in `assets/bezels`, copied to `dist/bezels` by the build, are Apple's product bezels for the iPhone 16, 16 Plus, 16 Pro, 16 Pro Max, 17, 17 Pro, 17 Pro Max, Air, 18 Pro, 18 Pro Max and Duo, from Apple Design Resources, and Apple's image of the iPhone SE in Black from its App Store marketing artwork (`iPhone-SE.zip`, the 2020 PSD, its screen layer cut out of the hardware layer), converted to WebP by `scripts/bezels.sh` at their own size.
@@ -129,6 +157,11 @@ the `iphone-*` images in `assets/bezels`, copied to `dist/bezels` by the build, 
 - https://developer.apple.com/file/?file=iphonese
 
 copyright Apple Inc. they are NOT covered by this project's MIT license, and Apple's own terms apply to them: the Apple Design Resources License for the 17, 18 and Duo packages and the App Store Marketing Artwork License Agreement for the 16 package and the SE.
+
+the frames in `assets/bezels/duo-fold`, the iPhone Duo's case at each angle of its fold, are rendered from Apple's iPhone Duo model in Star White, `iPhone_Duo_e-sim_Star-White_Variant.usdz`, by `scripts/render-duo-fold`, and converted to WebP. copyright Apple Inc., NOT covered by this project's MIT license, and Apple's own terms apply to them.
+
+- https://www.apple.com/105/media/us/iphone-duo/2026/9305e4b9-72d9-4c05-9381-b572adadd5e5/ar/iPhone_Duo_e-sim_Star-White_Variant.usdz
+- https://www.apple.com/legal/internet-services/terms/site.html
 
 ## Google Pixel frames
 
@@ -363,4 +396,4 @@ the full text of the license:
 
 ## removing the images
 
-to remove them, delete the `assets/bezels` folder and run `bun run build`. the build writes `src/engine/bezelurls.ts`, the only module that names a file in the folder, from what is in it, so the built package then names no image, and every iPhone and Pixel draws its own svg mock, as it does wherever an image does not load.
+to remove them, delete the `assets/bezels` folder and run `bun run build`. the build writes `src/engine/bezelurls.ts`, the only module that names a file in the folder, from what is in it, so the built package then names no image, every iPhone and Pixel draws its own svg mock, as it does wherever an image does not load, and the Duo folds as copies of its body.

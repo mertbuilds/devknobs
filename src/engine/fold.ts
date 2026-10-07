@@ -256,6 +256,166 @@ export function seenAt(point: Point, pivot: Point, degrees: number, across: bool
     : { x: pivot.x + x * grow, y: pivot.y + y * Math.cos(angle) * grow };
 }
 
+/** A point as two numbers, x and y. */
+export type Pair = readonly [x: number, y: number];
+
+/** The corners of a four sided shape, from the top left round by the right. */
+export type Quad = readonly [Pair, Pair, Pair, Pair];
+
+/**
+ * One frame of the iPhone Duo's turning half, rendered offline from Apple's
+ * model by scripts/render-duo-fold: its case alone, its screens see-through,
+ * as seen from the fold's own distance. Everything is in the render's px.
+ */
+export interface FoldShot {
+  /** How far the half has turned, 0 open to 180 shut. */
+  deg: number;
+  file: string;
+  /** Where the image lies in the render: left, top, right, bottom. */
+  box: readonly [number, number, number, number];
+  /** Where the open screen's turning half is seen, and the folded body's screen, each as it faces the viewer. */
+  inner: Quad;
+  cover: Quad;
+}
+
+/** The frames of a fold, from open to shut, and where the open screen lies in them. */
+export interface FoldShots {
+  /** The open screen: left, top, width, height. */
+  open: readonly [number, number, number, number];
+  frames: readonly FoldShot[];
+}
+
+/** The frame nearest to how far the hinge is open, either way it goes. */
+export function shotAt(shots: FoldShots, open: number): FoldShot | null {
+  const deg = 180 * (1 - open);
+  let best: FoldShot | null = null;
+  for (const shot of shots.frames) {
+    if (!best || Math.abs(shot.deg - deg) < Math.abs(best.deg - deg)) best = shot;
+  }
+  return best;
+}
+
+/**
+ * The two frames either side of how far the hinge is open, nearest first,
+ * and how much of the way to the other one it is, 0 to a half, so a frame
+ * goes over to the next as the hinge turns, not in steps.
+ */
+export function shotsAround(shots: FoldShots, open: number): { near: FoldShot; far: FoldShot; share: number } | null {
+  const near = shotAt(shots, open);
+  if (!near) return null;
+  const deg = 180 * (1 - open);
+  const index = shots.frames.indexOf(near);
+  const far = deg === near.deg ? near : (shots.frames[deg < near.deg ? index - 1 : index + 1] ?? near);
+  const share = far === near ? 0 : Math.min(0.5, Math.abs(deg - near.deg) / Math.abs(far.deg - near.deg));
+  return { near, far, share };
+}
+
+/** A quad `share` of the way from `from` to `to`, corner by corner. */
+export function quadBetween(from: Quad, to: Quad, share: number): Quad {
+  const [a, b, c, d] = from.map(([x, y], index): Pair => {
+    const [tx, ty] = to[index] ?? [x, y];
+    return [lerp(x, tx, share), lerp(y, ty, share)];
+  });
+  return a && b && c && d ? [a, b, c, d] : from;
+}
+
+/** A Quad's bounds, as a rect. */
+function boundsOf(quad: Quad): Rect {
+  const xs = quad.map(([x]) => x);
+  const ys = quad.map(([, y]) => y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
+/** How a rendered frame lies on the fold: scaled by `scale`, then moved, and turned a quarter held upright. */
+interface Fit {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * Lay the render's rect `from` on the layout's `to`, middle on middle, scaled
+ * to it across the hinge. Held upright the render, made held across, turns a
+ * quarter anticlockwise, as the folded body does: its x goes up the layout.
+ */
+function fitOf(from: Rect, to: Rect, across: boolean): Fit {
+  const scale = across ? to.width / from.width : to.height / from.width;
+  const middle = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+  const turned = across ? middle : { x: middle.y, y: -middle.x };
+  return {
+    scale,
+    x: to.x + to.width / 2 - turned.x * scale,
+    y: to.y + to.height / 2 - turned.y * scale,
+  };
+}
+
+/**
+ * Where the frames are drawn on a fold laid out as `layout`, as a css
+ * transform from the render's px to the open body's css px, with the hinge
+ * `open` of the way open. The open screen lies on `inside`, the open
+ * screen's place in the layout, open, and the last frame's folded screen on
+ * `outside`, the folded screen's, shut, so each end lies exactly where the
+ * device is drawn; between, the one goes over to the other.
+ */
+export function shotsTransform(shots: FoldShots, layout: FoldLayout, inside: Rect, outside: Rect, open: number): string {
+  const [x, y, width, height] = shots.open;
+  const last = shots.frames.at(-1);
+  const opened = fitOf({ x, y, width, height }, inside, layout.across);
+  const shut = last ? fitOf(boundsOf(last.cover), outside, layout.across) : opened;
+  const scale = lerp(shut.scale, opened.scale, open);
+  const e = num(lerp(shut.x, opened.x, open));
+  const f = num(lerp(shut.y, opened.y, open));
+  const s = Math.round(scale * 1e6) / 1e6;
+  return layout.across ? `matrix(${s}, 0, 0, ${s}, ${e}, ${f})` : `matrix(0, ${-s}, ${s}, 0, ${e}, ${f})`;
+}
+
+/**
+ * A frame's quad of a screen, from the corner that is its own top left as
+ * the layout shows it: held upright, its top left was the render's top right.
+ */
+export function quadFacing(quad: Quad, across: boolean): Quad {
+  const [a, b, c, d] = quad;
+  return across ? quad : [b, c, d, a];
+}
+
+/**
+ * The css `matrix3d` that lays the rect `from` onto the quad `to`, corner on
+ * corner, each straight line staying straight, as a flat screen is seen in
+ * perspective, with its transform origin at 0 0. Null where the quad has no
+ * room, seen edge on.
+ */
+export function quadToMatrix3d(from: Rect, to: Quad): string | null {
+  const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = to;
+  const area = (x0 * y1 - x1 * y0 + x1 * y2 - x2 * y1 + x2 * y3 - x3 * y2 + x3 * y0 - x0 * y3) / 2;
+  if (Math.abs(area) < 1 || from.width <= 0 || from.height <= 0) return null;
+  // The square of side 1 onto the quad, then the rect onto the square.
+  const dx1 = x1 - x2;
+  const dx2 = x3 - x2;
+  const dy1 = y1 - y2;
+  const dy2 = y3 - y2;
+  const sx = x0 - x1 + x2 - x3;
+  const sy = y0 - y1 + y2 - y3;
+  const den = dx1 * dy2 - dx2 * dy1;
+  const g = (sx * dy2 - dx2 * sy) / den;
+  const h = (dx1 * sy - sx * dy1) / den;
+  const a = x1 - x0 + g * x1;
+  const b = x3 - x0 + h * x3;
+  const d = y1 - y0 + g * y1;
+  const e = y3 - y0 + h * y3;
+  const u = 1 / from.width;
+  const v = 1 / from.height;
+  const at = (across: number, down: number, by: number) => by - (across * from.x * u + down * from.y * v);
+  const values = [
+    a * u, d * u, 0, g * u,
+    b * v, e * v, 0, h * v,
+    0, 0, 1, 0,
+    at(a, b, x0), at(d, e, y0), 0, at(g, h, 1),
+  ];
+  return `matrix3d(${values.map((value) => Number(value.toPrecision(12))).join(", ")})`;
+}
+
 /** How far along its tangents a cubic's handles sit to draw a quarter circle, in radii. */
 const KAPPA = 0.5523;
 
