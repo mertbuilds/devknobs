@@ -1,3 +1,5 @@
+import { BLURS } from "./fold";
+
 /**
  * A rough picture of the page in the frame, for the copies of a foldable's
  * screens that turn while it folds, where the frame cannot be. It is mostly
@@ -124,6 +126,13 @@ export function shootPage(
 let shots = new WeakMap<Document, Map<string, HTMLCanvasElement>>();
 let watched: { doc: Document; changed: boolean; observer: MutationObserver } | null = null;
 
+/** Let go of the pictures kept and of the page watched, as the frame goes. */
+export function forgetShots(): void {
+  watched?.observer.disconnect();
+  watched = null;
+  shots = new WeakMap();
+}
+
 /** Keep a picture of `doc` for as long as the page does not change. */
 function keepShot(doc: Document, key: string, canvas: HTMLCanvasElement): void {
   if (watched?.doc !== doc || watched.changed) {
@@ -144,13 +153,15 @@ function keepShot(doc: Document, key: string, canvas: HTMLCanvasElement): void {
 }
 
 /**
- * A picture of a screen `width` css px wide blurred two ways, by about 16 and
- * 64 css px: halved over and over, then doubled back up, so each step smooths
- * what the last left. Drawn once, each is as cheap to show as the picture.
+ * A picture of a screen `width` css px wide blurred as wide as each of the
+ * fold's `BLURS` past the sharp one: halved over and over, then doubled back
+ * up, so each step smooths what the last left. Drawn once, each is as cheap
+ * to show as the picture.
  */
-export function blurPictures(shot: HTMLCanvasElement, width: number): [HTMLCanvasElement, HTMLCanvasElement] {
-  const finer = Math.max(0, Math.round(Math.log2(shot.width / (width * RES))));
-  return [blurPicture(shot, 2 + finer), blurPicture(shot, 4 + finer)];
+export function blurPictures(shot: HTMLCanvasElement, width: number): HTMLCanvasElement[] {
+  // How many times finer than `RES` the picture is, so how many more halvings each blur takes.
+  const finer = Math.log2(shot.width / (width * RES));
+  return BLURS.slice(1).map((wide) => blurPicture(shot, Math.max(0, Math.round(Math.log2(wide * RES) + finer))));
 }
 
 /** `shot` halved `times` over, then doubled back up to its size. */
@@ -187,10 +198,12 @@ export function copyPage(frame: HTMLIFrameElement): Element | null {
       // A sheet from another origin keeps its rules to itself.
     }
   }
-  // The frame's own Element, which the window's `instanceof` would not know.
-  const root = doc.documentElement.cloneNode(true) as Element;
+  // Made in a document of its own, which loads nothing and runs nothing: a
+  // copy in the frame's would fetch its pictures again and run their handlers.
+  const inert = doc.implementation.createHTMLDocument("");
+  const root = inert.importNode(doc.documentElement, true);
   for (const node of root.querySelectorAll("script, link, style, noscript")) node.remove();
-  const style = doc.createElement("style");
+  const style = inert.createElement("style");
   style.textContent = rules.join("\n");
   (root.querySelector("head") ?? root).append(style);
   return root;

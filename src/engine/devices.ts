@@ -24,6 +24,8 @@ export interface DevicePreset {
   kind: DeviceKind;
   /** The way it is held when picked fresh, where that is not the way its size stands. */
   usual?: OrientationValue;
+  /** Turned to be held across, its top goes to the right, where most go to the left. */
+  clockwise?: boolean;
   /**
    * A device that folds: the screen it shows in each posture, which takes the
    * place of the fields above where it has its own. Held upright folded, its
@@ -37,7 +39,9 @@ export interface DevicePreset {
  * picture and its browser are kept under, what the readout calls it, and what
  * it has of its own.
  */
-export interface DeviceForm extends Partial<Pick<DevicePreset, "width" | "height" | "dpr" | "ua" | "usual">> {
+export interface DeviceForm extends Partial<
+  Pick<DevicePreset, "width" | "height" | "dpr" | "ua" | "usual" | "clockwise">
+> {
   id: string;
   label: string;
 }
@@ -90,6 +94,8 @@ export const DEVICES: readonly DevicePreset[] = [
         width: 669,
         height: 951,
         usual: "landscape",
+        // As Apple turns its picture of it.
+        clockwise: true,
       },
     },
   },

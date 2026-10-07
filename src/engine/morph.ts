@@ -1,5 +1,5 @@
 import type { DevknobsState } from "../types";
-import { deviceOf } from "./devices";
+import { deviceOf, formOf } from "./devices";
 import { type FrameKnobs, needsFrame } from "./frame";
 import type { Rect } from "./mock";
 
@@ -272,13 +272,15 @@ export function poseTransform(
 /**
  * Does going from one shape to the other turn the device the other way up?
  * A turn to be held across goes a quarter anticlockwise, the top of the phone
- * to the left as its mock turns, and back the other way.
+ * to the left as its mock turns, or clockwise for a device whose mock turns
+ * that way, and back the other way.
  */
 export function turnOf(from: string, to: string): number {
   const [device, held, posture] = from.split("|");
   const [next, now, after] = to.split("|");
-  if (!held || !now || device !== next || held === now || posture !== after) return 0;
-  return now === "landscape" ? -90 : 90;
+  if (!device || !held || !now || device !== next || held === now || posture !== after) return 0;
+  const clockwise = formOf(device, posture === "open" ? "open" : "closed")?.clockwise === true;
+  return (now === "landscape") === clockwise ? 90 : -90;
 }
 
 /**

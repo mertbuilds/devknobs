@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
-  blurShares,
+  BLURS,
+  blurArea,
+  blurLight,
+  blurWidth,
+  brightness,
+  edgeLight,
   foldFrame,
   foldLayout,
-  foldLight,
   type FoldSide,
   HAND_OVER,
   handOver,
@@ -14,6 +18,14 @@ import {
   hingeStep,
   hingeStill,
   openOf,
+  outline,
+  paneLook,
+  RIM,
+  screenDim,
+  seenAt,
+  uvOf,
+  wipeAmount,
+  wipeLight,
 } from "../src/engine/fold";
 import { mockOf } from "../src/engine/mock";
 
@@ -208,34 +220,163 @@ describe("foldFrame", () => {
   });
 });
 
-describe("foldLight", () => {
-  test("brightens the open screen from a quarter as it opens, and the folded one as it shuts", () => {
-    expect(foldLight(0).dim).toBe(0.75);
-    expect(foldLight(1).dim).toBe(0);
-    expect(foldLight(0.5).dim).toBeCloseTo(0.375);
-    expect(foldLight(0).coverDim).toBe(0);
-    expect(foldLight(1).coverDim).toBe(0.75);
+describe("seenAt", () => {
+  const pivot = { x: 100, y: 50 };
+
+  test("leaves the half where it is, flat", () => {
+    expect(seenAt({ x: 0, y: 0 }, pivot, 0, true, 1000)).toEqual({ x: 0, y: 0 });
   });
 
-  test("blurs and shades the half that turns the more it stands, sharp and bright as it lands", () => {
-    expect(foldLight(1)).toEqual({ dim: 0, coverDim: 0.75, edge: 0, coverEdge: 1, blur: 0, coverBlur: 1 });
-    expect(foldLight(0)).toEqual({ dim: 0.75, coverDim: 0, edge: 1, coverEdge: 0, blur: 1, coverBlur: 0 });
-    expect(foldLight(0.5).blur).toBeCloseTo(0.6);
-    expect(foldLight(0.9).blur).toBeCloseTo(0.12);
-    expect(foldLight(0.1).coverBlur).toBeCloseTo(0.12);
-    let last = 2;
-    for (let open = 0; open <= 1; open += 0.05) {
-      expect(foldLight(open).blur).toBeLessThanOrEqual(last);
-      last = foldLight(open).blur;
+  test("brings the free edge nearer, so bigger, as the half stands, and edge on at a right angle", () => {
+    const standing = seenAt({ x: 0, y: 0 }, pivot, 60, true, 1000);
+    // A hundred px out, turned 60 degrees: half as far across, and seen 87 px nearer.
+    const grow = 1 / (1 - (100 * Math.sin(Math.PI / 3)) / 1000);
+    expect(standing.x).toBeCloseTo(100 - 50 * grow);
+    expect(standing.y).toBeCloseTo(50 - 50 * grow);
+    expect(seenAt({ x: 0, y: 80 }, pivot, 90, true, 1000).x).toBeCloseTo(100);
+    // The folded body turns the other way, its free edge to the right of the hinge.
+    expect(seenAt({ x: 200, y: 0 }, pivot, -60, true, 1000).y).toBeCloseTo(50 - 50 * grow);
+    // Along, it turns about the hinge running across.
+    const along = seenAt({ x: 0, y: 150 }, pivot, 60, false, 1000);
+    expect(along.x).toBeCloseTo(100 - 100 * grow);
+    expect(along.y).toBeCloseTo(50 + 100 * 0.5 * grow);
+  });
+});
+
+describe("outline", () => {
+  test("goes round the rect clockwise from its top left, a few points along each rounded corner", () => {
+    const points = outline({ x: 0, y: 0, width: 100, height: 50 }, [10, 0, 0, 10]);
+    expect(points).toHaveLength(4 + 1 + 1 + 4);
+    expect(points[0]?.x).toBeCloseTo(0);
+    expect(points[0]?.y).toBeCloseTo(10);
+    expect(points[3]?.x).toBeCloseTo(10);
+    expect(points[3]?.y).toBeCloseTo(0);
+    expect(points[4]).toEqual({ x: 100, y: 0 });
+    expect(points[5]).toEqual({ x: 100, y: 50 });
+    expect(points[9]?.x).toBeCloseTo(0);
+  });
+});
+
+/** Apple's uniforms as recorded, the hinge's position the frame before with each, while dragged slowly. */
+const RECORDED = {
+  inner: [
+    [0.146, 1],
+    [0.333, 0.8],
+    [0.488, 0.615],
+    [0.69, 0.372],
+    [0.913, 0.105],
+    [1, 0],
+  ],
+  cover: [
+    [0, 0],
+    [0.333, 0.333],
+    [0.488, 0.488],
+    [0.662, 0.337],
+    [0.913, 0.087],
+  ],
+  light: [
+    [0.021, 0.156],
+    [0.109, 0.18],
+    [0.333, 0.25],
+    [0.414, 0.33],
+    [0.509, 0.433],
+    [0.608, 0.54],
+    [0.717, 0.662],
+    [0.814, 0.783],
+    [0.913, 0.897],
+    [1, 1],
+  ],
+} as const;
+
+describe("Apple's wipe", () => {
+  test("is as strong on each screen as recorded", () => {
+    for (const [open, amount] of RECORDED.inner) expect(Math.abs(wipeAmount("inner", open) - amount)).toBeLessThan(0.005);
+    for (const [open, amount] of RECORDED.cover) expect(Math.abs(wipeAmount("cover", open) - amount)).toBeLessThan(0.005);
+  });
+
+  test("brightens the open screen as recorded, and keeps the folded one bright", () => {
+    for (const [open, light] of RECORDED.light) expect(Math.abs(brightness("inner", open) - light)).toBeLessThan(0.025);
+    expect(brightness("cover", 0.5)).toBe(1);
+  });
+
+  test("darkens the half that turns from the hinge out, and the open screen's other half not at all", () => {
+    expect(uvOf("inner", 0)).toBe(0.5);
+    expect(uvOf("inner", 1)).toBe(0);
+    expect(uvOf("cover", 1)).toBe(1);
+    // Half open, the open screen's wipe is 0.6 strong: dark to 0.9 of its light at its free edge.
+    expect(wipeLight("inner", 0.5, 0.6)).toBe(1);
+    expect(wipeLight("inner", 0.75, 0.6)).toBe(1);
+    expect(wipeLight("inner", 0, 0.6)).toBeCloseTo(0.1);
+    expect(wipeLight("inner", 0.25, 0.6)).toBeCloseTo(1 - 0.5 * 0.9);
+    // The folded screen's from its hinge, at most to a quarter.
+    expect(wipeLight("cover", 0, 0.5)).toBe(1);
+    expect(wipeLight("cover", 1, 0.5)).toBeCloseTo(0.25);
+  });
+
+  test("blurs past its bounds, to a mip level 8 times the area, and darkens what it blurs most", () => {
+    expect(blurArea("inner", 0.55, 1)).toBe(0);
+    expect(blurArea("inner", 0, 0.3)).toBeCloseTo(((0.55 / 0.55) * 0.3 * 2.5) / 0.75);
+    expect(blurArea("inner", 0, 1)).toBeCloseTo(4 / 3);
+    expect(blurArea("cover", 0.45, 0.4)).toBeCloseTo((0.5 * 0.4 * 2.5) / 0.75);
+    expect(blurLight(0.9)).toBe(1);
+    expect(blurLight(1.1)).toBeCloseTo(0.25);
+    expect(blurLight(1.3)).toBe(0);
+    // A level is twice the texels of the one before; the inner texture is 2853 px across.
+    expect(blurWidth("inner", 0.5) / blurWidth("inner", 0.375)).toBeCloseTo(2);
+    expect(blurWidth("inner", 0)).toBeCloseTo((Math.SQRT2 * 1.12) / 2853);
+  });
+
+  test("shades the open screen's far side the more the wipe is on", () => {
+    expect(edgeLight("inner", 0.5, 1)).toBe(1);
+    expect(edgeLight("inner", 0.05, 1)).toBe(0);
+    expect(edgeLight("inner", 0.05, 0)).toBe(1);
+    expect(edgeLight("cover", 0, 1)).toBe(1);
+  });
+
+  test("softens the dark past the picture's ends over as much as the texture goes past the screen", () => {
+    expect(RIM).toBeCloseTo(0.06);
+  });
+});
+
+describe("paneLook", () => {
+  test("is bright and sharp on a screen lying flat", () => {
+    const flat = paneLook("inner", 1, 951);
+    expect(flat.turned.every((dark) => dark === 0)).toBe(true);
+    expect(flat.flat.every((dark) => dark === 0)).toBe(true);
+    expect(flat.blurs).toEqual([null, null, null]);
+    expect(paneLook("cover", 0, 466).blurs).toEqual([null, null, null]);
+  });
+
+  test("darkens the half that turns toward its free edge, from the dark of the half that stays", () => {
+    const look = paneLook("inner", 0.6, 951);
+    expect(look.turned).toHaveLength(9);
+    expect(look.turned[0]).toBeCloseTo(screenDim("inner", 0.6), 2);
+    for (let step = 1; step < look.turned.length; step++) {
+      expect(look.turned[step] ?? 0).toBeGreaterThanOrEqual(look.turned[step - 1] ?? 0);
     }
+    expect(look.turned.at(-1) ?? 0).toBeGreaterThan(0.5);
+    expect(look.flat.at(-1) ?? 0).toBeGreaterThan(look.flat[0] ?? 0);
   });
 
-  test("shows the blurrier pictures one after the other as the blur grows", () => {
-    expect(blurShares(0)).toEqual([0, 0]);
-    expect(blurShares(0.2)).toEqual([0.5, 0]);
-    expect(blurShares(0.4)).toEqual([1, 0.4]);
-    expect(blurShares(0.65)).toEqual([1, 1]);
-    expect(blurShares(1)).toEqual([1, 1]);
+  test("fades the blurrier pictures in one after the other along the half, as wide as Apple's blur", () => {
+    const { blurs } = paneLook("inner", 0.6, 951);
+    const [first, second] = blurs;
+    if (!first || !second) throw new Error("no blur");
+    expect(first.from).toBeLessThan(first.to);
+    expect(first.to).toBeCloseTo(second.from, 2);
+    expect(first.most).toBe(1);
+    // Where the first is all the way in, the blur is as wide as it.
+    const area = blurArea("inner", uvOf("inner", first.to), wipeAmount("inner", 0.6));
+    expect(blurWidth("inner", area) * 951).toBeCloseTo(BLURS[1], 0);
+  });
+
+  test("dims the screens as Apple lights them, through the display's gamma", () => {
+    expect(screenDim("inner", 1)).toBe(0);
+    expect(screenDim("cover", 0)).toBe(0);
+    // A third of the way open the open screen is set a quarter bright: 0.074 of its light, shown as 0.31.
+    const set = (0.15 / 0.9) ** 2 * (3 - 2 * (0.15 / 0.9));
+    expect(screenDim("inner", 1 / 3)).toBeCloseTo(1 - set ** (1 / 2.2), 2);
+    expect(screenDim("inner", 0)).toBeGreaterThan(0.8);
   });
 });
 

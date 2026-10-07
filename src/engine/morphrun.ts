@@ -17,6 +17,7 @@ import {
   sequence,
 } from "./morph";
 import { stopFold } from "./foldrun";
+import { slowed, slowness } from "./slow";
 import { stopTurn } from "./turnrun";
 
 /**
@@ -143,16 +144,17 @@ function tween(
 ): Promise<void> {
   for (const node of nodes) node.style[property] = to;
   if (time <= 0 || nodes.length === 0) return Promise.resolve();
+  const slow = slowness();
   const animations = nodes.map((node) =>
     node.animate([{ [property]: from }, { [property]: to }], {
-      duration: time,
+      duration: time * slow,
       easing: bezier(curve),
     }),
   );
   const flight: Flight = {
     stop() {
       const elapsed = animations[0]?.currentTime;
-      hold(ease(curve, typeof elapsed === "number" ? elapsed / time : 0));
+      hold(ease(curve, typeof elapsed === "number" ? slowed(elapsed, slow) / time : 0));
       for (const animation of animations) animation.cancel();
     },
   };
@@ -193,6 +195,7 @@ function moveHole(scene: Scene, to: () => Hole, time: number): Promise<void> {
     return Promise.resolve();
   }
   place(from);
+  const slow = slowness();
   return new Promise((resolve) => {
     let frame = 0;
     let begin: number | null = null;
@@ -208,7 +211,7 @@ function moveHole(scene: Scene, to: () => Hole, time: number): Promise<void> {
     };
     const step = (now: number) => {
       begin ??= now;
-      const elapsed = now - begin;
+      const elapsed = slowed(now - begin, slow);
       place(holeAt(from, to(), elapsed, time));
       if (elapsed >= time) done();
       else frame = window.requestAnimationFrame(step);

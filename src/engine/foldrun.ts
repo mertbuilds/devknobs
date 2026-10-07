@@ -1,12 +1,11 @@
 import type { PostureValue } from "../types";
 import { bezelUrl } from "./bezels";
 import {
-  blurShares,
-  FOLD_EDGE,
+  type BlurFade,
+  type FoldFrame,
   foldFrame,
   type FoldLayout,
   foldLayout,
-  foldLight,
   type FoldSide,
   HAND_OVER,
   handOver,
@@ -16,11 +15,19 @@ import {
   hingeStep,
   hingeStill,
   openOf,
+  outline,
+  type Pane,
+  paneLook,
+  type Point,
+  RIM,
+  screenDim,
+  seenAt,
 } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners, drawMock, UNDER } from "./mockdraw";
 import { lerp } from "./morph";
-import { blurPictures, copyPage, paintPage, shootPage } from "./pageshot";
+import { blurPictures, copyPage, forgetShots, paintPage, shootPage } from "./pageshot";
+import { slowed, slowness } from "./slow";
 import { coverTo, darken, type TurnScene } from "./turnrun";
 import type { ViewportValue } from "./width";
 
@@ -28,11 +35,14 @@ import type { ViewportValue } from "./width";
  * Folds a foldable open or shut in view, as the phone does, from the click's
  * next frame. The frame's own device stays live and sharp: open, as the half
  * of it that stays, and shut, for the last of the way there. A copy of the
- * half that turns, with a picture of the page on its screen drawn once and
- * blurred as a few ever softer layers, turns about the hinge on a layer over
- * it, and the hinge's spring sets how far it has turned, how dim the screens
- * are and how blurred the copy is. Close to shut and to open the copy fades
- * into the device. Each frame changes only transforms and opacities. What it
+ * body of the half that turns turns about the hinge on a layer over it, and
+ * its screen is a window onto a picture of the page that lies flat, as
+ * Apple's does: the picture is cut to where the turned screen is seen, dark
+ * past its edge, blurred a few ever softer ways over the part the wipe
+ * reaches, and the turned screen's shade goes over it. The hinge's spring
+ * sets how far it has turned and how the screens are lit and blurred. Close
+ * to shut and to open the copy fades into the device. Each frame changes only
+ * transforms, the window's outline, gradients, masks and opacities. What it
  * needs of the frame comes in a `FoldScene`, so it holds no node of its own.
  */
 
@@ -52,18 +62,35 @@ interface Face extends FoldSide {
   href: string | null;
 }
 
-/** A copy of one side of the half that turns: the pictures of the page on its screen, and its shades. */
+/** A copy of one side of the half that turns, and the window onto the page its screen is. */
 interface Leaf {
+  pane: Pane;
+  /** The copy of the body, turned. */
   node: HTMLElement;
-  /** Its screen, which fades to let the frame's own show through its body. */
+  /** Its screen, dark where the window does not reach. */
   screen: HTMLElement;
-  /** The page, and the same blurred more and more toward the free edge. */
+  /** The part of the screen that turns, as it lies flat, cut to where the turned one is seen. */
+  window: HTMLElement;
+  /** The screen as it lies in the window: the pictures of the page and the browser's bars. */
+  stage: HTMLElement;
+  /** The page, and the same blurred more and more. */
   pictures: HTMLElement[];
-  edge: HTMLElement;
-  dim: HTMLElement;
-  /** How the blurrier pictures fade in toward the free edge. */
-  ramp: string;
-  /** The screen's css width. */
+  /** The dark its ends along the hinge go toward as the half stands. */
+  rim: HTMLElement;
+  /** The dark of the picture as it lies, and, turned with the body over the window, of the screen. */
+  flat: HTMLElement;
+  veil: HTMLElement;
+  shade: HTMLElement;
+  /** The way from the hinge to the free edge, as a gradient goes, and where the two are on the stage, in percent. */
+  toward: string;
+  span: [number, number];
+  /** The outline of the part that turns, and the point it turns about, in the body's css px. */
+  outline: Point[];
+  pivot: Point;
+  /** Where the window's top left is in the body's css px. */
+  corner: Point;
+  /** The screen's css px across the hinge, and its width. */
+  extent: number;
   width: number;
 }
 
@@ -99,6 +126,8 @@ interface Going {
   frame: number;
   /** When the hinge's first step was, and how many it has taken since. */
   begin: number | null;
+  /** How many times slower than the phone's it runs. */
+  slow: number;
   steps: number;
   parts: Layer;
   unit: Unit;
@@ -126,7 +155,7 @@ function div(className: string): HTMLElement {
   return node;
 }
 
-/** Fill the screen it is in, under what goes over it. */
+/** Fill the box it is in. */
 function fill(node: HTMLElement): HTMLElement {
   node.style.position = "absolute";
   node.style.inset = "0";
@@ -135,63 +164,118 @@ function fill(node: HTMLElement): HTMLElement {
   return node;
 }
 
-/** Put `shot` on a leaf's screen, and the same blurred over it, as much as was shown before. */
+/** Put a node at `rect`, in its parent's css px. */
+function placeAt(node: HTMLElement, rect: Rect): HTMLElement {
+  node.style.position = "absolute";
+  node.style.left = `${rect.x}px`;
+  node.style.top = `${rect.y}px`;
+  node.style.width = `${rect.width}px`;
+  node.style.height = `${rect.height}px`;
+  return node;
+}
+
+/** Put `shot` on a leaf's stage, and the same blurred over it, as much as was shown before. */
 function paintLeaf(leaf: Leaf, shot: HTMLCanvasElement): void {
   const next = [shot, ...blurPictures(shot, leaf.width)].map(fill);
   next.forEach((picture, index) => {
-    if (index === 0) return;
-    picture.style.opacity = leaf.pictures[index]?.style.opacity || "0";
-    picture.style.maskImage = leaf.ramp;
-    picture.style.setProperty("-webkit-mask-image", leaf.ramp);
+    const last = leaf.pictures[index];
+    if (index === 0 || !last) return;
+    picture.style.opacity = last.style.opacity;
+    picture.style.maskImage = last.style.maskImage;
+    picture.style.setProperty("-webkit-mask-image", last.style.maskImage);
   });
   for (const last of leaf.pictures) last.remove();
-  // Under the bars and the shades.
-  leaf.edge.parentElement?.prepend(...next);
+  // Under the bars.
+  leaf.stage.prepend(...next);
   leaf.pictures = next;
+}
+
+/** The screen of a side's body, where it is in the body, and its corners. */
+function screenOf(side: Face): { rect: Rect; radii: number[] } {
+  const { body, size } = side;
+  const rect = { x: body?.inset.left ?? 0, y: body?.inset.top ?? 0, ...size };
+  return { rect, radii: body ? corners(body.screenRadius) : [0, 0, 0, 0] };
+}
+
+/** The part of a side's screen that turns, and the way from its hinge to its free edge. */
+interface Turning {
+  pane: Pane;
+  /** Where it is in the body, and its corners, square at the hinge. */
+  rect: Rect;
+  radii: number[];
+  toward: string;
+  /** Where the hinge and the free edge are along `toward` on the whole screen, in percent. */
+  span: [number, number];
+  pivot: Point;
 }
 
 /**
  * A copy of a side's body around its screen, in the screen's css px, as the
- * frame draws it. On its screen is the page, `shot`, and over it the same
- * blurred more and more toward the free edge, `toward` it from the hinge,
- * which is `reach` percent of the way across, the browser's `bars`, then the shade
- * there, and the dark the screen goes.
+ * frame draws it, its screen dark, and the window onto the page, `picture`,
+ * that the part of it that turns is: the pictures laid as the screen lies,
+ * the browser's `bars` over them, the dark over the picture, then over the
+ * window, turned with the body, the dark of the turned screen.
  */
-function leafOf(side: Face, color: string, picture: Picture, toward: string, reach: number): Leaf {
+function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean): Leaf {
   const { body, size, href } = side;
   const node = div("face");
   node.style.width = `${body?.width ?? size.width}px`;
   node.style.height = `${body?.height ?? size.height}px`;
-  const blank = div("");
-  blank.style.left = `${body?.inset.left ?? 0}px`;
-  blank.style.top = `${body?.inset.top ?? 0}px`;
-  blank.style.width = `${size.width}px`;
-  blank.style.height = `${size.height}px`;
-  blank.style.background = color;
-  blank.style.overflow = "hidden";
-  if (body) blank.style.borderRadius = corners(body.screenRadius).map((r) => `${r}px`).join(" ");
-  if (href) blank.style.boxShadow = `0 0 0 ${UNDER}px #000`;
-  const edge = fill(div(""));
-  edge.style.background = `linear-gradient(${toward}, rgba(0, 0, 0, ${FOLD_EDGE}), transparent ${reach}%)`;
-  const dim = fill(div(""));
-  dim.style.background = "#000";
-  if (picture.bars) blank.append(picture.bars);
-  blank.append(edge, dim);
-  node.append(blank);
-  // Blurred all the way over the third of it nearest the free edge.
-  const ramp = `linear-gradient(${toward}, #000 ${reach / 3}%, transparent ${reach}%)`;
-  const leaf = { node, screen: blank, pictures: [], edge, dim, ramp, width: size.width };
-  if (picture.shot) paintLeaf(leaf, picture.shot);
-  // The page as the browser draws it, once it has, over the rough one.
-  void picture.painted?.then((shot) => {
-    if (shot && leaf.node.isConnected) paintLeaf(leaf, shot);
-  });
+  const { rect: whole } = screenOf(side);
+  const { rect } = turning;
+  const screen = placeAt(div(""), whole);
+  screen.style.background = "#000";
+  if (body) screen.style.borderRadius = corners(body.screenRadius).map((r) => `${r}px`).join(" ");
+  if (href) screen.style.boxShadow = `0 0 0 ${UNDER}px #000`;
+  node.append(screen);
   if (body) {
     const drawing = drawMock(body, size, href);
     drawing.style.width = "100%";
     drawing.style.height = "100%";
     node.append(drawing);
   }
+  const opening = placeAt(div(""), rect);
+  const dark = div("");
+  dark.style.position = "absolute";
+  dark.style.inset = "-100%";
+  dark.style.background = "#000";
+  const stage = placeAt(div(""), { ...whole, x: whole.x - rect.x, y: whole.y - rect.y });
+  if (picture.bars) stage.append(picture.bars);
+  const rim = fill(div(""));
+  const edge = `transparent ${RIM * 100}%, transparent ${(1 - RIM) * 100}%`;
+  rim.style.background = `linear-gradient(${across ? "to bottom" : "to right"}, #000, ${edge}, #000)`;
+  stage.append(rim);
+  const flat = fill(div(""));
+  opening.append(dark, stage, flat);
+  const veil = div("face");
+  veil.style.width = node.style.width;
+  veil.style.height = node.style.height;
+  const shade = placeAt(div(""), rect);
+  veil.append(shade);
+  const leaf: Leaf = {
+    pane: turning.pane,
+    node,
+    screen,
+    window: opening,
+    stage,
+    pictures: [],
+    rim,
+    flat,
+    veil,
+    shade,
+    toward: turning.toward,
+    span: turning.span,
+    outline: outline(rect, turning.radii),
+    pivot: turning.pivot,
+    corner: { x: rect.x, y: rect.y },
+    extent: across ? size.width : size.height,
+    width: size.width,
+  };
+  if (picture.shot) paintLeaf(leaf, picture.shot);
+  // The page as the browser draws it, once it has, over the rough one.
+  void picture.painted?.then((shot) => {
+    if (shot && leaf.node.isConnected) paintLeaf(leaf, shot);
+  });
   return leaf;
 }
 
@@ -200,34 +284,66 @@ const BEND = 14;
 
 /**
  * Put the copies of the half that turns over the frame's own device: its
- * inside, `inner` on its screen, and its outside, the folded body, `outer`.
+ * inside, the open screen's half, `inner`, and its outside, the folded body,
+ * `outer`, each with the window its screen is.
  */
 function build(scene: FoldScene, layout: FoldLayout, open: Face, closed: Face, pictures: Pictures): Layer {
-  const color = scene.background();
   const layer = div("fold");
   const place = div("");
-  const across = layout.across;
-  const inner = leafOf(open, color, pictures.open, across ? "to right" : "to top", 50);
-  inner.node.style.clipPath = layout.clip;
-  inner.node.style.transformOrigin = layout.origins.inner;
+  const { across, hinge, pivots } = layout;
+  const inside = screenOf(open);
+  const [topLeft = 0, topRight = 0, bottomRight = 0, bottomLeft = 0] = inside.radii;
+  const half = across
+    ? { ...inside.rect, width: hinge - inside.rect.x }
+    : { ...inside.rect, y: hinge, height: inside.rect.y + inside.rect.height - hinge };
+  const inner = leafOf(
+    open,
+    pictures.open,
+    {
+      pane: "inner",
+      rect: half,
+      radii: across ? [topLeft, 0, 0, bottomLeft] : [0, 0, bottomRight, bottomLeft],
+      toward: across ? "to left" : "to bottom",
+      span: [50, 100],
+      pivot: pivots.inner,
+    },
+    across,
+  );
+  const outside = screenOf(closed);
+  const outer = leafOf(
+    closed,
+    pictures.closed,
+    {
+      pane: "cover",
+      rect: outside.rect,
+      radii: outside.radii,
+      toward: across ? "to right" : "to top",
+      span: [0, 100],
+      pivot: pivots.outer,
+    },
+    across,
+  );
+  for (const node of [inner.node, inner.veil]) {
+    node.style.clipPath = layout.clip;
+    node.style.transformOrigin = layout.origins.inner;
+  }
+  for (const node of [outer.node, outer.window, outer.veil]) {
+    node.style.left = `${layout.shut.x + (node === outer.window ? outside.rect.x : 0)}px`;
+    node.style.top = `${layout.shut.y + (node === outer.window ? outside.rect.y : 0)}px`;
+  }
+  outer.node.style.transformOrigin = layout.origins.outer;
+  outer.veil.style.transformOrigin = layout.origins.outer;
   // A crease down the hinge, in the screen it bends.
   const bend = div("");
-  const screen = inner.screen;
-  const inset = open.body?.inset ?? { left: 0, top: 0 };
-  const at = layout.hinge - (across ? inset.left : inset.top) - BEND;
   bend.style.position = "absolute";
-  bend.style.left = across ? `${at}px` : "0";
-  bend.style.top = across ? "0" : `${at}px`;
-  bend.style.width = across ? `${2 * BEND}px` : "100%";
-  bend.style.height = across ? "100%" : `${2 * BEND}px`;
+  bend.style.left = across ? `${hinge - BEND}px` : `${inside.rect.x}px`;
+  bend.style.top = across ? `${inside.rect.y}px` : `${hinge - BEND}px`;
+  bend.style.width = across ? `${2 * BEND}px` : `${inside.rect.width}px`;
+  bend.style.height = across ? `${inside.rect.height}px` : `${2 * BEND}px`;
   const shade = "transparent, rgba(0, 0, 0, 0.3) 50%, transparent";
   bend.style.background = `linear-gradient(${across ? "to right" : "to bottom"}, ${shade})`;
-  screen.append(bend);
-  const outer = leafOf(closed, color, pictures.closed, across ? "to left" : "to bottom", 100);
-  outer.node.style.left = `${layout.shut.x}px`;
-  outer.node.style.top = `${layout.shut.y}px`;
-  outer.node.style.transformOrigin = layout.origins.outer;
-  place.append(inner.node, outer.node);
+  inner.veil.append(bend);
+  place.append(inner.node, inner.window, inner.veil, outer.node, outer.window, outer.veil);
   layer.append(place);
   scene.place(layer);
   return { layer, place, inner, outer, bend };
@@ -296,22 +412,56 @@ function sync(going: Going): void {
   if (going.unit.posture !== posture) redraw(going, posture);
 }
 
+/** A gradient from the hinge to the free edge through the shares of dark `shades`, evenly spaced. */
+function shading(toward: string, shades: number[]): string {
+  const last = Math.max(1, shades.length - 1);
+  const stops = shades.map((dark, index) => `rgba(0, 0, 0, ${dark}) ${Math.round((index / last) * 1000) / 10}%`);
+  return `linear-gradient(${toward}, ${stops.join(", ")})`;
+}
+
+/** Where a share `t` of the way from the hinge to the free edge is on a leaf's stage, in percent. */
+function onStage(leaf: Leaf, t: number): number {
+  const [hinge, free] = leaf.span;
+  return Math.round((hinge + (free - hinge) * t) * 100) / 100;
+}
+
+/** Show a blurrier picture as `fade` has it, faded in along the stage. */
+function blurTo(leaf: Leaf, picture: HTMLElement, fade: BlurFade | null): void {
+  picture.style.opacity = fade ? "" : "0";
+  if (!fade) return;
+  const mask = `linear-gradient(${leaf.toward}, transparent ${onStage(leaf, fade.from)}%, rgba(0, 0, 0, ${fade.most}) ${onStage(leaf, fade.to)}%)`;
+  picture.style.maskImage = mask;
+  picture.style.setProperty("-webkit-mask-image", mask);
+}
+
 /**
- * Show a copy of a side of the half that turns as it stands, blurred, shaded
- * and dimmed as much, its screen `shown` of the way over the frame's own.
+ * Show a copy of a side of the half that turns as it stands, turned with
+ * `transform` as `frame` has it, lit and blurred as the hinge `open` of the
+ * way open has it, its screen `shown` of the way over the frame's own.
  */
-function stand(leaf: Leaf, transform: string | null, blur: number, edge: number, dim: number, shown: number): void {
-  leaf.node.style.visibility = transform ? "" : "hidden";
+function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: string | null, open: number, shown: number): void {
+  const parts = [leaf.node, leaf.window, leaf.veil];
+  for (const part of parts) part.style.visibility = transform ? "" : "hidden";
   if (!transform) return;
   leaf.node.style.transform = transform;
-  // Its body stays whole, so nothing behind the device shows through it.
-  leaf.screen.style.opacity = shown < 1 ? String(shown) : "";
-  const shares = blurShares(blur);
-  leaf.pictures.slice(1).forEach((layer, index) => {
-    layer.style.opacity = String(shares[index] ?? 0);
+  leaf.veil.style.transform = transform;
+  // The window shows the flat picture only where the turned screen is seen.
+  const { corner, pivot } = leaf;
+  const points = leaf.outline.map((point) => {
+    const seen = seenAt(point, pivot, frame.degrees, layout.across, layout.depth);
+    return `${Math.round((seen.x - corner.x) * 100) / 100}px ${Math.round((seen.y - corner.y) * 100) / 100}px`;
   });
-  leaf.edge.style.opacity = String(edge);
-  leaf.dim.style.opacity = String(dim);
+  leaf.window.style.clipPath = `polygon(${points.join(", ")})`;
+  leaf.rim.style.opacity = String(frame.lift);
+  const look = paneLook(leaf.pane, open, leaf.extent);
+  leaf.shade.style.background = shading(leaf.toward, look.turned);
+  leaf.flat.style.background = shading(leaf.toward, look.flat);
+  leaf.pictures.slice(1).forEach((picture, index) => blurTo(leaf, picture, look.blurs[index] ?? null));
+  // Its body stays whole, so nothing behind the device shows through it.
+  const fade = shown < 1 ? String(shown) : "";
+  leaf.screen.style.opacity = fade;
+  leaf.window.style.opacity = fade;
+  leaf.veil.style.opacity = fade;
 }
 
 /** Draw the fold with the hinge where it has got to. */
@@ -319,12 +469,11 @@ function show(going: Going): void {
   const { layout, parts, unit, scene } = going;
   const { open } = going;
   const frame = foldFrame(layout, open);
-  const light = foldLight(open);
   const hand = handOver(open, unit.posture);
   const { x, y, scale } = frame.place;
   parts.place.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-  stand(parts.inner, frame.inner, light.blur, light.edge, light.dim, 1 - hand);
-  stand(parts.outer, frame.outer, light.coverBlur, light.coverEdge, light.coverDim, 1 - hand);
+  stand(parts.inner, layout, frame, frame.inner, open, 1 - hand);
+  stand(parts.outer, layout, frame, frame.outer, open, 1 - hand);
   parts.bend.style.opacity = String(frame.lift);
   // The frame's own device moves with the fold, its folded body onto where it lies shut.
   const opened = unit.posture === "open";
@@ -339,7 +488,7 @@ function show(going: Going): void {
     ? `polygon(${hinge}px -${far}px, ${far}px -${far}px, ${far}px ${far}px, ${hinge}px ${far}px)`
     : `polygon(-${far}px -${far}px, ${far}px -${far}px, ${far}px ${hinge}px, -${far}px ${hinge}px)`;
   scene.unit.style.clipPath = opened && hand === 0 ? rest : "";
-  darken(scene.cover, opened ? light.dim : light.coverDim);
+  darken(scene.cover, screenDim(opened ? "inner" : "cover", open));
 }
 
 /** Take the fold's layer away, and leave the frame's own device as it is drawn. */
@@ -368,7 +517,7 @@ function swing(going: Going): void {
   const tick = (now: number) => {
     if (fold !== going) return;
     going.begin ??= now;
-    const due = (now - going.begin) / HINGE_STEP + 1;
+    const due = slowed(now - going.begin, going.slow) / HINGE_STEP + 1;
     const steps = Math.floor(due);
     going.hinge = hingeAfter(going.hinge, going.target, steps - going.steps);
     going.steps = Math.max(going.steps, steps);
@@ -440,6 +589,7 @@ export function foldDevice(
     values,
     frame: 0,
     begin: null,
+    slow: slowness(),
     steps: 0,
     parts: build(scene, layout, open, closed, pictures),
     unit: measure(scene, from.posture),
@@ -472,4 +622,5 @@ export function stopFold(): void {
 export function forgetFold(): void {
   if (fold) window.cancelAnimationFrame(fold.frame);
   fold = null;
+  forgetShots();
 }

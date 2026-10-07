@@ -161,6 +161,13 @@ describe("a device that turns", () => {
     expect(turnOf("frame", "closed")).toBe(0);
   });
 
+  test("turns the open Duo clockwise to be held across, as its own picture held across is turned", () => {
+    expect(turnOf("iphone-duo|portrait|open", "iphone-duo|landscape|open")).toBe(90);
+    expect(turnOf("iphone-duo|landscape|open", "iphone-duo|portrait|open")).toBe(-90);
+    // Folded, it turns as any phone does.
+    expect(turnOf("iphone-duo|portrait|closed", "iphone-duo|landscape|closed")).toBe(-90);
+  });
+
   // The Duo's cover screen fitted upright, and where it is drawn held across, a bit bigger.
   const upright = { x: 579, y: 69, width: 342, height: 498 };
   const across = { x: 476, y: 162, width: 548.4, height: 376.6 };

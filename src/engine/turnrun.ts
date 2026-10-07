@@ -11,6 +11,7 @@ import {
   poseTransform,
   turnedPose,
 } from "./morph";
+import { slowed, slowness } from "./slow";
 import type { ViewportValue } from "./width";
 
 /**
@@ -93,6 +94,7 @@ function uncover(): void {
   const lifting = cover;
   if (!lifting) return;
   const from = lifting.share;
+  const slow = slowness();
   let begin: number | null = null;
   let wait = 2;
   const step = (now: number) => {
@@ -102,7 +104,7 @@ function uncover(): void {
       return;
     }
     begin ??= now;
-    const elapsed = now - begin;
+    const elapsed = slowed(now - begin, slow);
     if (elapsed >= MORPH_TIME.uncover) {
       coverTo(lifting.node, 0);
       return;
@@ -131,10 +133,11 @@ export function turnTo(turn: Spin, to: Pose, done: () => void): void {
   coverTo(turn.cover, over);
   const going = { spin: turn, pose: from, frame: 0, done };
   spin = going;
+  const slow = slowness();
   let begin: number | null = null;
   const step = (now: number) => {
     begin ??= now;
-    const elapsed = now - begin;
+    const elapsed = slowed(now - begin, slow);
     going.pose = poseAt(from, to, elapsed, time);
     stand(turn, going.pose);
     coverTo(turn.cover, coverAt(over, across, elapsed, time));

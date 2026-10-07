@@ -246,6 +246,27 @@ describe("mockOf", () => {
     expect(center(lens).y).toBeLessThan(mockOf("ipad-air-11", "landscape")?.inset.top ?? 0);
   });
 
+  test("turns the open Duo clockwise, its top on the right, as Apple's picture of it is", () => {
+    const upright = mockOf("iphone-duo-open", "portrait");
+    const turned = mockOf("iphone-duo-open", "landscape");
+    const height = upright?.height ?? 0;
+    for (const [index, part] of (upright?.parts ?? []).entries()) {
+      expect(turned?.parts[index]).toEqual({
+        ...part,
+        x: height - part.y - part.height,
+        y: part.x,
+        width: part.height,
+        height: part.width,
+      });
+    }
+    // The left buttons go to the top, and the top one to the right.
+    const [volume, , top] = parts(turned, "button");
+    expect(volume?.y).toBeCloseTo(0);
+    expect((top?.x ?? 0) + (top?.width ?? 0)).toBeCloseTo(turned?.width ?? 0);
+    const inset = upright?.inset ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    expect(turned?.inset).toEqual({ top: inset.left, right: inset.top, bottom: inset.right, left: inset.bottom });
+  });
+
   test("hangs the buttons on the body's edge", () => {
     for (const device of SCREENS) {
       const mock = mockOf(device.id, "portrait");

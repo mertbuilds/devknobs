@@ -1057,16 +1057,17 @@ describe("a foldable folding", () => {
     // Live and shut for the first of the way, a copy of the half that turns fading in over it, then
     // laid out open, the half that stays live under a dim, the copy turning over it.
     const style = (name: string, key: string) => String(Reflect.get(byClass(name)?.style ?? {}, key) ?? "");
+    // Each side of the half that turns is its body, the window onto the page its screen is, and the shade over it.
     const leaves = () => byClass("fold")?.children[0]?.children ?? [];
     expect(Reflect.get(frameElement().style, "width")).toBe("466px");
-    expect(leaves()).toHaveLength(2);
+    expect(leaves()).toHaveLength(6);
     // Its body whole, only its screen faded, so nothing behind the device shows through.
-    expect(Reflect.get(leaves()[1]?.style ?? {}, "opacity") || "").toBe("");
-    expect(Reflect.get(leaves()[1]?.children[0]?.style ?? {}, "opacity")).toBe("0");
-    expect(String(Reflect.get(leaves()[1]?.style ?? {}, "transform"))).toEndWith("rotateY(0deg)");
+    expect(Reflect.get(leaves()[3]?.style ?? {}, "opacity") || "").toBe("");
+    expect(Reflect.get(leaves()[3]?.children[0]?.style ?? {}, "opacity")).toBe("0");
+    expect(String(Reflect.get(leaves()[3]?.style ?? {}, "transform"))).toEndWith("rotateY(0deg)");
     // It moves on the first frame after the click.
     for (const callback of frames.splice(0)) callback(1000);
-    expect(String(Reflect.get(leaves()[1]?.style ?? {}, "transform"))).toMatch(/rotateY\(-\d+(\.\d+)?deg\)/);
+    expect(String(Reflect.get(leaves()[3]?.style ?? {}, "transform"))).toMatch(/rotateY\(-\d+(\.\d+)?deg\)/);
     for (let now = 1016; now < 1200; now += 16) {
       for (const callback of frames.splice(0)) callback(now);
     }
@@ -1096,7 +1097,7 @@ describe("a foldable folding", () => {
     for (let now = 0; now <= 2000 && byClass("fold"); now += 16) {
       for (const callback of frames.splice(0)) callback(now);
       widths.push(String(Reflect.get(frameElement().style, "width")));
-      const fading = Number(Reflect.get(leaves()[1]?.children[0]?.style ?? {}, "opacity") || 1);
+      const fading = Number(Reflect.get(leaves()[3]?.children[0]?.style ?? {}, "opacity") || 1);
       if (byClass("fold") && widths.at(-1) === "466px" && fading < 1) handing = true;
     }
     expect(widths.slice(0, 20).every((width) => width === "951px")).toBe(true);
@@ -1120,7 +1121,7 @@ describe("a foldable folding", () => {
       let seen = 0;
       for (let now = 0; now <= 2000 && byClass("fold"); now += 16) {
         const leaves = byClass("fold")?.children[0]?.children ?? [];
-        const [inner, outer] = leaves;
+        const [inner, , , outer] = leaves;
         // Neither copy of the half that turns is ever see-through, only its screen fades.
         expect(Reflect.get(inner?.style ?? {}, "opacity") || "").toBe("");
         expect(Reflect.get(outer?.style ?? {}, "opacity") || "").toBe("");
