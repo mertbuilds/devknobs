@@ -180,7 +180,7 @@ export function buildChrome(full: Bars, mini: Bars, look: Look): Painted {
   const ink = el("div", "ink");
   ink.style.inset = "0";
   if (status) {
-    const clock = el("div", "clock", "04:47");
+    const clock = el("div", "clock", "04:20");
     clock.style.left = `${status.time.x}px`;
     clock.style.top = `${status.time.y}px`;
     ink.append(clock, ...statusIcons(status));
