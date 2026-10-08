@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { type BarsKnobs, barsFor, glassOf } from "../src/engine/barshot";
-import { type Glued, gluedOf, type Picture } from "../src/engine/foldpage";
+import { type Glued, gluedOf, light, type Picture } from "../src/engine/foldpage";
 
 const DUO: Omit<BarsKnobs, "posture" | "orientation" | "browser"> = { device: "iphone-duo", edgeToEdge: false };
 const HOST = "knobs.localhost";
@@ -220,5 +220,32 @@ describe("the bars on the screen that turns", () => {
     // The sharp picture and a blurrier one for each blur past it, all with the bars in.
     expect(glued.pictures.length).toBeGreaterThan(1);
     expect(copy.parent).toBeNull();
+  });
+});
+
+describe("the light on the screen that turns", () => {
+  test("leaves the free edge alone where WebGL2 darkens it", () => {
+    fakeDocument(false);
+    const { glued } = glue(false);
+    light(glued, 0.55, null, 0.4);
+    expect(glued.edge.style.background).toBe("");
+  });
+
+  test("darkens the free edge where WebGL2 is not, out to as much of the screen as is seen", () => {
+    fakeDocument(false);
+    const { glued } = glue(false);
+    light(glued, 0.55, 0.4, 0.4);
+    const edge = glued.edge.style.background;
+    expect(edge).toStartWith("linear-gradient(");
+    expect(edge).toEndWith(" 40%)");
+  });
+
+  test("shows a blurrier picture all over from the hinge on near a right angle", async () => {
+    fakeDocument(false);
+    const { glued, done } = glue(true);
+    await done();
+    light(glued, 0.53, 1, 1);
+    const [, blurred] = glued.pictures;
+    expect(blurred?.style.maskImage).toStartWith("linear-gradient(to right, rgba(0, 0, 0, 1) ");
   });
 });

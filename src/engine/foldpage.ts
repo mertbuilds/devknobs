@@ -256,7 +256,7 @@ function edging(toward: string, stops: [at: number, dark: number][]): string {
  * does, null. Its blur is as Apple's camera sees it, the turned screen seen
  * `out` of the way from the hinge to the picture's free edge.
  */
-export function light(panel: Panel, open: number, free: number | null = 1, out = free ?? 1): void {
+export function light(panel: Panel, open: number, free: number | null, out: number): void {
   const look = paneLook(panel.pane, open, panel.extent, out);
   panel.shade.style.background = shading(panel.toward, look.turned);
   panel.flat.style.background = shading(panel.toward, look.flat);
