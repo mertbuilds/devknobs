@@ -243,6 +243,8 @@ const OPEN_UPRIGHT: ViewportValue = { ...OPEN, orientation: "portrait", width: 6
 
 let letterbox: FakeNode;
 let unit: FakeNode;
+/** The dim over the page the frame draws. */
+let cover: FakeNode;
 let drawn: ViewportValue[];
 
 /** A fake node where the fold takes an element, as the other tests pass theirs. */
@@ -260,7 +262,7 @@ function sceneOf(): FoldScene {
   unit = new FakeNode();
   unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
   const glass = new FakeNode();
-  const cover = new FakeNode();
+  cover = new FakeNode();
   const frame = new FakeNode();
   letterbox.append(unit);
   return {
@@ -458,6 +460,93 @@ describe("a Duo folding in its frames", () => {
     expect(layer()).toBeUndefined();
     expect(drawn.at(-1)).toEqual(OPEN);
     expect(style(unit, "clipPath")).toBe("");
+  });
+
+  test("draws every layer at the angle of the frame shown, so a slow hand sees nothing move between frames, and all of it at one", async () => {
+    foldDevice(SHUT, OPEN, sceneOf(), (value) => drawn.push(value), true);
+    await Bun.sleep(0);
+    /** Everything the fold draws the device by, but its fades. */
+    const drawing = () => {
+      const node = model();
+      const [, inner, outer] = node?.children ?? [];
+      const glued = [inner, outer].flatMap((one) => [
+        style(one, "visibility"),
+        style(one, "clipPath"),
+        style(one?.children[0], "clipPath"),
+        style(one?.children[0]?.children[0], "transform"),
+        style(one?.children[0]?.children[0]?.children[1], "background"),
+      ]);
+      const place = layer()?.children[0];
+      const crease = placed()[0];
+      return JSON.stringify([
+        style(place, "transform"),
+        style(node, "transform"),
+        style(unit, "transform"),
+        style(unit, "clipPath"),
+        style(crease, "opacity"),
+        style(cover, "opacity"),
+        ...glued,
+      ]);
+    };
+    /** Have the fades done, the still half's case all in and the render all over the device? */
+    const faded = () => style(canvases()[0], "opacity") === "" && style(model(), "opacity") === "";
+    let now = 0;
+    let last: { frame: number; drawing: string } | null = null;
+    let still = 0;
+    let moved = 0;
+    // A slow hand: a third of a degree a frame, from shut to all but open.
+    for (let target = 0; target <= 0.98; target += 1 / 540) {
+      scrubFold(target);
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      await Bun.sleep(0);
+      const frame = turned();
+      const seen = { frame, drawing: drawing() };
+      if (last && faded() && frame >= 0) {
+        if (frame === last.frame) {
+          expect(seen.drawing).toBe(last.drawing);
+          still += 1;
+        } else {
+          expect(seen.drawing).not.toBe(last.drawing);
+          moved += 1;
+        }
+      }
+      last = faded() ? seen : null;
+    }
+    expect(still).toBeGreaterThan(100);
+    expect(moved).toBeGreaterThan(100);
+  });
+
+  test("writes nothing to the page between frames, once the fades are done, and draws it all again at one", async () => {
+    foldDevice(SHUT, OPEN, sceneOf(), (value) => drawn.push(value), true);
+    await Bun.sleep(0);
+    const faded = () => style(canvases()[0], "opacity") === "" && style(model(), "opacity") === "";
+    /** Mark what the fold writes each time it draws, to see whether it does again. */
+    const mark = () => {
+      model()?.style.setProperty("transform", "unwritten");
+      unit.style.setProperty("transform", "unwritten");
+    };
+    let now = 0;
+    let last = -1;
+    let kept = 0;
+    let redrawn = 0;
+    for (let target = 0; target <= 0.98; target += 1 / 540) {
+      scrubFold(target);
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      await Bun.sleep(0);
+      const frame = turned();
+      if (last >= 0 && faded() && frame >= 0) {
+        const untouched = [style(model(), "transform"), style(unit, "transform")].every((value) => value === "unwritten");
+        expect(untouched).toBe(frame === last);
+        if (untouched) kept += 1;
+        else redrawn += 1;
+      }
+      last = faded() ? frame : -1;
+      if (faded()) mark();
+    }
+    expect(kept).toBeGreaterThan(100);
+    expect(redrawn).toBeGreaterThan(100);
   });
 
   test("fades the still half's rendered case in as the hinge leaves an end, then the whole render out once it is still at the other", async () => {
@@ -658,11 +747,11 @@ describe("a hand on a foldable's hinge", () => {
     expect(drawn).toHaveLength(0);
   });
 
-  test("follows the hand through the spring, and lands at the end it is let go at", () => {
+  test("follows the hand through the spring, and lands at the end it is let go at", async () => {
     hold(SHUT, OPEN, sceneOf());
     expect(scrubFold(0.6)).toBe(true);
-    play(48);
-    // On its way, the device is drawn open past the hand over, as a fold draws it.
+    await playing(48);
+    // On its way, the device is drawn open past the hand over, as a fold draws it, at the frame shown where it draws the frames.
     expect(drawn.at(-1)).toEqual(OPEN);
     play(2000);
     expect(layer()).toBeDefined();

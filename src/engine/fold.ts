@@ -322,6 +322,24 @@ export interface FoldShots {
   stills: readonly FoldStill[];
 }
 
+/** How far open a frame shows the hinge, 0 shut to 1 open. */
+export function shotOpen(shot: FoldShot): number {
+  return 1 - shot.deg / 180;
+}
+
+/**
+ * The frame shown with the hinge `open` of the way open, the nearest to it
+ * of those `ready` has, by its place among the frames, and how far open every
+ * layer is drawn under it: at that frame's own angle, so nothing moves
+ * between two frames and all of it moves at one. Where none is ready, no
+ * frame, and the hinge's own angle.
+ */
+export function shownAt(shots: FoldShots, ready: readonly unknown[], open: number): { at: number | null; open: number } {
+  const at = nearestReady(ready, shotAt(shots, open));
+  const shot = at === null ? null : shots.frames[at];
+  return shot ? { at, open: shotOpen(shot) } : { at: null, open };
+}
+
 /** The frame nearest how far the hinge is open, by its place among the frames: the more open of two as near. */
 export function shotAt(shots: FoldShots, open: number): number {
   const deg = 180 * (1 - open);

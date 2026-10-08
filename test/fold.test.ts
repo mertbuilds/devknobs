@@ -33,6 +33,7 @@ import {
   SHOTS_AHEAD,
   SHOTS_AROUND,
   shotAt,
+  shotOpen,
   shotPane,
   shotPicture,
   shotQuad,
@@ -40,11 +41,13 @@ import {
   shotsTransform,
   shotsWindow,
   shotWindow,
+  shownAt,
   uvOf,
   wipeAmount,
   wipeLight,
 } from "../src/engine/fold";
 import { bezelMock } from "../src/engine/bezels";
+import { screenLook } from "../src/engine/foldgl";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import { mockOf, type Rect } from "../src/engine/mock";
 import { corners } from "../src/engine/mockdraw";
@@ -795,6 +798,59 @@ describe("the Duo's fold frames", () => {
         expect(Math.abs(seen.width - inside.width)).toBeGreaterThan((1 - open) * 8);
       }
     }
+  });
+
+  test("draw every layer at the angle of the frame shown, so between frames nothing moves, and at one all of it does", () => {
+    const all = shots.frames.map(() => true);
+    // Each frame shows its own angle, so the frame it shows is itself, and the ends are exact.
+    shots.frames.forEach((shot, index) => expect(shownAt(shots, all, shotOpen(shot))).toEqual({ at: index, open: shotOpen(shot) }));
+    expect([shownAt(shots, all, 1), shownAt(shots, all, 0)]).toEqual([{ at: 0, open: 1 }, { at: 180, open: 0 }]);
+    expect(shownAt(shots, all, 0.999).open).toBe(1);
+    expect(shownAt(shots, all, 0.001).open).toBe(0);
+    for (const across of [true, false]) {
+      const { layout, inside, outside } = bezelled(across);
+      /** Every value a layer is drawn by, with the hinge `open` of the way open. */
+      const drawn = (open: number) => {
+        const at = shownAt(shots, all, open).open;
+        return JSON.stringify([
+          foldFrame(layout, at),
+          shotsTransform(shots, layout, inside, outside, at),
+          shotsDrift(shots, layout, inside, outside, at, "open"),
+          shotsDrift(shots, layout, inside, outside, at, "closed"),
+          screenDim("inner", at),
+          screenDim("cover", at),
+          paneLook("inner", at, 951),
+          paneLook("cover", at, 466),
+          screenLook("inner", at, 951, 12, 0.9),
+          screenLook("cover", at, 466, 12, 0.9),
+        ]);
+      };
+      let last = drawn(0);
+      let lastShot = shownAt(shots, all, 0).at;
+      let changes = 0;
+      // A slow hand, a fifth of a degree a frame.
+      for (let open = 0; open <= 1; open += 1 / 900) {
+        const now = drawn(open);
+        const shot = shownAt(shots, all, open).at;
+        if (shot === lastShot) expect(now).toBe(last);
+        else {
+          expect(now).not.toBe(last);
+          changes += 1;
+        }
+        last = now;
+        lastShot = shot;
+      }
+      expect(changes).toBe(180);
+    }
+  });
+
+  test("draw every layer at the angle of the nearest frame decoded, while the one the hinge is at is not, and at the hinge's own with none", () => {
+    const ready = shots.frames.map((shot) => shot.deg === 40 || shot.deg === 50);
+    // At 44 degrees the nearest decoded is 40, at 46 it is 50: nothing moves till then.
+    expect(shownAt(shots, ready, 1 - 44 / 180)).toEqual({ at: 40, open: 1 - 40 / 180 });
+    expect(shownAt(shots, ready, 1 - 42 / 180)).toEqual(shownAt(shots, ready, 1 - 30 / 180));
+    expect(shownAt(shots, ready, 1 - 46 / 180)).toEqual({ at: 50, open: 1 - 50 / 180 });
+    expect(shownAt(shots, [], 0.37)).toEqual({ at: null, open: 0.37 });
   });
 
   test("lie flat open and shut, their screens the rects their corners bound", () => {
