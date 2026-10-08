@@ -2,7 +2,9 @@ import {
   BLURS,
   blurWidth,
   darkAt,
+  FREE_DARK,
   type FoldShots,
+  freeDepth,
   type Pane,
   type Quad,
   rawArea,
@@ -55,6 +57,8 @@ export interface ScreenLook {
   edge: [hinge: number, free: number];
   /** Where the turned screen's free edge is seen on the picture, as a share of the way from the hinge to its own. */
   free: number;
+  /** How deep the dark at the turned screen's free edge is, as `freeDepth` has it. */
+  dark: number;
 }
 
 /**
@@ -72,6 +76,7 @@ export function screenLook(pane: Pane, open: number, extent: number, wedge: numb
     most: MOST,
     edge: [EDGE[0] * wedge, EDGE[1] * wedge],
     free,
+    dark: freeDepth(open),
   };
 }
 
@@ -188,10 +193,15 @@ void main() {
   gl_Position = vec4(corner.x * 2.0 - 1.0, 1.0 - corner.y * 2.0, 0.0, 1.0);
 }`;
 
+/** A number as a GLSL float. */
+function glFloat(value: number): string {
+  return value.toFixed(3);
+}
+
 /**
  * `blurAt` and `coverage`, the same, then the picture and the black past it
  * blurred together: past its ends along the hinge, and past where the turned
- * screen's free edge cuts it.
+ * screen's free edge cuts it, and darkened toward that edge as `freeDark` has it.
  */
 const FRAGMENT = `#version 300 es
 precision highp float;
@@ -204,12 +214,19 @@ uniform float base;
 uniform float most;
 uniform vec2 edge;
 uniform float free;
+uniform float dark;
 uniform float px;
 in vec2 pos;
 out vec4 color;
 const float WEIGHTS[3] = float[3](0.375, 0.25, 0.0625);
 float cover(float at, float span, float soft) {
   return smoothstep(-soft, soft, at) * (1.0 - smoothstep(span - soft, span + soft, at));
+}
+float shadow(float t) {
+  float across = t / max(free, 0.001);
+  float band = ${glFloat(FREE_DARK.broad)} * smoothstep(${glFloat(FREE_DARK.from)}, 1.0, across)
+    + ${glFloat(1 - FREE_DARK.broad)} * smoothstep(${glFloat(1 - FREE_DARK.band)}, 1.0, across);
+  return 1.0 - dark * band;
 }
 float seen(vec2 at, float soft) {
   float reach = soft * length(line.xy);
@@ -227,7 +244,7 @@ void main() {
   vec2 texels = vec2(textureSize(page, 0)) / stage;
   float soft = max(0.5 * px, 0.75 * gap);
   if (gap < 0.5 * px) {
-    color = vec4(texture(page, pos / stage).rgb * seen(pos, soft), 1.0);
+    color = vec4(texture(page, pos / stage).rgb * seen(pos, soft) * shadow(t), 1.0);
     return;
   }
   float lod = log2(max(1.0, gap * max(texels.x, texels.y)));
@@ -239,7 +256,7 @@ void main() {
       sum += textureLod(page, tap / stage, lod).rgb * seen(tap, soft) * weight;
     }
   }
-  color = vec4(sum, 1.0);
+  color = vec4(sum * shadow(t), 1.0);
 }`;
 
 /** The screen's picture drawn by WebGL2, on a canvas that lies over the part that turns. */
@@ -320,7 +337,7 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
   gl.uniform3f(at("line"), ...hingeLine(place.pane, place.across, place.part));
   gl.uniform1f(at("px"), canvas.width > 0 ? rect.width / canvas.width : 1);
   gl.uniform1i(at("page"), 0);
-  const uniforms = { area: at("area"), base: at("base"), most: at("most"), edge: at("edge"), free: at("free") };
+  const uniforms = { area: at("area"), base: at("base"), most: at("most"), edge: at("edge"), free: at("free"), dark: at("dark") };
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -338,6 +355,7 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
     gl.uniform1f(uniforms.most, next.most);
     gl.uniform2f(uniforms.edge, ...next.edge);
     gl.uniform1f(uniforms.free, next.free);
+    gl.uniform1f(uniforms.dark, next.dark);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   };
   canvas.addEventListener("webglcontextlost", () => {

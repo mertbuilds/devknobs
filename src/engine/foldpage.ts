@@ -1,5 +1,5 @@
 import { type BarsKnobs, copyBars, type Drawn, withBars } from "./barshot";
-import { type BlurFade, type FoldLayout, type FoldSide, type Pane, paneLook, type Point } from "./fold";
+import { type BlurFade, type FoldLayout, type FoldSide, freeShades, type Pane, paneLook, type Point } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners } from "./mockdraw";
 import { type ScreenGl, screenGl } from "./foldgl";
@@ -30,6 +30,8 @@ export interface Panel {
   /** The dark of the picture as it lies, and of the screen as it turns. */
   flat: HTMLElement;
   shade: HTMLElement;
+  /** The dark at the turned screen's free edge, where WebGL2 does not draw it. */
+  edge: HTMLElement;
   /** The way from the hinge to the free edge, as a gradient goes, and where the two are on the stage, in percent. */
   toward: string;
   span: [number, number];
@@ -240,11 +242,24 @@ function blurTo(leaf: Panel, picture: HTMLElement, fade: BlurFade | null): void 
   picture.style.setProperty("-webkit-mask-image", mask);
 }
 
-/** Light and blur the page on a screen of the half that turns as the hinge `open` of the way open has it. */
-export function light(panel: Panel, open: number): void {
+/** A gradient from the hinge to the free edge through `stops`, each where it is as a share of the way, and how dark. */
+function edging(toward: string, stops: [at: number, dark: number][]): string {
+  if (stops.length === 0) return "";
+  const list = stops.map(([at, dark]) => `rgba(0, 0, 0, ${dark}) ${Math.round(at * 1000) / 10}%`);
+  return `linear-gradient(${toward}, ${list.join(", ")})`;
+}
+
+/**
+ * Light and blur the page on a screen of the half that turns as the hinge
+ * `open` of the way open has it, and darken it toward the turned screen's
+ * free edge, seen `free` of the way from the hinge, or not where WebGL2
+ * does, null.
+ */
+export function light(panel: Panel, open: number, free: number | null = 1): void {
   const look = paneLook(panel.pane, open, panel.extent);
   panel.shade.style.background = shading(panel.toward, look.turned);
   panel.flat.style.background = shading(panel.toward, look.flat);
+  panel.edge.style.background = free === null ? "" : edging(panel.toward, freeShades(open, free));
   panel.pictures.slice(1).forEach((picture, index) => blurTo(panel, picture, look.blurs[index] ?? null));
 }
 
@@ -302,7 +317,8 @@ export function gluedOf(
   };
   const flat = darkening();
   const shade = darkening();
-  flatly.append(stage, flat, shade);
+  const edge = darkening();
+  flatly.append(stage, flat, shade, edge);
   cut.append(flatly);
   const glued: Glued = {
     pane: turning.pane,
@@ -315,6 +331,7 @@ export function gluedOf(
     pictures: [],
     flat,
     shade,
+    edge,
     toward: turning.toward,
     span: turning.span,
     extent: across ? side.size.width : side.size.height,

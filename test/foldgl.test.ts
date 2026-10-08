@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { DUO_FOLD } from "../src/engine/bezelurls";
-import { BLURS, blurArea, blurWidth, darkAt, type Pane, type Quad, shotPane, shotPicture, shotQuad, shotWindow, uvOf, wipeAmount } from "../src/engine/fold";
+import { BLURS, blurArea, blurWidth, darkAt, freeDepth, type Pane, type Quad, shotPane, shotPicture, shotQuad, shotWindow, uvOf, wipeAmount } from "../src/engine/fold";
 import {
   blurAt,
   canvasRect,
@@ -43,6 +43,14 @@ describe("the screen's blur", () => {
           last = blurAt(look, t, DEEP);
         }
       }
+    }
+  });
+
+  test("darkens the free edge as deep as freeDepth, and not at all lying flat", () => {
+    for (const pane of ["inner", "cover"] as const) {
+      expect(screenLook(pane, 0, EXTENT[pane], 0).dark).toBe(0);
+      expect(screenLook(pane, 1, EXTENT[pane], 0).dark).toBe(0);
+      expect(screenLook(pane, 0.6, EXTENT[pane], 12, 0.4).dark).toBe(freeDepth(0.6));
     }
   });
 

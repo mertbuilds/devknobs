@@ -739,6 +739,50 @@ export function edgeLight(pane: Pane, uv: number, amount: number): number {
   return lerp(1, smoothstep(0.05, 0.5, uv), smoothstep(0, 0.55, amount));
 }
 
+/**
+ * The dark at the free edge of the half that turns, on top of the wipe,
+ * measured from Apple's frames of the Duo's fold against those lying flat:
+ * Apple's camera swings round as the hinge turns, so its turned screen shows
+ * the picture's dark far side out to its own free edge, which a fold seen
+ * from the front does not. It is deepest with the half square to the
+ * screen, `most` of the light there, and falls off as the cube of how far
+ * the hinge is from that, so it is none open and shut. Across the turned
+ * screen, half of it comes on evenly from `from` of the way out, the other
+ * half over its last `band`. Neither the hinge's side nor the half that
+ * stays darkens.
+ */
+export const FREE_DARK = { most: 0.7, power: 3, from: 0.25, band: 0.05, broad: 0.5 } as const;
+
+/** How deep the free edge's dark is, 0 to `FREE_DARK.most`, with the hinge `open` of the way open. */
+export function freeDepth(open: number): number {
+  return FREE_DARK.most * clamp(1 - 2 * Math.abs(open - 0.5)) ** FREE_DARK.power;
+}
+
+/** How much of the free edge's dark there is `t` of the way across the turned screen from the hinge to its free edge, 0 to 1. */
+export function freeBand(t: number): number {
+  const { from, band, broad } = FREE_DARK;
+  return broad * smoothstep(from, 1, t) + (1 - broad) * smoothstep(1 - band, 1, t);
+}
+
+/** The share of dark at the free edge, `t` of the way across the turned screen, with the hinge `open` of the way open. */
+export function freeDark(t: number, open: number): number {
+  return freeDepth(open) * freeBand(t);
+}
+
+/**
+ * The free edge's dark as gradient stops over the picture lying flat, from
+ * the hinge to its free edge: where each is, as a share of the way, and how
+ * dark. The turned screen is seen out to `free` of the way, so its free edge,
+ * and its dark, is there.
+ */
+export function freeShades(open: number, free: number): [at: number, dark: number][] {
+  const depth = freeDepth(open);
+  if (depth <= 0 || free <= 0) return [];
+  const { from, band } = FREE_DARK;
+  const steps = [0, from, (from + 1) / 2, 1 - 2 * band, 1 - band, 1 - band / 2, 1];
+  return steps.map((t) => [fine(t * free), fine(freeDark(t, open))]);
+}
+
 /** How wide a blur of `area` is, as a share of the screen across the hinge: its mip level's texels, twice over. */
 export function blurWidth(pane: Pane, area: number): number {
   return (Math.SQRT2 * 2 ** (MAX_BLUR * area) * FRAMING) / WIPE[pane].texture;

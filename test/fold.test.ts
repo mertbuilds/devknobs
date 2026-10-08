@@ -11,6 +11,11 @@ import {
   foldFrame,
   foldLayout,
   type FoldSide,
+  FREE_DARK,
+  freeBand,
+  freeDark,
+  freeDepth,
+  freeShades,
   HAND_OVER,
   handOver,
   type Hinge,
@@ -406,6 +411,60 @@ describe("Apple's wipe", () => {
 
   test("softens the dark past the picture's ends over as much as the texture goes past the screen", () => {
     expect(RIM).toBeCloseTo(0.06);
+  });
+});
+
+/**
+ * Apple's frames of the Duo's fold, over its picture of the same screen
+ * lying flat, laid on it, and over what the wipe as written above shows of it
+ * seen from the front: what is left is the free edge's dark. By how far open
+ * the hinge is, at points across the turned screen from the hinge to its
+ * free edge, measured over 210 rows of each frame.
+ */
+const FREE_MEASURED: [open: number, [t: number, light: number][]][] = [
+  [0.9, [[0, 1], [0.5, 1], [0.9, 1.01], [1, 1.02]]],
+  [0.8, [[0, 1], [0.5, 0.99], [0.9, 1.03], [0.98, 0.95], [1, 0.9]]],
+  [0.7, [[0, 1], [0.5, 0.95], [0.75, 0.92], [0.9, 0.93], [1, 0.87]]],
+  [0.6, [[0, 0.99], [0.5, 0.93], [0.75, 0.86], [0.95, 0.83], [0.98, 0.62], [1, 0.6]]],
+  [0.2, [[0, 0.99], [0.5, 0.98], [0.9, 0.99], [1, 0.98]]],
+  [0.1, [[0, 1], [0.5, 0.99], [1, 0.98]]],
+];
+
+describe("the free edge's dark", () => {
+  test("is Apple's, within a tenth: the frames themselves differ by as much", () => {
+    for (const [open, points] of FREE_MEASURED) {
+      for (const [t, light] of points) expect(Math.abs(1 - freeDark(t, open) - light)).toBeLessThan(0.1);
+    }
+  });
+
+  test("is none open and shut, and deepest with the half square to the screen", () => {
+    for (const t of [0, 0.5, 0.97, 1]) {
+      expect(freeDark(t, 0)).toBe(0);
+      expect(freeDark(t, 1)).toBe(0);
+    }
+    expect(freeDepth(0.5)).toBe(FREE_DARK.most);
+    expect(freeDepth(0.6)).toBeCloseTo(freeDepth(0.4));
+    expect(freeShades(0, 0.8)).toEqual([]);
+    expect(freeShades(1, 1)).toEqual([]);
+  });
+
+  test("is none at the hinge, and deepens all the way out to the free edge", () => {
+    expect(freeBand(0)).toBe(0);
+    expect(freeBand(FREE_DARK.from)).toBe(0);
+    expect(freeBand(1)).toBe(1);
+    let last = 0;
+    for (let t = 0; t <= 1; t += 0.01) {
+      expect(freeBand(t)).toBeGreaterThanOrEqual(last);
+      last = freeBand(t);
+    }
+  });
+
+  test("lies on the picture where the turned screen is seen to end", () => {
+    const stops = freeShades(0.6, 0.5);
+    expect(stops[0]).toEqual([0, 0]);
+    const [at, dark] = stops.at(-1) ?? [0, 0];
+    expect(at).toBe(0.5);
+    expect(dark).toBeCloseTo(freeDepth(0.6), 3);
   });
 });
 
@@ -821,6 +880,7 @@ describe("the Duo's fold frames", () => {
           screenDim("cover", at),
           paneLook("inner", at, 951),
           paneLook("cover", at, 466),
+          freeShades(at, 0.9),
           screenLook("inner", at, 951, 12, 0.9),
           screenLook("cover", at, 466, 12, 0.9),
         ]);

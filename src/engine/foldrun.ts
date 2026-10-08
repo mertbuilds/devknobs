@@ -245,7 +245,10 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
   veil.style.height = node.style.height;
   const shade = placeAt(div(""), rect);
   shade.style.borderRadius = round(turning.radii);
-  veil.append(shade);
+  // Turned with it, so its free edge's dark is at the turned screen's.
+  const freeEdge = placeAt(div(""), rect);
+  freeEdge.style.borderRadius = round(turning.radii);
+  veil.append(shade, freeEdge);
   const leaf: Leaf = {
     pane: turning.pane,
     node,
@@ -257,6 +260,7 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     flat,
     veil,
     shade,
+    edge: freeEdge,
     toward: turning.toward,
     span: turning.span,
     rect,
