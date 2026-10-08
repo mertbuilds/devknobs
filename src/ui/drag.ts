@@ -10,6 +10,7 @@ import {
   FLING_TRAVEL,
   glideTime,
   landSide,
+  type Anchor,
   type Place,
   type Room,
   type Sample,
@@ -38,8 +39,11 @@ export interface DragContext {
 }
 
 export interface Drag {
-  /** Lay the panel out for the heights there are now. */
-  layout(): void;
+  /**
+   * Lay the panel out for the heights there are now: by its top when what is
+   * in it changed, the default, or by its edge when the window did.
+   */
+  layout(anchor?: Anchor): void;
   /** Whether the handle is being dragged. */
   dragging(): boolean;
   /** End a drag the window took away, back where it came from. */
@@ -107,12 +111,14 @@ export function createDrag(context: DragContext): Drag {
    * landed. The store renders again from here, which lays it out a second
    * time and finds nothing left to move. A drag owns the place until it ends,
    * and a handle with no height is off the page, with nothing to measure.
+   * What is in the panel grows and shrinks by its top, so a row that folds
+   * away does so in place, and the window by the edge the panel is flush with.
    */
-  function layout(): void {
+  function layout(anchor: Anchor = "top"): void {
     if (dragging) return;
     const stored = engine.getState().panel;
     const room = measure();
-    const next = room.handle > 0 ? settle(stored, room) : stored;
+    const next = room.handle > 0 ? settle(stored, room, anchor) : stored;
     placePanel(next, stored.open, stored.side);
     const moved =
       next.y !== stored.y ||

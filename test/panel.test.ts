@@ -315,6 +315,52 @@ describe("settle", () => {
   });
 });
 
+describe("settle by the top", () => {
+  test("a panel at the window's bottom that shrinks keeps its top and leaves the bottom", () => {
+    const shrunk = settle(at(LAST, LAST, "bottom", "top"), { ...ROOM, panel: 200 }, "top");
+    expect(shrunk).toEqual(at(LAST, LAST, "none", "top"));
+  });
+
+  test("nothing pulls it back flush as it starts to shrink", () => {
+    const first = settle(at(LAST, LAST, "bottom", "top"), { ...ROOM, panel: 295 }, "top");
+    expect(first).toEqual(at(LAST, LAST, "none", "top"));
+    expect(settle(first, { ...ROOM, panel: 290 }, "top")).toEqual(first);
+  });
+
+  test("a handle at the bottom corner rises with the panel's bottom", () => {
+    const corner = LAST + ROOM.panel - ROOM.handle;
+    const shrunk = settle(at(corner, LAST, "bottom", "bottom"), { ...ROOM, panel: 200 }, "top");
+    expect(shrunk).toEqual(at(LAST + 200 - ROOM.handle, LAST, "none", "bottom"));
+  });
+
+  test("a panel that grows past the window's bottom is pushed up, flush with it", () => {
+    const grown = settle(at(LAST, LAST, "none", "top"), { ...ROOM, panel: 400 }, "top");
+    expect(grown).toEqual(at(392, 392, "bottom", "top"));
+  });
+
+  test("grows back flush with the bottom it left", () => {
+    const shrunk = settle(at(LAST, LAST, "bottom", "top"), { ...ROOM, panel: 200 }, "top");
+    expect(settle(shrunk, ROOM, "top")).toEqual(at(LAST, LAST, "bottom", "top"));
+  });
+
+  test("a panel at the window's top stays there", () => {
+    const shrunk = settle(at(8, 8, "top", "top"), { ...ROOM, panel: 200 }, "top");
+    expect(shrunk).toEqual(at(8, 8, "top", "top"));
+  });
+
+  test("a handle between the corners keeps its place inside the panel", () => {
+    expect(settle(at(310, 300), ROOM, "top")).toEqual(at(310, 300));
+    expect(settle(at(450, 300), { ...ROOM, panel: 200 }, "top")).toEqual(
+      at(300 + 200 - ROOM.handle, 300, "none", "bottom"),
+    );
+  });
+
+  test("a layout by the edge after one by the top moves nothing", () => {
+    const shrunk = settle(at(LAST, LAST, "bottom", "top"), { ...ROOM, panel: 200 }, "top");
+    expect(settle(shrunk, { ...ROOM, panel: 200 })).toEqual(shrunk);
+  });
+});
+
 describe("landSide", () => {
   const WIDTH = 1000;
 
