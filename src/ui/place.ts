@@ -90,6 +90,13 @@ function edgeOf(value: number, min: number, max: number, had: EdgeValue): EdgeVa
 }
 
 /**
+ * What a layout holds the panel to: the edge of the window it sits flush
+ * with, as when the window resizes, or its top, as when what is in it grows
+ * or shrinks.
+ */
+export type Anchor = "edge" | "top";
+
+/**
  * Lay the handle and the panel out for the heights there are. The panel goes
  * to the edge of the window it sits flush with, so one at the bottom grows
  * upward, and the handle to the corner of the panel it sits flush with. What
@@ -97,16 +104,26 @@ function edgeOf(value: number, min: number, max: number, had: EdgeValue): EdgeVa
  * gap, pull the panel flush within `SNAP` and keep it inside, and the panel's
  * corners do the same for the handle. The edges they end up flush with are
  * what the next layout keeps them to, so a layout of a layout moves nothing.
+ *
+ * Held by its top, the panel keeps its top wherever it sits, and nothing
+ * pulls it flush. One that shrinks rises off the bottom with its own bottom
+ * edge, and one that grows past the window's bottom is pushed up, flush with
+ * it again. The handle keeps its corner, or its place inside the panel.
  */
-export function settle(place: Place, room: Room): Place {
+export function settle(place: Place, room: Room, anchor: Anchor = "edge"): Place {
   const last = room.view - PANEL_GAP - room.panel;
-  const top = snap(
-    place.edge === "top" ? PANEL_GAP : place.edge === "bottom" ? last : place.top,
+  const pull = anchor === "top" ? between : snap;
+  const top = pull(
+    anchor === "top" || place.edge === "none"
+      ? place.top
+      : place.edge === "top"
+        ? PANEL_GAP
+        : last,
     PANEL_GAP,
     last,
   );
   const low = top + room.panel - room.handle;
-  const y = snap(place.tab === "top" ? top : place.tab === "bottom" ? low : place.y, top, low);
+  const y = pull(place.tab === "top" ? top : place.tab === "bottom" ? low : place.y, top, low);
   return {
     y,
     top,

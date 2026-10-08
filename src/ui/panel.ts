@@ -414,6 +414,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
   }
 
+  /** The window changed size: the panel keeps to the edge it is flush with. */
+  function onResize(): void {
+    layout("edge");
+  }
+
   const ticker = window.setInterval(tick, 1000);
   const unsubscribe = engine.subscribe(render);
   const stopKeys = keys.subscribe(renderKeys);
@@ -425,7 +430,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   window.addEventListener("pointerup", onPointerUp, true);
   window.addEventListener("pointercancel", onPointerUp, true);
   window.addEventListener("message", onMessage);
-  window.addEventListener("resize", layout);
+  window.addEventListener("resize", onResize);
   window.addEventListener("blur", onBlur);
   // The panel also grows and shrinks between renders, as a list filters or a
   // text box is resized, and lays itself out again each time.
@@ -439,7 +444,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   render();
   (document.body ?? document.documentElement).append(host);
   if (!document.body) document.addEventListener("DOMContentLoaded", attach, { once: true });
-  layout();
+  layout("edge");
 
   return {
     destroy(): void {
@@ -461,7 +466,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       window.removeEventListener("pointerup", onPointerUp, true);
       window.removeEventListener("pointercancel", onPointerUp, true);
       window.removeEventListener("message", onMessage);
-      window.removeEventListener("resize", layout);
+      window.removeEventListener("resize", onResize);
       window.removeEventListener("blur", onBlur);
       resizes.disconnect();
       document.removeEventListener("DOMContentLoaded", attach);

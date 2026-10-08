@@ -18,8 +18,10 @@ import {
 } from "./frame";
 import { drawMat } from "./mat";
 import { landSplash, spreadMat } from "./matsplash";
+import { createNotice } from "./notice";
 import type { Mock, Rect } from "./mock";
 import { corners, drawMock, UNDER } from "./mockdraw";
+import { drawnAt, glideFrame, landGlide, placeKey } from "./frameglide";
 import {
   finishFold,
   type FoldScene,
@@ -235,25 +237,6 @@ function frameDocument(): Document | null {
   }
 }
 
-/**
- * Over the frame when the page is out of reach: `X-Frame-Options` or a
- * `frame-ancestors` policy left an error page there, or a link led away to
- * another origin. Either way none of the knobs can follow it.
- */
-function createNotice(): HTMLElement {
-  const box = document.createElement("div");
-  box.className = "blocked";
-  box.hidden = true;
-  const text = document.createElement("div");
-  text.textContent = "this page refuses to load in a frame";
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = "close the frame";
-  button.addEventListener("click", () => exit?.());
-  box.append(text, button);
-  return box;
-}
-
 function onLoad(): void {
   loaded = true;
   const doc = frameDocument();
@@ -427,6 +410,7 @@ function resize(): void {
     mock: mock?.inset,
   });
   drawn = place;
+  drawnAt(placeKey(origin(place, size), place.transform));
   const device = formOf(current.device, current.posture);
   const layout = device ? layoutOf(device.id, current.browser) : null;
   const auto = current.bars === "auto";
@@ -621,6 +605,7 @@ function foldScene(): FoldScene | null {
 
 /** Fold the device to the posture `value` has, in view, and draw it that way once it is there, or, `held`, as a hand moves it. */
 export function foldDevice(value: ViewportValue, held = false): boolean {
+  landGlide();
   return foldIn(current, value, foldScene(), draw, held);
 }
 
@@ -782,7 +767,7 @@ function open(veiled: number | null, first: boolean): void {
     loaded: () => loaded,
     reloading: onReloading,
   });
-  notice = createNotice();
+  notice = createNotice(() => exit?.());
   pageBox = document.createElement("div");
   pageBox.className = "page";
   pageBox.append(frame);
@@ -915,6 +900,8 @@ export function apply(value: ViewportValue): void {
   const first = !settled;
   settled = true;
   const animate = !first && moves(from, shape) && !still();
+  // A device that changes, turns or folds is measured where it is drawn.
+  if (from !== shape) landGlide();
   // A device turned or folded while it stands does so in view. One on its way changes as any other change.
   const turns = animate && !running() && turnOf(from, shape) !== 0;
   const bends = animate && !running() && folds(from, shape);
@@ -988,7 +975,7 @@ export function apply(value: ViewportValue): void {
     change("open");
     return;
   }
-  draw(value);
+  glideFrame(screen, { first, from: current.panel, to: value.panel }, () => draw(value));
 }
 
 /** Take the frame away and leave the window where it is. */

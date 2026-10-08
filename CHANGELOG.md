@@ -11,6 +11,11 @@
 ### device frame
 
 - the status bar clock reads 04:20
+- the device glides over when the panel changes side or opens and closes beside it
+
+### panel
+
+- a panel that shrinks, as a row closes, keeps its top instead of jumping to the bottom
 
 ### internal
 
