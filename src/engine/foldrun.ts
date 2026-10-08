@@ -18,6 +18,7 @@ import {
   roundedPath,
   screenDim,
   seenAt,
+  seenShare,
   SHOTS_FADE,
   shotsDrift,
 } from "./fold";
@@ -381,7 +382,8 @@ function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: stri
   });
   leaf.window.style.clipPath = `path("${path}")`;
   leaf.rim.style.opacity = String(frame.lift);
-  light(leaf, open);
+  // Its free edge's dark turns with it, but its blur is of the picture lying flat, as far out as it is seen.
+  light(leaf, open, 1, seenShare(rect, pivot, frame.degrees, layout.across, layout.depth));
   // Its body stays whole, so nothing behind the device shows through it.
   const fade = shown < 1 ? String(shown) : "";
   leaf.screen.style.opacity = fade;

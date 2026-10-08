@@ -205,7 +205,7 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     const free = freeOf(opening, glued.pane, picture);
     // The free edge's dark is WebGL2's where it draws the page, else a gradient's.
-    light(glued, open, glued.gl ? null : free);
+    light(glued, open, glued.gl ? null : free, free);
     const span = layout.across ? glued.size.height : glued.size.width;
     const wedge = wedgeOf(opening, glued.pane, picture, span);
     glued.gl?.draw(screenLook(glued.pane, open, glued.extent, wedge, free));

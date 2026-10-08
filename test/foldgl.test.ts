@@ -1,6 +1,23 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { DUO_FOLD } from "../src/engine/bezelurls";
-import { BLURS, blurArea, blurWidth, darkAt, freeDepth, type Pane, type Quad, shotPane, shotPicture, shotQuad, shotWindow, uvOf, wipeAmount } from "../src/engine/fold";
+import {
+  appleSeen,
+  BLURS,
+  blurArea,
+  blurWidth,
+  darkAt,
+  freeDepth,
+  nearBlur,
+  type Pane,
+  type Quad,
+  seenAlong,
+  shotPane,
+  shotPicture,
+  shotQuad,
+  shotWindow,
+  uvOf,
+  wipeAmount,
+} from "../src/engine/fold";
 import {
   blurAt,
   canvasRect,
@@ -30,20 +47,37 @@ describe("the screen's blur", () => {
     }
   });
 
-  test("away from the ends is Apple's, growing from the hinge toward the free edge as the hinge sets it", () => {
+  test("away from the ends is Apple's as far across what its camera sees, growing from the hinge toward the free edge", () => {
     for (const pane of ["inner", "cover"] as const) {
       for (const open of [0.8, 0.6, 0.4, 0.2]) {
-        const look = screenLook(pane, open, EXTENT[pane], 30);
-        let last = 0;
-        for (const t of [0, 0.25, 0.5, 0.75, 1]) {
-          const area = blurArea(pane, uvOf(pane, t), wipeAmount(pane, open));
-          const apple = area > 0 ? Math.min(BLURS[BLURS.length - 1], blurWidth(pane, area) * EXTENT[pane]) : 0;
-          expect(blurAt(look, t, DEEP)).toBeCloseTo(apple, 6);
-          expect(blurAt(look, t, DEEP)).toBeGreaterThanOrEqual(last);
-          last = blurAt(look, t, DEEP);
+        for (const free of [1, 0.5]) {
+          const look = screenLook(pane, open, EXTENT[pane], 30, free);
+          let last = 0;
+          for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+            const along = seenAlong(t, free, appleSeen(pane, open));
+            const area = blurArea(pane, uvOf(pane, along), wipeAmount(pane, open));
+            const wipe = area > 0 ? blurWidth(pane, area) * EXTENT[pane] : 0;
+            const apple = Math.min(BLURS[BLURS.length - 1], Math.max(wipe, nearBlur(pane, open) * EXTENT[pane]));
+            expect(blurAt(look, t, DEEP)).toBeCloseTo(apple, 6);
+            expect(blurAt(look, t, DEEP)).toBeGreaterThanOrEqual(last);
+            last = blurAt(look, t, DEEP);
+          }
         }
       }
     }
+  });
+
+  test("near a right angle blurs the turned screen all over, its hinge too, and Apple's at the free edge it is seen to", () => {
+    for (const pane of ["inner", "cover"] as const) {
+      const open = pane === "inner" ? 0.53 : 0.47;
+      const look = screenLook(pane, open, EXTENT[pane], 0, 0.1);
+      expect(look.near).toBeCloseTo(nearBlur(pane, open) * EXTENT[pane], 9);
+      expect(blurAt(look, 0, DEEP)).toBeGreaterThan(12);
+      const area = blurArea(pane, uvOf(pane, appleSeen(pane, open)), wipeAmount(pane, open));
+      expect(blurAt(look, 0.1, DEEP)).toBeCloseTo(Math.max(blurWidth(pane, area) * EXTENT[pane], look.near), 6);
+    }
+    // Far from it, sharp at the hinge.
+    expect(blurAt(screenLook("inner", 0.9, EXTENT.inner, 0, 0.95), 0, DEEP)).toBeLessThan(1);
   });
 
   test("darkens the free edge as deep as freeDepth, and not at all lying flat", () => {
@@ -55,7 +89,7 @@ describe("the screen's blur", () => {
   });
 
   test("is never wider than the widest blurred picture", () => {
-    expect(blurAt(screenLook("inner", 0, EXTENT.inner, 0), 1, DEEP)).toBe(BLURS[BLURS.length - 1]);
+    expect(blurAt(screenLook("inner", 0.65, EXTENT.inner, 0), 1, DEEP)).toBe(BLURS[BLURS.length - 1]);
   });
 
   test("blurs the page into the dark past its ends, as wide as that dark at the free edge, even at the hinge", () => {

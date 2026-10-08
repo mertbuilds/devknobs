@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  appleSeen,
   BLURS,
   blurArea,
   blurLight,
@@ -34,6 +35,7 @@ import {
   RIM,
   roundedPath,
   screenDim,
+  seenAlong,
   seenAt,
   SHOTS_AHEAD,
   SHOTS_AROUND,
@@ -495,8 +497,8 @@ describe("paneLook", () => {
     expect(first.from).toBeLessThan(first.to);
     expect(first.to).toBeCloseTo(second.from, 2);
     expect(first.most).toBe(1);
-    // Where the first is all the way in, the blur is as wide as it.
-    const area = blurArea("inner", uvOf("inner", first.to), wipeAmount("inner", 0.6));
+    // Where the first is all the way in, the blur is as wide as it, Apple's as far across what its camera sees.
+    const area = blurArea("inner", uvOf("inner", seenAlong(first.to, 1, appleSeen("inner", 0.6))), wipeAmount("inner", 0.6));
     expect(blurWidth("inner", area) * 951).toBeCloseTo(BLURS[1], 0);
   });
 
@@ -880,6 +882,8 @@ describe("the Duo's fold frames", () => {
           screenDim("cover", at),
           paneLook("inner", at, 951),
           paneLook("cover", at, 466),
+          paneLook("inner", at, 951, 0.4),
+          paneLook("cover", at, 466, 0.4),
           freeShades(at, 0.9),
           screenLook("inner", at, 951, 12, 0.9),
           screenLook("cover", at, 466, 12, 0.9),

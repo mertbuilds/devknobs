@@ -237,7 +237,7 @@ function onStage(leaf: Panel, t: number): number {
 function blurTo(leaf: Panel, picture: HTMLElement, fade: BlurFade | null): void {
   picture.style.opacity = fade ? "" : "0";
   if (!fade) return;
-  const mask = `linear-gradient(${leaf.toward}, transparent ${onStage(leaf, fade.from)}%, rgba(0, 0, 0, ${fade.most}) ${onStage(leaf, fade.to)}%)`;
+  const mask = `linear-gradient(${leaf.toward}, rgba(0, 0, 0, ${fade.least}) ${onStage(leaf, fade.from)}%, rgba(0, 0, 0, ${fade.most}) ${onStage(leaf, fade.to)}%)`;
   picture.style.maskImage = mask;
   picture.style.setProperty("-webkit-mask-image", mask);
 }
@@ -253,10 +253,11 @@ function edging(toward: string, stops: [at: number, dark: number][]): string {
  * Light and blur the page on a screen of the half that turns as the hinge
  * `open` of the way open has it, and darken it toward the turned screen's
  * free edge, seen `free` of the way from the hinge, or not where WebGL2
- * does, null.
+ * does, null. Its blur is as Apple's camera sees it, the turned screen seen
+ * `out` of the way from the hinge to the picture's free edge.
  */
-export function light(panel: Panel, open: number, free: number | null = 1): void {
-  const look = paneLook(panel.pane, open, panel.extent);
+export function light(panel: Panel, open: number, free: number | null = 1, out = free ?? 1): void {
+  const look = paneLook(panel.pane, open, panel.extent, out);
   panel.shade.style.background = shading(panel.toward, look.turned);
   panel.flat.style.background = shading(panel.toward, look.flat);
   panel.edge.style.background = free === null ? "" : edging(panel.toward, freeShades(open, free));
