@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { apply, reset } from "../src/engine/time";
 import { resolveKeys } from "../src/ui/bindings";
+import { keyChips, overflowBadge } from "../src/ui/footer";
 import { defaultKeys } from "../src/ui/keys";
+import { HOST_STYLE, wallInput } from "../src/ui/panel";
 import {
   cornerAt,
   dragTarget,
@@ -14,11 +16,7 @@ import {
   GLIDE_MAX,
   GLIDE_SPEED,
   glideTime,
-  HOST_STYLE,
-  handleHint,
-  keyChips,
   landSide,
-  overflowBadge,
   PANEL_GAP,
   type Place,
   type Room,
@@ -26,15 +24,13 @@ import {
   SNAP,
   settle,
   snap,
-  TIP_GAP,
-  TIP_MARGIN,
-  tipAt,
   translateOf,
   velocity,
-  wallInput,
-} from "../src/ui/panel";
+} from "../src/ui/place";
+import { handleHint } from "../src/ui/settings";
 import { SLIDE } from "../src/ui/slide";
 import { CSS } from "../src/ui/styles";
+import { TIP_GAP, TIP_MARGIN, tipAt } from "../src/ui/tooltip";
 
 describe("overflowBadge", () => {
   test("counts while the overflow knob is on", () => {
