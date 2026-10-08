@@ -1,5 +1,21 @@
 # changelog
 
+## 0.1.1
+
+### iPhone Duo
+
+- every layer follows the frame on screen, so nothing drifts during slow slider drags
+- the turning screen's free edge darkens as it stands up, measured from Apple's fold
+- the whole turning screen blurs near a right angle
+
+### device frame
+
+- the status bar clock reads 04:20
+
+### internal
+
+- panel.ts and catalog.ts split into focused modules, no behaviour change
+
 ## 0.1.0
 
 ### breaking
