@@ -3,8 +3,9 @@
  * a local build there, and takes it out again. A symlink does not do: Turbopack
  * refuses a package linked from outside the app's root, and other bundlers take
  * the real path for the app's own source. The installed copy waits beside it,
- * as node_modules/.devknobs-installed, until the unlink moves it back. Nothing
- * outside those two folders is touched.
+ * as node_modules/.devknobs-installed, until the unlink moves it back. The
+ * local copy is made whole in node_modules/.devknobs-linking, then moved into
+ * place. Nothing outside those three folders is touched.
  *
  *   bun run link <app-dir>
  *   bun run unlink <app-dir>
@@ -35,6 +36,9 @@ export const NAME = "devknobs";
 /** The folder in node_modules where the installed copy waits. */
 export const KEPT = ".devknobs-installed";
 
+/** The folder in node_modules where a local copy is made before it takes the package's place, and where the one it replaces goes. */
+export const STAGING = ".devknobs-linking";
+
 /** What marks a version as a local copy's. */
 export const LOCAL = "-local.";
 
@@ -51,16 +55,16 @@ export function appDir(typed: string, cwd: string, home: string = homedir()): st
   return resolve(cwd, typed);
 }
 
-/** The app's node_modules, the package's folder in it and where the installed copy waits. */
-export function linkPaths(app: string): { modules: string; target: string; kept: string } {
+/** The app's node_modules, the package's folder in it, where the installed copy waits and where a local copy is made. */
+export function linkPaths(app: string): { modules: string; target: string; kept: string; staging: string } {
   const modules = join(app, "node_modules");
-  return { modules, target: join(modules, NAME), kept: join(modules, KEPT) };
+  return { modules, target: join(modules, NAME), kept: join(modules, KEPT), staging: join(modules, STAGING) };
 }
 
-/** Whether a path is the package's folder or the kept copy in a node_modules, the only two a removal may take. */
+/** Whether a path is the package's folder, the kept copy or the staging folder in a node_modules, the only three a removal may take. */
 export function removable(path: string): boolean {
   const name = basename(path);
-  return (name === NAME || name === KEPT) && basename(dirname(path)) === "node_modules";
+  return (name === NAME || name === KEPT || name === STAGING) && basename(dirname(path)) === "node_modules";
 }
 
 /** The version a local copy carries, new each second, so a cache keyed on the version sees a new one. */
@@ -94,7 +98,7 @@ function isLocal(path: string): boolean {
   return existsSync(join(path, "package.json")) && String(manifestOf(path).version).includes(LOCAL);
 }
 
-/** Takes the package's folder or the kept copy, or the link in its place, out of a node_modules, and nothing else. */
+/** Takes the package's folder, the kept copy or the staging folder, or the link in its place, out of a node_modules, and nothing else. */
 function remove(path: string): void {
   if (!removable(path)) throw new Error(`will not remove ${path}`);
   rmSync(path, { recursive: true, force: true });
@@ -113,6 +117,21 @@ function pathsOf(app: string): ReturnType<typeof linkPaths> {
   return paths;
 }
 
+/**
+ * Moves a local copy out of the package's place into the staging folder, in
+ * one step, so no part of it stays there where its removal stops partway: a
+ * part of one would pass for a newer install.
+ */
+function aside(target: string, staging: string): void {
+  if (!present(target)) return;
+  mkdirSync(staging, { recursive: true });
+  renameSync(target, join(staging, "old"));
+}
+
+function copyAll(from: string, to: string): void {
+  cpSync(from, to, { recursive: true });
+}
+
 function runBuild(): void {
   const { status } = spawnSync(process.execPath, ["run", "build"], { cwd: ROOT, stdio: "inherit" });
   if (status !== 0) throw new Error("the build failed");
@@ -122,27 +141,36 @@ function runBuild(): void {
  * Builds, then puts a copy of the published package in the app's node_modules.
  * The installed copy moves aside the first time, a link like a real folder.
  * Where the app installed the package again since, that newer install takes
- * the kept copy's place. Gives back what to say.
+ * the kept copy's place. The copy is made whole in the staging folder first,
+ * and only renames put it in place, so one that fails partway leaves the
+ * installed copy where it was, or kept for an unlink to move back. Gives back
+ * what to say.
  */
 export function link(
   app: string,
   build: () => void = runBuild,
   root: string = ROOT,
   now: number = Date.now(),
+  copy: (from: string, to: string) => void = copyAll,
 ): string[] {
-  const { target, kept } = pathsOf(app);
+  const { target, kept, staging } = pathsOf(app);
   build();
   const manifest = manifestOf(root);
   const version = localVersion(String(manifest.version), now);
-  if (present(target) && !isLocal(target)) {
+  const made = join(staging, "new");
+  const local = isLocal(target);
+  remove(staging);
+  mkdirSync(made, { recursive: true });
+  for (const file of published(manifest)) {
+    if (existsSync(join(root, file))) copy(join(root, file), join(made, file));
+  }
+  writeFileSync(join(made, "package.json"), `${JSON.stringify({ ...manifest, version }, null, 2)}\n`);
+  if (present(target) && !local) {
     remove(kept);
     renameSync(target, kept);
-  } else remove(target);
-  mkdirSync(target);
-  for (const file of published(manifest)) {
-    if (existsSync(join(root, file))) cpSync(join(root, file), join(target, file), { recursive: true });
-  }
-  writeFileSync(join(target, "package.json"), `${JSON.stringify({ ...manifest, version }, null, 2)}\n`);
+  } else aside(target, staging);
+  renameSync(made, target);
+  remove(staging);
   return [`linked ${NAME} ${version} into ${target}, as a copy`, "restart the app's dev server to pick it up"];
 }
 
@@ -150,19 +178,22 @@ export function link(
  * Takes the local copy out and moves the installed copy back. Where the app
  * installed the package again since the link, that newer install stays and the
  * kept copy is removed. Without one to move back, a local copy is still
- * removed, and anything else stays. Gives back what to say.
+ * removed, and anything else stays. What a link that failed left in the
+ * staging folder is removed too. Gives back what to say.
  */
 export function unlink(app: string): string[] {
-  const { target, kept } = pathsOf(app);
+  const { target, kept, staging } = pathsOf(app);
   const restart = "restart the app's dev server to pick it up";
+  remove(staging);
   const local = isLocal(target);
   if (present(kept)) {
     if (present(target) && !local) {
       remove(kept);
       return [`left the newer installed ${NAME} in ${target} and removed the older kept copy`];
     }
-    remove(target);
+    aside(target, staging);
     renameSync(kept, target);
+    remove(staging);
     return [`removed the local copy and restored the installed ${NAME} in ${target}`, restart];
   }
   if (!local) return [`nothing to restore: ${target} is not a local copy`];

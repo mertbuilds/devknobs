@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -12,8 +13,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { appDir, KEPT, link, linkPaths, localVersion, published, removable, unlink } from "../scripts/link";
+import { basename, join } from "node:path";
+import { appDir, KEPT, link, linkPaths, localVersion, published, removable, STAGING, unlink } from "../scripts/link";
 
 const made: string[] = [];
 
@@ -73,6 +74,14 @@ function storeLink(version: string): string {
   return join(".pnpm", `devknobs@${version}`, "node_modules", "devknobs");
 }
 
+/** A copy that writes what comes before `file`, then fails as a full disk does. */
+function failingCopy(file: string): (from: string, to: string) => void {
+  return (from, to) => {
+    if (basename(from) === file) throw new Error("the disk is full");
+    cpSync(from, to, { recursive: true });
+  };
+}
+
 function versionAt(dir: string): unknown {
   const json: unknown = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
   return typeof json === "object" && json !== null && "version" in json ? json.version : null;
@@ -92,15 +101,16 @@ describe("link paths", () => {
     expect(appDir("~site", "/work", "/home/me")).toBe("/work/~site");
   });
 
-  test("the two folders are in the app's node_modules", () => {
+  test("the three folders are in the app's node_modules", () => {
     expect(linkPaths("/apps/site")).toEqual({
       modules: "/apps/site/node_modules",
       target: "/apps/site/node_modules/devknobs",
       kept: `/apps/site/node_modules/${KEPT}`,
+      staging: `/apps/site/node_modules/${STAGING}`,
     });
   });
 
-  test("only the package's folder and the kept copy in a node_modules may be removed", () => {
+  test("only the package's folder, the kept copy and the staging folder in a node_modules may be removed", () => {
     expect(removable("/apps/site/node_modules/devknobs")).toBe(true);
     expect(removable("/apps/site/node_modules/devknobs/")).toBe(true);
     expect(removable("/apps/site/node_modules")).toBe(false);
@@ -112,6 +122,12 @@ describe("link paths", () => {
     expect(removable(`/apps/site/node_modules/${KEPT}/dist`)).toBe(false);
     expect(removable(`/apps/site/node_modules/@scope/${KEPT}`)).toBe(false);
     expect(removable(`/apps/${KEPT}`)).toBe(false);
+    expect(removable(`/apps/site/node_modules/${STAGING}`)).toBe(true);
+    expect(removable(`/apps/site/node_modules/${STAGING}/dist`)).toBe(false);
+    expect(removable(`/apps/site/node_modules/@scope/${STAGING}`)).toBe(false);
+    expect(removable(`/apps/${STAGING}`)).toBe(false);
+    expect(removable(`/apps/site/node_modules/${STAGING}x`)).toBe(false);
+    expect(removable("/apps/site/node_modules/.devknobs")).toBe(false);
     expect(removable("/")).toBe(false);
   });
 
@@ -301,5 +317,90 @@ describe("link and unlink", () => {
     ).toThrow("the build failed");
     expect(versionAt(target)).toBe("1.0.0");
     expect(existsSync(kept)).toBe(false);
+  });
+
+  test("a copy that fails partway leaves the installed copy in place, and an unlink leaves it", () => {
+    const root = fakeRoot();
+    const app = fakeApp();
+    const { target, kept, staging } = linkPaths(app);
+    expect(() => link(app, fakeBuild(root), root, 5_000, failingCopy("README.md"))).toThrow("the disk is full");
+    expect(versionAt(target)).toBe("1.0.0");
+    expect(readFileSync(join(target, "dist", "index.js"), "utf8")).toBe("installed");
+    expect(existsSync(kept)).toBe(false);
+
+    expect(unlink(app)[0]).toContain("nothing to restore");
+    expect(versionAt(target)).toBe("1.0.0");
+    expect(existsSync(staging)).toBe(false);
+  });
+
+  test("a copy that fails partway over a local copy keeps the kept copy, and an unlink restores it", () => {
+    const root = fakeRoot();
+    const app = fakeApp();
+    const { target, kept, staging } = linkPaths(app);
+    link(app, fakeBuild(root), root, 5_000);
+    expect(() => link(app, fakeBuild(root), root, 9_000, failingCopy("README.md"))).toThrow("the disk is full");
+    expect(versionAt(target)).toBe("1.2.3-local.5");
+    expect(versionAt(kept)).toBe("1.0.0");
+
+    expect(unlink(app)[0]).toContain("restored");
+    expect(versionAt(target)).toBe("1.0.0");
+    expect(readFileSync(join(target, "dist", "index.js"), "utf8")).toBe("installed");
+    expect(existsSync(kept)).toBe(false);
+    expect(existsSync(staging)).toBe(false);
+  });
+
+  test("a copy that fails partway beside a link leaves the link, and what it points at stays", () => {
+    const root = fakeRoot();
+    const app = fakePnpmApp();
+    const { target, kept, staging } = linkPaths(app);
+    expect(() => link(app, fakeBuild(root), root, 5_000, failingCopy("README.md"))).toThrow("the disk is full");
+    expect(readlinkSync(target)).toBe(storeLink("1.0.0"));
+    expect(lstatSync(kept, { throwIfNoEntry: false })).toBeUndefined();
+    unlink(app);
+    expect(readlinkSync(target)).toBe(storeLink("1.0.0"));
+    expect(versionAt(storeOf(app, "1.0.0"))).toBe("1.0.0");
+    expect(existsSync(join(storeOf(app, "1.0.0"), "dist", "ui"))).toBe(false);
+    expect(existsSync(staging)).toBe(false);
+  });
+
+  test("a staging folder left by a link that failed is removed by the next link, and never linked", () => {
+    const root = fakeRoot();
+    const app = fakeApp();
+    const { target, kept, staging } = linkPaths(app);
+    // What the failed link wrote where it made its copy, beside what it copied.
+    const stray = (from: string, to: string): void => {
+      write(join(to, "..", "stale.js"), "stale");
+      failingCopy("dist")(from, to);
+    };
+    expect(() => link(app, fakeBuild(root), root, 5_000, stray)).toThrow("the disk is full");
+    expect(existsSync(staging)).toBe(true);
+
+    link(app, fakeBuild(root), root, 9_000);
+    expect(existsSync(staging)).toBe(false);
+    expect(existsSync(join(target, "stale.js"))).toBe(false);
+    expect(versionAt(target)).toBe("1.2.3-local.9");
+    expect(readFileSync(join(target, "README.md"), "utf8")).toBe("readme");
+    expect(versionAt(kept)).toBe("1.0.0");
+    unlink(app);
+    expect(versionAt(target)).toBe("1.0.0");
+  });
+
+  test("an installed copy whose package.json does not parse is an error that leaves it, and no staging folder", () => {
+    const root = fakeRoot();
+    const app = fakeApp();
+    const { target, kept, staging } = linkPaths(app);
+    write(join(target, "package.json"), "{");
+
+    expect(() => link(app, fakeBuild(root), root, 5_000)).toThrow(SyntaxError);
+    expect(existsSync(staging)).toBe(false);
+    expect(existsSync(kept)).toBe(false);
+    expect(readFileSync(join(target, "package.json"), "utf8")).toBe("{");
+    expect(readFileSync(join(target, "dist", "index.js"), "utf8")).toBe("installed");
+
+    write(join(staging, "new", "stale.js"), "stale");
+    expect(() => unlink(app)).toThrow(SyntaxError);
+    expect(existsSync(staging)).toBe(false);
+    expect(readFileSync(join(target, "package.json"), "utf8")).toBe("{");
+    expect(readFileSync(join(target, "dist", "index.js"), "utf8")).toBe("installed");
   });
 });

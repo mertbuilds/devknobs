@@ -568,7 +568,7 @@ function kept(load: ShotsLoad, index: number): boolean {
   return load.keep?.has(index) ?? false;
 }
 
-/** Decode one, unless it is in or under way, and keep it where it is still wanted once it is in. */
+/** Decode one, unless it is in or under way, and keep it where it is still wanted once it is in. Where it does not decode, none decodes again, and all are let go of: at once, or while a fold draws them, once it ends. */
 function decode(load: ShotsLoad, index: number): void {
   const image = load.images[index];
   if (!image || load.bitmaps[index] || load.decoding.has(index)) return;
@@ -583,6 +583,8 @@ function decode(load: ShotsLoad, index: number): void {
     () => {
       load.decoding.delete(index);
       load.state = "failed";
+      // No fold holds them, so none lets go of them once it ends.
+      if (!load.held) releaseFoldShots();
     },
   );
 }

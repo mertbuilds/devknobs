@@ -1662,12 +1662,17 @@ describe("the fold chip beside a hand on the hinge", () => {
 
 describe("a Duo whose frames do not decode", () => {
   if (!DUO_FOLD) return;
+  const shots = DUO_FOLD;
   /** Do the pictures asked for from now on not decode? */
   let failing = false;
+  /** The file of the one picture that does not decode while the others do, or null. */
+  let bad: string | null = null;
 
   beforeAll(() => {
     const decodeOrFail = (image: FakeImage) =>
-      failing ? Promise.reject(new Error("EncodingError: the picture does not decode")) : createBitmap(image);
+      failing || (bad !== null && image.src.endsWith(bad))
+        ? Promise.reject(new Error("EncodingError: the picture does not decode"))
+        : createBitmap(image);
     Object.defineProperty(globalThis, "createImageBitmap", { configurable: true, value: decodeOrFail });
   });
 
@@ -1677,6 +1682,7 @@ describe("a Duo whose frames do not decode", () => {
 
   afterEach(() => {
     stopFold();
+    bad = null;
   });
 
   test("lets go of every picture once a fold one failed in ends, though the Duo rests in its bezels, and turns copies after", async () => {
@@ -1736,5 +1742,35 @@ describe("a Duo whose frames do not decode", () => {
     await playing(2000);
     expect(layer()).toBeUndefined();
     expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("lets go of every picture at once where one does not decode as the Duo rests in its bezels, with no fold to end, and decodes none after", async () => {
+    // The module anew, as a load that failed has for good: its files load, and none has failed yet.
+    const path = "../src/engine/bezels.ts?foldshots=rest";
+    const bezels: typeof import("../src/engine/bezels") = await import(path);
+    failing = false;
+    await decodeNow();
+    bitmaps = [];
+    bezels.loadFoldShots();
+    await Bun.sleep(0);
+    // The frame at the shut end does not decode, and those beside it do.
+    bad = shots.frames.at(-1)?.file ?? null;
+    bezels.restFoldShots(0);
+    await Bun.sleep(0);
+    expect(bitmaps.length).toBeGreaterThan(0);
+    expect(live()).toHaveLength(0);
+    expect(bezels.foldShots()).toBeNull();
+    expect(bezels.foldShotsDue()).toBe(false);
+    // Drawn at rest again, at either end, none decodes.
+    const all = bitmaps.length;
+    bad = null;
+    bezels.restFoldShots(0);
+    await Bun.sleep(0);
+    bezels.restFoldShots(1);
+    await Bun.sleep(0);
+    wait(2 * SHOTS_KEPT);
+    expect(bitmaps).toHaveLength(all);
+    expect(bezels.foldShots()).toBeNull();
+    expect(bezels.foldShotsDue()).toBe(false);
   });
 });
