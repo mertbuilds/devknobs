@@ -3,7 +3,7 @@ import * as address from "./address";
 import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
-import { formId, formOf } from "./devices";
+import { deviceOf, formId, formOf } from "./devices";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
 import {
   FRAME_ATTRIBUTE,
@@ -52,6 +52,7 @@ import {
   stopAdopting,
   Z_INDEX,
 } from "./placeholder";
+import { warmFonts } from "./pagefonts";
 import * as reload from "./reload";
 import { ensureStyle, removeStyle } from "./style";
 import {
@@ -237,6 +238,12 @@ function frameDocument(): Document | null {
   }
 }
 
+/** The fonts of a foldable's page are fetched ahead, for the picture of it that turns as it folds. */
+function warmFold(): void {
+  const doc = frameDocument();
+  if (doc && deviceOf(current.device)?.postures) warmFonts(doc);
+}
+
 function onLoad(): void {
   loaded = true;
   const doc = frameDocument();
@@ -251,6 +258,7 @@ function onLoad(): void {
   }
   browser?.refresh();
   checkZoom();
+  warmFold();
   share();
   reload.settle();
 }
@@ -440,6 +448,7 @@ function resize(): void {
   else frame.style.removeProperty("color-scheme");
   frame.style.filter = visionFilter(current.vision);
   checkZoom();
+  warmFold();
 }
 
 /**

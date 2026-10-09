@@ -1,4 +1,5 @@
 import { BLURS } from "./fold";
+import { embedFonts, forgetFonts } from "./pagefonts";
 
 /**
  * A rough picture of the page in the frame, for the copies of a foldable's
@@ -126,11 +127,12 @@ export function shootPage(
 let shots = new WeakMap<Document, Map<string, HTMLCanvasElement>>();
 let watched: { doc: Document; changed: boolean; observer: MutationObserver } | null = null;
 
-/** Let go of the pictures kept and of the page watched, as the frame goes. */
+/** Let go of the pictures kept, of the page watched and of its fonts, as the frame goes. */
 export function forgetShots(): void {
   watched?.observer.disconnect();
   watched = null;
   shots = new WeakMap();
+  forgetFonts();
 }
 
 /** Keep a picture of `doc` for as long as the page does not change. */
@@ -220,11 +222,13 @@ function blurPicture(shot: HTMLCanvasElement, times: number): HTMLCanvasElement 
 export function copyPage(frame: HTMLIFrameElement): Element | null {
   const doc = frame.contentDocument;
   if (!doc?.documentElement) return null;
-  // Its styles inlined, as a drawing of it loads nothing of its own.
+  // Its styles inlined, as a drawing of it loads nothing of its own, and the
+  // fonts it shows with them, those fetched by now.
   const rules: string[] = [];
+  const written = embedFonts(doc);
   for (const sheet of doc.styleSheets) {
     try {
-      for (const rule of sheet.cssRules) rules.push(rule.cssText);
+      for (const rule of sheet.cssRules) rules.push(written(rule));
     } catch {
       // A sheet from another origin keeps its rules to itself.
     }
