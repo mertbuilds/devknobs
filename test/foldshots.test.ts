@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { bezelMock, bodyOf, foldShots, loadFoldShots, SHOTS_KEPT } from "../src/engine/bezels";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { bezelMock, bodyOf, foldShots, loadFoldShots, restFoldShots, SHOTS_KEPT } from "../src/engine/bezels";
 import { DUO_FOLD } from "../src/engine/bezelurls";
-import { SHOTS_AHEAD, SHOTS_AROUND, SHOTS_FADE } from "../src/engine/fold";
+import { FOLD_WAIT, HINGE_CATCH_UP, HINGE_STEP, hingeAfter, openOf, SHOTS_AHEAD, SHOTS_AROUND, SHOTS_FADE } from "../src/engine/fold";
 import {
+  finishFold,
   type FoldScene,
   folding,
   foldDevice,
@@ -142,10 +143,19 @@ class FakePen {
   }
 }
 
-/** Loads at once, and never decodes. */
+/** The page as the browser draws it comes in when the test lets it, as none, with no browser to draw it: each waits on `paints`. */
+let paints: Promise<void> = Promise.resolve();
+
+/** Loads at once, and never decodes, but as the drawing of a page, which will not draw. */
 class FakeImage extends FakeNode {
   onload: (() => void) | null = null;
   #src = "";
+
+  decode(): Promise<void> {
+    return paints.then(() => {
+      throw new Error("EncodingError: no browser draws the page");
+    });
+  }
 
   get src(): string {
     return this.#src;
@@ -172,6 +182,24 @@ function createBitmap(image: FakeImage): Promise<FakeBitmap> {
   });
 }
 
+/** Writes a page's copy out as nothing, as its drawing never decodes. */
+class FakeSerializer {
+  serializeToString(): string {
+    return "";
+  }
+}
+
+/** A page's root, as a fold copies it to have the browser draw it. */
+class FakePage extends FakeNode {
+  querySelectorAll(): FakeNode[] {
+    return [];
+  }
+
+  override cloneNode(): FakeNode {
+    return new FakePage();
+  }
+}
+
 /** Timers, which the test runs. */
 let timers: { run: () => void; ms: number; id: number }[] = [];
 let timer = 0;
@@ -193,7 +221,7 @@ function wait(ms: number): void {
   for (const one of due) one.run();
 }
 
-const GLOBALS = ["window", "document", "Image", "createImageBitmap", "setTimeout", "clearTimeout"] as const;
+const GLOBALS = ["window", "document", "Image", "createImageBitmap", "setTimeout", "clearTimeout", "XMLSerializer"] as const;
 const saved = GLOBALS.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
 let frames: FrameRequestCallback[] = [];
 /** What listens to the window's resize. */
@@ -225,6 +253,7 @@ beforeAll(() => {
   Object.defineProperty(globalThis, "createImageBitmap", { configurable: true, value: createBitmap });
   Object.defineProperty(globalThis, "setTimeout", { configurable: true, value: later });
   Object.defineProperty(globalThis, "clearTimeout", { configurable: true, value: cancel });
+  Object.defineProperty(globalThis, "XMLSerializer", { configurable: true, value: FakeSerializer });
 });
 
 afterAll(() => {
@@ -343,6 +372,15 @@ function fold(from: ViewportValue, to: ViewportValue, scene: FoldScene): void {
   });
 }
 
+/** As `fold`, the knobs drawn as the frame draws the Duo in its bezels, at rest in the posture they have. */
+function foldResting(from: ViewportValue, to: ViewportValue, scene: FoldScene): void {
+  foldDevice(from, to, scene, (value) => {
+    drawn.push(value);
+    restFoldShots(openOf(value.posture));
+    unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+  });
+}
+
 beforeEach(() => {
   frames = [];
   drawn = [];
@@ -362,7 +400,17 @@ describe("a Duo folding in its frames", () => {
   const OPEN_STILLS = stillsOf(0, SHOTS_AROUND + SHOTS_AHEAD);
   /** Is a picture one of the halves that stay? */
   const isStill = (bitmap: FakeBitmap) => shots.stills.some((still) => bitmap.src.endsWith(still.file));
-
+  /** The frames decoded and not let go of, by their place. */
+  const kept = () =>
+    live()
+      .map((bitmap) => shots.frames.findIndex((shot) => bitmap.src.endsWith(shot.file)))
+      .filter((index) => index >= 0)
+      .sort((a, b) => a - b);
+  const from = (first: number, last: number) => Array.from({ length: last - first + 1 }, (_, index) => first + index);
+  const last = shots.frames.length - 1;
+  /** Those a fold from the shut end starts with, and from the open one. */
+  const SHUT_END = from(last - SHOTS_AROUND - SHOTS_AHEAD, last);
+  const OPEN_END = from(0, SHOTS_AROUND + SHOTS_AHEAD);
   test("loads the frames undecoded, turns copies of the bezels till those round the hinge decode as it starts, then the frames", async () => {
     loadFoldShots();
     await Bun.sleep(0);
@@ -712,6 +760,423 @@ describe("a Duo folding in its frames", () => {
     await playing(2000);
     expect(layer()).toBeUndefined();
   });
+
+  test("decodes those a fold starts with ahead of it while the Duo rests in its bezels, keeps them, and lets go of them once it is not shown", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    const shut = { ...BASE, orientation: "portrait", posture: "closed" } as const;
+    bitmaps = [];
+    // As the frame does drawing the Duo shut in its bezels, which are not loaded here.
+    restFoldShots(0);
+    expect(bitmaps).toHaveLength(0);
+    await Bun.sleep(0);
+    expect(kept()).toEqual(from(last - SHOTS_AROUND - SHOTS_AHEAD, last));
+    expect(live().some(isStill)).toBe(true);
+    // No timer lets go of them at rest.
+    wait(SHOTS_KEPT);
+    expect(foldShots()).not.toBeNull();
+    // A fold has them on its first draw, though the knobs draw the other posture a moment as it starts.
+    const before = bitmaps.length;
+    const scene = sceneOf();
+    foldDevice(SHUT, OPEN, scene, (value) => {
+      drawn.push(value);
+      restFoldShots(openOf(value.posture));
+      unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+    });
+    expect(placed()).toHaveLength(2);
+    expect(turned()).toBe(last);
+    await Bun.sleep(0);
+    expect(bitmaps.slice(0, before).every((bitmap) => !bitmap.closed)).toBe(true);
+    await playing(2000);
+    expect(layer()).toBeUndefined();
+    expect(drawn.at(-1)).toEqual(OPEN);
+    await Bun.sleep(0);
+    // Landed open: those a fold from there starts with, and no more, with no timer to let go of them.
+    expect(kept()).toEqual(from(0, SHOTS_AROUND + SHOTS_AHEAD));
+    expect(live().length).toBeLessThanOrEqual(MOST);
+    wait(SHOTS_KEPT);
+    expect(foldShots()).not.toBeNull();
+    // Drawn again at rest, nothing more decodes.
+    const all = bitmaps.length;
+    restFoldShots(1);
+    await Bun.sleep(0);
+    expect(bitmaps).toHaveLength(all);
+    // Another device, or the mock off: let go of at once, and none decode for it.
+    bodyOf({ ...shut, device: "iphone-16-pro" }, () => {});
+    await Bun.sleep(0);
+    expect(foldShots()).toBeNull();
+    expect(bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
+    expect(bitmaps).toHaveLength(all);
+    restFoldShots(1);
+    bodyOf({ ...shut, mock: false }, () => {});
+    await Bun.sleep(0);
+    expect(foldShots()).toBeNull();
+    expect(bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
+    // Forgotten with the frame, they go at once.
+    restFoldShots(1);
+    await Bun.sleep(0);
+    expect(foldShots()).not.toBeNull();
+    forgetFold();
+    expect(foldShots()).toBeNull();
+  });
+
+  test("started by the knobs before its frames are in, stays at rest on the copies till they are, then turns the frames from its first step", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    const opens: number[] = [];
+    const unwatch = watchHinge((open) => opens.push(open));
+    fold(SHUT, OPEN, sceneOf());
+    expect(placed()).toHaveLength(7);
+    // No decode comes in between these frames.
+    play(48);
+    expect(placed()).toHaveLength(7);
+    expect(opens.length).toBeGreaterThan(1);
+    expect(opens.every((open) => open === 0)).toBe(true);
+    await Bun.sleep(0);
+    play(0);
+    unwatch();
+    expect(canvases()).toHaveLength(2);
+    expect(opens.at(-1)).toBeGreaterThan(0);
+    await playing(2000);
+    expect(layer()).toBeUndefined();
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("started by the knobs with those it starts with decoded at rest, turns the frames from the click's next frame", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    restFoldShots(0);
+    await Bun.sleep(0);
+    const opens: number[] = [];
+    const unwatch = watchHinge((open) => opens.push(open));
+    foldResting(SHUT, OPEN, sceneOf());
+    expect(placed()).toHaveLength(2);
+    play(0);
+    unwatch();
+    expect(opens.at(-1)).toBeGreaterThan(0);
+    expect(turned()).toBeGreaterThanOrEqual(0);
+    stopFold();
+  });
+
+  test("keeps those round the hinge of a fold on its way, though the Duo is drawn at rest at the other end meanwhile", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    fold(SHUT, OPEN, sceneOf());
+    await Bun.sleep(0);
+    const round = live();
+    expect(kept()).toEqual(SHUT_END);
+    restFoldShots(1);
+    await Bun.sleep(0);
+    expect(round.every((bitmap) => !bitmap.closed)).toBe(true);
+    expect(kept()).toEqual(SHUT_END);
+    stopFold();
+  });
+
+  test("keeps those decoded at rest, though a fold that ended before the Duo was drawn at rest left a timer to let go of them", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    // Not drawn at rest as it lands: let go of a while after.
+    fold(SHUT, OPEN, sceneOf());
+    await playing(2000);
+    expect(layer()).toBeUndefined();
+    expect(timers.length).toBeGreaterThan(0);
+    restFoldShots(1);
+    await Bun.sleep(0);
+    wait(SHOTS_KEPT);
+    expect(foldShots()).not.toBeNull();
+    expect(kept()).toEqual(OPEN_END);
+  });
+
+  test("stopped on its way with the Duo at rest, keeps those a fold from the end it is drawn at starts with, with no timer to let go of them", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    restFoldShots(0);
+    await Bun.sleep(0);
+    foldResting(SHUT, OPEN, sceneOf());
+    await playing(32);
+    // The end the device was last drawn at, which it is shown at once stopped.
+    const end = drawn.at(-1)?.posture === "open" ? OPEN_END : SHUT_END;
+    stopFold();
+    await Bun.sleep(0);
+    wait(2 * SHOTS_KEPT);
+    expect(foldShots()).not.toBeNull();
+    expect(kept()).toEqual(end);
+  });
+
+  test("let go of in the middle of a fold, then drawn at rest again before it ends, keeps those a fold from there starts with once it has", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    fold(SHUT, OPEN, sceneOf());
+    await Bun.sleep(0);
+    play(100);
+    // As the frame does drawing the knobs with the mock off, then on again.
+    bodyOf({ ...BASE, mock: false, orientation: "portrait", posture: "closed" }, () => {});
+    restFoldShots(1);
+    await playing(2000);
+    expect(layer()).toBeUndefined();
+    await Bun.sleep(0);
+    expect(foldShots()).not.toBeNull();
+    expect(kept()).toEqual(OPEN_END);
+    wait(2 * SHOTS_KEPT);
+    expect(kept()).toEqual(OPEN_END);
+  });
+});
+
+describe("a fold the knobs start, waiting for the pictures of the page", () => {
+  /** Let the pictures the test's folds wait for come in. */
+  let letPaint: () => void = () => {};
+  let now = 0;
+  /** Where the hinge was drawn each time, and whether a hand sent it there. */
+  let seen: { open: number; hand: boolean }[] = [];
+  let unwatch: () => void = () => {};
+
+  beforeEach(() => {
+    paints = new Promise<void>((resolve) => {
+      letPaint = resolve;
+    });
+    now = 0;
+    seen = [];
+    unwatch = watchHinge((open, hand) => seen.push({ open, hand }));
+  });
+
+  afterEach(() => {
+    unwatch();
+    stopFold();
+  });
+
+  /** The frame with a page in it the browser is asked to draw, and no bezels, so the fold turns copies. */
+  function paged(): FoldScene {
+    const page = {
+      documentElement: new FakePage(),
+      styleSheets: [],
+      implementation: { createHTMLDocument: () => ({ importNode: () => new FakePage(), createElement: () => new FakeNode() }) },
+      querySelectorAll: () => [],
+    };
+    const frame = Object.assign(new FakeNode(), {
+      contentDocument: page,
+      contentWindow: { innerWidth: 400, innerHeight: 600, scrollX: 0, scrollY: 0 },
+    });
+    return { ...sceneOf(), frame: frame as unknown as HTMLIFrameElement, body: () => null };
+  }
+
+  /** Run `count` frames, 16 ms apart, on from the last, letting what settles come in after each. */
+  async function run(count: number): Promise<void> {
+    for (let index = 0; index < count; index += 1) {
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      await Bun.sleep(0);
+    }
+  }
+
+  /** Everything the fold draws: its layer, the frame's own device, and the dim over the page. */
+  function look(): string {
+    const styles = (node: FakeNode): unknown => [node.style, node.hidden, node.children.map(styles)];
+    const up = layer();
+    return JSON.stringify([up ? styles(up) : null, unit.style, cover.style, cover.hidden]);
+  }
+
+  /** A hand takes the hinge of a fold from `from` toward `to`, drawing what the knobs say. */
+  function hold(from: ViewportValue, to: ViewportValue, scene: FoldScene): boolean {
+    return foldDevice(from, to, scene, (value) => drawn.push(value), true);
+  }
+
+  const moved = () => seen.some((at) => at.open !== 0);
+
+  test("stays at rest, drawn as a hand holding it there has it, till the pictures are in, then folds from the next frame", async () => {
+    hold(SHUT, OPEN, paged());
+    const rest = look();
+    stopFold();
+    seen = [];
+    fold(SHUT, OPEN, paged());
+    expect(look()).toBe(rest);
+    for (let frame = 0; frame < 5; frame += 1) {
+      await run(1);
+      expect(frames).toHaveLength(1);
+      expect(look()).toBe(rest);
+    }
+    expect(moved()).toBe(false);
+    // Nothing of the page's pictures, the dim or a cut shows: the side that lies shut has its screen, window and shade clear.
+    const [, , , side, window, shade] = placed();
+    expect([style(side?.children[0], "opacity"), style(window, "opacity"), style(shade, "opacity")]).toEqual(["0", "0", "0"]);
+    expect(cover.hidden).toBe(true);
+    expect(style(unit, "clipPath")).toBe("");
+    letPaint();
+    await Bun.sleep(0);
+    await run(1);
+    expect(seen.at(-1)?.open).toBeGreaterThan(0);
+    expect(seen.every((at) => !at.hand)).toBe(true);
+    await run(200);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("folds with what it has once it has waited long enough, where the pictures do not come in", async () => {
+    fold(SHUT, OPEN, paged());
+    // Its first frame, then each of the wait but the last.
+    await run(Math.ceil(FOLD_WAIT / 16));
+    expect(now - 16).toBeLessThan(FOLD_WAIT);
+    expect(moved()).toBe(false);
+    await run(1);
+    expect(seen.at(-1)?.open).toBeGreaterThan(0);
+    await run(200);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("pressed again the same way while it waits, waits on, and folded back, lands where it started without moving", async () => {
+    const scene = paged();
+    fold(SHUT, OPEN, scene);
+    const rest = look();
+    await run(2);
+    fold(SHUT, OPEN, scene);
+    await run(2);
+    expect(folding()).toBe(true);
+    expect(look()).toBe(rest);
+    const before = drawn.length;
+    fold(OPEN, SHUT, scene);
+    expect(look()).toBe(rest);
+    await run(1);
+    expect(folding()).toBe(false);
+    expect(layer()).toBeUndefined();
+    expect(drawn.slice(before)).toEqual([SHUT]);
+    expect(moved()).toBe(false);
+    // The pictures in after it, nothing folds or draws.
+    letPaint();
+    await Bun.sleep(0);
+    await run(20);
+    expect(frames).toHaveLength(0);
+    expect(drawn).toHaveLength(before + 1);
+    expect(moved()).toBe(false);
+  });
+
+  test("folded back while it waits, then on again, waits on and folds once the pictures are in", async () => {
+    const scene = paged();
+    fold(SHUT, OPEN, scene);
+    await run(2);
+    fold(OPEN, SHUT, scene);
+    fold(SHUT, OPEN, scene);
+    await run(2);
+    expect(folding()).toBe(true);
+    expect(moved()).toBe(false);
+    letPaint();
+    await Bun.sleep(0);
+    await run(200);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("taken by a hand while it waits, follows the hand at once, and lands where it is let go", async () => {
+    const scene = paged();
+    fold(SHUT, OPEN, scene);
+    await run(2);
+    expect(hold(SHUT, OPEN, scene)).toBe(true);
+    expect(holdingHinge()).toBe(true);
+    expect(scrubFold(0.5)).toBe(true);
+    expect(frames).toHaveLength(1);
+    await run(1);
+    expect(seen.at(-1)?.open).toBeGreaterThan(0);
+    expect(seen.at(-1)?.hand).toBe(true);
+    // It stays where the hand holds it, and its steps stop, the pictures in or not.
+    await run(200);
+    expect(folding()).toBe(true);
+    expect(frames).toHaveLength(0);
+    expect(seen.at(-1)?.open).toBe(0.5);
+    letPaint();
+    await Bun.sleep(0);
+    await run(5);
+    expect(frames).toHaveLength(0);
+    expect(releaseFold(0, false)).toBe(true);
+    await run(200);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(SHUT);
+  });
+
+  test("started by a hand, does not wait: it follows the hand from the next frame, the pictures in or not", async () => {
+    expect(hold(SHUT, OPEN, paged())).toBe(true);
+    expect(scrubFold(0.5)).toBe(true);
+    await run(1);
+    expect(seen.at(-1)?.open).toBeGreaterThan(0);
+    expect(seen.at(-1)?.hand).toBe(true);
+  });
+
+  test("let go of by a hand while it waits, goes where it is let go from the next frame, the pictures in or not", async () => {
+    fold(SHUT, OPEN, paged());
+    await run(1);
+    expect(moved()).toBe(false);
+    expect(releaseFold(1, false)).toBe(true);
+    await run(1);
+    expect(now - 16).toBeLessThan(FOLD_WAIT);
+    expect(seen.at(-1)?.open).toBeGreaterThan(0);
+    await run(200);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("let go of while it waits, landed, stopped or forgotten, goes at once and nothing folds after", async () => {
+    fold(SHUT, OPEN, paged());
+    await run(1);
+    // With less motion, it lands the next frame.
+    expect(releaseFold(1, true)).toBe(true);
+    await run(1);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+    fold(SHUT, OPEN, paged());
+    await run(1);
+    holdFold(OPEN);
+    expect(folding()).toBe(true);
+    finishFold();
+    expect(folding()).toBe(false);
+    expect(layer()).toBeUndefined();
+    expect(drawn.at(-1)).toEqual(OPEN);
+    fold(SHUT, OPEN, paged());
+    await run(1);
+    stopFold();
+    expect(layer()).toBeUndefined();
+    expect(style(unit, "transform")).toBe("translate(0px, 0px) scale(0.5)");
+    fold(SHUT, OPEN, paged());
+    await run(1);
+    forgetFold();
+    expect(folding()).toBe(false);
+    const before = drawn.length;
+    letPaint();
+    await Bun.sleep(0);
+    await run(20);
+    expect(drawn).toHaveLength(before);
+    expect(moved()).toBe(false);
+  });
+});
+
+describe("a fold whose draw comes late", () => {
+  test("takes a few steps of its hinge in that draw, not all those due, and goes on from there a step a draw", () => {
+    const opens: number[] = [];
+    const unwatch = watchHinge((open) => opens.push(open));
+    /** Where the hinge is after `steps` steps from shut toward open. */
+    const after = (steps: number) => hingeAfter({ position: 0, velocity: 0 }, 1, steps).position;
+    const draw = (now: number) => {
+      for (const callback of frames.splice(0)) callback(now);
+    };
+    // No bezels, so it turns copies, and no page to wait for the pictures of.
+    fold(SHUT, OPEN, { ...sceneOf(), body: () => null });
+    for (const now of [0, 16, 33]) draw(now);
+    // Two steps taken, and on its way to the third.
+    expect(opens.at(-1)).toBeGreaterThan(after(2));
+    expect(opens.at(-1)).toBeLessThanOrEqual(after(3));
+    // A second late: sixty steps are due.
+    draw(1033);
+    expect(folding()).toBe(true);
+    expect(opens.at(-1)).toBeGreaterThan(after(2 + HINGE_CATCH_UP));
+    expect(opens.at(-1)).toBeLessThanOrEqual(after(3 + HINGE_CATCH_UP));
+    // On time again, a step a draw from where it got to.
+    for (let step = 1; step <= 5; step += 1) {
+      draw(1033 + step * HINGE_STEP);
+      expect(opens.at(-1)).toBeGreaterThan(after(2 + HINGE_CATCH_UP + step));
+      expect(opens.at(-1)).toBeLessThanOrEqual(after(3 + HINGE_CATCH_UP + step));
+    }
+    unwatch();
+    for (let now = 1133; now < 4000 && frames.length > 0; now += 16) draw(now);
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
 });
 
 describe("a hand on a foldable's hinge", () => {
@@ -963,6 +1428,82 @@ describe("the fold chip beside a hand on the hinge", () => {
     expect(seen.every((at) => at.hand)).toBe(true);
     play(2000);
     expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+  });
+});
+
+describe("a Duo whose frames do not decode", () => {
+  if (!DUO_FOLD) return;
+  /** Do the pictures asked for from now on not decode? */
+  let failing = false;
+
+  beforeAll(() => {
+    const decodeOrFail = (image: FakeImage) =>
+      failing ? Promise.reject(new Error("EncodingError: the picture does not decode")) : createBitmap(image);
+    Object.defineProperty(globalThis, "createImageBitmap", { configurable: true, value: decodeOrFail });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(globalThis, "createImageBitmap", { configurable: true, value: createBitmap });
+  });
+
+  afterEach(() => {
+    stopFold();
+  });
+
+  test("lets go of every picture once a fold one failed in ends, though the Duo rests in its bezels, and turns copies after", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    bitmaps = [];
+    failing = false;
+    foldResting(SHUT, OPEN, sceneOf());
+    await Bun.sleep(0);
+    // The first decode, and on its way the frames ahead do not.
+    for (let now = 0; now <= 2000 && frames.length > 0; now += 16) {
+      failing = now >= 320;
+      for (const callback of frames.splice(0)) callback(now);
+      await Bun.sleep(0);
+    }
+    expect(bitmaps.length).toBeGreaterThan(0);
+    expect(layer()).toBeUndefined();
+    expect(drawn.at(-1)).toEqual(OPEN);
+    await Bun.sleep(0);
+    wait(2 * SHOTS_KEPT);
+    await Bun.sleep(0);
+    expect(live()).toHaveLength(0);
+    expect(foldShots()).toBeNull();
+    // None decodes again: the next fold turns the copies all the way.
+    const all = bitmaps.length;
+    foldResting(OPEN, SHUT, sceneOf());
+    expect(placed()).toHaveLength(7);
+    await playing(2000, () => {
+      expect(canvases()).toHaveLength(0);
+    });
+    expect(layer()).toBeUndefined();
+    expect(drawn.at(-1)).toEqual(SHUT);
+    expect(bitmaps).toHaveLength(all);
+  });
+
+  test("started by the knobs, does not wait for frames that cannot come in: its hinge moves on the click's next frame", async () => {
+    forgetFold();
+    await Bun.sleep(0);
+    // One fails as the Duo is drawn at rest, where none has yet.
+    failing = true;
+    loadFoldShots();
+    await Bun.sleep(0);
+    restFoldShots(0);
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    const opens: number[] = [];
+    const unwatch = watchHinge((open) => opens.push(open));
+    // No page to wait for the pictures of.
+    foldResting(SHUT, OPEN, sceneOf());
+    expect(placed()).toHaveLength(7);
+    play(0);
+    unwatch();
+    expect(opens.at(-1)).toBeGreaterThan(0);
+    await playing(2000);
+    expect(layer()).toBeUndefined();
     expect(drawn.at(-1)).toEqual(OPEN);
   });
 });

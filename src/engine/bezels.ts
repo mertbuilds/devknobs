@@ -1,7 +1,7 @@
 import type { DevknobsState, OrientationValue } from "../types";
 import { BEZEL_URLS, DUO_FOLD } from "./bezelurls";
 import { deviceOf, formId, screenOf, turn } from "./devices";
-import { type FoldShots, shotAt, shotsWindow } from "./fold";
+import { type FoldShots, openOf, shotAt, shotsWindow, towardFrom } from "./fold";
 import {
   type Mock,
   mockOf,
@@ -26,8 +26,9 @@ import {
  * and its half that stays, which all load once the Duo is first shown with
  * the mock on. A fold decodes only the frames round the hinge's angle and
  * ahead of it, and the half that stays, letting go of each frame it leaves
- * behind, and the rest are let go of a while after it, or once the Duo is not
- * shown.
+ * behind. While the Duo is shown at rest in its bezels, those a fold from
+ * that end starts with stay decoded, so it has them as it starts, and all
+ * are let go of once the Duo is not shown.
  */
 
 /** One image, measured in its own px, at its own density: see `densityOf`. */
@@ -456,6 +457,8 @@ interface ShotsLoad {
   /** Is a fold drawing them, so they are let go of only once it ends, and were they let go of meanwhile? */
   held: boolean;
   pending: boolean;
+  /** How far open the Duo shown rests, 0 shut or 1 open, or null where none is shown in its bezels. */
+  rest: number | null;
 }
 
 let shotsLoad: ShotsLoad | null = null;
@@ -481,12 +484,14 @@ export function loadFoldShots(): void {
     release: null,
     held: false,
     pending: false,
+    rest: null,
   };
   shotsLoad = started;
   loadAll(files).then(
     (images) => {
       started.images = images;
       started.state = "ready";
+      warmFoldShots(started);
     },
     () => {
       started.state = "failed";
@@ -512,8 +517,13 @@ export function decodeFoldShots(open: number, toward: number): void {
     load.held = true;
     load.pending = false;
   }
-  const { frames } = DUO_FOLD;
-  const at = shotAt(DUO_FOLD, open);
+  keepRound(load, DUO_FOLD, open, toward);
+}
+
+/** Decode the frames `shotsWindow` keeps round the hinge `open` of the way open, going `toward`, and the halves that stay they name, nearest first, and let go of every other. */
+function keepRound(load: ShotsLoad, shots: FoldShots, open: number, toward: number): void {
+  const { frames } = shots;
+  const at = shotAt(shots, open);
   // Each by how far its frame, or the nearest frame that names it, is from the hinge's, a half that stays before its frame.
   const far = new Map<number, number>();
   const want = (index: number, away: number) => far.set(index, Math.min(far.get(index) ?? Infinity, away));
@@ -529,6 +539,28 @@ export function decodeFoldShots(open: number, toward: number): void {
     load.bitmaps[index] = null;
   });
   for (const [index] of [...far].sort((a, b) => a[1] - b[1])) decode(load, index);
+}
+
+/**
+ * The Duo is shown in its bezels, at rest `rest` of the way open, 0 or 1:
+ * the frames a fold from that end starts with decode ahead of it, once what
+ * draws it now is done, and stay till `releaseFoldShots`. A fold asked for in
+ * the same turn takes them as they are, and they decode once it ends.
+ */
+export function restFoldShots(rest: number): void {
+  const load = shotsLoad;
+  if (!load) return;
+  load.rest = rest;
+  load.pending = false;
+  queueMicrotask(() => warmFoldShots(load));
+}
+
+/** Decode those a fold from the end the Duo rests at starts with, and keep them, unless none is shown at rest, a fold draws them, or their files are not in. */
+function warmFoldShots(load: ShotsLoad): void {
+  if (load.rest === null || load.held || load.state !== "ready" || !DUO_FOLD) return;
+  if (load.release !== null) clearTimeout(load.release);
+  load.release = null;
+  keepRound(load, DUO_FOLD, load.rest, towardFrom(load.rest));
 }
 
 /** Is the frame or the half that stays at `index` one to keep? */
@@ -557,8 +589,9 @@ function decode(load: ShotsLoad, index: number): void {
 
 /**
  * Let go of the frames' pictures `after` ms from now, or at once, and of any
- * under way as they come in: while a fold draws them, once it ends. Their
- * files stay loaded for the next fold.
+ * under way as they come in: while a fold draws them, once it ends. At once,
+ * the Duo is not shown at rest any more. Their files stay loaded for the
+ * next fold.
  */
 export function releaseFoldShots(after = 0): void {
   const load = shotsLoad;
@@ -569,6 +602,7 @@ export function releaseFoldShots(after = 0): void {
     load.release = setTimeout(() => releaseFoldShots(), after);
     return;
   }
+  load.rest = null;
   if (load.held) {
     load.pending = true;
     return;
@@ -582,15 +616,19 @@ export function releaseFoldShots(after = 0): void {
 }
 
 /**
- * A fold is done with the frames' pictures: let go of them `SHOTS_KEPT` ms
- * from now, so the next fold has them, or at once where they were let go of
- * while it drew them, or `now`.
+ * A fold is done with the frames' pictures: where the Duo is shown at rest,
+ * those a fold from the end it rests at starts with are kept, once it is
+ * drawn there. Else let go of them `SHOTS_KEPT` ms from now, so the next
+ * fold has them, or at once where they were let go of while it drew them,
+ * where one did not decode, or `now`.
  */
 export function endFoldShots(now = false): void {
   const load = shotsLoad;
   if (!load) return;
   load.held = false;
-  releaseFoldShots(now || load.pending ? 0 : SHOTS_KEPT);
+  const gone = now || load.pending || load.state !== "ready";
+  if (gone || load.rest === null) releaseFoldShots(gone ? 0 : SHOTS_KEPT);
+  else queueMicrotask(() => warmFoldShots(load));
 }
 
 /** The Duo's fold frames, and the pictures of those decoded and of the halves that stay, each by its place, else null. */
@@ -615,13 +653,19 @@ export function foldShots(): FoldPictures | null {
   return whole ? { shots: DUO_FOLD, frames, stills } : null;
 }
 
+/** May the Duo's fold frames still come in for a fold: are they loading or loaded, and has none failed? */
+export function foldShotsDue(): boolean {
+  return shotsLoad !== null && shotsLoad.state !== "failed";
+}
+
 /** What picks the body drawn around the frame. */
 export type BodyKnobs = Pick<DevknobsState, "mock" | "device" | "orientation" | "posture">;
 
 /**
  * The picture a foldable shows in its other posture, held the other way, as
  * it is once folded, loads ahead, so a fold has it to draw, and so do the
- * frames of its fold.
+ * frames of its fold. Those a fold starts with decode ahead too, while the
+ * Duo is shown in its bezels, and are let go of where it is not.
  */
 function loadOther(knobs: BodyKnobs): void {
   if (!deviceOf(knobs.device)?.postures) {
@@ -629,6 +673,9 @@ function loadOther(knobs: BodyKnobs): void {
     return;
   }
   loadFoldShots();
+  const shown = bezelMock(formId(knobs.device, knobs.posture), knobs.orientation)?.image;
+  if (shown?.file.startsWith("iphone-duo-") && bezelUrl(shown.file)) restFoldShots(openOf(knobs.posture));
+  else releaseFoldShots();
   const other = formId(knobs.device, knobs.posture === "open" ? "closed" : "open");
   const image = bezelMock(other, knobs.orientation === "portrait" ? "landscape" : "portrait")?.image;
   if (image) loadBezel(image.file, () => {});

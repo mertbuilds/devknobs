@@ -9,9 +9,11 @@ import {
   darkAt,
   edgeLight,
   flatMatrix,
+  FOLD_WAIT,
   foldFrame,
   foldLayout,
   type FoldSide,
+  foldWarm,
   FREE_DARK,
   freeBand,
   freeDark,
@@ -21,8 +23,10 @@ import {
   handOver,
   type Hinge,
   HINGE,
+  HINGE_CATCH_UP,
   HINGE_STEP,
   hingeAfter,
+  hingeDue,
   hingeStep,
   hingeStill,
   nearestReady,
@@ -47,6 +51,7 @@ import {
   shotsDrift,
   shotsTransform,
   shotsWindow,
+  towardFrom,
   shotWindow,
   shownAt,
   uvOf,
@@ -229,6 +234,41 @@ describe("the hinge", () => {
     }
     expect(hinge).toEqual({ position: 0.333, velocity: 0 });
     expect(steps * HINGE_STEP).toBeLessThan(2000);
+  });
+
+  test("takes its first step in the first draw", () => {
+    expect(hingeDue(0, 0)).toEqual({ steps: 1, dropped: 0 });
+  });
+
+  test("takes the steps due in a draw on time, and drops none of the fold's time", () => {
+    // At 60 Hz a step a draw, at 120 Hz one every other draw.
+    expect(hingeDue(HINGE_STEP * 5.5, 5)).toEqual({ steps: 1, dropped: 0 });
+    expect(hingeDue(HINGE_STEP * 5.5, 6)).toEqual({ steps: 0, dropped: 0 });
+    expect(hingeDue(HINGE_STEP * 6.5, 6)).toEqual({ steps: 1, dropped: 0 });
+    expect(hingeDue(HINGE_STEP * (HINGE_CATCH_UP + 0.5), 1)).toEqual({ steps: HINGE_CATCH_UP, dropped: 0 });
+  });
+
+  test("takes a few steps only in a draw that comes late, and drops the time of the rest", () => {
+    const late = HINGE_STEP * 30.5;
+    const { steps, dropped } = hingeDue(late, 1);
+    expect(steps).toBe(HINGE_CATCH_UP);
+    expect(dropped).toBeCloseTo((30 - HINGE_CATCH_UP) * HINGE_STEP);
+    // Begun that much later, the fold has those steps due and no more, as far between two as it was.
+    expect(hingeDue(late - dropped, 1)).toEqual({ steps: HINGE_CATCH_UP, dropped: 0 });
+    expect((late - dropped) / HINGE_STEP).toBeCloseTo(HINGE_CATCH_UP + 0.5);
+  });
+
+  test("a fold the knobs start goes once the pictures and the frames are in, and no sooner", () => {
+    expect(foldWarm(true, true, 0)).toBe(true);
+    expect(foldWarm(false, true, 0)).toBe(false);
+    expect(foldWarm(true, false, 0)).toBe(false);
+    expect(foldWarm(false, false, FOLD_WAIT - 1)).toBe(false);
+  });
+
+  test("a fold the knobs start goes with what it has once it has waited long enough", () => {
+    expect(foldWarm(false, false, FOLD_WAIT)).toBe(true);
+    expect(foldWarm(false, true, FOLD_WAIT)).toBe(true);
+    expect(foldWarm(true, false, FOLD_WAIT + 16)).toBe(true);
   });
 
   test("a posture's opening", () => {
@@ -624,6 +664,11 @@ describe("the Duo's fold frames", () => {
     expect(shotsWindow(181, 0, 1)).toEqual([0, 20]);
     expect(shotsWindow(181, 180, -1)).toEqual([160, 180]);
     expect(shotsWindow(181, 175, 1)).toEqual([165, 180]);
+    // At rest, those a fold from that end starts with: from the end, ahead toward the other.
+    const resting = (rest: number) => shotsWindow(shots.frames.length, shotAt(shots, rest), towardFrom(rest));
+    expect([towardFrom(0), towardFrom(1)]).toEqual([-1, 1]);
+    expect(resting(1)).toEqual([0, SHOTS_AROUND + SHOTS_AHEAD]);
+    expect(resting(0)).toEqual([180 - SHOTS_AROUND - SHOTS_AHEAD, 180]);
   });
 
   test("face the viewer by the inside up to a right angle, the outside past it, one in each frame", () => {

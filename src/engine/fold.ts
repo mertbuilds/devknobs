@@ -34,6 +34,9 @@ export const HINGE = {
 /** How long one step of the hinge is, in ms. */
 export const HINGE_STEP = HINGE.step * 1000;
 
+/** How many steps the hinge takes in one draw at most, so a draw that comes late slows the fold and skips none of it. */
+export const HINGE_CATCH_UP = 3;
+
 /** How far open the hinge is, 0 shut to 1 open, and how fast it moves, in openings a second. */
 export interface Hinge {
   position: number;
@@ -76,6 +79,17 @@ export function hingeAfter(hinge: Hinge, target: number, steps: number): Hinge {
   return at;
 }
 
+/**
+ * The steps the hinge takes in a draw `elapsed` ms into its fold, `taken` of
+ * them behind it, and the ms dropped from the fold's time where more were due
+ * than one draw takes: it began that much later.
+ */
+export function hingeDue(elapsed: number, taken: number): { steps: number; dropped: number } {
+  const steps = Math.floor(elapsed / HINGE_STEP + 1) - taken;
+  if (steps <= HINGE_CATCH_UP) return { steps, dropped: 0 };
+  return { steps: HINGE_CATCH_UP, dropped: (steps - HINGE_CATCH_UP) * HINGE_STEP };
+}
+
 /** Has the hinge got to `target` and stopped there? */
 export function hingeStill(hinge: Hinge, target: number): boolean {
   return hinge.position === target && hinge.velocity === 0;
@@ -98,6 +112,22 @@ export const HAND_OVER = 0.08;
  * fades in over the picture as the hinge leaves an end.
  */
 export const SHOTS_FADE = 150;
+
+/**
+ * How long, in ms, a fold the knobs start waits at most, at rest where it
+ * starts, for the pictures of the page as the browser draws it and for the
+ * Duo's frames: then it starts with what it has.
+ */
+export const FOLD_WAIT = 150;
+
+/**
+ * Does a fold the knobs start have what it turns, `waited` ms into its wait:
+ * the pictures of the page `painted`, and its `frames` in where it draws any,
+ * or has it waited long enough?
+ */
+export function foldWarm(painted: boolean, frames: boolean, waited: number): boolean {
+  return (painted && frames) || waited >= FOLD_WAIT;
+}
 
 /** A point, in css px. */
 export interface Point {
@@ -392,6 +422,11 @@ export function shotsWindow(count: number, at: number, toward: number): [number,
   const from = at - (toward < 0 ? ahead : SHOTS_AROUND);
   const to = at + (toward > 0 ? ahead : SHOTS_AROUND);
   return [Math.max(0, from), Math.min(count - 1, to)];
+}
+
+/** Which way a fold from the end the hinge rests at, 0 shut or 1 open, goes along the frames: toward shut, 1, or toward open, -1. */
+export function towardFrom(rest: number): number {
+  return rest > 0 ? 1 : -1;
 }
 
 /**
