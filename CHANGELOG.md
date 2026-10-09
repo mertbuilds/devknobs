@@ -1,5 +1,24 @@
 # changelog
 
+## 0.1.2
+
+### iPhone Duo
+
+- a fold goes at one constant speed, half a second shut to open, with no easing. the hinge under a hand on the fold slider still follows through its spring
+- a fold started from the fold chip or the posture knob starts sharp: no grey bands where the text is, and no jump as it begins
+- the half that turns shows the page in its own fonts, not a fallback
+- a fold back, a hand letting go and a hand taking the hinge go on from exactly where the fold is drawn
+- a draw that comes late slows the fold instead of skipping part of it
+- the fold's frames for the end the Duo rests at stay decoded while it is shown in its bezels
+
+### react
+
+- `dist/react.js` has `"use client"` once, on its first line. a second one further down failed under Next.js with webpack
+
+### internal
+
+- `bun run link <app>` and `bun run unlink <app>` put a local build into an app's `node_modules` as a copy, and put the installed one back
+
 ## 0.1.1
 
 ### iPhone Duo
