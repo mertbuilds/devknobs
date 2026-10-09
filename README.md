@@ -622,7 +622,8 @@ as the Duo does at rest. each frame is packed small, as its outline round a
 clear middle at 1.5 px per css px, and ships as an image. three.js runs only
 in that script, never in the package.
 
-in the page, Apple's hinge spring sets the angle, devknobs shows the frame
+in the page, the hinge sets the angle, at one constant speed, or through
+Apple's hinge spring under a hand on the fold slider. devknobs shows the frame
 nearest it, and the page sits in that frame's screen. the turning screen shows
 a picture of the page through a small WebGL2 blur, or plain layers where
 WebGL2 is not, and it stays still behind the turning glass, as on Apple's

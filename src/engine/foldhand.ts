@@ -7,8 +7,9 @@ import { foldDevice } from "./width";
 
 /**
  * A hand on a foldable's hinge, for the panel's fold slider, which is
- * experimental. The hinge follows the hand through its spring, and the knobs
- * change posture only once it is let go at an end, which the slider says.
+ * experimental. The hinge follows the hand through its spring, goes on at one
+ * speed once let go, and the knobs change posture only once it is let go at
+ * an end, which the slider says.
  */
 
 export { foldRest, holdingHinge, watchFold, watchHinge };
@@ -29,8 +30,9 @@ export function moveHinge(target: number): boolean {
 }
 
 /**
- * Let go of the hinge toward `stop`, springing there, or at once where the
- * user prefers less motion. False where there is no fold to let go of.
+ * Let go of the hinge toward `stop`, going there at one speed, or at once
+ * where the user prefers less motion. False where there is no fold to let go
+ * of.
  */
 export function letGo(stop: number): boolean {
   return releaseFold(stop, still());

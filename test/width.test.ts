@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SCREENS, turn } from "../src/engine/devices";
+import { FOLD_TIME } from "../src/engine/fold";
 import { UNFRAMED } from "../src/engine/frame";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
@@ -1184,10 +1185,12 @@ describe("a foldable folding", () => {
     expect(Reflect.get(leaves()[3]?.style ?? {}, "opacity") || "").toBe("");
     expect(Reflect.get(leaves()[3]?.children[0]?.style ?? {}, "opacity")).toBe("0");
     expect(String(Reflect.get(leaves()[3]?.style ?? {}, "transform"))).toEndWith("rotateY(0deg)");
-    // It moves on the first frame after the click.
+    // The first frame after the click draws it at rest still, and it moves on the next.
     for (const callback of frames.splice(0)) callback(1000);
+    expect(String(Reflect.get(leaves()[3]?.style ?? {}, "transform"))).toEndWith("rotateY(0deg)");
+    for (const callback of frames.splice(0)) callback(1016);
     expect(String(Reflect.get(leaves()[3]?.style ?? {}, "transform"))).toMatch(/rotateY\(-\d+(\.\d+)?deg\)/);
-    for (let now = 1016; now < 1200; now += 16) {
+    for (let now = 1032; now < 1200; now += 16) {
       for (const callback of frames.splice(0)) callback(now);
     }
     expect(Reflect.get(frameElement().style, "width")).toBe("951px");
@@ -1221,8 +1224,10 @@ describe("a foldable folding", () => {
     }
     expect(widths.slice(0, 20).every((width) => width === "951px")).toBe(true);
     expect(handing).toBe(true);
-    // Shut, sharp and lit, in under half a second.
-    expect(widths.length * 16).toBeLessThan(520);
+    // Shut, sharp and lit, a whole fold's time after its first frame, which drew it at rest, to a frame.
+    const landed = (widths.length - 1) * 16;
+    expect(landed).toBeGreaterThanOrEqual(FOLD_TIME);
+    expect(landed).toBeLessThan(FOLD_TIME + 16);
     expect(byClass("fold")).toBeUndefined();
     expect(drawnAs()).toEqual(shut);
   });

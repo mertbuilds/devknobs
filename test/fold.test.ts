@@ -13,6 +13,7 @@ import {
   foldFrame,
   foldLayout,
   type FoldSide,
+  FOLD_TIME,
   foldWarm,
   FREE_DARK,
   freeBand,
@@ -27,6 +28,7 @@ import {
   HINGE_STEP,
   hingeAfter,
   hingeDue,
+  hingeLinear,
   hingeStep,
   hingeStill,
   nearestReady,
@@ -147,17 +149,17 @@ describe("foldLayout", () => {
 });
 
 describe("the hinge", () => {
-  /** Where the hinge is `ms` into a fold from `from` to `to`, as the frame steps it. */
+  /** Where the hinge a hand holds is `ms` after the hand went from `from` to `to`, as the frame steps it. */
   const at = (from: number, to: number, ms: number) =>
     hingeAfter({ position: from, velocity: 0 }, to, Math.round(ms / HINGE_STEP)).position;
 
-  test("is Apple's spring, of 0.75 s and a bounce of 0.15, stepped 60 times a second", () => {
+  test("under a hand, is Apple's spring, of 0.75 s and a bounce of 0.15, stepped 60 times a second", () => {
     expect(HINGE.stiffness).toBeCloseTo(70.18, 1);
     expect(HINGE.damping).toBeCloseTo(14.24, 1);
     expect(HINGE_STEP).toBeCloseTo(16.67, 1);
   });
 
-  test("opens as fast as Apple's, measured, and moves from its first step", () => {
+  test("under a hand, opens as fast as Apple's, measured, and moves from its first step", () => {
     expect(at(0, 1, HINGE_STEP)).toBeGreaterThan(0.01);
     expect(at(0, 1, 67)).toBeCloseTo(0.15, 1);
     expect(at(0, 1, 167)).toBeCloseTo(0.49, 1);
@@ -173,7 +175,7 @@ describe("the hinge", () => {
     expect(at(1, 0, 417)).toBeCloseTo(1 - 0.93, 1);
   });
 
-  test("lands in under half a second, exactly, and never goes past", () => {
+  test("under a hand, lands in under half a second, exactly, and never goes past", () => {
     for (const [from, to] of [
       [0, 1],
       [1, 0],
@@ -192,7 +194,7 @@ describe("the hinge", () => {
     }
   });
 
-  test("is snapped home by a magnet within 0.08, keeping its speed toward it", () => {
+  test("under a hand, is snapped home by a magnet within 0.08, keeping its speed toward it", () => {
     const near = hingeStep({ position: 0.95, velocity: 0.3 }, 1);
     expect(near.position).toBeGreaterThan(0.95);
     expect(near.velocity).toBeGreaterThan(0.3);
@@ -203,7 +205,7 @@ describe("the hinge", () => {
     expect(hingeStep({ position: 0.5, velocity: 0 }, 1).velocity).toBeCloseTo(HINGE.stiffness * 0.5 * HINGE.step);
   });
 
-  test("turned back on its way, goes back from there as fast as it was going", () => {
+  test("turned back by a hand on its way, goes back from there as fast as it was going", () => {
     const going = hingeAfter({ position: 0, velocity: 0 }, 1, 10);
     expect(going.velocity).toBeGreaterThan(1);
     const back = hingeStep(going, 0);
@@ -224,7 +226,7 @@ describe("the hinge", () => {
     expect(hingeStep(going, 0.2).position).toBeGreaterThan(going.position);
   });
 
-  test("let go between the ends, rests there exactly, all but without going past", () => {
+  test("held between the ends, rests there exactly, all but without going past", () => {
     let hinge: Hinge = { position: 1, velocity: 0 };
     let steps = 0;
     while (!hingeStill(hinge, 0.333) && steps < 240) {
@@ -236,8 +238,98 @@ describe("the hinge", () => {
     expect(steps * HINGE_STEP).toBeLessThan(2000);
   });
 
+  /** How far a hinge no hand holds goes in a step, and how many steps a whole fold is. */
+  const stride = HINGE_STEP / FOLD_TIME;
+  const whole = Math.round(FOLD_TIME / HINGE_STEP);
+
+  test("held by no hand, goes as far each step, so a whole fold takes its time exactly, and lands stopped", () => {
+    expect(FOLD_TIME).toBe(500);
+    for (const [from, to] of [
+      [0, 1],
+      [1, 0],
+    ] as const) {
+      let hinge: Hinge = { position: from, velocity: 0 };
+      for (let step = 1; step < whole; step++) {
+        const next = hingeLinear(hinge, to);
+        expect(Math.abs(next.position - hinge.position)).toBeCloseTo(stride, 12);
+        expect(next.position).toBeCloseTo(from + (to - from) * step * stride, 12);
+        expect(next.velocity).toBeCloseTo(((to - from) * 1000) / FOLD_TIME, 12);
+        expect(hingeStill(next, to)).toBe(false);
+        hinge = next;
+      }
+      // The last step is as far, and it is there exactly, stopped.
+      expect(Math.abs(to - hinge.position)).toBeCloseTo(stride, 12);
+      expect(hingeLinear(hinge, to)).toEqual({ position: to, velocity: 0 });
+      expect(hingeAfter({ position: from, velocity: 0 }, to, whole, hingeLinear)).toEqual({ position: to, velocity: 0 });
+      expect(hingeAfter({ position: from, velocity: 0 }, to, whole * 3, hingeLinear)).toEqual({ position: to, velocity: 0 });
+    }
+  });
+
+  test("held by no hand, takes a part of the way in its share of the time", () => {
+    const after = (from: number, to: number, steps: number) => hingeAfter({ position: from, velocity: 0 }, to, steps, hingeLinear);
+    expect(hingeStill(after(0, 0.5, whole / 2 - 1), 0.5)).toBe(false);
+    expect(after(0, 0.5, whole / 2)).toEqual({ position: 0.5, velocity: 0 });
+    expect(hingeStill(after(0.75, 0.25, whole / 2 - 1), 0.25)).toBe(false);
+    expect(after(0.75, 0.25, whole / 2)).toEqual({ position: 0.25, velocity: 0 });
+    // A way that is no whole number of steps ends in a shorter one, never past where it goes.
+    const steps = Math.ceil((1 - 0.333) / stride);
+    expect(after(1, 0.333, steps - 1).position).toBeGreaterThan(0.333);
+    expect(after(1, 0.333, steps)).toEqual({ position: 0.333, velocity: 0 });
+    expect(hingeLinear({ position: 0.4, velocity: 0 }, 0.4)).toEqual({ position: 0.4, velocity: 0 });
+  });
+
+  test("held by no hand, between two steps, is the share of a step on that the time since the last is", () => {
+    const at = { position: 0.4, velocity: 0 };
+    expect(hingeLinear(at, 1, 0).position).toBe(0.4);
+    expect(hingeLinear(at, 1, 0.25).position).toBeCloseTo(0.4 + stride / 4, 12);
+    expect(hingeLinear(at, 0, 0.5).position).toBeCloseTo(0.4 - stride / 2, 12);
+    // There, stopped, once that share reaches, never past.
+    expect(hingeLinear({ position: 1 - stride / 2, velocity: 2 }, 1, 0.25).position).toBeCloseTo(1 - stride / 4, 12);
+    expect(hingeLinear({ position: 1 - stride / 2, velocity: 2 }, 1, 0.5)).toEqual({ position: 1, velocity: 0 });
+    expect(hingeLinear({ position: 1 - stride / 2, velocity: 2 }, 1, 0.75)).toEqual({ position: 1, velocity: 0 });
+  });
+
+  test("held by no hand, turned back on its way, turns round at once and goes back as fast", () => {
+    const going = hingeAfter({ position: 0, velocity: 0 }, 1, 10, hingeLinear);
+    expect(going.position).toBeCloseTo(10 * stride, 12);
+    const back = hingeLinear(going, 0);
+    expect(back.position).toBeCloseTo(9 * stride, 12);
+    expect(back.velocity).toBeCloseTo(-going.velocity, 12);
+    expect(hingeStill(hingeAfter(going, 0, 9, hingeLinear), 0)).toBe(false);
+    expect(hingeAfter(going, 0, 10, hingeLinear)).toEqual({ position: 0, velocity: 0 });
+  });
+
+  test("let go by a hand, goes on from where it is at a fold's one speed, whatever the spring's was", () => {
+    for (const velocity of [-3, 0, 0.2, 5]) {
+      const next = hingeLinear({ position: 0.4, velocity }, 1);
+      expect(next.position).toBeCloseTo(0.4 + stride, 12);
+      expect(next.velocity).toBeCloseTo(1000 / FOLD_TIME, 12);
+    }
+    // Where it is let go at, it stops, though the spring had it moving.
+    expect(hingeLinear({ position: 0.333, velocity: 2 }, 0.333)).toEqual({ position: 0.333, velocity: 0 });
+  });
+
+  test("taken by a hand on its way, the spring goes on as fast as the fold went, with no stop", () => {
+    const going = hingeAfter({ position: 0, velocity: 0 }, 1, 10, hingeLinear);
+    const held = hingeStep(going, 1);
+    expect(held.position - going.position).toBeGreaterThan(stride);
+    expect(held.position - going.position).toBeLessThan(2 * stride);
+    // From a stop it would lag a step behind.
+    expect(hingeStep({ ...going, velocity: 0 }, 1).position - going.position).toBeLessThan(stride);
+  });
+
   test("takes its first step in the first draw", () => {
     expect(hingeDue(0, 0)).toEqual({ steps: 1, dropped: 0 });
+  });
+
+  test("held by no hand, takes no step in the first draw, and each as its time comes, a few at most in a late one", () => {
+    expect(hingeDue(0, 0, 0)).toEqual({ steps: 0, dropped: 0 });
+    expect(hingeDue(HINGE_STEP * 0.5, 0, 0)).toEqual({ steps: 0, dropped: 0 });
+    expect(hingeDue(HINGE_STEP * 1.5, 0, 0)).toEqual({ steps: 1, dropped: 0 });
+    expect(hingeDue(HINGE_STEP * 6.5, 6, 0)).toEqual({ steps: 0, dropped: 0 });
+    const { steps, dropped } = hingeDue(HINGE_STEP * 30.5, 1, 0);
+    expect(steps).toBe(HINGE_CATCH_UP);
+    expect(dropped).toBeCloseTo((29 - HINGE_CATCH_UP) * HINGE_STEP);
   });
 
   test("takes the steps due in a draw on time, and drops none of the fold's time", () => {

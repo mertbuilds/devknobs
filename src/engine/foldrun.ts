@@ -12,6 +12,7 @@ import {
   HINGE_STEP,
   hingeDue,
   hingeAfter,
+  hingeLinear,
   hingeStep,
   hingeStill,
   openOf,
@@ -57,8 +58,10 @@ import type { ViewportValue } from "./width";
  * its screen is a window onto a picture of the page that lies flat, as
  * Apple's does: the picture is cut to where the turned screen is seen, dark
  * past its edge, blurred a few ever softer ways over the part the wipe
- * reaches, and the turned screen's shade goes over it. The hinge's spring
- * sets how far it has turned and how the screens are lit and blurred. Close
+ * reaches, and the turned screen's shade goes over it. The hinge sets how
+ * far it has turned and how the screens are lit and blurred: it goes at one
+ * speed, start to end, a whole fold in `FOLD_TIME` ms, and through its spring
+ * only while a hand holds it. Close
  * to shut and to open the copy fades into the device. Each frame changes only
  * transforms, the window's outline, gradients, masks and opacities. What it
  * needs of the frame comes in a `FoldScene`, so it holds no node of its own.
@@ -169,7 +172,7 @@ interface Going {
   hand: boolean;
   values: Record<PostureValue, ViewportValue>;
   frame: number;
-  /** When the hinge's first step was, how long since, and how many steps it has taken. */
+  /** When the hinge began to step, or last changed hands, how long since, and how many steps it has taken since. */
   begin: number | null;
   elapsed: number;
   steps: number;
@@ -591,10 +594,29 @@ function warm(going: Going, now: number): boolean {
 }
 
 /**
+ * The hinge changes hands, or turns round: it goes on from where the fold is
+ * drawn, as fast as its last step was, and its steps are counted again from
+ * the frame that drew it there, so the next frame draws it no further off
+ * than its own time takes it. `held`, a hand has it from now.
+ */
+function passOn(going: Going, held: boolean): void {
+  going.held = held;
+  going.hinge = { position: going.open, velocity: going.hinge.velocity };
+  if (going.begin === null) return;
+  going.begin += going.elapsed;
+  going.elapsed = 0;
+  // A hand's spring is a step ahead of its time, and this one is drawn.
+  going.steps = held ? 1 : 0;
+}
+
+/**
  * Step the hinge sixty times a second from the click's next frame, or where
- * the fold waits, from the frame it has what it turns, its first step drawn
- * then, till it lands, and while the render fades. A frame between two steps
- * draws it between them, so it moves as smoothly at any rate.
+ * the fold waits, from the frame it has what it turns, which draws it at rest
+ * still, the last time, till it lands, and while the render fades. Each step
+ * is as far as the last, so the fold never speeds up or slows down, and a
+ * frame is as far on as the time since the one before takes it, at any rate.
+ * Under a hand the spring steps it after the hand, its first step drawn in
+ * its first frame, and a frame between two steps draws it between them.
  */
 function swing(going: Going): void {
   const tick = (now: number) => {
@@ -608,12 +630,17 @@ function swing(going: Going): void {
     going.wait = null;
     going.begin ??= now;
     // A draw that comes late takes a few steps only, and the fold goes on from there.
-    going.begin += hingeDue(now - going.begin, going.steps).dropped;
+    const lead = going.held ? 1 : 0;
+    going.begin += hingeDue(now - going.begin, going.steps, lead).dropped;
     const elapsed = now - going.begin;
-    const due = elapsed / HINGE_STEP + 1;
+    const due = elapsed / HINGE_STEP + lead;
     const steps = Math.floor(due);
-    going.hinge = hingeAfter(going.hinge, going.target, steps - going.steps);
+    const step = going.held ? hingeStep : hingeLinear;
+    going.hinge = hingeAfter(going.hinge, going.target, steps - going.steps, step);
     going.steps = Math.max(going.steps, steps);
+    // At one speed it is as far past its last step as the time since takes it, and there once that reaches.
+    const on = going.held ? going.hinge : hingeLinear(going.hinge, going.target, due - steps);
+    if (hingeStill(on, going.target)) going.hinge = on;
     const still = hingeStill(going.hinge, going.target);
     const flat = still && isEnd(going.target);
     fadeOn(going, elapsed - going.elapsed, flat);
@@ -624,7 +651,7 @@ function swing(going: Going): void {
       return;
     }
     const next = hingeStep(going.hinge, going.target).position;
-    going.open = still ? going.target : lerp(going.hinge.position, next, due - steps);
+    going.open = still ? going.target : going.held ? lerp(going.hinge.position, next, due - steps) : on.position;
     show(going);
     going.frame = window.requestAnimationFrame(tick);
   };
@@ -634,9 +661,10 @@ function swing(going: Going): void {
 /**
  * Fold the device drawn as `from` to the posture `value` has, in view, and
  * `draw` the knobs once it is there. It waits at rest where it starts till
- * it has what it turns, `FOLD_WAIT` ms at most, then folds. A fold back while
- * it folds goes back from where it got to, as fast as it was going, or lands
- * where it started while it waits, and a hand on the hinge lets go of it.
+ * it has what it turns, `FOLD_WAIT` ms at most, then folds at one speed. A
+ * fold back while it folds turns round at once where it got to and goes back
+ * as fast, or lands where it started while it waits, and a hand on the hinge
+ * lets go of it.
  * Without a scene or a place to go, the knobs are drawn at
  * once. `held`, a hand takes the hinge instead, of the fold on its way or of
  * one toward `value` that stays where it is till the hand moves it, with no
@@ -651,7 +679,7 @@ export function foldDevice(
 ): boolean {
   const going = fold;
   if (going && held) {
-    going.held = true;
+    if (!going.held) passOn(going, true);
     going.hand = true;
     going.wait = null;
     return true;
@@ -659,11 +687,10 @@ export function foldDevice(
   if (going) {
     // The knobs take the hinge from a hand that holds it, or that sent it somewhere else.
     if (going.held || going.target !== openOf(value.posture)) going.hand = false;
-    going.held = false;
+    passOn(going, false);
     going.home = value.posture;
     going.target = openOf(value.posture);
     going.values[value.posture] = value;
-    going.open = going.hinge.position;
     show(going);
     wake(going);
     return true;
@@ -746,17 +773,19 @@ export function scrubFold(target: number): boolean {
   return true;
 }
 
-/** The hand lets go of the hinge, which goes on to `stop`, at once where `snap`. False where there is no fold. */
+/** The hand lets go of the hinge, which goes on to `stop` from where it is at a fold's one speed, at once where `snap`. False where there is no fold. */
 export function releaseFold(stop: number, snap: boolean): boolean {
   const going = fold;
   if (!going) return false;
-  going.held = false;
   going.hand = true;
   going.wait = null;
   going.target = stop;
   // With less motion it lands at once, without fading.
-  if (snap) {
+  if (!snap) passOn(going, false);
+  else {
+    going.held = false;
     going.hinge = { position: stop, velocity: 0 };
+    going.open = stop;
     going.out = isEnd(stop) ? 1 : 0;
     going.still = 1;
   }

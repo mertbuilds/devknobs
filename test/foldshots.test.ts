@@ -1,7 +1,18 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { bezelMock, bodyOf, foldShots, loadFoldShots, restFoldShots, SHOTS_KEPT } from "../src/engine/bezels";
 import { DUO_FOLD } from "../src/engine/bezelurls";
-import { FOLD_WAIT, HINGE_CATCH_UP, HINGE_STEP, hingeAfter, openOf, SHOTS_AHEAD, SHOTS_AROUND, SHOTS_FADE } from "../src/engine/fold";
+import {
+  FOLD_TIME,
+  FOLD_WAIT,
+  HINGE_CATCH_UP,
+  HINGE_STEP,
+  hingeAfter,
+  hingeLinear,
+  openOf,
+  SHOTS_AHEAD,
+  SHOTS_AROUND,
+  SHOTS_FADE,
+} from "../src/engine/fold";
 import {
   finishFold,
   type FoldScene,
@@ -834,8 +845,11 @@ describe("a Duo folding in its frames", () => {
     expect(opens.every((open) => open === 0)).toBe(true);
     await Bun.sleep(0);
     play(0);
-    unwatch();
     expect(canvases()).toHaveLength(2);
+    // That frame draws it at rest still, on the frames, and the next moves it.
+    expect(opens.at(-1)).toBe(0);
+    for (const callback of frames.splice(0)) callback(16);
+    unwatch();
     expect(opens.at(-1)).toBeGreaterThan(0);
     await playing(2000);
     expect(layer()).toBeUndefined();
@@ -851,9 +865,12 @@ describe("a Duo folding in its frames", () => {
     const unwatch = watchHinge((open) => opens.push(open));
     foldResting(SHUT, OPEN, sceneOf());
     expect(placed()).toHaveLength(2);
+    // The click's next frame draws it at rest still, and the one after is as far on as its time takes it.
     play(0);
+    expect(opens.at(-1)).toBe(0);
+    for (const callback of frames.splice(0)) callback(16);
     unwatch();
-    expect(opens.at(-1)).toBeGreaterThan(0);
+    expect(opens.at(-1)).toBeCloseTo(16 / FOLD_TIME, 9);
     expect(turned()).toBeGreaterThanOrEqual(0);
     stopFold();
   });
@@ -1002,8 +1019,14 @@ describe("a fold the knobs start, waiting for the pictures of the page", () => {
     expect(style(unit, "clipPath")).toBe("");
     letPaint();
     await Bun.sleep(0);
+    // The frame they are in by draws it at rest still, and each after as far on as its time takes it.
     await run(1);
-    expect(seen.at(-1)?.open).toBeGreaterThan(0);
+    expect(moved()).toBe(false);
+    expect(look()).toBe(rest);
+    await run(1);
+    expect(seen.at(-1)?.open).toBeCloseTo(16 / FOLD_TIME, 9);
+    await run(1);
+    expect(seen.at(-1)?.open).toBeCloseTo(32 / FOLD_TIME, 9);
     expect(seen.every((at) => !at.hand)).toBe(true);
     await run(200);
     expect(folding()).toBe(false);
@@ -1015,6 +1038,9 @@ describe("a fold the knobs start, waiting for the pictures of the page", () => {
     // Its first frame, then each of the wait but the last.
     await run(Math.ceil(FOLD_WAIT / 16));
     expect(now - 16).toBeLessThan(FOLD_WAIT);
+    expect(moved()).toBe(false);
+    // The frame its wait ends draws it at rest still, and the next moves it.
+    await run(1);
     expect(moved()).toBe(false);
     await run(1);
     expect(seen.at(-1)?.open).toBeGreaterThan(0);
@@ -1104,8 +1130,11 @@ describe("a fold the knobs start, waiting for the pictures of the page", () => {
     await run(1);
     expect(moved()).toBe(false);
     expect(releaseFold(1, false)).toBe(true);
+    // The next frame draws it at rest still, and the one after moves it.
     await run(1);
     expect(now - 16).toBeLessThan(FOLD_WAIT);
+    expect(moved()).toBe(false);
+    await run(1);
     expect(seen.at(-1)?.open).toBeGreaterThan(0);
     await run(200);
     expect(folding()).toBe(false);
@@ -1146,31 +1175,139 @@ describe("a fold the knobs start, waiting for the pictures of the page", () => {
   });
 });
 
+describe("a fold no hand holds", () => {
+  /** How far the hinge goes in a step. */
+  const stride = HINGE_STEP / FOLD_TIME;
+  const draw = (now: number) => {
+    for (const callback of frames.splice(0)) callback(now);
+  };
+  /** No bezels, so it turns copies, and no page to wait for the pictures of. */
+  const bare = (): FoldScene => ({ ...sceneOf(), body: () => null });
+  /** A hand takes the hinge of a fold from `from` toward `to`. */
+  const hold = (from: ViewportValue, to: ViewportValue, scene: FoldScene) =>
+    foldDevice(from, to, scene, (value) => drawn.push(value), true);
+
+  for (const rate of [60, 120, 144]) {
+    for (const [from, to] of [
+      [SHUT, OPEN],
+      [OPEN, SHUT],
+    ] as const) {
+      test(`at ${rate} Hz, ${to.posture}, is drawn at rest in its first frame, then as far on as the time since takes it, and lands a whole fold's time in`, () => {
+        const opens: number[] = [];
+        const unwatch = watchHinge((open) => opens.push(open));
+        const start = openOf(from.posture);
+        const toward = openOf(to.posture) - start;
+        const gap = 1000 / rate;
+        fold(from, to, bare());
+        expect(opens).toEqual([start]);
+        // Its first frame, whenever it comes, draws it where it rests.
+        const first = 1000;
+        draw(first);
+        expect(opens).toEqual([start, start]);
+        let frame = 1;
+        for (; frame < 2 * rate && folding(); frame += 1) {
+          const before = opens.at(-1) ?? start;
+          draw(first + frame * gap);
+          if (!folding()) break;
+          expect(opens.at(-1)).toBeCloseTo(start + (toward * frame * gap) / FOLD_TIME, 9);
+          // No frame moves it further than its own time takes it.
+          expect(((opens.at(-1) ?? start) - before) * toward).toBeCloseTo(gap / FOLD_TIME, 9);
+        }
+        unwatch();
+        // It lands in the first frame a whole fold's time in, and the one before drew it short of there.
+        expect(frame * gap).toBeGreaterThan(FOLD_TIME - 0.1);
+        expect(frame * gap).toBeLessThan(FOLD_TIME + gap);
+        expect(Math.abs((opens.at(-1) ?? start) - start)).toBeLessThan(1);
+        expect(frames).toHaveLength(0);
+        expect(drawn.at(-1)).toEqual(to);
+      });
+    }
+  }
+
+  for (const rate of [60, 120, 144]) {
+    const gap = 1000 / rate;
+
+    test(`at ${rate} Hz, folded back on its way, turns round where it is drawn and goes back at the same speed`, () => {
+      const opens: number[] = [];
+      const unwatch = watchHinge((open) => opens.push(open));
+      const scene = bare();
+      fold(SHUT, OPEN, scene);
+      // Turned between two steps of its hinge, where its frames are not its steps.
+      const turn = Math.ceil((10.3 * HINGE_STEP) / gap);
+      for (let frame = 0; frame <= turn; frame += 1) draw(frame * gap);
+      const there = opens.at(-1) ?? 0;
+      expect(there).toBeCloseTo((turn * gap) / FOLD_TIME, 9);
+      if (rate !== 60) expect((there / stride) % 1).toBeGreaterThan(0.01);
+      fold(OPEN, SHUT, scene);
+      expect(opens.at(-1)).toBe(there);
+      let frame = 1;
+      for (; frame < 2 * rate; frame += 1) {
+        draw((turn + frame) * gap);
+        if (!folding()) break;
+        expect(opens.at(-1)).toBeCloseTo(there - (frame * gap) / FOLD_TIME, 9);
+      }
+      unwatch();
+      // As long back as it took there.
+      expect(frame * gap).toBeGreaterThan(turn * gap - 0.1);
+      expect(frame * gap).toBeLessThan((turn + 1) * gap);
+      expect(drawn.at(-1)).toEqual(SHUT);
+    });
+
+    test(`at ${rate} Hz, taken by a hand on its way, goes on from where it is drawn, a spring's step at most`, () => {
+      const opens: number[] = [];
+      const unwatch = watchHinge((open) => opens.push(open));
+      const scene = bare();
+      fold(SHUT, OPEN, scene);
+      const taken = Math.ceil((10.3 * HINGE_STEP) / gap);
+      for (let frame = 0; frame <= taken; frame += 1) draw(frame * gap);
+      const there = opens.at(-1) ?? 0;
+      expect(hold(SHUT, OPEN, scene)).toBe(true);
+      expect(scrubFold(1)).toBe(true);
+      // The spring's step from there, as fast as the fold went.
+      const step = hingeAfter({ position: there, velocity: 1000 / FOLD_TIME }, 1, 1).position - there;
+      draw((taken + 1) * gap);
+      const next = opens.at(-1) ?? 0;
+      expect(next).toBeGreaterThanOrEqual(there);
+      expect(next - there).toBeCloseTo((step * gap) / HINGE_STEP, 9);
+      for (let frame = 2; frame < 20; frame += 1) {
+        const before = opens.at(-1) ?? 0;
+        draw((taken + frame) * gap);
+        expect(opens.at(-1)).toBeGreaterThan(before);
+        expect((opens.at(-1) ?? 0) - before).toBeLessThan(2 * stride);
+      }
+      unwatch();
+      expect(holdingHinge()).toBe(true);
+    });
+  }
+});
+
 describe("a fold whose draw comes late", () => {
   test("takes a few steps of its hinge in that draw, not all those due, and goes on from there a step a draw", () => {
     const opens: number[] = [];
     const unwatch = watchHinge((open) => opens.push(open));
     /** Where the hinge is after `steps` steps from shut toward open. */
-    const after = (steps: number) => hingeAfter({ position: 0, velocity: 0 }, 1, steps).position;
+    const after = (steps: number) => hingeAfter({ position: 0, velocity: 0 }, 1, steps, hingeLinear).position;
     const draw = (now: number) => {
       for (const callback of frames.splice(0)) callback(now);
     };
     // No bezels, so it turns copies, and no page to wait for the pictures of.
     fold(SHUT, OPEN, { ...sceneOf(), body: () => null });
     for (const now of [0, 16, 33]) draw(now);
-    // Two steps taken, and on its way to the third.
-    expect(opens.at(-1)).toBeGreaterThan(after(2));
-    expect(opens.at(-1)).toBeLessThanOrEqual(after(3));
-    // A second late: sixty steps are due.
+    // A step taken, and on its way to the second, as its first draw drew it at rest.
+    const before = opens.at(-1) ?? 0;
+    expect(before).toBeGreaterThan(after(1));
+    expect(before).toBeLessThanOrEqual(after(2));
+    // A second late, a whole number of steps: sixty are due.
     draw(1033);
     expect(folding()).toBe(true);
-    expect(opens.at(-1)).toBeGreaterThan(after(2 + HINGE_CATCH_UP));
-    expect(opens.at(-1)).toBeLessThanOrEqual(after(3 + HINGE_CATCH_UP));
+    expect(opens.at(-1)).toBeGreaterThan(after(1 + HINGE_CATCH_UP));
+    expect(opens.at(-1)).toBeLessThanOrEqual(after(2 + HINGE_CATCH_UP));
+    expect((opens.at(-1) ?? 0) - before).toBeCloseTo((HINGE_CATCH_UP * HINGE_STEP) / FOLD_TIME, 9);
     // On time again, a step a draw from where it got to.
     for (let step = 1; step <= 5; step += 1) {
       draw(1033 + step * HINGE_STEP);
-      expect(opens.at(-1)).toBeGreaterThan(after(2 + HINGE_CATCH_UP + step));
-      expect(opens.at(-1)).toBeLessThanOrEqual(after(3 + HINGE_CATCH_UP + step));
+      expect(opens.at(-1)).toBeGreaterThan(after(1 + HINGE_CATCH_UP + step));
+      expect(opens.at(-1)).toBeLessThanOrEqual(after(2 + HINGE_CATCH_UP + step));
     }
     unwatch();
     for (let now = 1133; now < 4000 && frames.length > 0; now += 16) draw(now);
@@ -1232,6 +1369,75 @@ describe("a hand on a foldable's hinge", () => {
     expect(drawn.at(-1)).toEqual(OPEN);
   });
 
+  test("follows the hand through its spring, slower at first than a fold no hand holds", () => {
+    const opens: number[] = [];
+    hold(SHUT, OPEN, { ...sceneOf(), body: () => null });
+    const unwatch = watchHinge((open) => opens.push(open));
+    scrubFold(0.9);
+    // Drawn as each step is due, its first in its first draw.
+    for (let step = 0; step < 12; step += 1) {
+      for (const callback of frames.splice(0)) callback(step * HINGE_STEP);
+    }
+    unwatch();
+    expect(opens).toHaveLength(12);
+    opens.forEach((open, step) => {
+      expect(open).toBeCloseTo(hingeAfter({ position: 0, velocity: 0 }, 0.9, step + 1).position, 9);
+    });
+    expect(opens[0]).toBeGreaterThan(0);
+    expect(opens[0]).toBeLessThan(HINGE_STEP / FOLD_TIME);
+    // It speeds up, as no fold at one speed does.
+    expect((opens[5] ?? 0) - (opens[4] ?? 0)).toBeGreaterThan(2 * (opens[0] ?? 0));
+  });
+
+  for (const rate of [120, 144]) {
+    test(`at ${rate} Hz, let go of a fast spring, goes on from where it is drawn, never back`, () => {
+      const opens: number[] = [];
+      const gap = 1000 / rate;
+      hold(SHUT, OPEN, { ...sceneOf(), body: () => null });
+      const unwatch = watchHinge((open) => opens.push(open));
+      scrubFold(1);
+      for (let frame = 0; frame < 13; frame += 1) {
+        for (const callback of frames.splice(0)) callback(frame * gap);
+      }
+      const there = opens.at(-1) ?? 0;
+      expect(there).toBeGreaterThan(0.2);
+      releaseFold(1, false);
+      for (let frame = 1; frame <= 10; frame += 1) {
+        for (const callback of frames.splice(0)) callback((12 + frame) * gap);
+        expect(opens.at(-1)).toBeCloseTo(there + (frame * gap) / FOLD_TIME, 9);
+      }
+      unwatch();
+      for (let now = 23 * gap; now < 2000 && frames.length > 0; now += gap) {
+        for (const callback of frames.splice(0)) callback(now);
+      }
+      expect(folding()).toBe(false);
+      expect(drawn.at(-1)).toEqual(OPEN);
+    });
+  }
+
+  test("let go on its way, goes on to the stop at a fold's one speed, whatever the spring's was", () => {
+    const opens: number[] = [];
+    hold(SHUT, OPEN, { ...sceneOf(), body: () => null });
+    scrubFold(0.9);
+    play(96);
+    const unwatch = watchHinge((open) => opens.push(open));
+    releaseFold(1, false);
+    for (let now = 112; now <= 2000 && frames.length > 0; now += 16) {
+      for (const callback of frames.splice(0)) callback(now);
+    }
+    unwatch();
+    expect(folding()).toBe(false);
+    expect(drawn.at(-1)).toEqual(OPEN);
+    // Between the ends when let go, with the spring at speed, then as far each draw, but for a last shorter step.
+    expect(opens[0]).toBeGreaterThan(0.1);
+    expect(opens[0]).toBeLessThan(0.7);
+    expect(opens.length).toBeGreaterThan(10);
+    const steps = opens.slice(1).map((open, index) => open - (opens[index] ?? 0));
+    for (const step of steps.slice(0, -2)) expect(step).toBeCloseTo(16 / FOLD_TIME, 9);
+    for (const step of steps) expect(step).toBeGreaterThan(0);
+    expect(opens.at(-1)).toBeLessThanOrEqual(1);
+  });
+
   test("let go back at the end it came from, lands there", () => {
     hold(SHUT, OPEN, sceneOf());
     scrubFold(0.5);
@@ -1279,6 +1485,28 @@ describe("a hand on a foldable's hinge", () => {
     play(16);
     expect(folding()).toBe(false);
     expect(drawn.at(-1)).toEqual(OPEN);
+  });
+
+  test("with less motion, taken again at the stop before the next frame, is drawn there and rests", () => {
+    const opens: number[] = [];
+    const scene = { ...sceneOf(), body: () => null };
+    hold(SHUT, OPEN, scene);
+    const unwatch = watchHinge((open) => opens.push(open));
+    scrubFold(0.6);
+    for (let frame = 0; frame < 13; frame += 1) {
+      for (const callback of frames.splice(0)) callback(frame * 16);
+    }
+    expect(opens.at(-1)).toBeGreaterThan(0.34);
+    releaseFold(0.333, true);
+    // No frame between: the hand finds the hinge at the stop, not where it was last drawn.
+    expect(hold(SHUT, OPEN, scene)).toBe(true);
+    scrubFold(0.333);
+    for (let frame = 13; frame < 16; frame += 1) {
+      for (const callback of frames.splice(0)) callback(frame * 16);
+      expect(opens.at(-1)).toBe(0.333);
+    }
+    unwatch();
+    expect(frames).toHaveLength(0);
   });
 
   test("let go of by the knobs folding it, goes where they say", () => {
@@ -1383,7 +1611,7 @@ describe("the fold chip beside a hand on the hinge", () => {
     expect(drawn.at(-1)).toEqual(OPEN);
   });
 
-  test("pressed while the hinge springs back where a hand let it go, turns it round", () => {
+  test("pressed while the hinge goes back where a hand let it go, turns it round", () => {
     const scene = sceneOf();
     hold(SHUT, OPEN, scene);
     scrubFold(0.6);
@@ -1499,7 +1727,10 @@ describe("a Duo whose frames do not decode", () => {
     // No page to wait for the pictures of.
     foldResting(SHUT, OPEN, sceneOf());
     expect(placed()).toHaveLength(7);
+    // That frame draws it at rest still, and the next moves it.
     play(0);
+    expect(opens.at(-1)).toBe(0);
+    for (const callback of frames.splice(0)) callback(16);
     unwatch();
     expect(opens.at(-1)).toBeGreaterThan(0);
     await playing(2000);
