@@ -397,7 +397,7 @@ export function createEditors(context: EditorsContext): Editors {
       const turned = engine.getState().orientation === "portrait" ? "landscape" : "portrait";
       commit("device", { orientation: turned });
     });
-    // The chip takes the hinge from the slider, held or springing, and folds it to the other posture.
+    // The chip takes the hinge from the slider, held or on its way, and folds it to the other posture.
     fold.addEventListener("click", () => {
       commit("device", { posture: foldChip(engine.getState().posture).posture });
     });

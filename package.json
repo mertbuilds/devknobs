@@ -1,6 +1,6 @@
 {
   "name": "devknobs",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "license": "MIT",
   "author": "Mert Duzgun",
@@ -27,7 +27,9 @@
     "./bezels/*": "./dist/bezels/*"
   },
   "scripts": {
-    "build": "bun scripts/bezelurls.ts && bun -e 'require(\"fs\").rmSync(\"dist.tmp\",{recursive:true,force:true})' && bun build src/index.ts --outdir dist.tmp --format esm --splitting && bun build src/react.tsx --outdir dist.tmp --format esm --splitting --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist.tmp/index.global.js --format iife --minify --define 'import.meta.url=\"\"' && bun build src/early.ts --outfile dist.tmp/early.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json --outDir dist.tmp && if [ -d assets/bezels ]; then cp -R assets/bezels dist.tmp/bezels; fi && bun -e 'const fs=require(\"fs\");fs.rmSync(\"dist\",{recursive:true,force:true});fs.renameSync(\"dist.tmp\",\"dist\")'",
+    "build": "bun scripts/bezelurls.ts && bun -e 'require(\"fs\").rmSync(\"dist.tmp\",{recursive:true,force:true})' && bun build src/index.ts --outdir dist.tmp --format esm --splitting && bun build src/react.tsx --outdir dist.tmp --format esm --splitting --external react --banner '\"use client\";' && bun build src/global.ts --outfile dist.tmp/index.global.js --format iife --minify --define 'import.meta.url=\"\"' && bun build src/early.ts --outfile dist.tmp/early.global.js --format iife --minify && tsc --emitDeclarationOnly --project tsconfig.build.json --outDir dist.tmp && if [ -d assets/bezels ]; then cp -R assets/bezels dist.tmp/bezels; fi && bun scripts/useclient.ts && bun -e 'const fs=require(\"fs\");fs.rmSync(\"dist\",{recursive:true,force:true});fs.renameSync(\"dist.tmp\",\"dist\")'",
+    "link": "bun scripts/link.ts link",
+    "unlink": "bun scripts/link.ts unlink",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

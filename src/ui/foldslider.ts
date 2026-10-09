@@ -9,10 +9,10 @@ import { icon } from "./icons";
  * A slider that folds a foldable open and shut by hand, as the one on Apple's
  * iPhone Duo page does. Experimental: it may go again. The thumb follows the
  * pointer and the hinge follows the thumb through its spring, so it lags a
- * little. Let go, the hinge springs to the nearest stop, shut, the landing a
- * third of the way open, or open, and the knobs take the posture only at an
- * end. Left at the landing, the device stays half open till the knobs change
- * or the window does, and lands as the knobs have it.
+ * little. Let go, the hinge goes at one speed to the nearest stop, shut, the
+ * landing a third of the way open, or open, and the knobs take the posture
+ * only at an end. Left at the landing, the device stays half open till the
+ * knobs change or the window does, and lands as the knobs have it.
  */
 
 /** Where the hinge stops once let go: shut, the landing, and open. */

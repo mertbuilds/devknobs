@@ -622,7 +622,8 @@ as the Duo does at rest. each frame is packed small, as its outline round a
 clear middle at 1.5 px per css px, and ships as an image. three.js runs only
 in that script, never in the package.
 
-in the page, Apple's hinge spring sets the angle, devknobs shows the frame
+in the page, the hinge sets the angle, at one constant speed, or through
+Apple's hinge spring under a hand on the fold slider. devknobs shows the frame
 nearest it, and the page sits in that frame's screen. the turning screen shows
 a picture of the page through a small WebGL2 blur, or plain layers where
 WebGL2 is not, and it stays still behind the turning glass, as on Apple's
@@ -797,6 +798,25 @@ them:
 - trusted touch events, pinch and `:hover` that follows touch (device toolbar)
 - network throttling and a real offline (network panel)
 - the time zone of workers and of the page before devknobs loads (sensors panel, or a `TZ` environment variable when the browser starts)
+
+## development
+
+to try a local build in an app:
+
+```
+bun run link ../my-app
+bun run unlink ../my-app
+```
+
+a relative path is from the devknobs folder; absolute and `~` paths work too.
+the app may use any package manager: a pnpm app's link into its store is kept
+and put back as it was.
+
+`link` builds, then copies the package into the app's `node_modules/devknobs`
+and keeps the installed one beside it for `unlink` to put back. it is a copy,
+not a symlink: Turbopack refuses a package linked from outside the app, and
+other bundlers treat the real path as app source. restart the app's dev server
+after each.
 
 ## license
 
