@@ -1096,4 +1096,91 @@ describe("a request's row", () => {
     // No row is marked by where its request came from.
     expect(CSS).not.toMatch(/\.framed|\.mixed/);
   });
+
+  test("its color is in its text and its marks alone: nothing around or behind any part of it", () => {
+    const parts = rules(CSS).filter((rule) => /\.req-/.test(rule.selector));
+    expect(parts.length).toBeGreaterThan(20);
+    const lined = parts.filter((rule) => /border(?!-radius)|outline|box-shadow/.test(rule.body));
+    expect(lined.map((rule) => rule.selector)).toEqual([]);
+    // A ground is the bar's, which the list scrolls under, a body's box in the detail, and a row's hover.
+    const grounded = parts.filter((rule) => /background/.test(rule.body.replace(/transition:[^;]*;/g, "")));
+    expect(grounded.map((rule) => rule.selector)).toEqual([".req-bar", ".req-row:hover", ".req-pre"]);
+    const heavy = parts.filter((rule) => /font-weight|padding|border-radius/.test(rule.body));
+    expect(heavy.map((rule) => rule.selector).filter((selector) => /method|status|mark|get|post|ok/.test(selector))).toEqual([]);
+  });
+
+  test("a mark takes the method's place and its width, mid row, and no tone changes a box", () => {
+    expect(body(".req-method")).toMatch(/flex:\s*none;\s*width:\s*36px/);
+    expect(body(".req-method.mark")).toMatch(/align-self:\s*center/);
+    expect(body(".req-method.mark")).not.toMatch(/width|height|margin|padding/);
+    const tones = rules(CSS).filter((rule) =>
+      /^\.req-(get|post|put|patch|delete|rest|image|font|media)$|^\.req-status\.\w+, \.req-v\.\w+$/.test(rule.selector),
+    );
+    expect(tones.length).toBe(13);
+    for (const rule of tones) expect(rule.body.trim()).toMatch(/^color:\s*var\(--[a-z-]+\);$/);
+  });
+});
+
+describe("the request tones", () => {
+  const TOKENS = [
+    "--ok",
+    "--req-moved",
+    "--req-get",
+    "--req-post",
+    "--req-put",
+    "--req-patch",
+    "--req-delete",
+    "--req-image",
+    "--req-font",
+    "--req-media",
+  ];
+
+  /** The custom properties a block of the styles sets, by name. */
+  function tokens(block: string): Map<string, string> {
+    return new Map([...block.matchAll(/(--[a-z-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
+  }
+
+  const light = tokens(body(".wrap"));
+  const dark = tokens(/@media \(prefers-color-scheme: dark\) \{\s*\.wrap \{([^}]*)\}/.exec(CSS)?.[1] ?? "");
+
+  function luminance(hex: string): number {
+    const [red = 0, green = 0, blue = 0] = [1, 3, 5].map((at) => {
+      const part = parseInt(hex.slice(at, at + 2), 16) / 255;
+      return part <= 0.03928 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  }
+
+  function contrast(one: string, other: string): number {
+    const [high = 0, low = 0] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+    return (high + 0.05) / (low + 0.05);
+  }
+
+  test("each is set for the light scheme and for the dark one", () => {
+    for (const name of TOKENS) {
+      expect([name, light.get(name)]).toEqual([name, expect.stringMatching(/^#[0-9a-f]{6}$/)]);
+      expect([name, dark.get(name)]).toEqual([name, expect.stringMatching(/^#[0-9a-f]{6}$/)]);
+      expect(dark.get(name)).not.toBe(light.get(name));
+    }
+  });
+
+  test("each reads as small text on the panel's ground, and as a mark on a hovered row", () => {
+    for (const scheme of [light, dark]) {
+      for (const name of TOKENS) {
+        const color = scheme.get(name) ?? "";
+        expect(contrast(color, scheme.get("--bg") ?? "")).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(color, scheme.get("--card") ?? "")).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  test("every tone the styles use is one of them, or a color the panel had", () => {
+    const used = new Set(
+      rules(CSS)
+        .filter((rule) => /\.req-/.test(rule.selector))
+        .flatMap((rule) => [...rule.body.matchAll(/color:\s*var\((--[a-z-]+)\)/g)].map((match) => match[1])),
+    );
+    for (const name of TOKENS) expect([name, used.has(name)]).toEqual([name, true]);
+    for (const name of used) expect([...TOKENS, "--faint", "--hot", "--line"]).toContain(name);
+  });
 });

@@ -5,6 +5,7 @@ import { BINDINGS, comboProblem, readKeys, resolveKeys } from "../src/ui/binding
 import { ACTIONS } from "../src/ui/catalog";
 import { comboText, defaultKeys, keyAction, type KeyLike, parseCombo } from "../src/ui/keys";
 import { GONE_NOTE, HIDES_NOTE } from "../src/ui/requestdetail";
+import { BRANDS } from "../src/ui/icons";
 import { clockTime, copyText, LIGHT_WHY, LONG_BODY } from "../src/ui/requestformat";
 import {
   createRequests,
@@ -212,7 +213,18 @@ describe("the list", () => {
     ]);
     // The log keeps its own order, oldest first: only the view turns it over.
     expect(at.store.entries().map((entry) => entry.timing.at)).toEqual([10, 20, 30]);
-    expect(at.rows().map((row) => row.one("req-status").classList.contains("hot"))).toEqual([false, true, false]);
+    expect(at.rows().map((row) => row.one("req-status").className)).toEqual([
+      "req-status idle",
+      "req-status hot",
+      "req-status ok",
+    ]);
+    // The method stays text, in its own tone, with nothing drawn in its place.
+    expect(at.rows().map((row) => row.one("req-method").className)).toEqual([
+      "req-method req-post",
+      "req-method req-delete",
+      "req-method req-post",
+    ]);
+    expect(at.rows().flatMap((row) => row.one("req-method").nodes())).toEqual([]);
     expect(at.rows().map((row) => row.tag)).toEqual(["button", "button", "button"]);
     expect(at.pane.body.one("req-count").textContent).toBe("3");
     expect(at.pane.body.one("empty").hidden).toBe(true);
@@ -224,11 +236,62 @@ describe("the list", () => {
     at.add(100);
     at.requests.toggle();
     const [full, light] = at.rows();
-    expect(light?.one("req-method").textContent).toBe("img");
+    const kind = light?.one("req-method");
+    // The kind is an icon, and its word is still there as its name and its tooltip.
+    expect(kind?.textContent).toBe("");
+    expect(kind?.className).toBe("req-method mark req-image");
+    expect(kind?.getAttribute("role")).toBe("img");
+    expect(kind?.getAttribute("aria-label")).toBe("img");
+    expect(kind?.title).toBe("img");
+    expect(kind?.nodes().map((node) => [node.tag, node.getAttribute("aria-hidden")])).toEqual([["svg", "true"]]);
+    expect(full?.one("req-method").textContent).toBe("POST");
+    expect(full?.one("req-method").getAttribute("aria-label")).toBeNull();
     expect(light?.classList.contains("light")).toBe(true);
     expect(light?.title).toBe(`http://cdn.test/img/logo.png\n${LIGHT_WHY}`);
     expect(full?.classList.contains("light")).toBe(false);
     expect(full?.title).toBe("http://app.test/api/item-100");
+  });
+
+  test("a kind with a mark of its own shows it in its color, the letters of a lettered one behind it", () => {
+    const at = scene();
+    at.store.put(image({ id: at.store.nextId(), url: "http://app.test/app.js", initiatorType: "script" }));
+    at.store.put(image({ id: at.store.nextId(), url: "http://app.test/data.json", initiatorType: "fetch" }));
+    at.requests.toggle();
+    const [json, js] = at.rows().map((row) => row.one("req-method"));
+    expect(js?.className).toBe("req-method mark");
+    expect(js?.getAttribute("aria-label")).toBe("js");
+    const fills = (node: FakeNode | undefined) =>
+      node?.one("glyph").nodes().map((shape) => [shape.tag, shape.getAttribute("fill"), shape.getAttribute("d")]);
+    // Dark letters on the yellow square, whatever the panel's scheme.
+    expect(fills(js)).toEqual([
+      ["path", "#000", "M1 1h22v22H1z"],
+      ["path", "#F7DF1E", BRANDS.javascript[1]],
+    ]);
+    expect(json?.getAttribute("aria-label")).toBe("json");
+    expect(fills(json)).toEqual([["path", "currentColor", BRANDS.json[1]]]);
+  });
+
+  test("a row's status changes its color with its state, one tone at a time, and its columns stay put", () => {
+    const at = scene();
+    const entry = at.add(10, { method: "GET", state: "pending", status: null });
+    at.requests.toggle();
+    const [row] = at.rows();
+    const method = row?.one("req-method");
+    const drawn = method?.children;
+    expect(row?.one("req-status").className).toBe("req-status idle");
+    for (const [status, state, className] of [
+      [200, "ok", "req-status ok"],
+      [304, "ok", "req-status moved"],
+      [404, "failed", "req-status hot"],
+      [101, "ok", "req-status"],
+    ] as const) {
+      at.store.update(entry.id, { state, status });
+      at.timer.run();
+      expect(row?.one("req-status").className).toBe(className);
+    }
+    // The method was written once: a row that finishes moves nothing in its first column.
+    expect(method?.children).toBe(drawn);
+    expect(method?.className).toBe("req-method req-get");
   });
 
   test("a row of the device frame looks like any other row", () => {
@@ -641,6 +704,46 @@ describe("the detail", () => {
     expect(section(at, "request headers").one("req-inner").textContent).toBe(
       "content-typeapplication/jsonAuthorizationBearer abcX-Api-Keyk1",
     );
+  });
+
+  test("the general part is colored as the row is: the status, and the method or the kind's mark", () => {
+    const at = scene();
+    at.store.put(image());
+    at.add(100, { method: "PATCH", state: "failed", status: 500, statusText: "" });
+    at.requests.toggle();
+    /** The general lines by their label, as the nodes that show their values. */
+    const general = () => {
+      const [grid] = section(at, "general").find("req-general");
+      const cells = grid?.nodes() ?? [];
+      return new Map(cells.flatMap((cell, at) => (at % 2 === 0 ? [[cell.textContent, cells[at + 1]] as const] : [])));
+    };
+    for (const [index, light] of [false, true].entries()) {
+      const row = at.rows()[index];
+      const tone = row?.one("req-status").className.replace("req-status ", "") ?? "";
+      const lead = row?.one("req-method");
+      row?.click();
+      const lines = general();
+      // The same tone on the status, in the list and here.
+      expect(lines.get("status")?.className).toBe(`req-v ${tone}`);
+      if (light) {
+        expect(tone).toBe("ok");
+        expect(lines.has("method")).toBe(false);
+        const mark = lines.get("kind")?.one("req-mark");
+        expect(mark?.className).toBe("req-mark req-image");
+        const shapes = (node: FakeNode | undefined) =>
+          node?.one("glyph").nodes().map((shape) => [shape.tag, [...shape.attributes]]);
+        expect(shapes(mark)).toEqual(shapes(lead) ?? []);
+        expect(shapes(mark)?.length).toBe(3);
+        expect(lines.get("kind")?.textContent).toBe("img, loaded by img");
+      } else {
+        expect(tone).toBe("hot");
+        expect(lines.get("method")?.className).toBe("req-v req-patch");
+        expect(lines.get("method")?.textContent).toBe("PATCH");
+        expect(lead?.className).toBe("req-method req-patch");
+        expect(lines.get("kind")?.find("req-mark")).toEqual([]);
+      }
+      at.pane.escape();
+    }
   });
 
   test("a section folded away is not filled until it opens", () => {

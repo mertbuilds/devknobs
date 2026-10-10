@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BODY_CAP, type BodyRecord } from "../src/requests/types";
+import type { GlyphName } from "../src/ui/icons";
 import {
   atTop,
   bodyNote,
@@ -13,15 +14,19 @@ import {
   hides,
   keptScroll,
   kindLabel,
+  kindMark,
+  lead,
   LIGHT_WHY,
   matches,
   methodLabel,
+  methodTone,
   middle,
   QUERY_MAX,
   sizeLabel,
   statusHot,
   statusLabel,
   statusLine,
+  statusTone,
   STICK_SLACK,
   urlName,
 } from "../src/ui/requestformat";
@@ -100,6 +105,92 @@ describe("methodLabel and kindLabel", () => {
       expect(methodLabel(fetched({ method: word }))).toBe(word.slice(0, 5));
       expect(methodLabel(fetched({ method: word.toUpperCase() }))).toBe(word.toUpperCase().slice(0, 5));
     }
+  });
+});
+
+describe("marks and tones", () => {
+  test("each kind has its mark: a brand's own in its color, or an icon in a tone", () => {
+    const table: [url: string, more: Parameters<typeof image>[0], kind: string, icon: GlyphName, tone: string][] = [
+      ["app.js", {}, "js", "javascript", ""],
+      ["app.mjs", {}, "js", "javascript", ""],
+      ["site.css", {}, "css", "css", ""],
+      ["", { kind: "navigation" }, "doc", "html5", ""],
+      ["embed.html", { initiatorType: "iframe" }, "frame", "html5", ""],
+      ["sum.wasm", { initiatorType: "fetch" }, "wasm", "webassembly", ""],
+      ["x", { initiatorType: "fetch", contentType: "application/wasm" }, "wasm", "webassembly", ""],
+      ["data.json", { initiatorType: "fetch" }, "json", "json", ""],
+      ["x", { initiatorType: "fetch", contentType: "application/ld+json" }, "json", "json", ""],
+      ["a.png", {}, "img", "image", "req-image"],
+      ["a.jpg", {}, "img", "image", "req-image"],
+      ["a.avif", {}, "img", "image", "req-image"],
+      ["a.svg", {}, "img", "image", "req-image"],
+      ["a.webp", {}, "img", "image", "req-image"],
+      ["a.woff2", { initiatorType: "css" }, "font", "type", "req-font"],
+      ["a.mp4", { initiatorType: "video" }, "media", "film", "req-media"],
+      ["x", { initiatorType: "fetch" }, "fetch", "arrow-up-down", "req-rest"],
+      ["x", { initiatorType: "xmlhttprequest" }, "xhr", "arrow-up-down", "req-rest"],
+      ["x", { initiatorType: "beacon" }, "beacon", "file", "req-rest"],
+      ["a.unknown", { initiatorType: "" }, "other", "file", "req-rest"],
+    ];
+    for (const [url, more, kind, icon, tone] of table) {
+      const entry = image({ url: `http://app.test/${url}`, ...more });
+      // The word stays, as the name of what is drawn.
+      expect([url, lead(entry)]).toEqual([url, { text: kind, icon, tone }]);
+      expect(kindMark(kindLabel(entry))).toEqual({ icon, tone });
+    }
+  });
+
+  test("a word of the page's that every object has a member by is a plain file", () => {
+    for (const word of ["constructor", "toString", "__proto__"]) {
+      expect(kindMark(word)).toEqual({ icon: "file", tone: "req-rest" });
+      expect(methodTone(word)).toBe("req-rest");
+    }
+  });
+
+  test("each common method has its tone, and the rest share one", () => {
+    const table = [
+      ["GET", "req-get"],
+      ["POST", "req-post"],
+      ["PUT", "req-put"],
+      ["PATCH", "req-patch"],
+      ["DELETE", "req-delete"],
+      ["HEAD", "req-rest"],
+      ["OPTIONS", "req-rest"],
+      ["get", "req-get"],
+    ] as const;
+    for (const [method, tone] of table) {
+      expect([method, methodTone(method)]).toEqual([method, tone]);
+      // A full row keeps the method as text, and no icon in its place.
+      expect(lead(fetched({ method }))).toEqual({ text: methodLabel(fetched({ method })), icon: null, tone });
+    }
+    expect(new Set(table.slice(0, 6).map(([, tone]) => tone)).size).toBe(6);
+  });
+
+  test("a full row with no method shows its kind's mark", () => {
+    expect(lead(fetched({ method: "" }))).toEqual({ text: "fetch", icon: "arrow-up-down", tone: "req-rest" });
+  });
+
+  test("a status has the tone of how it went", () => {
+    const table: [more: Parameters<typeof fetched>[0], tone: ReturnType<typeof statusTone>][] = [
+      [{ status: 200 }, "ok"],
+      [{ status: 204 }, "ok"],
+      [{ status: 299 }, "ok"],
+      [{ status: 301 }, "moved"],
+      [{ status: 304 }, "moved"],
+      [{ status: 399 }, "moved"],
+      [{ status: 404, state: "failed" }, "hot"],
+      [{ status: 400 }, "hot"],
+      [{ status: 500, state: "failed" }, "hot"],
+      [{ status: null, state: "failed" }, "hot"],
+      [{ status: null, state: "pending" }, "idle"],
+      [{ status: null, state: "aborted" }, "idle"],
+      [{ status: 404, state: "aborted" }, "idle"],
+      [{ status: 101 }, null],
+      [{ status: 0 }, null],
+      [{ status: null }, null],
+    ];
+    for (const [more, tone] of table) expect([more, statusTone(fetched(more))]).toEqual([more, tone]);
+    expect(statusTone(image())).toBe("ok");
   });
 });
 

@@ -1,15 +1,17 @@
 import { NativeDate } from "../engine/clock";
 import type { BodyRecord, HeaderList, RequestEntry } from "../requests/types";
 import { button, el, rowBox } from "./dom";
-import { icon } from "./icons";
+import { glyph, icon } from "./icons";
 import {
   bodyNote,
   bodyText,
   clockTime,
   generalLines,
   hasText,
+  lead,
   LIGHT_WHY,
   LONG_BODY,
+  statusTone,
 } from "./requestformat";
 
 /**
@@ -62,6 +64,29 @@ function pairs(lines: readonly (readonly [string, string])[], className: string)
   return grid;
 }
 
+/**
+ * The general lines, colored as the request's row is: the status in its
+ * tone, the method in its own, and the kind with its mark before it where
+ * the row shows that in the method's place.
+ */
+function general(entry: RequestEntry): HTMLElement {
+  const first = lead(entry);
+  const grid = el("div", "req-kv req-general");
+  for (const [label, value] of generalLines(entry, clockTime(new NativeDate(entry.timing.start)))) {
+    const shown = el("span", "req-v");
+    if (label === "kind" && first.icon) {
+      const mark = el("span", ["req-mark", first.tone].filter(Boolean).join(" "));
+      mark.append(glyph(first.icon));
+      shown.append(mark);
+    }
+    shown.append(value);
+    const tone = label === "status" ? statusTone(entry) : label === "method" && !first.icon ? first.tone : null;
+    if (tone) shown.classList.add(tone);
+    grid.append(el("span", "req-k", label), shown);
+  }
+  return grid;
+}
+
 function headers(list: HeaderList): HTMLElement[] {
   return list.length === 0 ? [el("div", "note", "none")] : [pairs(list, "req-headers")];
 }
@@ -93,9 +118,7 @@ const GENERAL: Part = {
   of: (entry) => entry,
   brief: () => "",
   open: () => true,
-  fill: (entry) => [
-    pairs(generalLines(entry, clockTime(new NativeDate(entry.timing.start))), "req-general"),
-  ],
+  fill: (entry) => [general(entry)],
 };
 
 const FULL: readonly Part[] = [

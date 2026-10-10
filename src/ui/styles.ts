@@ -45,6 +45,16 @@ export const CSS = `
   --raised: #ffffff;
   --lift: 0 1px 2px rgb(0 0 0 / 0.1);
   --hot: #e5484d;
+  --ok: #18794e;
+  --req-moved: #9e5c00;
+  --req-get: #0b6fc6;
+  --req-post: #6550b9;
+  --req-put: #bd4800;
+  --req-patch: #007f6d;
+  --req-delete: #ce2c31;
+  --req-image: #2a7e3b;
+  --req-font: #c2298a;
+  --req-media: #00749e;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --edge: 0px;
   --edge-line: transparent;
@@ -75,6 +85,16 @@ export const CSS = `
     --raised: #383833;
     --lift: none;
     --hot: #ff6369;
+    --ok: #3dd68c;
+    --req-moved: #f1a10d;
+    --req-get: #70b8ff;
+    --req-post: #baa7ff;
+    --req-put: #ff977d;
+    --req-patch: #0bd8b6;
+    --req-delete: #ff9592;
+    --req-image: #71d083;
+    --req-font: #ff8dcc;
+    --req-media: #4ccce6;
   }
 }
 .wrap[data-side="left"] { flex-direction: row-reverse; transform: translateX(-239px); }
@@ -916,7 +936,10 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    Only the name gives way: the method, the status and the time each keep
    their width, so the columns line up down the list, and nothing wraps.
    New rows go in at the top, and the view moves the scroll for them itself,
-   so the browser's own scroll anchoring is off here: one of the two only. */
+   so the browser's own scroll anchoring is off here: one of the two only.
+   Color is in the text and the marks alone: a method in its own tone, a kind
+   as a mark in the method's place, a status green in the 200s, amber in the
+   300s and hot from 400 up. Nothing is drawn around or behind any of them. */
 .req-bar {
   overflow-anchor: none;
   position: sticky;
@@ -950,11 +973,25 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .req-row:hover { background: var(--card); }
 .req-method { flex: none; width: 36px; overflow: hidden; font-size: 10.5px; color: var(--faint); }
+/* A mark sits mid row, where the text of the row is laid out by its baseline. */
+.req-method.mark { display: flex; align-self: center; }
+.req-get { color: var(--req-get); }
+.req-post { color: var(--req-post); }
+.req-put { color: var(--req-put); }
+.req-patch { color: var(--req-patch); }
+.req-delete { color: var(--req-delete); }
+.req-rest { color: var(--faint); }
+.req-image { color: var(--req-image); }
+.req-font { color: var(--req-font); }
+.req-media { color: var(--req-media); }
 .req-name { flex: 1; min-width: 0; display: flex; font-family: var(--mono); font-size: 11px; }
 .req-path { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .req-query { flex: none; color: var(--faint); }
 .req-status { flex: none; width: 44px; font-variant-numeric: tabular-nums; text-align: right; }
-.req-status.hot { color: var(--hot); }
+.req-status.ok, .req-v.ok { color: var(--ok); }
+.req-status.moved, .req-v.moved { color: var(--req-moved); }
+.req-status.hot, .req-v.hot { color: var(--hot); }
+.req-status.idle, .req-v.idle { color: var(--faint); }
 .req-time {
   flex: none;
   width: 40px;
@@ -995,6 +1032,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   -webkit-user-select: text;
   cursor: text;
 }
+/* A kind's mark before its words, mid line. */
+.req-mark { display: inline-flex; margin-right: 6px; vertical-align: -2px; }
 .req-pre {
   max-height: 240px;
   margin: 0;

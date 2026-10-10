@@ -6,6 +6,7 @@ import {
   type RequestEntry,
   type RequestSizes,
 } from "../requests/types";
+import type { GlyphName } from "./icons";
 
 /**
  * How a request reads: in a row of the requests view, in its detail, and as
@@ -79,6 +80,8 @@ const EXTENSIONS = new Map([
   ["mp4", "media"],
   ["webm", "media"],
   ["mp3", "media"],
+  ["wasm", "wasm"],
+  ["json", "json"],
 ]);
 
 /** What Resource Timing says loaded a thing, as the kind of thing that most often is. */
@@ -99,6 +102,8 @@ function typeKind(type: string): string {
   if (/^text\/css/i.test(type)) return "css";
   if (/(java|ecma)script/i.test(type)) return "js";
   if (/^font\//i.test(type)) return "font";
+  if (/^application\/wasm/i.test(type)) return "wasm";
+  if (isJson(type)) return "json";
   return /^(video|audio)\//i.test(type) ? "media" : "";
 }
 
@@ -140,6 +145,59 @@ export function methodLabel(entry: RequestEntry): string {
   return SHORT_METHODS.get(entry.method) ?? entry.method.slice(0, 5);
 }
 
+/** What stands for a kind in a row: a mark or an icon, and the tone it is drawn in. */
+export interface KindMark {
+  icon: GlyphName;
+  /** A class that colors it, or none for a mark that has its own color. */
+  tone: string;
+}
+
+const KIND_MARKS = new Map<string, KindMark>([
+  ["js", { icon: "javascript", tone: "" }],
+  ["css", { icon: "css", tone: "" }],
+  ["doc", { icon: "html5", tone: "" }],
+  ["frame", { icon: "html5", tone: "" }],
+  ["wasm", { icon: "webassembly", tone: "" }],
+  ["json", { icon: "json", tone: "" }],
+  ["img", { icon: "image", tone: "req-image" }],
+  ["font", { icon: "type", tone: "req-font" }],
+  ["media", { icon: "film", tone: "req-media" }],
+  ["fetch", { icon: "arrow-up-down", tone: "req-rest" }],
+  ["xhr", { icon: "arrow-up-down", tone: "req-rest" }],
+]);
+
+/** The mark a kind shows by, as `kindLabel` names it: a plain file for one that has none. */
+export function kindMark(kind: string): KindMark {
+  return KIND_MARKS.get(kind) ?? { icon: "file", tone: "req-rest" };
+}
+
+const METHOD_TONES = new Map([
+  ["GET", "req-get"],
+  ["POST", "req-post"],
+  ["PUT", "req-put"],
+  ["PATCH", "req-patch"],
+  ["DELETE", "req-delete"],
+]);
+
+/** The class that colors a method's text: its own for the five that are common, one for the rest. */
+export function methodTone(method: string): string {
+  return METHOD_TONES.get(method.toUpperCase()) ?? "req-rest";
+}
+
+/** A row's first column: its text, which is its name where an icon shows in its place, and its tone. */
+export interface Lead {
+  text: string;
+  icon: GlyphName | null;
+  tone: string;
+}
+
+/** What a row starts with: the method as tinted text, or the kind as a mark where there is no method. */
+export function lead(entry: RequestEntry): Lead {
+  const text = methodLabel(entry);
+  if (entry.detail === "light" || entry.method === "") return { text, ...kindMark(text) };
+  return { text, icon: null, tone: methodTone(entry.method) };
+}
+
 /**
  * A row's status: the number, or a word where there is none. Empty where the
  * request went well and the browser does not say with what.
@@ -154,6 +212,23 @@ export function statusLabel(entry: RequestEntry): string {
 /** A request that got no answer, or one of 400 or above. */
 export function statusHot(entry: RequestEntry): boolean {
   return entry.state === "failed" || (entry.status !== null && entry.status >= 400);
+}
+
+/** The classes a status is colored by, one at a time. */
+export const STATUS_TONES = ["ok", "moved", "hot", "idle"] as const;
+
+export type StatusTone = (typeof STATUS_TONES)[number];
+
+/**
+ * How a status reads at a glance: quiet while it runs or was given up, hot
+ * for a failure and 400 or above, ok in the 200s, moved in the 300s, and
+ * nothing for the rest, which keeps the row's own color.
+ */
+export function statusTone(entry: RequestEntry): StatusTone | null {
+  if (entry.state === "pending" || entry.state === "aborted") return "idle";
+  if (statusHot(entry)) return "hot";
+  if (entry.status === null || entry.status < 200) return null;
+  return entry.status < 300 ? "ok" : "moved";
 }
 
 /** A time span: whole ms under a second, seconds to one decimal from there. Empty for none. */

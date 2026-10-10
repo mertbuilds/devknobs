@@ -118,6 +118,10 @@ export class FakeNode {
     this.attributes.set(name, value);
   }
 
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }

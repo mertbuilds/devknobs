@@ -1,6 +1,7 @@
 import { copyText as copyToClipboard } from "../grab/copy";
 import { type RequestEntry, type RequestStore, requestLog } from "../requests";
 import { button, el, field, mark } from "./dom";
+import { glyph } from "./icons";
 import { closePane, openPane, type PaneView, paneView } from "./pane";
 import { createDetail, type Detail } from "./requestdetail";
 import {
@@ -11,13 +12,15 @@ import {
   durationLabel,
   firstInView,
   keptScroll,
+  type Lead,
+  lead,
   LIGHT_WHY,
   matches,
-  methodLabel,
   middle,
   QUERY_MAX,
-  statusHot,
+  STATUS_TONES,
   statusLabel,
+  statusTone,
   urlName,
 } from "./requestformat";
 
@@ -66,6 +69,8 @@ interface Row {
   entry: RequestEntry;
   node: HTMLButtonElement;
   method: HTMLElement;
+  /** What the method's column shows now, or nothing yet. */
+  lead: Lead | null;
   path: HTMLElement;
   query: HTMLElement;
   status: HTMLElement;
@@ -84,6 +89,29 @@ interface Held {
 /** Set a node's text, unless it says so already. */
 function put(node: HTMLElement, text: string): void {
   if (node.textContent !== text) node.textContent = text;
+}
+
+/**
+ * Show a row's first column: the method as text in its tone, or the kind as a
+ * mark, with the kind's word as its name and its tooltip.
+ */
+function putLead(row: Row, next: Lead): void {
+  const was = row.lead;
+  if (was && was.text === next.text && was.icon === next.icon && was.tone === next.tone) return;
+  row.lead = next;
+  const node = row.method;
+  node.className = ["req-method", next.icon ? "mark" : "", next.tone].filter(Boolean).join(" ");
+  if (next.icon) {
+    node.replaceChildren(glyph(next.icon));
+    node.setAttribute("role", "img");
+    node.setAttribute("aria-label", next.text);
+    node.title = next.text;
+  } else {
+    node.textContent = next.text;
+    node.removeAttribute("role");
+    node.removeAttribute("aria-label");
+    node.title = "";
+  }
 }
 
 export function createRequests(context: RequestsContext = {}): Requests {
@@ -158,11 +186,12 @@ export function createRequests(context: RequestsContext = {}): Requests {
     row.entry = entry;
     const { name, query } = urlName(entry.url);
     const light = entry.detail === "light";
-    put(row.method, methodLabel(entry));
+    putLead(row, lead(entry));
     put(row.path, name);
     put(row.query, middle(query, QUERY_MAX));
     put(row.status, statusLabel(entry));
-    row.status.classList.toggle("hot", statusHot(entry));
+    const tone = statusTone(entry);
+    for (const each of STATUS_TONES) row.status.classList.toggle(each, each === tone);
     put(row.time, durationLabel(entry.timing.duration));
     row.node.classList.toggle("light", light);
     const title = light ? `${entry.url}\n${LIGHT_WHY}` : entry.url;
@@ -181,7 +210,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
     const status = el("span", "req-status");
     const time = el("span", "req-time");
     node.append(method, name, status, time);
-    const row: Row = { entry, node, method, path, query, status, time };
+    const row: Row = { entry, node, method, lead: null, path, query, status, time };
     rowOf.set(node, row);
     node.addEventListener("click", () => openRequest(row));
     node.addEventListener("focus", () => setTab(row));
