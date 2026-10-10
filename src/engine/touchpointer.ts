@@ -895,11 +895,14 @@ function onBlur(): void {
 function install(): void {
   for (const type of EVENTS) window.addEventListener(type, onEvent, true);
   window.addEventListener("blur", onBlur);
+  // The next page may have no devknobs to say the pointer left this one.
+  window.addEventListener("pagehide", hideDot);
 }
 
 function uninstall(): void {
   for (const type of EVENTS) window.removeEventListener(type, onEvent, true);
   window.removeEventListener("blur", onBlur);
+  window.removeEventListener("pagehide", hideDot);
 }
 
 function showCursor(): void {
@@ -921,7 +924,9 @@ export function apply(on: boolean): void {
   active = on;
   if (on) {
     install();
-    if (!paused) showCursor();
+    // Grab picks already: the page above hears that the mouse is a mouse.
+    if (paused) handUp({ at: null, pressed: false, held: true });
+    else showCursor();
     return;
   }
   uninstall();
