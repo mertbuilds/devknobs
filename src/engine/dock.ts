@@ -46,6 +46,33 @@ export function onDockWidth(listener: () => void): () => void {
   };
 }
 
+/** A pinned panel's column as it shows now, its slide and its glide included. */
+export interface ColumnEdge {
+  /** The px of the window the column covers, from the edge of its side to its edge on the page's side. */
+  cover: number;
+  /** It is still on its way: sliding out or away, gliding across, or to a new width. */
+  moving: boolean;
+}
+
+let column: ((side: SideValue) => ColumnEdge | null) | null = null;
+
+/**
+ * The panel says how to read its column where it shows. The frame asks each
+ * animation frame the column moves in, so the page's edge keeps to the
+ * column's. Returns the way to stop.
+ */
+export function watchColumn(read: (side: SideValue) => ColumnEdge | null): () => void {
+  column = read;
+  return () => {
+    if (column === read) column = null;
+  };
+}
+
+/** The column on `side` as it shows now, or null with no panel to read. */
+export function columnEdge(side: SideValue): ColumnEdge | null {
+  return column?.(side) ?? null;
+}
+
 /** Does a window `view` px wide leave the page its least beside a pinned panel `column` px wide? */
 export function dockRoom(view: number, column: number): boolean {
   return view - column >= PAGE_MIN;
