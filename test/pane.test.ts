@@ -1,138 +1,39 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { modeOf } from "../src/ui/palette";
 import {
   closePane,
   createPane,
   onPane,
   openPane,
-  PANE_HEIGHT,
-  PANE_MIN,
   PANE_WIDTH,
   type Pane,
   type PaneView,
-  paneBox,
   paneView,
+  retitlePane,
 } from "../src/ui/pane";
-import { GLIDE_MAX, PANEL_GAP } from "../src/ui/place";
 import type { Tips } from "../src/ui/tooltip";
 
-/** What an open panel and its handle take of the window's width, as the device frame counts it. */
-const PANEL = 261;
-const HANDLE = 64;
-
-describe("paneBox", () => {
-  const WIDE = { width: 1440, height: 900 };
-  const at = (y: number, top: number) => ({ y, top });
-
-  test("is 340 wide beside the panel, a pixel over its border, in a window with the room", () => {
-    const box = paneBox(at(128, 128), WIDE, HANDLE);
-    expect(box.width).toBe(PANE_WIDTH);
-    expect(box.over).toBe(0);
-    expect(box.reach).toBe(PANE_WIDTH - 1);
-    expect(PANE_WIDTH).toBe(340);
-  });
-
-  test("is as tall as the panel at its tallest, whatever the panel holds", () => {
-    expect(paneBox(at(128, 128), WIDE, HANDLE).height).toBe(PANE_HEIGHT);
-    const short = paneBox(at(8, 8), { width: 1440, height: 500 }, HANDLE);
-    expect(short.height).toBe(500 - 2 * PANEL_GAP);
-    expect(PANE_HEIGHT).toBe(672);
-  });
-
-  test("starts at the panel's top, and the window's bottom pushes it up", () => {
-    expect(paneBox(at(128, 128), WIDE, HANDLE).top).toBe(128);
-    // 900 less the gap less 672 is as low as its top goes.
-    expect(paneBox(at(500, 500), WIDE, HANDLE).top).toBe(900 - PANEL_GAP - PANE_HEIGHT);
-    expect(paneBox(at(300, 300), { width: 1440, height: 500 }, HANDLE).top).toBe(PANEL_GAP);
-  });
-
-  test("spans the panel wherever the panel sits, so the two meet along its whole side", () => {
-    for (const height of [300, 500, 688, 900, 1400]) {
-      const tallest = Math.min(PANE_HEIGHT, height - 2 * PANEL_GAP);
-      for (const panel of [120, tallest]) {
-        for (const top of [PANEL_GAP, 128, height - PANEL_GAP - panel]) {
-          // Where a panel that tall can sit in a window that tall.
-          if (top < PANEL_GAP || top + panel > height - PANEL_GAP) continue;
-          const box = paneBox(at(top, top), { width: 1440, height }, HANDLE);
-          expect(box.top).toBeLessThanOrEqual(top);
-          expect(box.top + box.height).toBeGreaterThanOrEqual(top + panel);
-          expect(box.top).toBeGreaterThanOrEqual(PANEL_GAP);
-          expect(box.top + box.height).toBeLessThanOrEqual(height - PANEL_GAP);
-        }
-      }
-    }
-  });
-
-  test("gets narrower to leave the page a gap, down to its least", () => {
-    // 600 less the panel and the handle leaves 340, and the gap takes 8 of it.
-    expect(paneBox(at(8, 8), { width: 600, height: 900 }, HANDLE)).toMatchObject({
-      width: 332,
-      over: 0,
-    });
-    expect(paneBox(at(8, 8), { width: 508, height: 900 }, HANDLE)).toMatchObject({
-      width: PANE_MIN,
-      over: 0,
-    });
-    expect(PANE_MIN).toBe(240);
-  });
-
-  test("sits over the panel by what the window lacks, and never moves the panel", () => {
-    const box = paneBox(at(8, 8), { width: 390, height: 800 }, HANDLE);
-    expect(box.width).toBe(PANE_MIN);
-    expect(box.over).toBe(PANE_MIN - (390 - 260));
-    expect(box.reach).toBe(PANE_MIN - 1 - box.over);
-  });
-
-  test("never leaves the window, handle and all, at any width", () => {
-    for (let width = 0; width <= 1600; width += 7) {
-      const box = paneBox(at(8, 8), { width, height: 800 }, HANDLE);
-      expect(box.width).toBeGreaterThanOrEqual(0);
-      expect(box.width).toBeLessThanOrEqual(PANE_WIDTH);
-      // Past the least a window can hold, the panel's own 261 is all there is.
-      if (width >= PANEL) expect(PANEL + box.reach).toBeLessThanOrEqual(width);
-      if (width >= PANEL + PANE_MIN + PANEL_GAP) expect(box.over).toBe(0);
-    }
-  });
-
-  test("in a window narrower than itself, takes what the handle leaves", () => {
-    expect(paneBox(at(8, 8), { width: 200, height: 800 }, HANDLE).width).toBe(200 - 21);
-  });
-
-  test("names the corner of the pane the handle covers", () => {
-    expect(paneBox(at(128, 128), WIDE, HANDLE).tab).toBe("top");
-    expect(paneBox(at(300, 128), WIDE, HANDLE).tab).toBe("none");
-    expect(paneBox(at(128 + PANE_HEIGHT - HANDLE, 128), WIDE, HANDLE).tab).toBe("bottom");
-    // A panel the window pushed the pane up from: its top corner is not the pane's.
-    expect(paneBox(at(500, 500), WIDE, HANDLE).tab).toBe("none");
-  });
-});
-
-type Listener = (event: { target: unknown; propertyName?: string }) => void;
+type Listener = (event: { target: unknown }) => void;
 
 /** What has the focus, in the fake page. */
 let active: FakeNode | null = null;
 
-/** An element, as far as the pane builds and drives one. */
+/** An element, as far as the view's place in the panel builds and drives one. */
 class FakeNode {
   className = "";
   textContent = "";
   type = "";
   tabIndex = 0;
-  inert = false;
   scrollTop = 0;
   isConnected = true;
   /** Whether it takes room on the page. */
   shows = true;
-  height = 0;
   shadowRoot = null;
-  dataset: Record<string, string> = {};
   children: FakeNode[] = [];
   attributes = new Map<string, string>();
   listeners = new Map<string, Set<Listener>>();
-  properties = new Map<string, string>();
-  style = {
-    setProperty: (name: string, value: string) => {
-      this.properties.set(name, value);
-    },
+  classList = {
+    contains: (name: string) => this.className.split(" ").includes(name),
   };
 
   constructor(readonly tag: string) {}
@@ -159,14 +60,8 @@ class FakeNode {
     this.listeners.set(type, set);
   }
 
-  removeEventListener(type: string, listener: Listener): void {
-    this.listeners.get(type)?.delete(listener);
-  }
-
-  fire(type: string, event: { target?: unknown; propertyName?: string } = {}): void {
-    for (const listener of [...(this.listeners.get(type) ?? [])]) {
-      listener({ target: this, ...event });
-    }
+  fire(type: string): void {
+    for (const listener of [...(this.listeners.get(type) ?? [])]) listener({ target: this });
   }
 
   focus(): void {
@@ -177,10 +72,6 @@ class FakeNode {
     return this.shows ? [{}] : [];
   }
 
-  getBoundingClientRect(): { height: number } {
-    return { height: this.height };
-  }
-
   /** Every node under this one with a class, itself included. */
   find(className: string): FakeNode[] {
     const own = this.className.split(" ").includes(className) ? [this] : [];
@@ -188,45 +79,45 @@ class FakeNode {
   }
 }
 
+/** The focus leaves the panel, as it does when the panel closes. */
+function blur(): void {
+  active = null;
+}
+
 function fake(node: unknown): FakeNode {
   if (!(node instanceof FakeNode)) throw new Error("not a fake node");
   return node;
 }
 
-/** The page the pane is built in, and what it did there. */
+/** The panel the view is built in, and what the view did there. */
 interface Page {
   pane: Pane;
-  wrap: FakeNode;
-  box: FakeNode;
+  node: FakeNode;
+  /** The way back in the head, and the head's title. */
+  back: FakeNode;
+  title: FakeNode;
   body: FakeNode;
   home: FakeNode;
-  /** A control of the panel, which opens the pane. */
+  /** A control of the panel, which opens the view. */
   trigger: FakeNode;
-  covered: number[];
-  panelOpens: () => number;
+  /** What the panel was asked for, in order: to leave the search and the settings, to open, to draw. */
+  asked: string[];
   tipped: [FakeNode, string][];
   tipsHidden: () => number;
-  /** Run the timers the pane set. */
-  runTimers(): void;
+  /** Runs as the panel draws, in the place of what a real panel does then. */
+  drawing: { run: (() => void) | null };
+  /** The panel's slide takes the view away, and lands. */
+  slideAway(): void;
+  land(): void;
   /** How many times either web storage was reached for. */
   storage: () => number;
 }
 
-let moves = true;
-
-function build(options: { open?: boolean; width?: number; height?: number } = {}): Page {
-  const timers = new Map<number, () => void>();
-  let nextTimer = 1;
+function build(options: { open?: boolean } = {}): Page {
   let storage = 0;
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      innerWidth: options.width ?? 1440,
-      innerHeight: options.height ?? 900,
-      setTimeout: (run: () => void) => {
-        timers.set(nextTimer, run);
-        return nextTimer++;
-      },
       get localStorage(): null {
         storage++;
         return null;
@@ -242,26 +133,17 @@ function build(options: { open?: boolean; width?: number; height?: number } = {}
     value: {
       createElement: (tag: string) => new FakeNode(tag),
       createElementNS: (_namespace: string, tag: string) => new FakeNode(tag),
-      documentElement: { clientWidth: options.width ?? 1440 },
       get activeElement(): FakeNode | null {
         return active;
       },
     },
   });
   Object.defineProperty(globalThis, "HTMLElement", { configurable: true, value: FakeNode });
-  Object.defineProperty(globalThis, "getComputedStyle", {
-    configurable: true,
-    value: () => ({ transitionDuration: moves ? "0.22s" : "0s" }),
-  });
 
-  const wrap = document.createElement("div");
-  const handle = document.createElement("button");
-  fake(handle).height = HANDLE;
   const home = document.createElement("button");
   const trigger = document.createElement("button");
-  const covered: number[] = [];
+  const asked: string[] = [];
   const tipped: [FakeNode, string][] = [];
-  let panelOpens = 0;
   let tipsHidden = 0;
   const tips: Tips = {
     show: () => {},
@@ -277,46 +159,50 @@ function build(options: { open?: boolean; width?: number; height?: number } = {}
     destroy: () => {},
   };
   let panelOpen = options.open ?? true;
+  const drawing: Page["drawing"] = { run: null };
   const pane = createPane({
-    wrap,
     root: {
       get activeElement() {
         return document.activeElement;
       },
     },
-    handle,
     home,
     tips,
     openPanel: () => {
       if (panelOpen) return;
       panelOpen = true;
-      panelOpens++;
-      pane.render(true);
+      asked.push("open");
     },
-    cover: (px) => covered.push(px),
+    uncover: () => asked.push("uncover"),
+    render: () => {
+      asked.push("render");
+      drawing.run?.();
+    },
   });
-  pane.render(panelOpen);
-  pane.place({ y: 128, top: 128 });
-  const [box] = fake(pane.node).find("side");
-  const [body] = fake(pane.node).find("side-body");
-  if (!box || !body) throw new Error("no pane");
+  const node = fake(pane.node);
+  const [back] = node.find("main");
+  const [title] = node.find("row-label");
+  const [body] = node.find("view-body");
+  if (!back || !title || !body) throw new Error("no view");
   active = fake(trigger);
   return {
     pane,
-    wrap: fake(wrap),
-    box,
+    node,
+    back,
+    title,
     body,
     home: fake(home),
     trigger: fake(trigger),
-    covered,
-    panelOpens: () => panelOpens,
+    asked,
     tipped,
     tipsHidden: () => tipsHidden,
-    runTimers(): void {
-      for (const [id, run] of [...timers]) {
-        timers.delete(id);
-        run();
-      }
+    drawing,
+    slideAway(): void {
+      node.className = "view pane leaving";
+    },
+    land(): void {
+      node.className = "view pane";
+      pane.landed();
     },
     storage: () => storage,
   };
@@ -349,32 +235,36 @@ function viewOf(id: string, more: Partial<PaneView> = {}) {
 let page: Page | null = null;
 
 beforeEach(() => {
-  moves = true;
   active = null;
 });
 
 afterEach(() => {
   page?.pane.destroy();
   page = null;
-  for (const name of ["window", "document", "HTMLElement", "getComputedStyle"]) {
+  for (const name of ["window", "document", "HTMLElement"]) {
     Reflect.deleteProperty(globalThis, name);
   }
 });
 
 describe("opening a view", () => {
-  test("mounts it in the empty body, names the head and shows the pane", () => {
+  test("mounts it in the empty body, names the head and has the panel draw it", () => {
     page = build();
     const { view, seen } = viewOf("styles", { title: "styles of .card" });
-    expect(page.wrap.dataset.pane).toBeUndefined();
-    expect(fake(page.pane.node).inert).toBe(true);
+    expect(page.node.className).toBe("view pane");
     openPane(view);
     expect(seen).toMatchObject({ mounts: 1, cleanups: 0, bodies: [0] });
     expect(page.body.children.length).toBe(1);
-    expect(fake(page.pane.node).find("side-title")[0]?.textContent).toBe("styles of .card");
-    expect(page.box.attributes.get("aria-label")).toBe("styles of .card");
-    expect(page.wrap.dataset.pane).toBe("open");
-    expect(fake(page.pane.node).inert).toBe(false);
+    expect(page.title.textContent).toBe("styles of .card");
+    expect(page.node.attributes.get("aria-label")).toBe("styles of .card");
+    expect(page.back.attributes.get("aria-label")).toBe("back from styles of .card");
+    expect(page.asked.at(-1)).toBe("render");
     expect(paneView()).toBe("styles");
+  });
+
+  test("leaves the search and the settings before the panel draws, so the view shows", () => {
+    page = build();
+    openPane(viewOf("styles").view);
+    expect(page.asked).toEqual(["uncover", "render"]);
   });
 
   test("does nothing for the view that is open already", () => {
@@ -385,11 +275,13 @@ describe("opening a view", () => {
     const again = viewOf("styles");
     openPane(first.view);
     page.trigger.focus();
+    const asked = page.asked.length;
     openPane(first.view);
     openPane(again.view);
     expect(first.seen).toMatchObject({ mounts: 1, cleanups: 0 });
     expect(again.seen.mounts).toBe(0);
     expect(heard).toEqual(["styles"]);
+    expect(page.asked.length).toBe(asked);
     // Not even the focus moves.
     expect(active).toBe(page.trigger);
     stop();
@@ -404,8 +296,8 @@ describe("opening a view", () => {
     expect(styles.seen).toMatchObject({ mounts: 1, cleanups: 1 });
     expect(requests.seen).toMatchObject({ mounts: 1, cleanups: 0, bodies: [0] });
     expect(page.body.children.length).toBe(1);
+    expect(page.title.textContent).toBe("requests");
     expect(paneView()).toBe("requests");
-    expect(page.wrap.dataset.pane).toBe("open");
     openPane(styles.view);
     expect(styles.seen).toMatchObject({ mounts: 2, cleanups: 1 });
     expect(requests.seen.cleanups).toBe(1);
@@ -421,80 +313,63 @@ describe("opening a view", () => {
   test("opens the panel where it is closed, and not one that is open", () => {
     page = build({ open: false });
     openPane(viewOf("styles").view);
-    expect(page.panelOpens()).toBe(1);
-    expect(page.wrap.dataset.pane).toBe("open");
+    expect(page.asked).toEqual(["uncover", "open", "render"]);
     closePane();
     openPane(viewOf("requests").view);
-    expect(page.panelOpens()).toBe(1);
+    expect(page.asked.filter((ask) => ask === "open")).toHaveLength(1);
+  });
+
+  test("is 340 wide until the user drags the panel's edge", () => {
+    expect(PANE_WIDTH).toBe(340);
   });
 });
 
-describe("closing the pane", () => {
-  test("runs the cleanup once, and keeps the view's nodes until the pane has slid away", () => {
+describe("going back", () => {
+  test("runs the cleanup once, has the panel draw the rows, and keeps the nodes while it slides", () => {
     page = build();
     const { view, seen } = viewOf("styles");
     openPane(view);
+    page.drawing.run = page.slideAway;
     closePane();
     expect(seen.cleanups).toBe(1);
     expect(paneView()).toBeNull();
-    expect(page.wrap.dataset.pane).toBe("leaving");
-    expect(fake(page.pane.node).inert).toBe(true);
+    expect(page.asked.at(-1)).toBe("render");
     expect(page.body.children.length).toBe(1);
-    // A transition of the view's own, or of another property, is not the slide's end.
-    page.box.fire("transitionend", { target: page.body, propertyName: "transform" });
-    page.box.fire("transitionend", { propertyName: "opacity" });
-    expect(page.wrap.dataset.pane).toBe("leaving");
-    page.box.fire("transitionend", { propertyName: "transform" });
-    expect(page.wrap.dataset.pane).toBeUndefined();
+    page.land();
     expect(page.body.children.length).toBe(0);
     closePane();
     page.pane.close();
     expect(seen.cleanups).toBe(1);
   });
 
-  test("lands at once where nothing animates, as under reduced motion", () => {
+  test("is gone at once where nothing slides, as under the settings or reduced motion", () => {
     page = build();
-    moves = false;
     openPane(viewOf("styles").view);
     closePane();
-    expect(page.wrap.dataset.pane).toBeUndefined();
     expect(page.body.children.length).toBe(0);
   });
 
-  test("lands a while after the longest glide where the slide's end never comes", () => {
-    page = build();
-    openPane(viewOf("styles").view);
-    closePane();
-    expect(page.wrap.dataset.pane).toBe("leaving");
-    page.runTimers();
-    expect(page.wrap.dataset.pane).toBeUndefined();
-    expect(GLIDE_MAX).toBe(440);
-  });
-
-  test("a view opened while the pane slides away stays", () => {
+  test("a slide that lands with a view open leaves its nodes", () => {
     page = build();
     openPane(viewOf("styles").view);
     closePane();
     openPane(viewOf("requests").view);
-    page.box.fire("transitionend", { propertyName: "transform" });
-    page.runTimers();
-    expect(page.wrap.dataset.pane).toBe("open");
+    page.land();
     expect(page.body.children.length).toBe(1);
   });
 
-  test("the x in the head closes it", () => {
+  test("the way back in the head is the way out, and there is no x", () => {
     page = build();
     openPane(viewOf("styles").view);
-    const buttons = fake(page.pane.node).find("side-action");
-    const close = buttons[buttons.length - 1];
-    expect(close?.attributes.get("aria-label")).toBe("close");
-    close?.fire("click");
+    expect(page.back.type).toBe("button");
+    expect(page.node.find("view-action")).toHaveLength(0);
+    page.back.fire("click");
     expect(paneView()).toBeNull();
   });
 });
 
 describe("the head's actions", () => {
-  test("show before the x in the view's order, named, with a tooltip, and run on a click", () => {
+  test("show after the title in the view's order, named, with a tooltip, and run on a click", () => {
     page = build();
     const ran: string[] = [];
     const { view } = viewOf("requests", {
@@ -504,14 +379,12 @@ describe("the head's actions", () => {
       ],
     });
     openPane(view);
-    const buttons = fake(page.pane.node).find("side-action");
-    expect(buttons.map((node) => node.attributes.get("aria-label"))).toEqual([
-      "copy",
-      "clear",
-      "close",
-    ]);
-    expect(buttons.map((node) => node.type)).toEqual(["button", "button", "button"]);
-    expect(page.tipped.map(([, text]) => text)).toEqual(["close", "copy", "clear"]);
+    const [line] = page.node.find("line");
+    expect(line?.children.map((child) => child.className)).toEqual(["main", "view-actions"]);
+    const buttons = page.node.find("view-action");
+    expect(buttons.map((node) => node.attributes.get("aria-label"))).toEqual(["copy", "clear"]);
+    expect(buttons.map((node) => node.type)).toEqual(["button", "button"]);
+    expect(page.tipped.map(([, text]) => text)).toEqual(["copy", "clear"]);
     buttons[1]?.fire("click");
     buttons[0]?.fire("click");
     expect(ran).toEqual(["clear", "copy"]);
@@ -522,44 +395,22 @@ describe("the head's actions", () => {
     page = build();
     openPane(viewOf("requests", { actions: [{ label: "clear", icon: "eraser", run() {} }] }).view);
     openPane(viewOf("styles").view);
-    const names = fake(page.pane.node)
-      .find("side-action")
-      .map((node) => node.attributes.get("aria-label"));
-    expect(names).toEqual(["close"]);
+    expect(page.node.find("view-action")).toHaveLength(0);
     // A tooltip left up over a button that is gone would stay.
     expect(page.tipsHidden()).toBeGreaterThan(0);
   });
 });
 
 describe("escape", () => {
-  test("closes the pane with the focus in it", () => {
+  test("goes back to the rows, wherever the focus is", () => {
     page = build();
-    openPane(viewOf("styles").view);
-    expect(active).toBe(page.box);
-    expect(page.pane.escape()).toBe(true);
-    expect(paneView()).toBeNull();
-  });
-
-  test("with the focus on something in the view, too", () => {
-    page = build();
-    openPane(viewOf("styles").view);
-    page.body.children[0]?.focus();
-    expect(page.pane.escape()).toBe(true);
-    expect(paneView()).toBeNull();
-  });
-
-  test("is not the pane's with the focus anywhere else, so the panel's rules take it", () => {
-    page = build();
-    expect(page.pane.escape()).toBe(false);
     openPane(viewOf("styles").view);
     page.home.focus();
-    expect(page.pane.escape()).toBe(false);
-    active = null;
-    expect(page.pane.escape()).toBe(false);
-    expect(paneView()).toBe("styles");
+    page.pane.escape();
+    expect(paneView()).toBeNull();
   });
 
-  test("goes to the view first, which keeps the pane open where it takes it", () => {
+  test("goes to the view first, which stays open where it takes it", () => {
     page = build();
     let filter = "status:500";
     const { view } = viewOf("requests", {
@@ -570,24 +421,39 @@ describe("escape", () => {
       },
     });
     openPane(view);
-    expect(page.pane.escape()).toBe(true);
+    page.pane.escape();
     expect(paneView()).toBe("requests");
-    expect(page.pane.escape()).toBe(true);
+    page.pane.escape();
     expect(paneView()).toBeNull();
+  });
+
+  test("does nothing with no view", () => {
+    page = build();
+    page.pane.escape();
+    expect(page.asked).toEqual([]);
   });
 });
 
 describe("the focus", () => {
-  test("moves into the pane as it opens, and back to what opened it as it closes", () => {
+  test("moves to the view's head as it opens, and back to what opened it on the way back", () => {
     page = build();
     openPane(viewOf("styles").view);
-    expect(active).toBe(page.box);
-    expect(page.box.tabIndex).toBe(-1);
+    expect(active).toBe(page.back);
     closePane();
     expect(active).toBe(page.trigger);
   });
 
-  test("stays where the user put it, outside the pane", () => {
+  test("moves once the panel has drawn the view, as the head shows only then", () => {
+    page = build();
+    const { back } = page;
+    const focusedAsDrawn: (FakeNode | null)[] = [];
+    page.drawing.run = () => focusedAsDrawn.push(active);
+    openPane(viewOf("styles").view);
+    expect(focusedAsDrawn).toEqual([page.trigger]);
+    expect(active).toBe(back);
+  });
+
+  test("stays where the user put it, outside the view", () => {
     page = build();
     openPane(viewOf("styles").view);
     page.home.focus();
@@ -595,16 +461,24 @@ describe("the focus", () => {
     expect(active).toBe(page.home);
   });
 
-  test("goes back to what opened the first view, past one that took its place", () => {
+  test("goes back from a control of the view, too", () => {
     page = build();
     openPane(viewOf("styles").view);
-    openPane(viewOf("requests").view);
-    expect(active).toBe(page.box);
+    page.body.children[0]?.focus();
     closePane();
     expect(active).toBe(page.trigger);
   });
 
-  test("goes to the panel where what opened the pane is gone or hidden", () => {
+  test("goes back to what opened the first view, past one that took its place", () => {
+    page = build();
+    openPane(viewOf("styles").view);
+    openPane(viewOf("requests").view);
+    expect(active).toBe(page.back);
+    closePane();
+    expect(active).toBe(page.trigger);
+  });
+
+  test("goes to the panel where what opened the view is gone or hidden", () => {
     page = build();
     openPane(viewOf("styles").view);
     page.trigger.shows = false;
@@ -619,119 +493,113 @@ describe("the focus", () => {
   });
 });
 
+describe("retitlePane", () => {
+  test("changes what the head says for the open view, and nothing else", () => {
+    page = build();
+    const heard: (string | null)[] = [];
+    const stop = onPane((id) => heard.push(id));
+    const { view, seen } = viewOf("styles", { title: "styles" });
+    openPane(view);
+    const asked = page.asked.length;
+    retitlePane("styles", "styles of .card");
+    expect(page.title.textContent).toBe("styles of .card");
+    expect(page.node.attributes.get("aria-label")).toBe("styles of .card");
+    expect(page.back.attributes.get("aria-label")).toBe("back from styles of .card");
+    expect(seen).toMatchObject({ mounts: 1, cleanups: 0 });
+    expect(heard).toEqual(["styles"]);
+    expect(page.asked.length).toBe(asked);
+    expect(view.title).toBe("styles");
+    stop();
+  });
+
+  test("does nothing for a view that is not the open one, or with none", () => {
+    page = build();
+    retitlePane("styles", "nobody");
+    expect(page.title.textContent).toBe("");
+    openPane(viewOf("styles").view);
+    retitlePane("requests", "not mine");
+    expect(page.title.textContent).toBe("styles");
+    closePane();
+    retitlePane("styles", "too late");
+    expect(page.title.textContent).toBe("styles");
+  });
+});
+
 describe("a closed panel", () => {
-  test("hides the pane and keeps its view, and an open one brings it back", () => {
+  test("keeps the view, and gives its head the focus when it opens again", () => {
     page = build();
     const heard: (string | null)[] = [];
     const stop = onPane((id) => heard.push(id));
     const { view, seen } = viewOf("styles");
     openPane(view);
-    page.pane.render(false);
-    expect(page.wrap.dataset.pane).toBe("leaving");
-    expect(fake(page.pane.node).inert).toBe(true);
-    page.box.fire("transitionend", { propertyName: "transform" });
-    expect(page.wrap.dataset.pane).toBeUndefined();
+    // The panel closes and opens with no word to the view: it is the panel's body that hides.
+    blur();
     expect(paneView()).toBe("styles");
+    expect(page.pane.focus()).toBe(true);
+    expect(active).toBe(page.back);
     expect(seen).toMatchObject({ mounts: 1, cleanups: 0 });
     expect(page.body.children.length).toBe(1);
-    page.pane.render(true);
-    expect(page.wrap.dataset.pane).toBe("open");
-    expect(fake(page.pane.node).inert).toBe(false);
-    expect(seen).toMatchObject({ mounts: 1, cleanups: 0 });
     expect(heard).toEqual(["styles"]);
     stop();
   });
 
-  test("brings no pane back with no view", () => {
+  test("with no view, leaves the focus to the panel", () => {
     page = build();
-    page.pane.render(false);
-    page.pane.render(true);
-    expect(page.wrap.dataset.pane).toBeUndefined();
+    blur();
+    expect(page.pane.focus()).toBe(false);
+    expect(active).toBeNull();
   });
+});
 
-  test("a view closed while it hides is gone at once", () => {
+describe("the search and the settings", () => {
+  test("the search key drops the view: closed and said, with the drawing and the focus left to the search", () => {
     page = build();
+    const heard: (string | null)[] = [];
+    const stop = onPane((id) => heard.push(id));
     const { view, seen } = viewOf("styles");
     openPane(view);
-    page.pane.render(false);
-    page.box.fire("transitionend", { propertyName: "transform" });
-    closePane();
+    const asked = page.asked.length;
+    page.pane.drop();
     expect(seen.cleanups).toBe(1);
+    expect(paneView()).toBeNull();
+    expect(heard).toEqual(["styles", null]);
+    expect(page.asked.length).toBe(asked);
+    expect(active).toBe(page.back);
+    // Its nodes go once the search has slid in over it.
+    expect(page.body.children.length).toBe(1);
+    page.land();
     expect(page.body.children.length).toBe(0);
-    page.pane.render(true);
-    expect(page.wrap.dataset.pane).toBeUndefined();
+    page.pane.drop();
+    expect(heard).toEqual(["styles", null]);
+    stop();
+  });
+
+  test("the settings show over a view, which is back once they are left", () => {
+    const scene = { keys: false, view: true, query: false, browsing: false };
+    expect(modeOf(scene)).toBe("view");
+    expect(modeOf({ ...scene, keys: true })).toBe("keys");
+    expect(modeOf({ ...scene, keys: false })).toBe("view");
+  });
+
+  test("with no view the panel shows the rows or the search, as ever", () => {
+    const scene = { keys: false, view: false, query: false, browsing: false };
+    expect(modeOf(scene)).toBe("rows");
+    expect(modeOf({ ...scene, browsing: true })).toBe("browse");
+    expect(modeOf({ ...scene, browsing: true, query: true })).toBe("results");
+    expect(modeOf({ ...scene, keys: true, query: true })).toBe("keys");
   });
 });
 
-describe("where the pane goes", () => {
-  test("is told to the stylesheet, from the handle's top", () => {
-    page = build();
-    page.pane.place({ y: 300, top: 128 });
-    expect(page.wrap.properties.get("--pane-top")).toBe("-172px");
-    expect(page.wrap.properties.get("--pane-right")).toBe("239px");
-    expect(page.wrap.properties.get("--pane-width")).toBe("340px");
-    expect(page.wrap.properties.get("--pane-height")).toBe("672px");
-    expect(page.wrap.properties.get("--pane-reach")).toBe("339px");
-    expect(page.wrap.dataset.paneTab).toBe("none");
-    page.pane.place({ y: 128, top: 128 });
-    expect(page.wrap.dataset.paneTab).toBe("top");
-  });
-
-  test("in a narrow window it sits over the panel, and stays in the window", () => {
-    page = build({ width: 390, height: 800 });
-    expect(page.wrap.properties.get("--pane-width")).toBe("240px");
-    // 110 over the panel: its edge is 129 from the window's, not 239.
-    expect(page.wrap.properties.get("--pane-right")).toBe("129px");
-    expect(page.wrap.properties.get("--pane-reach")).toBe("129px");
-    expect(PANEL + 129).toBe(390);
-  });
-});
-
-describe("the device frame's room", () => {
-  test("counts the pane while a view is open, and not before or after", () => {
-    page = build();
-    expect(page.covered.every((px) => px === 0)).toBe(true);
-    openPane(viewOf("styles").view);
-    expect(page.covered.at(-1)).toBe(339);
-    closePane();
-    expect(page.covered.at(-1)).toBe(0);
-  });
-
-  test("keeps counting it while the panel is closed, so the frame moves once as it comes back", () => {
-    page = build();
-    openPane(viewOf("styles").view);
-    page.pane.render(false);
-    expect(page.covered.at(-1)).toBe(339);
-  });
-
-  test("follows the pane as the window gets narrower", () => {
-    page = build();
-    openPane(viewOf("styles").view);
-    Reflect.set(document.documentElement, "clientWidth", 560);
-    page.pane.place({ y: 128, top: 128 });
-    expect(page.covered.at(-1)).toBe(560 - 260 - PANEL_GAP - 1);
-  });
-
-  test("gets its room back when the panel goes", () => {
-    page = build();
-    openPane(viewOf("styles").view);
-    page.pane.destroy();
-    expect(page.covered.at(-1)).toBe(0);
-    page = null;
-  });
-});
-
-describe("the pane's state", () => {
+describe("the view's state", () => {
   test("is kept nowhere: nothing reaches for web storage", () => {
     page = build();
     openPane(viewOf("styles").view);
     openPane(viewOf("requests").view);
-    page.pane.render(false);
-    page.pane.render(true);
-    page.pane.place({ y: 128, top: 128 });
+    retitlePane("requests", "requests (2)");
     page.pane.escape();
-    closePane();
-    page.runTimers();
+    openPane(viewOf("styles").view);
+    page.pane.drop();
+    page.land();
     expect(page.storage()).toBe(0);
   });
 });
@@ -755,15 +623,15 @@ describe("paneView and onPane", () => {
     expect(heard).toEqual(["styles", "requests", null]);
   });
 
-  test("a listener hears the pane as it is: the view is mounted, shown and has the focus", () => {
+  test("a listener hears the view as it is: mounted, drawn and with the focus", () => {
     page = build();
     const { view, seen } = viewOf("styles");
     const stop = onPane((id) => {
       if (id === null) return;
       expect(seen.mounts).toBe(1);
       expect(paneView()).toBe(id);
-      expect(page?.wrap.dataset.pane).toBe("open");
-      expect(active).toBe(page?.box ?? null);
+      expect(page?.asked.at(-1)).toBe("render");
+      expect(active).toBe(page?.back ?? null);
     });
     openPane(view);
     stop();
@@ -783,6 +651,7 @@ describe("paneView and onPane", () => {
     const later = viewOf("requests");
     openPane(later.view);
     closePane();
+    retitlePane("requests", "nobody");
     expect(later.seen.mounts).toBe(0);
     expect(heard).toEqual(["styles", null]);
     stop();

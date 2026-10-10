@@ -8,10 +8,11 @@ import type { Point } from "./zoom";
 
 /**
  * The frame glides to its new place when the panel goes to the other side,
- * or opens or closes, and moves what the frame is fitted beside. What shows
- * is measured before and after the frame is drawn there, moved back by the
- * difference and let go, by `translate` and `scale` alone, so the case, the
- * page and the bars glide as one and the page inside lays out once.
+ * opens or closes, or changes its width, and moves what the frame is fitted
+ * beside. What shows is measured before and after the frame is drawn there,
+ * moved back by the difference and let go, by `translate` and `scale` alone,
+ * so the case, the page and the bars glide as one and the page inside lays
+ * out once.
  */
 
 /** How long a glide takes at the least and at the most, in ms, as the panel's own. */
@@ -21,11 +22,8 @@ export const FRAME_GLIDE_MAX = 440;
 /** The fastest a glide goes on average, in px per ms, until it takes `FRAME_GLIDE_MAX`. */
 const FRAME_GLIDE_SPEED = 6;
 
-/**
- * The panel as the frame is fitted beside it, with how much more of its edge
- * it covers than its own width, in px, as its side pane does.
- */
-export type PanelSpot = Pick<PanelValue, "open" | "side"> & { beside?: number };
+/** The panel as the frame is fitted beside it. */
+export type PanelSpot = Pick<PanelValue, "open" | "side">;
 
 /** What decides whether a change of the knobs glides the frame. */
 export interface GlideCue {
@@ -37,16 +35,18 @@ export interface GlideCue {
   moving: boolean;
   from: PanelSpot;
   to: PanelSpot;
+  /** The panel changed its width. */
+  sized?: boolean;
 }
 
 /**
- * Does the frame glide? Only when the panel changed side, opened or closed,
- * or covers more or less beside itself, never on the first paint, with less
- * motion, or while the device moves.
+ * Does the frame glide? Only when the panel changed side or width, or opened
+ * or closed, never on the first paint, with less motion, or while the device
+ * moves.
  */
 export function glides(cue: GlideCue): boolean {
   if (cue.first || cue.still || cue.moving) return false;
-  if ((cue.from.beside ?? 0) !== (cue.to.beside ?? 0)) return true;
+  if (cue.sized) return true;
   return cue.from.side !== cue.to.side || cue.from.open !== cue.to.open;
 }
 

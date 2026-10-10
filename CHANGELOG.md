@@ -9,6 +9,7 @@
 ### panel
 
 - a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept
+- the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
 
 ## 0.1.2
 
