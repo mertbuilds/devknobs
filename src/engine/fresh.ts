@@ -6,8 +6,9 @@ import { newer, stamped } from "./stored";
  * Fresh mode, and the one way to web storage. With `devknobs=fresh` in the
  * page's address, devknobs shows what a first visit sees: it leaves
  * `localStorage` alone, and a load of the page it did not ask for starts with
- * none of its items in `sessionStorage`. Every read and write of either
- * storage goes through `webStorage`, so the rule holds in one place.
+ * none of its items in `sessionStorage`. Every read and write devknobs makes
+ * for itself goes through `webStorage`, so the rule holds in one place. The
+ * storage view shows the page's own items, and reaches those directly.
  */
 
 /** The address parameter and the value that turn fresh mode on. */

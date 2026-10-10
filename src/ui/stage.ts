@@ -1,5 +1,6 @@
 import type { GrabControl } from "../grab/control";
 import type { Requests } from "./requests";
+import type { StorageControl } from "./storageaction";
 
 /**
  * What the actions act on, on this page. The catalog says what an action does,
@@ -13,8 +14,10 @@ export interface Stage {
   inspect: GrabControl | null;
   /** The requests view, where a panel shows one. */
   requests: Requests | null;
+  /** The storage view, where there is a panel to show it in. */
+  storage: StorageControl | null;
   /** Takes the panel to the other side of the window, while there is a panel. */
   flip: (() => void) | null;
 }
 
-export const stage: Stage = { grab: null, inspect: null, requests: null, flip: null };
+export const stage: Stage = { grab: null, inspect: null, requests: null, storage: null, flip: null };

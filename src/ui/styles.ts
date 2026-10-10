@@ -535,7 +535,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   overflow: clip;
   transition: grid-template-rows 180ms ease-out;
 }
-.row.open .fold { grid-template-rows: minmax(0, 1fr); }
+.row.open > .fold { grid-template-rows: minmax(0, 1fr); }
 .editor {
   min-height: 0;
   display: grid;
@@ -1018,6 +1018,39 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 2px;
 }
 .split-part { flex: 0 0 0; min-width: 1px; background: var(--fg); }
+/* What folds out under a view's row, one thing under another, padded as a
+   row's editor is: 4 in from the row's edges, so what it holds is 4 round. */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 2px 4px 6px; }
+/* In a stack the pairs start where its notes do, and a block of code stands
+   on a row: on the panel's ground and 4 round. It stops growing where it
+   would crowd the view, and scrolls from there. */
+.stack .pairs { padding: 0 6px; }
+.stack .code-text {
+  max-height: 240px;
+  padding: 3px 6px;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.field-line { width: 100%; }
+/* A text box, in the type code is read in. It stops growing where it would
+   crowd the view, and scrolls from there. */
+.field-area {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  padding: 3px 6px;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-y: auto;
+  resize: vertical;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.ask { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 
 /* The strip that changes the panel's width, as the edge of a docked devtools
    does: it lies across the border on the panel's page side, as tall as the
@@ -1323,6 +1356,27 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
 .req-frame { display: flex; align-items: baseline; gap: 8px; }
 .req-fn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .req-where { flex: 0 1 auto; min-width: 32px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); }
+
+/* The storage view's own cells: a key and a cookie's name in the type code is
+   read in, the value after it cut to the line, and its size at the end. One
+   of devknobs' own items is told by its fainter key alone. */
+.st-key {
+  max-width: 55%;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--fg);
+}
+.st-key.own { color: var(--faint); }
+.st-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--faint);
+}
+.st-size { flex: none; margin-left: auto; font-size: 10px; color: var(--faint); }
+.st-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 
 /* The pinned panel: a column the window's height, flush with its edge and
    square, the one hairline it keeps on the page's side. The top and bottom

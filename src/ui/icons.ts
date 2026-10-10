@@ -11,7 +11,10 @@ import type { Binding } from "./keys";
 
 const SVG = "http://www.w3.org/2000/svg";
 
-type Shape = readonly [tag: "path" | "circle" | "rect", attributes: Readonly<Record<string, string>>];
+type Shape = readonly [
+  tag: "path" | "circle" | "rect" | "ellipse",
+  attributes: Readonly<Record<string, string>>,
+];
 
 const p = (d: string): Shape => ["path", { d }];
 const c = (cx: string, cy: string, r: string): Shape => ["circle", { cx, cy, r }];
@@ -156,6 +159,24 @@ export const ICONS = {
     ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" }],
     p("M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"),
   ],
+  "refresh-cw": [
+    p("M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"),
+    p("M21 3v5h-5"),
+    p("M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"),
+    p("M8 16H3v5"),
+  ],
+  database: [
+    ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3" }],
+    p("M3 5V19A9 3 0 0 0 21 19V5"),
+    p("M3 12A9 3 0 0 0 21 12"),
+  ],
+  "trash-2": [
+    p("M10 11v6"),
+    p("M14 11v6"),
+    p("M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"),
+    p("M3 6h18"),
+    p("M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"),
+  ],
   check: [p("M20 6 9 17l-5-5")],
   "chevron-left": [p("m15 18-6-6 6-6")],
   "chevrons-left-right": [p("m9 7-5 5 5 5"), p("m15 7 5 5-5 5")],
@@ -266,6 +287,7 @@ export const BINDING_ICONS: Record<Binding, IconName> = {
   inspect: "braces",
   replay: "rotate-ccw",
   requests: "arrow-up-down",
+  storage: "database",
   reset: "eraser",
 };
 

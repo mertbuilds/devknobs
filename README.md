@@ -171,7 +171,8 @@ panel's buttons, typing a character opens the search with it typed in.
 while the panel is out and the focus is in no field, `/` opens the search,
 `⇧R` replays the page's animations, `⇧N` shows the requests and hides them
 again, and shift backspace (or shift delete) resets every knob, from the frame
-too.
+too. `⇧S` shows the [storage](#storage) view, and opens the panel for it where
+it is closed.
 while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
 and with `0` fit it again, from the frame too, unless the focus is in a field.
 every other key goes to the page as it would without the panel. `⇧K` toggles
@@ -250,7 +251,7 @@ the origin, and wins over the `handle` option. reset all leaves it.
 
 ### shortcuts
 
-the panel, grab, inspect, replay, requests and reset keys above are the defaults, and each can be
+the panel, grab, inspect, replay, requests, storage and reset keys above are the defaults, and each can be
 set from the panel: the settings list them under shortcuts,
 click one and press the new key, escape to cancel. a key needs shift, alt
 (option), ctrl or meta (⌘) with it, as a key alone types, except F1 to F12,
@@ -510,6 +511,74 @@ what it records, and what it cannot:
   the page's first request with the early script below. there is no fake slow
   or failed response, and no throttling.
 
+## storage
+
+the storage action (`⇧S`, or search for storage, data, application, cookies)
+shows what the page keeps in the browser, in the panel, one kind at a time:
+
+- `local` and `session`: every key of `localStorage` and `sessionStorage`,
+  with a one-line preview and its size. a row folds out to the whole value,
+  laid out as json only where that changes nothing of it, with copy value,
+  edit, duplicate and delete. add takes `key=value`, a line each, or a json
+  object of several keys. the list follows other tabs through the `storage`
+  event and the page's own writes by reading again once a second, only while
+  the segment is in sight
+- `cookies`: what `document.cookie` gives, and in Chromium the path, domain,
+  expiry, secure and sameSite the cookie store knows. edit and delete write
+  `document.cookie` at the cookie's own path and domain, and where those are
+  not told, try the page's path, its folders and `/`. a cookie that could not
+  be changed says so
+- `idb`: the databases `indexedDB.databases()` lists, a database's object
+  stores (key path, auto increment, indexes, record count) and a store's
+  records, fifty at a time. read only: a whole database can be deleted, a
+  record cannot be changed
+- `cache`: the caches of Cache Storage, and a cache's requests with the
+  response's status, type and size, a hundred at a time. read only
+- `presets`: named sets of values to put back into the page, see below
+
+the head of the view has refresh, clear for the kind that shows, and clear
+site data: one question that lists what goes, with counts, then local and
+session storage, every cookie the page can delete, every database and every
+cache go in one go. what could not be removed is counted and said, and a
+reload is offered, never done for you.
+
+devknobs' own items (the key `devknobs` and every `devknobs:` key) are hidden
+and kept by every clear, until show devknobs' own is on.
+
+### presets
+
+save as preset keeps the local and session items and the readable cookies
+the filter shows, under a name. a preset applies with one press, added to
+what is there or in place of it, and is edited, exported and imported as
+json, so it moves between machines and teammates. a preset holds at most 200
+entries and 256 KB.
+
+apply on load, a switch on a preset's row, sets the preset on every load of
+the page, before the page's own scripts where the [early script](#early-script)
+is there and at mount where it is not. this writes to the page's real storage
+on every load until it is turned off: the storage row in the panel says
+`1 preset` while one applied, and reset all turns it off for every preset
+without deleting any. a preset imported from someone else never applies on
+load until you turn that on.
+
+presets are kept in `localStorage` under `devknobs:storage-presets`, so they
+are per origin and never apply anywhere else. in fresh mode they are neither
+read nor kept.
+
+### what it cannot show
+
+- cookies marked HttpOnly: a page cannot read them, so neither can devknobs
+- the storage of other origins, an iframe's or a cdn's included
+- the list of databases where `indexedDB.databases()` is missing
+- service worker registrations, WebSQL, the origin private file system and
+  the quota
+
+it reads through the page's own apis and wraps none of them. a database is
+opened by name with no version, read in one read-only transaction and closed
+at once, on every path, so the view never holds a connection that would block
+the page's own upgrade. nothing is copied, kept or sent anywhere by itself:
+the copy controls are the only way out.
+
 ## early script
 
 optional. a page that reads a media query or the time while it boots, before
@@ -535,7 +604,9 @@ and the user agent only, and since it reads the stored state, it follows the
 knobs from the next load on. inside a frame that gets the scheme natively, it
 leaves the scheme to the browser, as the full script does. it also puts a
 React devtools hook in place for grab, when the page has none, so React
-reports to it from its first render.
+reports to it from its first render. before all of that it sets what the
+[storage](#storage) presets marked apply on load hold, so the page's own
+scripts start with them.
 
 when the stored knobs put the page in a frame, the early script also hides
 the page under the frame's mat from the first paint, so a reload never shows
@@ -587,6 +658,7 @@ screen shows the page loading as Safari does a reload. without devknobs after
 | grab color | auto, blue, green, pink, orange, purple, cyan | the color of grab's boxes and glow, wider on a p3 screen. auto is blue, and green on an element with blue behind it, so the box shows. a picked color stays whatever the page. the frame's grab follows |
 | replay animations | action, `⇧R` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
 | requests | action, `⇧N` | shows the requests the page made, as a view in the panel. see requests below |
+| storage | action, `⇧S` | shows `localStorage`, `sessionStorage`, the cookies a page can read, IndexedDB and Cache Storage in the panel, clears site data, and keeps presets of values that can apply on every load. see [storage](#storage) |
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.

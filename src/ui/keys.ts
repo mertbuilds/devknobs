@@ -26,7 +26,7 @@ export interface Combo {
 }
 
 /** The shortcuts the panel can be told to use, and by whom. */
-export type Binding = "panel" | "grab" | "inspect" | "replay" | "requests" | "reset";
+export type Binding = "panel" | "grab" | "inspect" | "replay" | "requests" | "storage" | "reset";
 
 /** Each binding's key as the mount options and the defaults give it: every binding has one. */
 export type BaseKeys = Record<Binding, Combo>;
@@ -126,8 +126,8 @@ const INSPECT_KEYS = ["c", "i", "y"];
 
 /**
  * The panel's keys with none set: shift and the hotkey, shift g, shift c,
- * shift r, shift n and shift backspace. Where the mount gave the panel or grab
- * shift and c, inspect takes the next letter of its own.
+ * shift r, shift n, shift s and shift backspace. Where the mount gave the
+ * panel or grab shift and c, inspect takes the next letter of its own.
  */
 export function defaultKeys(options: { hotkey?: string; grabKey?: string } = {}): BaseKeys {
   const panel = withShift(hotkeyOf(options.hotkey));
@@ -140,6 +140,7 @@ export function defaultKeys(options: { hotkey?: string; grabKey?: string } = {})
     inspect: withShift(free ?? "c"),
     replay: withShift(REPLAY_KEY),
     requests: withShift(REQUESTS_KEY),
+    storage: withShift(STORAGE_KEY),
     reset: withShift("backspace"),
   };
 }
@@ -268,23 +269,27 @@ export const REPLAY_KEY = "r";
 /** The letter that with shift shows the requests log, and hides it. */
 export const REQUESTS_KEY = "n";
 
+/** The letter that with shift shows and leaves the storage view. */
+export const STORAGE_KEY = "s";
+
 /**
  * What a keydown asks of the panel, if anything: escape closes, and the
- * panel's, replay's, requests' and reset's keys do theirs, the panel's
- * winning where they are the same. In a field, `actsHere` says whether the
- * key is its.
+ * panel's, replay's, requests', reset's and the storage view's keys do
+ * theirs, the panel's winning where they are the same, and the storage view's
+ * giving way to all. In a field, `actsHere` says whether the key is its.
  */
 export function keyAction(
   event: KeyLike,
-  keys: Pick<Keys, "panel" | "replay" | "requests" | "reset">,
+  keys: Pick<Keys, "panel" | "replay" | "requests" | "reset"> & Partial<Pick<Keys, "storage">>,
 ): KeyAction | null {
   if (event.key === "Escape") return "close";
-  const steps = [
+  const steps: readonly (readonly [KeyAction, Combo | null | undefined])[] = [
     ["toggle", keys.panel],
     ["replay", keys.replay],
     ["requests", keys.requests],
     ["reset", keys.reset],
-  ] as const;
+    ["storage", keys.storage],
+  ];
   for (const [action, combo] of steps) {
     if (combo && comboMatches(event, combo)) return actsHere(event, combo) ? action : null;
   }

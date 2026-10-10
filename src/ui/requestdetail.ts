@@ -2,7 +2,19 @@ import { NativeDate } from "../engine/clock";
 import type { BodyRecord, RequestEntry } from "../requests/types";
 import { button, el } from "./dom";
 import { glyph, icon } from "./icons";
-import { codeBlock, emptyLine, filterField, group, type Pairs, pairs, rowButton, segments, splitBar, toolbar } from "./kit";
+import {
+  codeBlock,
+  emptyLine,
+  filterField,
+  group,
+  noteLine,
+  type Pairs,
+  pairs,
+  rowButton,
+  segments,
+  splitBar,
+  toolbar,
+} from "./kit";
 import { clockTime, durationLabel, hasText, type Lead, LIGHT_WHY, middle, STATUS_TONES } from "./requestformat";
 import {
   BODY_LINES,
@@ -98,10 +110,6 @@ function put(node: HTMLElement, text: string): void {
   if (node.textContent !== text) node.textContent = text;
 }
 
-function line(text: string): HTMLElement {
-  return el("div", "note", text);
-}
-
 export function createDetail(entry: RequestEntry, context: DetailContext): Detail {
   const own = context.own ?? stackFile(new Error().stack);
   let now = entry;
@@ -137,9 +145,9 @@ export function createDetail(entry: RequestEntry, context: DetailContext): Detai
   const unmatched = emptyLine(NO_HEADER);
   const filter = filterField({ placeholder: "filter", label: "filter headers", onInput: refilter });
 
-  const hides = line(HIDES_NOTE);
+  const hides = noteLine(HIDES_NOTE);
   hides.hidden = true;
-  const left = line(GONE_NOTE);
+  const left = noteLine(GONE_NOTE);
   left.hidden = true;
   const region = el("div", "req-body");
   region.setAttribute("role", "region");
@@ -198,9 +206,9 @@ export function createDetail(entry: RequestEntry, context: DetailContext): Detai
     const ends: HTMLElement[] = [];
     const nodes: HTMLElement[] = [];
     const cut = cutNote(record);
-    if (cut) nodes.push(line(cut));
+    if (cut) nodes.push(noteLine(cut));
     const shape = bodyShape(record, type);
-    if (shape.kind === "line") nodes.push(line(shape.text));
+    if (shape.kind === "line") nodes.push(noteLine(shape.text));
     else if (shape.kind === "fields") nodes.push(pairs(shape.lines).node);
     else {
       const code = codeBlock({ text: shape.text, lines });
@@ -250,7 +258,7 @@ export function createDetail(entry: RequestEntry, context: DetailContext): Detai
     body: [
       block(
         (at) => [at.detail],
-        (at) => (at.detail === "light" ? line(LIGHT_BODIES) : null),
+        (at) => (at.detail === "light" ? noteLine(LIGHT_BODIES) : null),
       ),
       block(
         (at) => [at.detail, at.url, at.requestBody],
@@ -270,7 +278,7 @@ export function createDetail(entry: RequestEntry, context: DetailContext): Detai
           if (at.detail === "light") return null;
           const got = at.responseBody
             ? body(at.responseBody, at.contentType, "response")
-            : { ends: [], nodes: [line(noResponse(at))] };
+            : { ends: [], nodes: [noteLine(noResponse(at))] };
           const box = group({ label: "response", ends: got.ends });
           box.append(...got.nodes);
           return box;
@@ -298,7 +306,7 @@ export function createDetail(entry: RequestEntry, context: DetailContext): Detai
     more: [
       block(
         (at) => [at.detail],
-        (at) => (at.detail === "light" ? line(LIGHT_WHY) : null),
+        (at) => (at.detail === "light" ? noteLine(LIGHT_WHY) : null),
       ),
       block(
         (at) => [at],

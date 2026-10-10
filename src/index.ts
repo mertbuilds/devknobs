@@ -9,6 +9,7 @@ import { createGrab, type GrabControl } from "./grab/control";
 import { createInspect, type InspectControl } from "./grab/inspect";
 import type { GrabOptions, GrabPayload } from "./grab/types";
 import { claim, free, superseded } from "./instance";
+import { applyOnLoad } from "./storage/onload";
 import type { GrabColorValue } from "./types";
 import { createKeys, type LiveKeys } from "./ui/bindings";
 import { forwardKeys } from "./ui/keys";
@@ -107,6 +108,8 @@ let keys: LiveKeys | null = null;
  */
 export function mount(options: MountOptions = {}): void {
   if (panel || stopKeys) return;
+  // Before anything else: the presets marked to apply on load, unless the early script did.
+  applyOnLoad();
   claim(window, unmount);
   engine.start(options);
   // The mount's keys, with the ones the user set in the panel on top.

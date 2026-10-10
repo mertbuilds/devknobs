@@ -29,6 +29,7 @@ export const BINDINGS: readonly Binding[] = [
   "inspect",
   "replay",
   "requests",
+  "storage",
   "reset",
 ];
 
@@ -39,6 +40,7 @@ export const BINDING_WORDS: Record<Binding, string> = {
   inspect: "inspect",
   replay: "replay animations",
   requests: "requests",
+  storage: "storage",
   reset: "reset",
 };
 

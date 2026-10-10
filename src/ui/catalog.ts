@@ -45,6 +45,7 @@ import {
   TRANSPARENCY,
 } from "./knobs";
 import { togglePin } from "./pin";
+import { appliedOnLoad, stopOnLoad } from "../storage/onload";
 import { stage } from "./stage";
 
 export { hasMock } from "./deviceknobs";
@@ -230,7 +231,7 @@ export type Row = KnobRow | ActionRow;
 
 /** Something the panel does rather than a knob it sets. Its row comes from what is said here. */
 export interface Action {
-  id: "grab" | "inspect" | "replay" | "requests" | "pin" | "side";
+  id: "grab" | "inspect" | "replay" | "requests" | "storage" | "pin" | "side";
   label: string;
   /** What a search result says after the name. */
   long: string;
@@ -250,6 +251,19 @@ export interface Action {
   watch?(listener: () => void): () => void;
   /** False where the page has nothing for the action to act on. */
   available?(): boolean;
+  /**
+   * What the action emulates now, as its row says it and as a knob's summary
+   * does. Empty while it emulates nothing. A row that says something is
+   * listed, so what changes the page is never out of sight.
+   */
+  value?(): string;
+  /** Put back what the action emulates, as its row's `×` and reset all do. */
+  reset?(): void;
+}
+
+/** What the storage row says once presets applied as the page loaded: `1 preset`. */
+export function appliedText(count: number): string {
+  return count > 0 ? `${count} ${count === 1 ? "preset" : "presets"}` : "";
 }
 
 /**
@@ -304,6 +318,35 @@ export const ACTIONS: readonly Action[] = [
     state: () => (stage.requests ? (stage.requests.shows() ? "on" : "off") : null),
     off: () => stage.requests?.close(),
     available: () => stage.requests !== null,
+  },
+  {
+    id: "storage",
+    label: "storage",
+    long: "local storage, cookies, databases and presets",
+    aliases: [
+      "data",
+      "browser data",
+      "application",
+      "cookies",
+      "localstorage",
+      "local storage",
+      "session storage",
+      "indexeddb",
+      "indexed db",
+      "cache",
+      "presets",
+      "clear site data",
+    ],
+    icon: "database",
+    binding: "storage",
+    run: () => stage.storage?.toggle(),
+    state: () => (stage.storage ? (stage.storage.isOn() ? "on" : "off") : null),
+    off: () => stage.storage?.close(),
+    watch: (listener) => stage.storage?.subscribe(listener) ?? (() => {}),
+    available: () => stage.storage !== null,
+    value: () => appliedText(appliedOnLoad()),
+    // Applying on load is emulation, as a knob is: reset all turns it off.
+    reset: () => stopOnLoad(),
   },
   {
     id: "pin",
@@ -445,11 +488,15 @@ export function rowHere(row: Row): boolean {
 
 /**
  * Does any knob of the row differ from its default, or is its action's mode
- * on? A toggle with no way off is on as place is, not as a mode: it lists no
- * row and reset all has nothing of it to put back.
+ * on, or does its action emulate something? A toggle with no way off is on as
+ * place is, not as a mode: it lists no row and reset all has nothing of it to
+ * put back.
  */
 export function isActive(row: Row, state: DevknobsState): boolean {
-  if (row.action) return row.action.off !== undefined && row.action.state?.() === "on";
+  if (row.action) {
+    const on = row.action.off !== undefined && row.action.state?.() === "on";
+    return on || Boolean(row.action.value?.());
+  }
   return knobsOf(row).some((knob) => offDefault(knob, state));
 }
 

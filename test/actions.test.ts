@@ -241,7 +241,7 @@ describe("running an action", () => {
 
 describe("inspect's row", () => {
   test("has a place only where there is an inspect, apart from grab's", () => {
-    expect(ACTIONS.map((entry) => entry.id)).toEqual(["grab", "inspect", "replay", "requests", "pin", "side"]);
+    expect(ACTIONS.map((entry) => entry.id)).toEqual(["grab", "inspect", "replay", "requests", "storage", "pin", "side"]);
     expect(action("inspect").state?.()).toBeNull();
     expect(isListed(row("inspect"), pinned("inspect"))).toBe(false);
     stage.grab = fakeGrab();

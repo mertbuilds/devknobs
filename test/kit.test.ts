@@ -1,12 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as dom from "../src/ui/dom";
 import {
+  AREA_ROWS,
+  codeBlock,
+  confirmLine,
+  controls,
   emptyLine,
   filterField,
+  noteLine,
+  pairs,
   rowBox,
   rowButton,
   sectionFold,
   segments,
+  stack,
+  switchLine,
+  textArea,
+  textField,
   toolbar,
 } from "../src/ui/kit";
 import * as radio from "../src/ui/radio";
@@ -173,6 +183,154 @@ describe("toolbar, emptyLine and sectionFold", () => {
     const fold = sectionFold({ label: "headers", ends: [brief], open: false });
     const [main] = fake(fold.node).find("main");
     expect(main?.children.map((child) => child.className)).toEqual(["lead", "row-label", "row-value idle"]);
+  });
+});
+
+describe("what folds out under a view's row", () => {
+  test("a fold's line ends with what it is handed, and hands back its line and label", () => {
+    const size = dom.el("span", "size", "12 B");
+    const fold = sectionFold({ label: "token", open: false, ends: [size] });
+    const [main] = fake(fold.node).find("main");
+    expect(fake(fold.main)).toBe(main as ReturnType<typeof fake>);
+    expect(main?.children.map((child) => child.className)).toEqual(["lead", "row-label", "size"]);
+    expect(fake(fold.label).textContent).toBe("token");
+  });
+
+  test("a fold inside a fold stays folded while the outer one is out: only a row's own fold opens with it", () => {
+    const opens = rules(CSS).filter((rule) => /\.row\.open\b.*\.fold\b/.test(rule.selector));
+    expect(opens.map((rule) => rule.selector)).toEqual([".row.open > .fold"]);
+  });
+
+  test("a note is a quiet line, and a stack holds what it is handed, in order", () => {
+    const note = fake(noteLine("read only"));
+    expect(note.className).toBe("note");
+    expect(note.textContent).toBe("read only");
+    const box = fake(stack([noteLine("a"), emptyLine("b")]));
+    expect(box.className).toBe("stack");
+    expect(box.children.map((child) => child.className)).toEqual(["note", "empty"]);
+  });
+
+  test("controls are the editors' chips, each a button that does one thing", () => {
+    const ran: string[] = [];
+    const line = controls([
+      { label: "copy value", run: () => ran.push("copy") },
+      { label: "delete", run: () => ran.push("delete") },
+    ]);
+    const node = fake(line.node);
+    expect(node.className).toBe("chips");
+    expect(node.children.map((child) => [child.tag, child.type, child.className, child.textContent])).toEqual([
+      ["button", "button", "chip", "copy value"],
+      ["button", "button", "chip", "delete"],
+    ]);
+    expect(line.buttons).toHaveLength(2);
+    node.children[1]?.fire("click");
+    expect(ran).toEqual(["delete"]);
+  });
+
+  test("a text field is the panel's field, a line wide, and says when enter is pressed", () => {
+    let entered = 0;
+    const node = fake(textField({ placeholder: "preset name", value: "a", onEnter: () => entered++ }));
+    expect(node.tag).toBe("input");
+    expect(node.className).toBe("field field-line");
+    expect(node.attributes.get("aria-label")).toBe("preset name");
+    expect(node.value).toBe("a");
+    node.fire("keydown", { key: "a" });
+    node.fire("keydown", { key: "Enter" });
+    expect(entered).toBe(1);
+  });
+
+  test("a text box grows with its lines up to a limit, and saves on enter with meta or ctrl", () => {
+    let saved = 0;
+    const node = fake(textArea({ label: "value of token", value: "one", onSave: () => saved++ }));
+    expect(node.tag).toBe("textarea");
+    expect(node.className).toBe("field field-area");
+    expect(node.attributes.get("aria-label")).toBe("value of token");
+    expect(node.spellcheck).toBe(false);
+    expect(node.rows).toBe(2);
+    node.value = "1\n2\n3\n4";
+    node.fire("input");
+    expect(node.rows).toBe(4);
+    node.value = Array.from({ length: 100 }, () => "x").join("\n");
+    node.fire("input");
+    expect(node.rows).toBe(AREA_ROWS);
+    expect(node.fire("keydown", { key: "Enter" }).prevented).toBe(false);
+    expect(saved).toBe(0);
+    expect(node.fire("keydown", { key: "Enter", metaKey: true }).prevented).toBe(true);
+    expect(node.fire("keydown", { key: "Enter", ctrlKey: true }).prevented).toBe(true);
+    expect(saved).toBe(2);
+  });
+
+  test("a code block shows text as it is", () => {
+    const node = fake(codeBlock({ text: '{\n  "a": 1\n}' }).node);
+    expect(node.className).toBe("code");
+    const [text] = node.children;
+    expect(text?.tag).toBe("pre");
+    expect(text?.className).toBe("code-text");
+    expect(text?.textContent).toBe('{\n  "a": 1\n}');
+  });
+
+  test("pairs are a definition list of names and what each is", () => {
+    const node = fake(pairs([["path", "/"], ["secure", "yes"]]).node);
+    expect(node.tag).toBe("dl");
+    expect(node.className).toBe("pairs");
+    expect(node.children.map((child) => [child.tag, child.textContent])).toEqual([
+      ["dt", "path"],
+      ["dd", "/"],
+      ["dt", "secure"],
+      ["dd", "yes"],
+    ]);
+  });
+
+  test("a switch on a line is the editors' switch, named for assistive tech, and says what it is now", () => {
+    const heard: boolean[] = [];
+    const line = switchLine({ label: "apply on load", on: false, onChange: (on) => heard.push(on) });
+    const node = fake(line.node);
+    expect(node.className).toBe("knob knob-switch");
+    expect(node.children.map((child) => child.className)).toEqual(["knob-label", "switch"]);
+    const control = fake(line.control);
+    expect(control.attributes.get("role")).toBe("switch");
+    expect(control.attributes.get("aria-label")).toBe("apply on load");
+    expect(control.attributes.get("aria-checked")).toBe("false");
+    control.fire("click");
+    expect(control.className).toBe("switch on");
+    expect(control.attributes.get("aria-checked")).toBe("true");
+    control.fire("click");
+    expect(heard).toEqual([true, false]);
+    line.set(true);
+    expect(control.attributes.get("aria-checked")).toBe("true");
+    expect(heard).toEqual([true, false]);
+  });
+
+  test("a question is asked in place: its words, the control that goes ahead, then cancel", () => {
+    const heard: string[] = [];
+    const asked = confirmLine({
+      text: "clear 12 items?",
+      confirm: "clear",
+      onConfirm: () => heard.push("yes"),
+      onCancel: () => heard.push("no"),
+    });
+    const node = fake(asked.node);
+    expect(node.className).toBe("ask");
+    expect(node.children.map((child) => child.className)).toEqual(["note", "chips"]);
+    expect(node.children[0]?.textContent).toBe("clear 12 items?");
+    expect(node.find("chip").map((chip) => chip.textContent)).toEqual(["clear", "cancel"]);
+    node.find("chip")[1]?.fire("click");
+    node.find("chip")[0]?.fire("click");
+    expect(heard).toEqual(["no", "yes"]);
+  });
+
+  test("the storage view's own css is only for its cells: it sets no box on a row, a bar or a head", () => {
+    const own = rules(CSS).filter((rule) => /\.st-/.test(rule.selector));
+    expect(own.map((rule) => rule.selector)).toEqual([".st-key", ".st-key.own", ".st-preview", ".st-size", ".st-list"]);
+    for (const rule of own) {
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(/(^|[\s;])(padding|border|outline|box-shadow|background|font-weight)(-[a-z-]+)?\s*:/);
+    }
+    // One of devknobs' own is told by fainter text alone.
+    expect(own.find((rule) => rule.selector === ".st-key.own")?.body.trim()).toBe("color: var(--faint);");
+  });
+
+  test("nothing in the stylesheet is bold", () => {
+    expect(CSS).not.toMatch(/font-weight:\s*(bold|[5-9]00)/);
   });
 });
 

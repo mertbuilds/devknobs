@@ -18,6 +18,10 @@
 - inspect's label is a card: the element and its size, then its color and background, the font its text is likely set in with its size, line height and weight, the wcag contrast with a mark for level AA, and its margin and padding, each only where it applies. the font is the first family of the list that the browser says is there, as a page cannot ask which font a glyph was drawn with
 - inspect has a row as grab and replay animations do: run from the search, the add knob list, the footer or its row, its row stays in the list, says `on` while it picks, and its x takes it off and ends the picking. its key in the footer and its row now turn it off where it is on
 
+### storage
+
+- a storage view in the panel (`⇧S`, or search for storage, data, cookies): `localStorage`, `sessionStorage` and the cookies a page can read, to look at, copy, edit, add and delete; IndexedDB and Cache Storage to read; clear site data in one go after one question; and presets, named sets of values to put back with a press or on every load. see the storage section of the readme
+
 ### panel
 
 - the pin button in the footer, and the pin panel action in the search, dock the panel to its side as a column the height of the window, like devtools. the page runs in a frame beside it, so its viewport really is narrower: media queries, `100vw` and fixed boxes follow. pinning loads the page once more when no frame is up, and never with a device or a width set. the pin is kept with the panel's place. the column is as wide as the panel, a view's width while one shows, and its edge sets that width down to a page of 320px. the page follows the column's edge frame by frame as the panel opens, closes or glides to a view's width, and slides across as the column changes side. two buttons by the pin, and the move panel across action, take it to the other side and close it. run from the panel, pin panel and move panel across are rows like any action: the pin's row says `on` while the panel is pinned, and its `×` and reset all leave the panel where it is
