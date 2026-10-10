@@ -24,11 +24,12 @@ import {
   holdingHinge,
   releaseFold,
   scrubFold,
+  foldableShown,
   stopFold,
   watchFold,
   watchHinge,
 } from "../src/engine/foldrun";
-import { resetTune, setTune } from "../src/engine/foldtune";
+import { foldTune, hingeMoved, resetTune, setTune } from "../src/engine/foldtune";
 import { DEFAULT_STATE } from "../src/engine/store";
 import type { ViewportValue } from "../src/engine/width";
 
@@ -120,10 +121,19 @@ class FakeNode {
     return this.pen;
   }
 
+  /** A canvas as a PNG that says its size, or, with the page's pictures held as another origin's, none. */
+  toBlob(done: (blob: Blob | null) => void, type: string): void {
+    if (tainted) throw new DOMException("The canvas has been tainted by cross-origin data.", "SecurityError");
+    done(new Blob([`${this.width}x${this.height}`], { type }));
+  }
+
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
     return { left: 0, top: 0, width: 400, height: 600 };
   }
 }
+
+/** Does the browser hold every canvas as another origin's, so none gives its picture out? */
+let tainted = false;
 
 /** A frame's picture, which knows its file and whether it was let go of. */
 class FakeBitmap {
@@ -145,12 +155,19 @@ class FakePen {
     this.drawn = [];
   }
 
+  /** What a rough picture of a page is painted with, which draws nothing here. */
+  fillRect(): void {}
+  setTransform(): void {}
+  beginPath(): void {}
+  rect(): void {}
+  clip(): void {}
+
   drawImage(bitmap: FakeBitmap, ...args: number[]): void {
     // As a browser does, drawing a picture let go of.
     if (bitmap.closed) throw new Error("InvalidStateError: the bitmap is closed");
     const last = this.drawn.at(-1);
     // One entry for all of a picture's pieces.
-    if (last?.src === bitmap.src && last.alpha === this.globalAlpha) return;
+    if (last && last.src === bitmap.src && last.alpha === this.globalAlpha) return;
     this.drawn.push({ src: bitmap.src, alpha: this.globalAlpha, at: [args[4] ?? NaN, args[5] ?? NaN] });
   }
 }
@@ -1807,5 +1824,169 @@ describe("a Duo whose frames do not decode", () => {
     expect(bitmaps).toHaveLength(all);
     expect(bezels.foldShots()).toBeNull();
     expect(bezels.foldShotsDue()).toBe(false);
+  });
+});
+
+describe("the fold's tuning hook, asking the frame", () => {
+  let now = 0;
+
+  beforeEach(() => {
+    paints = Promise.resolve();
+    tainted = false;
+    now = 0;
+  });
+
+  afterEach(() => {
+    foldableShown(null);
+    tainted = false;
+    stopFold();
+  });
+
+  /** The frame with a page in it a rough picture can be taken of, which the browser does not draw, and no bezels. */
+  function paged(): FoldScene {
+    const page = {
+      documentElement: new FakePage(),
+      body: { children: [] },
+      images: [],
+      styleSheets: [],
+      implementation: { createHTMLDocument: () => ({ importNode: () => new FakePage(), createElement: () => new FakeNode() }) },
+      querySelectorAll: () => [],
+      createRange: () => ({}),
+    };
+    const frame = Object.assign(new FakeNode(), {
+      contentDocument: page,
+      contentWindow: { innerWidth: 400, innerHeight: 600, scrollX: 0, scrollY: 0, getComputedStyle: () => ({ fontSize: "16px" }) },
+    });
+    return { ...sceneOf(), frame: frame as unknown as HTMLIFrameElement, body: () => null };
+  }
+
+  /** Run `count` frames, 16 ms apart, on from the last, seeing each. */
+  function run(count: number, see: () => void = () => {}): void {
+    for (let index = 0; index < count && frames.length > 0; index += 1) {
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      see();
+    }
+  }
+
+  test("gives the hinge's angle as his slider has it: null with no foldable up, 180 open, 0 shut, and the fold's on its way", () => {
+    expect(foldTune.angle()).toBeNull();
+    const scene = sceneOf();
+    let value = SHUT;
+    foldableShown(() => ({ scene, value }));
+    expect(foldTune.angle()).toBe(0);
+    value = OPEN;
+    expect(foldTune.angle()).toBe(180);
+    value = SHUT;
+    let open = 0;
+    const unwatch = watchHinge((at) => {
+      open = at;
+    });
+    foldDevice(SHUT, OPEN, scene, (next) => {
+      value = next;
+      unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+    });
+    const seen: number[] = [];
+    run(200, () => {
+      expect(foldTune.angle()).toBe(180 * (folding() ? open : 1));
+      seen.push(foldTune.angle() ?? NaN);
+    });
+    unwatch();
+    expect(folding()).toBe(false);
+    expect(seen.at(-1)).toBe(180);
+    expect(seen.some((at) => at > 60 && at < 120)).toBe(true);
+    expect(seen).toEqual([...seen].sort((a, b) => a - b));
+    foldableShown(() => null);
+    expect(foldTune.angle()).toBeNull();
+  });
+
+  test("tells who listens of the angle as it moves, once a frame at most, and asks for no frame with no one listening", () => {
+    const scene = sceneOf();
+    let value = SHUT;
+    foldableShown(() => ({ scene, value }));
+    const start = () =>
+      foldDevice(value, value === SHUT ? OPEN : SHUT, scene, (next) => {
+        value = next;
+        unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+      });
+    // No one listens: the fold asks for its own next frame, and nothing else does.
+    start();
+    run(200, () => expect(frames.length).toBeLessThanOrEqual(1));
+    expect(foldTune.angle()).toBe(180);
+    let heard: number[] = [];
+    const stop = foldTune.subscribe(() => heard.push(foldTune.angle() ?? NaN));
+    start();
+    let last = 0;
+    let draws = 0;
+    run(200, () => {
+      expect(heard.length - last).toBeLessThanOrEqual(1);
+      last = heard.length;
+      draws += 1;
+      // However often it moved in a frame, one more frame is asked for, beside the fold's own.
+      if (draws === 5) {
+        expect(frames).toHaveLength(2);
+        hingeMoved();
+        hingeMoved();
+      }
+      expect(frames.length).toBeLessThanOrEqual(2);
+    });
+    expect(folding()).toBe(false);
+    // Each angle once, on its way down to shut, a frame after it was drawn.
+    expect(heard.length).toBeGreaterThan(20);
+    expect(heard.length).toBeLessThanOrEqual(draws);
+    expect(new Set(heard).size).toBe(heard.length);
+    expect(heard).toEqual([...heard].sort((a, b) => b - a));
+    expect(heard.at(-1)).toBe(0);
+    // The foldable goes: told once, and not again of what stays.
+    heard = [];
+    foldableShown(() => null);
+    forgetFold();
+    forgetFold();
+    run(3);
+    expect(heard).toEqual([NaN]);
+    stop();
+    foldableShown(() => ({ scene, value }));
+    start();
+    run(200, () => expect(frames.length).toBeLessThanOrEqual(1));
+    expect(heard).toEqual([NaN]);
+  });
+
+  test("gives the picture of the page on the screen that shows as a PNG its own size: taken at rest as a fold would, else the fold's own", async () => {
+    // No foldable up: none.
+    expect(await foldTune.shot()).toBeNull();
+    expect(foldTune.shotWhy()).toBe("no foldable is up");
+    // A page out of reach: none.
+    const bare = sceneOf();
+    foldableShown(() => ({ scene: bare, value: OPEN }));
+    expect(await foldTune.shot()).toBeNull();
+    expect(foldTune.shotWhy()).toBe("the page is out of reach, so there is no picture of it");
+    // At rest open, the open screen's, a quarter of its 951 by 669 css px as the rough one is, and shut the folded body's.
+    const scene = paged();
+    foldableShown(() => ({ scene, value: OPEN }));
+    const inner = await foldTune.shot();
+    expect(inner?.type).toBe("image/png");
+    expect(await inner?.text()).toBe("238x167");
+    expect(foldTune.shotWhy()).toBe("the picture came out as a PNG, 238 by 167 px");
+    expect(layer()).toBeUndefined();
+    foldableShown(() => ({ scene, value: SHUT }));
+    expect(await (await foldTune.shot())?.text()).toBe("117x170");
+    // A picture the browser will not let out: none, and nothing thrown.
+    tainted = true;
+    expect(await foldTune.shot()).toBeNull();
+    expect(foldTune.shotWhy()).toStartWith("the browser will not let the picture out: SecurityError");
+    tainted = false;
+    // Folding, the fold's own picture of the side that faces the viewer, whatever rests.
+    foldableShown(() => null);
+    foldDevice(SHUT, OPEN, scene, () => {}, true);
+    expect(await (await foldTune.shot())?.text()).toBe("117x170");
+    scrubFold(0.8);
+    let open = 0;
+    const unwatch = watchHinge((at) => {
+      open = at;
+    });
+    for (let frame = 0; frame < 200 && open <= 0.5; frame += 1) run(1);
+    unwatch();
+    expect(open).toBeGreaterThan(0.5);
+    expect(await (await foldTune.shot())?.text()).toBe("238x167");
   });
 });

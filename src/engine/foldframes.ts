@@ -213,7 +213,7 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     light(glued, open, glued.gl ? null : free, free, own);
     const span = layout.across ? glued.size.height : glued.size.width;
     const wedge = wedgeOf(opening, glued.pane, picture, span);
-    glued.gl?.draw(screenLook(open, wedge, free, own ? glued.pane : null));
+    glued.gl?.draw(screenLook(open, wedge, free, own ? glued.pane : null, glued.pane));
   }
 }
 

@@ -44,7 +44,7 @@ import {
   type Turning,
   turningOf,
 } from "./foldpage";
-import { installTune, watchTune } from "./foldtune";
+import { hingeMoved, installTune, tuneLive, watchTune } from "./foldtune";
 import type { Mock, Rect } from "./mock";
 import { drawMock, UNDER } from "./mockdraw";
 import { type Corners, lerp } from "./morph";
@@ -210,8 +210,51 @@ const watchers = new Set<() => void>();
 /** What wants to know where the hinge is drawn each time it is, and whether a hand sent it there. */
 const hinges = new Set<(open: number, hand: boolean) => void>();
 
+/** The foldable the frame shows, and the knobs it is drawn by. */
+export interface Shown {
+  scene: FoldScene;
+  value: ViewportValue;
+}
+
+/** The foldable the frame shows at rest, or null where it shows none: asked of the frame, which says how here. */
+let shown: (() => Shown | null) | null = null;
+
+/** The frame says how to ask it for the foldable it shows, for the tuning hook. */
+export function foldableShown(source: (() => Shown | null) | null): void {
+  shown = source;
+}
+
+/** How far open the hinge is drawn, 0 shut to 1 open: of the fold on its way, else as the foldable rests. Null with none up. */
+function hingeOpen(): number | null {
+  if (fold) return fold.open;
+  const rest = shown?.();
+  return rest ? openOf(rest.value.posture) : null;
+}
+
+/**
+ * The pictures of the page on the screen that shows now, as the browser
+ * draws it and then the rough one: those of the fold on its way, of the side
+ * that faces the viewer, the open screen while the hinge is more than half
+ * open, or, at rest, taken now as a fold would. Else why there is none.
+ */
+async function pagePictures(): Promise<HTMLCanvasElement[] | string> {
+  const going = fold;
+  const rest = going ? null : shown?.();
+  let picture: Picture;
+  if (going) picture = going.pictures[going.open > 0.5 ? "open" : "closed"];
+  else if (rest) {
+    const { scene, value } = rest;
+    const { size } = sideOf(scene, value, scene.screenRect());
+    picture = pictureOf(scene.frame, scene.glass, value, size, scene.background(), copyPage(scene.frame));
+  } else return "no foldable is up";
+  const drawn = await picture.painted;
+  const found = [drawn?.shot, picture.shot].filter((canvas): canvas is HTMLCanvasElement => canvas != null);
+  return found.length > 0 ? found : "the page is out of reach, so there is no picture of it";
+}
+
 // A number of the fold's look set by hand shows at once, on a hinge that rests between its ends too.
 installTune();
+tuneLive({ open: hingeOpen, pictures: pagePictures });
 watchTune(() => {
   if (!fold) return;
   fold.drawn = "";
@@ -451,6 +494,7 @@ function show(going: Going): void {
   const drawn = shots ? `${open} ${going.out} ${going.still} ${unit.posture}` : "";
   if (drawn && drawn === going.drawn) {
     for (const watcher of Array.from(hinges)) watcher(going.open, going.hand);
+    hingeMoved();
     return;
   }
   going.drawn = drawn;
@@ -483,6 +527,7 @@ function show(going: Going): void {
   scene.unit.style.clipPath = opened && hand === 0 ? stillClip(going, shots, frame.inner !== null, own) : "";
   darken(scene.cover, screenDim(opened ? "inner" : "cover", open));
   for (const watcher of Array.from(hinges)) watcher(going.open, going.hand);
+  hingeMoved();
 }
 
 /**
@@ -534,6 +579,7 @@ function clear(last: Going): void {
   darken(last.scene.cover, 0);
   if (last.duo) endFoldShots();
   for (const watcher of Array.from(watchers)) watcher();
+  hingeMoved();
 }
 
 /** Is the hinge shut or open there? */
@@ -870,6 +916,7 @@ export function forgetFold(): void {
   window.removeEventListener("resize", settle);
   fold = null;
   for (const watcher of Array.from(watchers)) watcher();
+  hingeMoved();
   forgetShots();
   endFoldShots(true);
 }

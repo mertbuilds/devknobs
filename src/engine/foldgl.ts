@@ -53,13 +53,19 @@ export interface ScreenLook {
  * reaching `wedge` css px past the picture's ends at its free edge, and its
  * free edge seen `free` of the way from the hinge to the picture's. It is
  * shaded as the screen of `shaded` is, or not at all, null, where gradients
- * over the canvas shade it.
+ * over the canvas shade it, and blurred as the screen of `pane` is.
  */
-export function screenLook(open: number, wedge: number, free = 1, shaded: Pane | null = null): ScreenLook {
+export function screenLook(
+  open: number,
+  wedge: number,
+  free = 1,
+  shaded: Pane | null = null,
+  pane: Pane = shaded ?? "inner",
+): ScreenLook {
   const blurred = blurOn();
   const [, wipe, area, far] = shaded ? shadeOf(shaded, open, free) : [1, 0, 0, 0];
   return {
-    peak: blurred ? turnBlur(open) : 0,
+    peak: blurred ? turnBlur(open, pane) : 0,
     edge: blurred ? [tune.edgeHinge * wedge, tune.edgeFree * wedge] : [0, 0],
     free,
     dark: shadesOn() ? freeDepth(open) : 0,

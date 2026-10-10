@@ -24,12 +24,14 @@ import { corners, drawMock, UNDER } from "./mockdraw";
 import { drawnAt, glideFrame, landGlide, placeKey } from "./frameglide";
 import {
   finishFold,
+  foldableShown,
   type FoldScene,
   folding,
   foldDevice as foldIn,
   forgetFold,
   holdFold,
 } from "./foldrun";
+import { hingeMoved } from "./foldtune";
 import { folds, type Hole, moves, readCorners, shapeOf, turnOf, windowRect } from "./morph";
 import {
   forget,
@@ -612,6 +614,12 @@ function foldScene(): FoldScene | null {
   };
 }
 
+// The fold's tuning hook asks which foldable is up, and how it is drawn.
+foldableShown(() => {
+  const scene = deviceOf(current.device)?.postures ? foldScene() : null;
+  return scene && { scene, value: current };
+});
+
 /** Fold the device to the posture `value` has, in view, and draw it that way once it is there, or, `held`, as a hand moves it. */
 export function foldDevice(value: ViewportValue, held = false): boolean {
   landGlide();
@@ -648,6 +656,7 @@ function draw(value: ViewportValue): void {
   current = held === null ? value : { ...value, zoom: held };
   if (stage && current.zoom !== zoom) rezoom({ x: stage.clientWidth / 2, y: stage.clientHeight / 2 });
   else resize();
+  hingeMoved();
 }
 
 /** Draw the knobs a device change goes to, once the last device faded out. */
