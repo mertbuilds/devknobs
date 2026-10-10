@@ -5,6 +5,7 @@ import {
   keepPlace,
   load,
   merge,
+  PANEL_START,
   PLACE_KEY,
   PLACE_VERSION,
   parse,
@@ -362,6 +363,7 @@ describe("the place kept across sessions", () => {
         side: "left",
         y: 300,
         top: 240,
+        tab: "none",
       });
     }
     expect(parse(JSON.stringify({ scheme: "dark" }), kept).scheme).toBe("dark");
@@ -375,6 +377,7 @@ describe("the place kept across sessions", () => {
       side: "right",
       y: 40,
       top: 24,
+      tab: "none",
       pinned: [],
     });
     // A session from before sides has a place, but takes the side kept.
@@ -418,7 +421,15 @@ describe("the place kept across sessions", () => {
   test("writes the place alone, the way it reads back", () => {
     const state = merge(DEFAULT_STATE, {
       scheme: "dark",
-      panel: { open: true, side: "left", y: 120, top: 80, edge: "bottom", pinned: ["scheme"] },
+      panel: {
+        open: true,
+        side: "left",
+        y: 120,
+        top: 80,
+        edge: "bottom",
+        tab: "none",
+        pinned: ["scheme"],
+      },
     });
     const text = placeText(state);
     expect(JSON.parse(text)).toEqual({
@@ -435,6 +446,39 @@ describe("the place kept across sessions", () => {
       y: 120,
       top: 80,
       edge: "bottom",
+      tab: "none",
+    });
+  });
+
+  test("a place from before edges keeps its handle off the fresh panel's corner", () => {
+    expect(PANEL_START).toBe(128);
+    expect(DEFAULT_STATE.panel).toMatchObject({ y: PANEL_START, top: PANEL_START, tab: "top" });
+    for (const stored of [{ y: 300, top: 240 }, { y: 300 }, { top: 240 }]) {
+      const json = JSON.stringify(stored);
+      expect(parse(null, json).panel).toMatchObject({ edge: "none", tab: "none" });
+      expect(parse(JSON.stringify({ panel: stored })).panel).toMatchObject({
+        edge: "none",
+        tab: "none",
+      });
+    }
+    // With no heights of its own, a place is the fresh one, edges and all.
+    expect(parse(null, JSON.stringify({ side: "left" })).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      side: "left",
+    });
+    const stuck = JSON.stringify({ side: "left", y: 500, top: 492, edge: "bottom", tab: "bottom" });
+    expect(parse(JSON.stringify({ panel: { y: 300, top: 240 } }), stuck).panel).toMatchObject({
+      y: 300,
+      top: 240,
+      edge: "none",
+      tab: "none",
+    });
+    // With no heights of its own, a session takes the kept place, edges and all.
+    expect(parse(JSON.stringify({ panel: { open: true } }), stuck).panel).toMatchObject({
+      y: 500,
+      top: 492,
+      edge: "bottom",
+      tab: "bottom",
     });
   });
 });

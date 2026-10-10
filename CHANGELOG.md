@@ -6,6 +6,10 @@
 
 - `?devknobs=fresh` in the page's address shows the page and the panel as a first visit sees them: `localStorage` is left alone, and every load devknobs did not ask for starts with no knobs set. the footer says so while it is on
 
+### panel
+
+- a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept
+
 ## 0.1.2
 
 ### iPhone Duo
