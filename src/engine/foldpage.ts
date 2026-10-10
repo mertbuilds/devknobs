@@ -285,7 +285,7 @@ export function light(panel: Panel, open: number, free: number | null, out: numb
   shadeTo(panel.flat, shades ? shading(panel.toward, shades.flat) : "");
   shadeTo(panel.edge, free === null ? "" : shading(panel.toward, freeShades(open, free)));
   if (panel.pictures.length < 2) return;
-  const blurs = paneBlurs(open, out);
+  const blurs = paneBlurs(open, out, panel.pane);
   panel.pictures.slice(1).forEach((picture, index) => blurTo(panel, picture, blurs[index] ?? null));
 }
 

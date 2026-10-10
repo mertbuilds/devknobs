@@ -346,6 +346,23 @@ describe("the light on the screen that turns", () => {
     });
   });
 
+  test("holds the folded screen's blur past the peak's angle where a hand asks, its widest picture all in at the free edge", async () => {
+    fakeDocument(false);
+    const { glued, done } = glue(true);
+    await done();
+    // Three quarters open, past a right angle from where it lies shut: the blur has fallen as it ships.
+    light(glued, 0.75, 1, 1);
+    expect(glued.pictures).toHaveLength(6);
+    expect(glued.pictures[5]?.style.opacity).toBe("0");
+    foldTune.set("blurHold", 1);
+    light(glued, 0.75, 1, 1);
+    expect(glued.pictures[5]?.style.opacity).toBe("");
+    expect(stopsOf(glued.pictures[5]?.style.maskImage ?? "").at(-1)).toEqual([1, 100]);
+    // On its way up from shut it is as it was.
+    light(glued, 0.25, 1, 1);
+    expect(glued.pictures[5]?.style.opacity).toBe("0");
+  });
+
   test("makes the blurrier pictures again once a hand sets how wide the blur gets, and only then", async () => {
     fakeDocument(false);
     const { glued, shot, done } = glue(true);

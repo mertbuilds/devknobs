@@ -850,16 +850,37 @@ export function freeShades(open: number, free: number): Shades {
 }
 
 /**
+ * How much of its peak the blur has `share` of the way from lying flat to
+ * the peak's angle: by `blurStand`'s power, or, `blurEase` on, as
+ * jadon7/iphone-duo's rises, slow at both ends.
+ */
+function blurRising(share: number): number {
+  return tune.blurEase >= 0.5 ? smoothstep(0, 1, share) : clamp(share) ** tune.blurStand;
+}
+
+/**
  * The blur of the half that turns, by hand: least at the hinge, where the
  * picture meets the page itself on the half that stays, and most at the free
  * edge with the half standing at `blurAngle`, a right angle as it ships. None
  * lying flat, open or shut. Its numbers are `tune`'s.
+ *
+ * `blurHold` keeps it at the peak past that angle, on the side away from
+ * where the screen of `pane` lies flat in sight: the open screen's rests
+ * open, so its far side is toward shut, the hinge less open than the peak,
+ * and the folded body's rests shut, so its is toward open. At 1 it stays
+ * all of the peak there, as jadon7/iphone-duo's does, and between it is
+ * that share of the way from the fall to the peak. A screen has turned its
+ * back by the end of its far side, the other one facing the viewer from a
+ * right angle on, so a blur held there is never seen at rest. Without a
+ * hold both screens blur the same, so the pane changes nothing.
  */
-export function turnBlur(open: number): number {
+export function turnBlur(open: number, pane: Pane = "inner"): number {
   const at = tune.blurAngle / 180;
-  const rising = at > 0 ? open / at : 1;
-  const falling = at < 1 ? (1 - open) / (1 - at) : 1;
-  return tune.blurMost * clamp(Math.min(rising, falling)) ** tune.blurStand;
+  const fromShut = at > 0 ? open / at : 1;
+  const fromOpen = at < 1 ? (1 - open) / (1 - at) : 1;
+  const [near, far] = pane === "inner" ? [fromOpen, fromShut] : [fromShut, fromOpen];
+  if (near <= 1) return tune.blurMost * blurRising(near);
+  return tune.blurMost * lerp(blurRising(far), 1, tune.blurHold);
 }
 
 /** How much of the free edge's blur there is `across` of the way over the turned screen from the hinge to its free edge. */
@@ -1090,12 +1111,12 @@ export function paneShades(pane: Pane, open: number, free = 1): PaneShades {
 }
 
 /**
- * Where each blurrier picture fades in with the hinge `open` of the way
- * open, the turned screen seen out to `free` of the way, or null where it
- * does not show: none does with the blur off.
+ * Where each blurrier picture fades in on the screen of `pane` with the
+ * hinge `open` of the way open, the turned screen seen out to `free` of the
+ * way, or null where it does not show: none does with the blur off.
  */
-export function paneBlurs(open: number, free = 1): (BlurFade | null)[] {
-  const peak = blurOn() ? turnBlur(open) : 0;
+export function paneBlurs(open: number, free = 1, pane: Pane = "inner"): (BlurFade | null)[] {
+  const peak = blurOn() ? turnBlur(open, pane) : 0;
   const widths = blurWidths();
   return widths.slice(1).map((width, index) => blurFade(widths[index] ?? width, width, peak, free));
 }
@@ -1106,7 +1127,7 @@ export function paneBlurs(open: number, free = 1): (BlurFade | null)[] {
  * edge.
  */
 export function paneLook(pane: Pane, open: number, free = 1): PaneLook {
-  return { ...paneShades(pane, open, free), blurs: paneBlurs(open, free) };
+  return { ...paneShades(pane, open, free), blurs: paneBlurs(open, free, pane) };
 }
 
 /**
