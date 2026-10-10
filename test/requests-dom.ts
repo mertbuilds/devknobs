@@ -17,6 +17,9 @@ export function focused(): FakeNode | null {
   return active;
 }
 
+/** How far apart the fake page lays out a box's children that show, top to top, in px. */
+export const ROW_PITCH = 26;
+
 /** An element, as far as the requests view builds and drives one. */
 export class FakeNode {
   className = "";
@@ -48,6 +51,12 @@ export class FakeNode {
   set scrollTop(value: number) {
     this.top = Math.max(0, Math.min(value, Math.max(0, this.scrollHeight - this.clientHeight)));
     this.scrolls++;
+  }
+
+  /** Where the node is under its parent: after the ones before it that show. */
+  getBoundingClientRect(): { top: number } {
+    const before = this.parent?.nodes() ?? [];
+    return { top: before.slice(0, before.indexOf(this)).filter((node) => !node.hidden).length * ROW_PITCH };
   }
 
   get textContent(): string {

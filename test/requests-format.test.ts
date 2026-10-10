@@ -1,15 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { BODY_CAP, type BodyRecord } from "../src/requests/types";
 import {
-  atBottom,
+  atTop,
   bodyNote,
   bodyText,
   bytesLabel,
   clockTime,
   copyText,
   durationLabel,
+  firstInView,
   generalLines,
   hides,
+  keptScroll,
   kindLabel,
   LIGHT_WHY,
   matches,
@@ -205,16 +207,46 @@ describe("matches", () => {
   });
 });
 
-describe("atBottom", () => {
-  test("holds at the end and within the slack of it", () => {
-    expect(atBottom(900, 100, 1000)).toBe(true);
-    expect(atBottom(900 - STICK_SLACK, 100, 1000)).toBe(true);
-    expect(atBottom(0, 100, 80)).toBe(true);
+describe("atTop", () => {
+  test("holds at the start and within the slack of it", () => {
+    expect(atTop(0)).toBe(true);
+    expect(atTop(STICK_SLACK)).toBe(true);
+    // A box pulled past its start, as a touch scroll can.
+    expect(atTop(-12)).toBe(true);
   });
 
-  test("lets go once scrolled up past the slack", () => {
-    expect(atBottom(900 - STICK_SLACK - 1, 100, 1000)).toBe(false);
-    expect(atBottom(0, 100, 1000)).toBe(false);
+  test("lets go once scrolled down past the slack", () => {
+    expect(atTop(STICK_SLACK + 1)).toBe(false);
+    expect(atTop(900)).toBe(false);
+  });
+});
+
+describe("firstInView", () => {
+  test("is the row the scroll has reached, one that is partly gone included", () => {
+    expect(firstInView(0, 26)).toBe(0);
+    expect(firstInView(25, 26)).toBe(0);
+    expect(firstInView(26, 26)).toBe(1);
+    expect(firstInView(120, 26)).toBe(4);
+    expect(firstInView(64.5, 25.8)).toBe(2);
+  });
+
+  test("is the first row where nothing tells how far apart they are", () => {
+    expect(firstInView(120, 0)).toBe(0);
+    expect(firstInView(-12, 26)).toBe(0);
+  });
+});
+
+describe("keptScroll", () => {
+  test("goes on by just the height of the rows that went in above", () => {
+    expect(keptScroll(120, 1, 26)).toBe(146);
+    expect(keptScroll(120, 50, 26)).toBe(120 + 50 * 26);
+    expect(keptScroll(64.5, 3, 25.8)).toBeCloseTo(141.9);
+  });
+
+  test("stays for none, and comes back for rows that left from above", () => {
+    expect(keptScroll(120, 0, 26)).toBe(120);
+    expect(keptScroll(120, -2, 26)).toBe(68);
+    expect(keptScroll(20, -2, 26)).toBe(0);
   });
 });
 

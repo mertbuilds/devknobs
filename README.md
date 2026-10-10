@@ -324,7 +324,7 @@ pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
 
 press `⇧N` (`Shift N` off a Mac), or find `requests` in the search, to see what
 the page asks for, in the pane beside the panel: a row a request, the newest
-last, with its method, name, status and time. a filter finds rows by address,
+on top, with its method, name, status and time. a filter finds rows by address,
 method or status, and `all`, `fetch/xhr` and `other` pick whose requests show.
 a click on a row, or enter, shows it in full: the address, status, timing and
 sizes, the request and response headers and bodies, and the call that made it.

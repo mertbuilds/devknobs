@@ -15,7 +15,16 @@ import {
   REQUESTS_VIEW,
 } from "../src/ui/requests";
 import { searchActions } from "../src/ui/search";
-import { fake, type FakeNode, fakeDocument, type FakePane, fakePane, focused, leaveDocument } from "./requests-dom";
+import {
+  fake,
+  type FakeNode,
+  fakeDocument,
+  type FakePane,
+  fakePane,
+  focused,
+  leaveDocument,
+  ROW_PITCH,
+} from "./requests-dom";
 import { fetched, image } from "./requests-entries";
 import { LOADED, manual } from "./requests-fakes";
 
@@ -186,7 +195,7 @@ describe("the action and its key", () => {
 });
 
 describe("the list", () => {
-  test("has a row a request, the newest last, each reading its method, name, status and time", () => {
+  test("has a row a request, the newest on top, each reading its method, name, status and time", () => {
     const at = scene();
     at.add(10, { url: "http://app.test/api/users?page=2&sort=name&dir=asc" });
     at.add(20, { method: "DELETE", url: "http://app.test/", state: "failed", status: 500 });
@@ -197,10 +206,12 @@ describe("the list", () => {
     });
     at.requests.toggle();
     expect(at.texts()).toEqual([
-      ["POST", "users", "?page=2&…dir=asc", "201", "20ms"],
-      ["DEL", "app.test", "", "500", "20ms"],
       ["POST", "item-30", "", "pending", ""],
+      ["DEL", "app.test", "", "500", "20ms"],
+      ["POST", "users", "?page=2&…dir=asc", "201", "20ms"],
     ]);
+    // The log keeps its own order, oldest first: only the view turns it over.
+    expect(at.store.entries().map((entry) => entry.timing.at)).toEqual([10, 20, 30]);
     expect(at.rows().map((row) => row.one("req-status").classList.contains("hot"))).toEqual([false, true, false]);
     expect(at.rows().map((row) => row.tag)).toEqual(["button", "button", "button"]);
     expect(at.pane.body.one("req-count").textContent).toBe("3");
@@ -212,7 +223,7 @@ describe("the list", () => {
     at.store.put(image());
     at.add(100);
     at.requests.toggle();
-    const [light, full] = at.rows();
+    const [full, light] = at.rows();
     expect(light?.one("req-method").textContent).toBe("img");
     expect(light?.classList.contains("light")).toBe(true);
     expect(light?.title).toBe(`http://cdn.test/img/logo.png\n${LIGHT_WHY}`);
@@ -229,7 +240,7 @@ describe("the list", () => {
     at.add(20);
     at.timer.run();
     expect(list.classList.contains("mixed")).toBe(true);
-    expect(at.rows().map((row) => row.classList.contains("framed"))).toEqual([true, false]);
+    expect(at.rows().map((row) => row.classList.contains("framed"))).toEqual([false, true]);
   });
 
   test("a changed row is changed in place, and no other row is touched", () => {
@@ -241,28 +252,47 @@ describe("the list", () => {
     const list = at.pane.body.one("req-list");
     const children = [...list.children];
     // Any write to the row that did not change would show here.
-    const other = before[1];
+    const other = before[0];
     const untouched = other ? [...other.nodes()].map((node) => node.children) : [];
     at.store.update(first.id, { state: "failed", status: 503 });
     at.timer.run();
     expect(at.rows()).toEqual(before);
     expect(list.children).toEqual(children);
-    expect(at.rows()[0]).toBe(before[0]);
-    expect(before[0]?.one("req-status").textContent).toBe("503");
-    expect(before[0]?.one("req-status").classList.contains("hot")).toBe(true);
+    expect(at.rows()[1]).toBe(before[1]);
+    expect(before[1]?.one("req-status").textContent).toBe("503");
+    expect(before[1]?.one("req-status").classList.contains("hot")).toBe(true);
     expect(other ? [...other.nodes()].map((node) => node.children) : []).toEqual(untouched);
     untouched.forEach((parts, index) => expect(other?.nodes()[index]?.children).toBe(parts));
   });
 
-  test("a row that started earlier goes in where the log has it", () => {
+  test("a new row goes in at the top, over the rows that were there", () => {
+    const at = scene();
+    at.add(10);
+    at.add(20);
+    at.requests.toggle();
+    const before = at.rows();
+    at.add(30);
+    at.timer.run();
+    expect(names(at)).toEqual(["item-30", "item-20", "item-10"]);
+    expect(at.rows().slice(1)).toEqual(before);
+  });
+
+  test("a late row, one that started earlier, goes in at its place by time and not at the top", () => {
     const at = scene();
     at.add(10);
     at.add(30);
     at.requests.toggle();
     const before = at.rows();
     at.add(20);
+    // A light row that Resource Timing tells of late, older than all of them.
+    at.store.put(
+      image({
+        id: at.store.nextId(),
+        timing: { start: LOADED + 5, at: 5, response: 1, end: LOADED + 9, duration: 4 },
+      }),
+    );
     at.timer.run();
-    expect(names(at)).toEqual(["item-10", "item-20", "item-30"]);
+    expect(names(at)).toEqual(["item-30", "item-20", "item-10", "logo.png"]);
     expect(at.rows()[0]).toBe(before[0]);
     expect(at.rows()[2]).toBe(before[1]);
   });
@@ -305,8 +335,8 @@ describe("the list", () => {
     for (let index = 0; index < RING_SIZE + 5; index++) at.add(index);
     at.timer.run();
     expect(at.rows().length).toBe(RING_SIZE);
-    expect(names(at)[0]).toBe("item-5");
-    expect(names(at).at(-1)).toBe(`item-${RING_SIZE + 4}`);
+    expect(names(at)[0]).toBe(`item-${RING_SIZE + 4}`);
+    expect(names(at).at(-1)).toBe("item-5");
   });
 
   test("comes back as it was, rows and all, after the pane closed", () => {
@@ -317,8 +347,8 @@ describe("the list", () => {
     at.requests.toggle();
     at.add(20);
     at.requests.toggle();
-    expect(at.rows()[0]).toBe(row);
-    expect(names(at)).toEqual(["item-10", "item-20"]);
+    expect(at.rows()[1]).toBe(row);
+    expect(names(at)).toEqual(["item-20", "item-10"]);
   });
 });
 
@@ -345,7 +375,7 @@ describe("the filter and the chips", () => {
     type(at, "post");
     expect(names(at)).toEqual(["users"]);
     type(at, "");
-    expect(names(at)).toEqual(["users", "orders", "logo.png"]);
+    expect(names(at)).toEqual(["logo.png", "orders", "users"]);
     expect(at.pane.body.one("req-count").textContent).toBe("3");
   });
 
@@ -364,13 +394,13 @@ describe("the filter and the chips", () => {
     expect(at.pane.body.find("chip").map((node) => node.textContent)).toEqual(["all", "fetch/xhr", "other"]);
     expect(pressed()).toEqual(["true", "false", "false"]);
     chip(at, "fetch/xhr").click();
-    expect(names(at)).toEqual(["users", "orders"]);
+    expect(names(at)).toEqual(["orders", "users"]);
     expect(pressed()).toEqual(["false", "true", "false"]);
     chip(at, "other").click();
     expect(names(at)).toEqual(["logo.png"]);
     expect(pressed()).toEqual(["false", "false", "true"]);
     chip(at, "all").click();
-    expect(names(at)).toEqual(["users", "orders", "logo.png"]);
+    expect(names(at)).toEqual(["logo.png", "orders", "users"]);
   });
 
   test("a row that comes in or changes is held to the filter too", () => {
@@ -381,59 +411,109 @@ describe("the filter and the chips", () => {
     expect(names(at)).toEqual(["orders"]);
     at.store.update(late.id, { state: "failed", status: 404 });
     at.timer.run();
-    expect(names(at)).toEqual(["orders", "late"]);
+    expect(names(at)).toEqual(["late", "orders"]);
   });
 });
 
-describe("the end of the list", () => {
-  test("the list opens at its end, and stays there as rows come", () => {
+describe("the top of the list", () => {
+  /** A list of `count` rows in a box they overflow, scrolled to `top`. */
+  function scrolled(count: number, top: number): Scene {
     const at = scene();
-    at.add(10);
-    at.pane.body.scrollHeight = 500;
+    for (let index = 0; index < count; index++) at.add(index);
+    at.pane.body.scrollHeight = count * ROW_PITCH;
     at.requests.toggle();
-    expect(at.pane.body.scrollTop).toBe(400);
-    at.add(20);
-    at.pane.body.scrollHeight = 526;
+    at.pane.body.scrollTop = top;
+    at.pane.body.fire("scroll");
+    return at;
+  }
+
+  /** Put `count` more requests in the log, newer than the rest, and let the box grow for them. */
+  function arrive(at: Scene, count: number): void {
+    for (let index = 0; index < count; index++) at.add(1000 + at.store.entries().length);
+    at.pane.body.scrollHeight += count * ROW_PITCH;
     at.timer.run();
-    expect(at.pane.body.scrollTop).toBe(426);
+  }
+
+  test("the list opens at its top, where the newest row is, and stays there as rows come", () => {
+    const at = scrolled(20, 0);
+    expect(at.pane.body.scrollTop).toBe(0);
+    arrive(at, 3);
+    expect(at.pane.body.scrollTop).toBe(0);
+    expect(names(at)[0]).toBe("item-1022");
   });
 
-  test("scrolled up, it stays where the user put it", () => {
-    const at = scene();
-    at.add(10);
-    at.pane.body.scrollHeight = 500;
-    at.requests.toggle();
-    at.pane.body.scrollTop = 120;
-    at.pane.body.fire("scroll");
-    at.add(20);
-    at.pane.body.scrollHeight = 526;
+  test("within the slack of its top it is at its top, and is brought there as rows come", () => {
+    const at = scrolled(20, 3);
+    arrive(at, 1);
+    expect(at.pane.body.scrollTop).toBe(0);
+  });
+
+  test("scrolled down, rows that come in above move the scroll by just their height, so nothing in view moves", () => {
+    const at = scrolled(20, 120);
+    const inView = at.rows()[5];
+    const place = () => (inView?.getBoundingClientRect().top ?? 0) - at.pane.body.scrollTop;
+    const before = place();
+    arrive(at, 1);
+    expect(at.pane.body.scrollTop).toBe(120 + ROW_PITCH);
+    expect(place()).toBe(before);
+    arrive(at, 7);
+    expect(at.pane.body.scrollTop).toBe(120 + 8 * ROW_PITCH);
+    expect(place()).toBe(before);
+  });
+
+  test("scrolled down, a late row that goes in under the view moves nothing", () => {
+    const at = scrolled(20, 120);
+    // Older than every row there, so it is the last one.
+    at.add(-5);
+    at.pane.body.scrollHeight += ROW_PITCH;
+    at.timer.run();
+    expect(names(at).at(-1)).toBe("item--5");
+    expect(at.pane.body.scrollTop).toBe(120);
+  });
+
+  test("scrolled down, a late row that goes in above the view, though not at the top, is made room for too", () => {
+    const at = scrolled(20, 120);
+    at.add(17.5);
+    at.pane.body.scrollHeight += ROW_PITCH;
+    at.timer.run();
+    expect(names(at).slice(0, 4)).toEqual(["item-19", "item-18", "item-17.5", "item-17"]);
+    expect(at.pane.body.scrollTop).toBe(120 + ROW_PITCH);
+  });
+
+  test("scrolled down, a row the filter hides as it comes in takes no room, and moves nothing", () => {
+    const at = scrolled(20, 120);
+    type(at, "item");
+    at.add(2000, { url: "http://app.test/other" });
     at.timer.run();
     expect(at.pane.body.scrollTop).toBe(120);
   });
 
-  test("scrolled back to its end, it follows again", () => {
-    const at = scene();
-    at.add(10);
-    at.pane.body.scrollHeight = 500;
-    at.requests.toggle();
-    at.pane.body.scrollTop = 120;
-    at.pane.body.fire("scroll");
-    at.pane.body.scrollTop = 398;
-    at.pane.body.fire("scroll");
-    at.add(20);
-    at.pane.body.scrollHeight = 526;
+  test("a row that only changes moves nothing", () => {
+    const at = scrolled(20, 120);
+    const [entry] = at.store.entries();
+    if (entry) at.store.update(entry.id, { state: "failed", status: 500 });
     at.timer.run();
-    expect(at.pane.body.scrollTop).toBe(426);
+    expect(at.pane.body.scrollTop).toBe(120);
   });
 
-  test("a batch scrolls the box once at most", () => {
-    const at = scene();
-    at.pane.body.scrollHeight = 500;
-    at.requests.toggle();
+  test("scrolled back to its top, it keeps to it again", () => {
+    const at = scrolled(20, 120);
+    at.pane.body.scrollTop = 2;
+    at.pane.body.fire("scroll");
+    arrive(at, 2);
+    expect(at.pane.body.scrollTop).toBe(0);
+  });
+
+  test("a batch scrolls the box once at most, and not at all at its top", () => {
+    const at = scrolled(20, 120);
     const before = at.pane.body.scrolls;
-    for (let index = 0; index < 50; index++) at.add(index);
-    at.timer.run();
+    arrive(at, 50);
     expect(at.pane.body.scrolls - before).toBe(1);
+    expect(at.pane.body.scrollTop).toBe(120 + 50 * ROW_PITCH);
+    const top = scrolled(20, 0);
+    const still = top.pane.body.scrolls;
+    arrive(top, 50);
+    expect(top.pane.body.scrolls - still).toBe(0);
   });
 });
 
@@ -449,24 +529,47 @@ describe("the keys in the list", () => {
 
   test("the tab key stops at one row, the newest at first", () => {
     const at = three();
-    expect(at.rows().map((row) => row.tabIndex)).toEqual([-1, -1, 0]);
+    expect(at.rows().map((row) => row.tabIndex)).toEqual([0, -1, -1]);
+    expect(at.rows()[0]?.one("req-path").textContent).toBe("item-30");
   });
 
   test("the arrows, Home and End move the focus through the rows, and the tab stop with it", () => {
     const at = three();
-    const [first, second, third] = at.rows();
-    third?.focus();
-    expect(third?.fire("keydown", { key: "ArrowUp" }).prevented).toBe(true);
-    expect(focused()).toBe(second ?? null);
+    const [newest, middle, oldest] = at.rows();
+    expect(names(at)).toEqual(["item-30", "other", "item-10"]);
+    newest?.focus();
+    // Down is the row below, an older one.
+    expect(newest?.fire("keydown", { key: "ArrowDown" }).prevented).toBe(true);
+    expect(focused()).toBe(middle ?? null);
     expect(at.rows().map((row) => row.tabIndex)).toEqual([-1, 0, -1]);
-    second?.fire("keydown", { key: "Home" });
-    expect(focused()).toBe(first ?? null);
-    first?.fire("keydown", { key: "ArrowUp" });
-    expect(focused()).toBe(first ?? null);
-    first?.fire("keydown", { key: "End" });
-    expect(focused()).toBe(third ?? null);
-    third?.fire("keydown", { key: "ArrowDown" });
-    expect(focused()).toBe(third ?? null);
+    middle?.fire("keydown", { key: "End" });
+    expect(focused()).toBe(oldest ?? null);
+    oldest?.fire("keydown", { key: "ArrowDown" });
+    expect(focused()).toBe(oldest ?? null);
+    oldest?.fire("keydown", { key: "ArrowUp" });
+    expect(focused()).toBe(middle ?? null);
+    middle?.fire("keydown", { key: "Home" });
+    expect(focused()).toBe(newest ?? null);
+    newest?.fire("keydown", { key: "ArrowUp" });
+    expect(focused()).toBe(newest ?? null);
+  });
+
+  test("the focus and the tab stop stay on their row as rows go in above it", () => {
+    const at = three();
+    const [, middle] = at.rows();
+    middle?.focus();
+    at.add(40);
+    at.add(50);
+    at.timer.run();
+    expect(focused()).toBe(middle ?? null);
+    expect(at.rows().map((row) => row.tabIndex)).toEqual([-1, -1, -1, 0, -1]);
+    // The row above it is now the oldest of the new ones.
+    middle?.fire("keydown", { key: "ArrowUp" });
+    expect(focused()?.one("req-path").textContent).toBe("item-30");
+    focused()?.fire("keydown", { key: "ArrowUp" });
+    expect(focused()?.one("req-path").textContent).toBe("item-40");
+    focused()?.fire("keydown", { key: "Home" });
+    expect(focused()?.one("req-path").textContent).toBe("item-50");
   });
 
   test("the arrows pass over the rows the filter hides, and other keys are left alone", () => {
@@ -550,11 +653,11 @@ describe("the detail", () => {
       responseBody: { kind: "text", text: '{"id":7,"na', size: null, truncated: true, type: "application/json" },
     });
     at.requests.toggle();
-    at.rows()[0]?.click();
+    at.rows()[1]?.click();
     expect(section(at, "response body").one("req-pre").textContent).toBe('{\n  "id": 7,\n  "name": "Ada"\n}');
     expect(section(at, "response body").one("row-value").textContent).toBe("application/json, 21 bytes");
     at.pane.escape();
-    at.rows()[1]?.click();
+    at.rows()[0]?.click();
     const cut = section(at, "response body");
     expect(cut.one("req-pre").textContent).toBe('{"id":7,"na');
     expect(cut.one("note").textContent).toBe("truncated at 64 KB");
@@ -572,12 +675,12 @@ describe("the detail", () => {
       responseBody: { kind: "binary", text: "", size: 2048, truncated: false, type: "image/png" },
     });
     at.requests.toggle();
-    at.rows()[0]?.click();
+    at.rows()[1]?.click();
     expect(sections(at).find((each) => each.title === "response body")?.open).toBe(false);
     expect(section(at, "response body").one("req-inner").children).toEqual([]);
     expect(section(at, "request body").one("req-inner").textContent).toBe("stream, not read");
     at.pane.escape();
-    at.rows()[1]?.click();
+    at.rows()[0]?.click();
     expect(section(at, "request body").one("req-inner").textContent).toBe("none");
     expect(section(at, "response body").one("req-inner").textContent).toBe("binary, 2 KB");
   });
@@ -621,6 +724,25 @@ describe("the detail", () => {
     back.click();
     expect(at.pane.view()).toBe(REQUESTS_VIEW);
     expect(at.pane.body.scrollTop).toBe(120);
+  });
+
+  test("back finds its row still in view, with the rows that came in the meantime above it", () => {
+    const at = scene();
+    for (let index = 0; index < 10; index++) at.add(index);
+    at.pane.body.scrollHeight = 500;
+    at.requests.toggle();
+    at.pane.body.scrollTop = 120;
+    at.pane.body.fire("scroll");
+    const row = at.rows()[5];
+    row?.click();
+    at.add(100);
+    at.add(110);
+    at.pane.body.scrollHeight = 500 + 2 * ROW_PITCH;
+    at.pane.body.one("req-detail").one("main").click();
+    expect(at.rows()[7]).toBe(row);
+    expect(focused()).toBe(row ?? null);
+    // The row is as far from the top of the box as it was.
+    expect(at.pane.body.scrollTop).toBe(120 + 2 * ROW_PITCH);
   });
 
   test("follows its request as it changes, and keeps what the user opened", () => {

@@ -909,8 +909,11 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    how many do. Under it a row a request, as tall as the panel's rows and 8
    round as they are, the pane being 13 with 1 of border and 4 of padding.
    Only the name gives way: the method, the status and the time each keep
-   their width, so the columns line up down the list, and nothing wraps. */
+   their width, so the columns line up down the list, and nothing wraps.
+   New rows go in at the top, and the view moves the scroll for them itself,
+   so the browser's own scroll anchoring is off here: one of the two only. */
 .req-bar {
+  overflow-anchor: none;
   position: sticky;
   top: 0;
   z-index: 1;
@@ -931,7 +934,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   text-align: right;
   color: var(--faint);
 }
-.req-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.req-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; overflow-anchor: none; }
 .req-row {
   display: flex;
   align-items: baseline;

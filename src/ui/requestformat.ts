@@ -24,7 +24,7 @@ export const QUERY_MAX = 16;
 /** A body past this many characters starts folded away. */
 export const LONG_BODY = 2000;
 
-/** How near the end a list counts as scrolled to it, in px. */
+/** How near its start a list counts as scrolled to it, in px. */
 export const STICK_SLACK = 4;
 
 /** `text` cut to `max` characters, the cut in its middle, where both ends tell more. */
@@ -213,9 +213,23 @@ export function matches(entry: RequestEntry, filter: string, chip: Chip): boolea
   return words.every((word) => text.includes(word));
 }
 
-/** Is a box scrolled to its end, so that it follows what is added there? */
-export function atBottom(scrollTop: number, clientHeight: number, scrollHeight: number): boolean {
-  return scrollHeight - scrollTop - clientHeight <= STICK_SLACK;
+/** Is a box scrolled to its start, so that it stays there as rows go in above? */
+export function atTop(scrollTop: number): boolean {
+  return scrollTop <= STICK_SLACK;
+}
+
+/** Which row of a list is the first in view, its rows `pitch` px apart, top to top. */
+export function firstInView(scrollTop: number, pitch: number): number {
+  return pitch > 0 ? Math.floor(Math.max(0, scrollTop) / pitch) : 0;
+}
+
+/**
+ * Where to scroll a list so that what shows stays still, once `added` rows
+ * of `pitch` px went in above it: on by their height, no more. Rows that
+ * left from above, a negative `added`, bring it back as far.
+ */
+export function keptScroll(scrollTop: number, added: number, pitch: number): number {
+  return Math.max(0, scrollTop + added * pitch);
 }
 
 export function isJson(type: string): boolean {
