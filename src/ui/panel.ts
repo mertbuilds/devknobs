@@ -3,7 +3,7 @@ import { now, realNow } from "../engine/clock";
 import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { isMac } from "../engine/ua";
-import { frameWindow, zoomKey } from "../engine/width";
+import { coverBeside, frameWindow, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
 import type { DevknobsState } from "../types";
 import { ACTIONS, type Live } from "./catalog";
@@ -23,6 +23,7 @@ import {
 } from "./keys";
 import { isReset } from "./list";
 import { createPalette } from "./palette";
+import { createPane } from "./pane";
 import { createPrefs } from "./prefs";
 import { createRows } from "./rows";
 import { createSettings } from "./settings";
@@ -157,8 +158,21 @@ export function createPanel(options: PanelOptions = {}): Panel {
   body.append(home, settings.view, said);
   const slide = createSlide(body, { home, keys: settings.view });
 
+  // The side pane, between the handle and the panel as the tab key goes.
+  const side = createPane({
+    wrap,
+    root,
+    handle,
+    home: add,
+    tips,
+    openPanel: () => {
+      if (!engine.getState().panel.open) toggle(true);
+    },
+    cover: coverBeside,
+  });
+
   panel.append(body, foot, tip);
-  wrap.append(handle, panel);
+  wrap.append(handle, side.node, panel);
   root.append(style, wrap);
 
   const knobRows = createRows({ root, rows, said, render, dragging: () => drag.dragging() });
@@ -180,7 +194,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       settings.setEditing(false);
     },
   });
-  const drag = createDrag({ host, wrap, handle, panel, render, toggle });
+  const drag = createDrag({ host, wrap, handle, panel, render, toggle, placed: side.place });
   const { layout } = drag;
 
   /** What the copy inside the width knob's frame last counted, null until it says. */
@@ -200,6 +214,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     wrap.dataset.handle = handleShown ? "shown" : "hidden";
     settings.drawHandle(handleShown);
     panel.toggleAttribute("inert", !open);
+    side.render(open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     const live = liveOf(state);
     const anyShown = knobRows.renderRows(state, live);
@@ -324,7 +339,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /**
    * Escape takes one step back at a time, as `escapeStep` says. With the focus
    * out on the page, it closes the panel straight away. A row being dragged
-   * goes back where it was first.
+   * goes back where it was first, and with the focus in the side pane it is
+   * the pane's, whatever the panel shows.
    */
   function escape(): void {
     if (drag.dragging() || !engine.getState().panel.open) return;
@@ -332,6 +348,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       knobRows.endReorder(false);
       return;
     }
+    if (side.escape()) return;
     const focused = root.activeElement;
     const filter =
       focused instanceof HTMLInputElement && focused.classList.contains("filter") ? focused : null;
@@ -459,6 +476,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       clearInterval(ticker);
       tips.destroy();
       settings.destroy();
+      side.destroy();
       slide.destroy();
       knobRows.destroy();
       window.removeEventListener("keydown", onKeydown, true);

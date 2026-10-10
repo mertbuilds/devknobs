@@ -36,6 +36,8 @@ export interface DragContext {
   render(): void;
   /** Open or close the panel, as a click on the handle does. */
   toggle(): void;
+  /** The panel was put at a place, on a drag's every move too. */
+  placed?(at: Pick<Place, "y" | "top">): void;
 }
 
 export interface Drag {
@@ -68,15 +70,18 @@ export function createDrag(context: DragContext): Drag {
 
   /**
    * Make a change to the wrapper show at once, with no transition. A slide
-   * that was running stops where the change puts it.
+   * that was running stops where the change puts it. The handle goes with it,
+   * as it rides the side pane's far edge by a transform of its own.
    */
   function jump(change: () => void): void {
     const was = wrap.style.transitionProperty;
     wrap.style.transitionProperty = "none";
+    handle.style.transitionProperty = "none";
     change();
     // Read the style back, so the change is in before the transitions return.
     wrap.getBoundingClientRect();
     wrap.style.transitionProperty = was;
+    handle.style.transitionProperty = "";
   }
 
   /**
@@ -104,6 +109,7 @@ export function createDrag(context: DragContext): Drag {
     wrap.dataset.tab = open ? at.tab : cornerAt(at.y, shownTop, measure());
     host.style.top = `${at.y}px`;
     panel.style.marginTop = `${shownTop - at.y}px`;
+    context.placed?.({ y: at.y, top: shownTop });
   }
 
   /**

@@ -21,8 +21,11 @@ export const FRAME_GLIDE_MAX = 440;
 /** The fastest a glide goes on average, in px per ms, until it takes `FRAME_GLIDE_MAX`. */
 const FRAME_GLIDE_SPEED = 6;
 
-/** The panel as the frame is fitted beside it. */
-export type PanelSpot = Pick<PanelValue, "open" | "side">;
+/**
+ * The panel as the frame is fitted beside it, with how much more of its edge
+ * it covers than its own width, in px, as its side pane does.
+ */
+export type PanelSpot = Pick<PanelValue, "open" | "side"> & { beside?: number };
 
 /** What decides whether a change of the knobs glides the frame. */
 export interface GlideCue {
@@ -37,11 +40,13 @@ export interface GlideCue {
 }
 
 /**
- * Does the frame glide? Only when the panel changed side or opened or closed,
- * never on the first paint, with less motion, or while the device moves.
+ * Does the frame glide? Only when the panel changed side, opened or closed,
+ * or covers more or less beside itself, never on the first paint, with less
+ * motion, or while the device moves.
  */
 export function glides(cue: GlideCue): boolean {
   if (cue.first || cue.still || cue.moving) return false;
+  if ((cue.from.beside ?? 0) !== (cue.to.beside ?? 0)) return true;
   return cue.from.side !== cue.to.side || cue.from.open !== cue.to.open;
 }
 

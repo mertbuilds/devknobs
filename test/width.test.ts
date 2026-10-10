@@ -9,6 +9,7 @@ import { holeAt, holePath, MORPH_TIME, rounded, windowRect } from "../src/engine
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import {
   apply,
+  coverBeside,
   fit,
   label,
   onZoom,
@@ -1730,5 +1731,50 @@ describe("the drawn browser's reload button", () => {
     expect(glyph.children.length).toBe(drawn);
     glyph.dispatchEvent(new Event("click"));
     expect(reloads).toBe(2);
+  });
+});
+
+describe("the panel's side pane", () => {
+  /** How the frame's screen is drawn, as the letterbox scaled it. */
+  function drawnScale(): string {
+    const screen = everything().find((element) => Reflect.get(element, "className") === "screen");
+    return String(Reflect.get(screen?.style ?? {}, "transform"));
+  }
+
+  test("counts as part of what an open panel covers, and the frame is fitted beside the two", () => {
+    const box = { width: 1600, height: 800 + STRIP };
+    const create = document.createElement;
+    const find = document.querySelector;
+    Reflect.set(document, "createElement", (tag: string) => {
+      const element = new FakeElement(tag.toUpperCase());
+      Object.assign(element, { clientWidth: box.width, clientHeight: box.height });
+      return element;
+    });
+    Reflect.set(document, "querySelector", (selector: string) =>
+      selector === '[data-devknobs="panel"]' ? { offsetWidth: PANEL } : null,
+    );
+    const knobs = { ...KNOBS, width: 1500, panel: { open: true, side: "right" } } as const;
+    const beside = (aside: number) => {
+      const scale = fit(knobs, box, { aside }).transform;
+      return scale === 1 ? "" : `scale(${scale})`;
+    };
+    try {
+      apply(knobs);
+      expect(drawnScale()).toBe(beside(PANEL));
+      coverBeside(339);
+      expect(drawnScale()).toBe(beside(PANEL + 339));
+      expect(beside(PANEL + 339)).not.toBe(beside(PANEL));
+      // A closed panel covers nothing, whatever its pane would.
+      apply({ ...knobs, panel: { open: false, side: "right" } });
+      expect(drawnScale()).toBe(beside(0));
+      apply(knobs);
+      expect(drawnScale()).toBe(beside(PANEL + 339));
+      coverBeside(0);
+      expect(drawnScale()).toBe(beside(PANEL));
+    } finally {
+      coverBeside(0);
+      Reflect.set(document, "createElement", create);
+      Reflect.set(document, "querySelector", find);
+    }
   });
 });
