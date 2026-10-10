@@ -1,4 +1,4 @@
-import type { Action, RowId } from "./catalog";
+import type { KnobRowId, Row } from "./catalog";
 import type { Binding } from "./keys";
 
 /**
@@ -212,8 +212,8 @@ export const BRANDS: Record<BrandName, Brand> = {
 /** Any drawing the panel has, an icon or a mark. */
 export type GlyphName = IconName | BrandName;
 
-/** The icon each row shows by its label, and its knobs in the search. */
-export const ROW_ICONS: Record<RowId, IconName> = {
+/** The icon each row of knobs shows by its label, and its knobs in the search. */
+export const ROW_ICONS: Record<KnobRowId, IconName> = {
   scheme: "half-sun-moon",
   contrast: "contrast",
   transparency: "blend",
@@ -229,18 +229,17 @@ export const ROW_ICONS: Record<RowId, IconName> = {
   debug: "bug",
 };
 
-export const ACTION_ICONS: Record<Action["id"], IconName> = {
+/** The icon a row shows by its label: its action's, which the catalog names, else its knobs'. */
+export function rowIcon(row: Row): IconName {
+  return row.action ? row.action.icon : ROW_ICONS[row.id];
+}
+
+/** The icon each shortcut shows in the settings, an action's own where it runs one. */
+export const BINDING_ICONS: Record<Binding, IconName> = {
+  panel: "panel-right-open",
   grab: "square-dashed-mouse-pointer",
   replay: "rotate-ccw",
   requests: "arrow-up-down",
-};
-
-/** The icon each shortcut shows in the settings, an action's own where it has one. */
-export const BINDING_ICONS: Record<Binding, IconName> = {
-  panel: "panel-right-open",
-  grab: ACTION_ICONS.grab,
-  replay: ACTION_ICONS.replay,
-  requests: ACTION_ICONS.requests,
   reset: "eraser",
 };
 

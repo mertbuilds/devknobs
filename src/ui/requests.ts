@@ -1,7 +1,8 @@
 import { copyText as copyToClipboard } from "../grab/copy";
 import { type RequestEntry, type RequestStore, requestLog } from "../requests";
-import { button, el, field, mark } from "./dom";
+import { button, el } from "./dom";
 import { glyph } from "./icons";
+import { emptyLine, filterField, rowBox, segments, toolbar } from "./kit";
 import { closePane, openPane, type PaneView, paneView, retitlePane } from "./pane";
 import { createDetail, type Detail } from "./requestdetail";
 import {
@@ -28,7 +29,8 @@ import {
  * The requests view: the page's log as a view in the panel, a row a request,
  * the newest first, and one request in full in its place when a row is
  * picked. The two are one way in: back from a request is the list, and back
- * from the list is the panel's rows.
+ * from the list is the panel's rows. Its bar, its rows and its empty line are
+ * the kit's, so they line up with the panel's own.
  *
  * A row is built once and then changed in place: the log hands over the rows
  * that are new or changed, and swaps a changed row for a new object, so one
@@ -69,11 +71,18 @@ export interface RequestsContext {
 export interface Requests {
   /** Show the requests in the panel, or go back to its rows where they show. */
   toggle(): void;
+  /** Whether the requests show: the list, or one request in full. */
+  shows(): boolean;
+  /** Go back to the panel's rows, where the requests show. */
+  close(): void;
 }
 
 /** A request's row, and the parts of it that change. */
 interface Row {
   entry: RequestEntry;
+  /** The row, which hides where the filter leaves it out. */
+  box: HTMLElement;
+  /** The row's line, which opens the request and takes the focus. */
   node: HTMLButtonElement;
   method: HTMLElement;
   /** What the method's column shows now, or nothing yet. */
@@ -126,24 +135,33 @@ export function createRequests(context: RequestsContext = {}): Requests {
   const pane = context.pane ?? { open: openPane, close: closePane, view: paneView, retitle: retitlePane };
   const copy = context.copy ?? copyToClipboard;
 
+  /** Whose requests show, as the segments say. */
+  let chip: Chip = "all";
   // The list is kept between showings, so a way back from a request finds it as it was.
-  const bar = el("div", "req-bar");
-  const filter = field("req-filter", "filter", "filter requests");
-  const chips = el("div", "req-chips");
-  chips.setAttribute("role", "group");
-  chips.setAttribute("aria-label", "requests shown");
+  const filter = filterField({ placeholder: "filter", label: "filter requests", onInput: refilter });
+  const kinds = segments({
+    options: CHIPS.map((each) => ({ value: each.id, label: each.label })),
+    label: "requests shown",
+    value: chip,
+    onChange(value: string): void {
+      const picked = CHIPS.find((each) => each.id === value);
+      if (!picked) return;
+      chip = picked.id;
+      kinds.set(chip);
+      refilter();
+    },
+  });
   const total = el("span", "req-count");
+  const bar = toolbar([filter.node, kinds.node, total]);
   const list = el("div", "req-list");
   list.setAttribute("role", "group");
   list.setAttribute("aria-label", "requests");
-  const empty = el("div", "empty", NO_REQUESTS);
-  bar.append(filter, chips, total);
+  const empty = emptyLine(NO_REQUESTS);
 
   const rows = new Map<string, Row>();
   const rowOf = new WeakMap<EventTarget, Row>();
   /** The rows as the list holds them, newest first: the log's order, turned over. */
   let order: Row[] = [];
-  let chip: Chip = "all";
   /** The list keeps to its top, where the new rows go in, while it is scrolled there. */
   let stuck = true;
   /** Where the list was when it last left the view, if it was not at its top. */
@@ -158,26 +176,8 @@ export function createRequests(context: RequestsContext = {}): Requests {
   /** The first copy says what it leaves out. */
   let told = false;
 
-  const chipNodes = CHIPS.map((each) => {
-    const node = button("chip", each.label);
-    node.addEventListener("click", () => {
-      chip = each.id;
-      drawChips();
-      refilter();
-    });
-    chips.append(node);
-    return node;
-  });
-
-  function drawChips(): void {
-    CHIPS.forEach((each, index) => {
-      const node = chipNodes[index];
-      if (node) mark(node, each.id === chip);
-    });
-  }
-
   function shows(row: Row): boolean {
-    return !row.node.hidden;
+    return !row.box.hidden;
   }
 
   function setTab(row: Row | null): void {
@@ -199,24 +199,30 @@ export function createRequests(context: RequestsContext = {}): Requests {
     const tone = statusTone(entry);
     for (const each of STATUS_TONES) row.status.classList.toggle(each, each === tone);
     put(row.time, durationLabel(entry.timing.duration));
-    row.node.classList.toggle("light", light);
+    row.box.classList.toggle("light", light);
     const title = light ? `${entry.url}\n${LIGHT_WHY}` : entry.url;
     if (row.node.title !== title) row.node.title = title;
-    row.node.hidden = !matches(entry, filter.value, chip);
+    row.box.hidden = !matches(entry, filter.node.value, chip);
   }
 
+  /**
+   * A row, built as the panel's rows are: the method or the kind's mark where
+   * a row's icon is, the name where its label is, and the status and the time
+   * where it ends.
+   */
   function build(entry: RequestEntry): Row {
-    const node = button("req-row", "");
+    const node = button("main", "");
     node.tabIndex = -1;
     const method = el("span", "req-method");
-    const name = el("span", "req-name");
     const path = el("span", "req-path");
     const query = el("span", "req-query");
-    name.append(path, query);
     const status = el("span", "req-status");
     const time = el("span", "req-time");
-    node.append(method, name, status, time);
-    const row: Row = { entry, node, method, lead: null, path, query, status, time };
+    const { box, label } = rowBox({ main: node, glyph: method, title: "", ends: [status, time] });
+    box.classList.add("req-row");
+    label.classList.add("req-name");
+    label.append(path, query);
+    const row: Row = { entry, box, node, method, lead: null, path, query, status, time };
     rowOf.set(node, row);
     node.addEventListener("click", () => openRequest(row));
     node.addEventListener("focus", () => setTab(row));
@@ -246,7 +252,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
     const kept = order.filter((row) => {
       if (live.has(row.entry.id)) return true;
       rows.delete(row.entry.id);
-      row.node.remove();
+      row.box.remove();
       return false;
     });
     let at = 0;
@@ -256,7 +262,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
       else if (!row) {
         row = build(entry);
         rows.set(entry.id, row);
-        list.insertBefore(row.node, kept[at]?.node ?? null);
+        list.insertBefore(row.box, kept[at]?.box ?? null);
       }
       if (row.entry !== entry) draw(row, entry);
       return row;
@@ -270,7 +276,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
     const [first, second] = shown;
     // The rows are all as tall, so two of them tell how far apart they all are.
     const pitch =
-      first && second ? second.node.getBoundingClientRect().top - first.node.getBoundingClientRect().top : 0;
+      first && second ? second.box.getBoundingClientRect().top - first.box.getBoundingClientRect().top : 0;
     const above = firstInView(scroller.scrollTop, pitch);
     return { top: scroller.scrollTop, pitch, row: shown[above], above };
   }
@@ -309,7 +315,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
   }
 
   function refilter(): void {
-    for (const row of order) row.node.hidden = !matches(row.entry, filter.value, chip);
+    for (const row of order) row.box.hidden = !matches(row.entry, filter.node.value, chip);
     tally();
     if (stuck) settle(null);
   }
@@ -335,9 +341,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
     shown[to]?.node.focus();
   }
 
-  filter.addEventListener("input", refilter);
   list.addEventListener("keydown", onKeydown);
-  drawChips();
 
   const listView: PaneView = {
     id: REQUESTS_VIEW,
@@ -370,12 +374,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
       };
     },
     // Escape empties the filter first, wherever the focus is, and then goes back to the rows.
-    escape(): boolean {
-      if (filter.value === "") return false;
-      filter.value = "";
-      refilter();
-      return true;
-    },
+    escape: () => filter.clear(),
   };
 
   /** Back from a request to the list, and to the row it was opened from. */
@@ -439,11 +438,19 @@ export function createRequests(context: RequestsContext = {}): Requests {
     });
   }
 
+  function showing(): boolean {
+    const shown = pane.view();
+    return shown === REQUESTS_VIEW || shown === REQUEST_VIEW;
+  }
+
   return {
     toggle(): void {
-      const shown = pane.view();
-      if (shown === REQUESTS_VIEW || shown === REQUEST_VIEW) pane.close();
+      if (showing()) pane.close();
       else pane.open(listView);
+    },
+    shows: showing,
+    close(): void {
+      if (showing()) pane.close();
     },
   };
 }

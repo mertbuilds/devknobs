@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { DEFAULT_STATE, merge } from "../src/engine/store";
 import { createStore, type RequestStore } from "../src/requests/store";
 import { type RequestEntry, RING_SIZE } from "../src/requests/types";
+import type { DevknobsState, DevknobsStatePatch } from "../src/types";
+import { actionKey, runAction, type Store, stopAction } from "../src/ui/actions";
 import { BINDINGS, comboProblem, readKeys, resolveKeys } from "../src/ui/bindings";
-import { ACTIONS } from "../src/ui/catalog";
+import { ACTIONS, type Action, actionRow, availableActions, isActive } from "../src/ui/catalog";
+import { isListed, listedOrder, removePatch, rowText } from "../src/ui/list";
+import { stage } from "../src/ui/stage";
+import { CSS } from "../src/ui/styles";
 import { comboText, defaultKeys, keyAction, type KeyLike, parseCombo } from "../src/ui/keys";
 import { GONE_NOTE, HIDES_NOTE } from "../src/ui/requestdetail";
 import { BRANDS } from "../src/ui/icons";
@@ -43,7 +49,10 @@ interface Scene {
   copying: { works: boolean };
   /** Put a request in the log, started `at` ms into the page. */
   add(at: number, more?: Partial<RequestEntry>): RequestEntry;
+  /** The rows' lines: what a press opens a request from, and what takes the focus. */
   rows(): FakeNode[];
+  /** The rows themselves, which the filter hides. */
+  boxes(): FakeNode[];
   /** What each row reads: method, name, query, status and time. */
   texts(): string[][];
 }
@@ -64,7 +73,8 @@ function scene(log = true): Scene {
       return Promise.resolve(copying.works);
     },
   });
-  const rows = () => pane.body.find("req-row");
+  const boxes = () => pane.body.find("req-row");
+  const rows = () => boxes().map((box) => box.one("main"));
   return {
     store,
     timer,
@@ -84,6 +94,7 @@ function scene(log = true): Scene {
       return entry;
     },
     rows,
+    boxes,
     texts: () =>
       rows().map((row) =>
         ["req-method", "req-path", "req-query", "req-status", "req-time"].map((part) => row.one(part).textContent),
@@ -94,26 +105,26 @@ function scene(log = true): Scene {
 /** The names the rows show, in order, the hidden ones left out. */
 function names(at: Scene): string[] {
   return at
-    .rows()
+    .boxes()
     .filter((row) => !row.hidden)
     .map((row) => row.one("req-path").textContent);
 }
 
 function type(at: Scene, text: string): void {
-  const filter = at.pane.body.one("req-filter");
+  const filter = at.pane.body.one("filter");
   filter.value = text;
   filter.fire("input");
 }
 
 function chip(at: Scene, label: string): FakeNode {
-  const node = at.pane.body.find("chip").find((each) => each.textContent === label);
-  if (!node) throw new Error(`no chip ${label}`);
+  const node = at.pane.body.find("seg-item").find((each) => each.textContent === label);
+  if (!node) throw new Error(`no choice ${label}`);
   return node;
 }
 
 /** The detail's sections: title, whether open, and the text inside. */
 function sections(at: Scene): { title: string; open: boolean; text: string }[] {
-  return at.pane.body.find("req-section").map((box) => ({
+  return at.pane.body.one("req-detail").find("row").map((box) => ({
     title: box.one("row-label").textContent,
     open: box.one("main").getAttribute("aria-expanded") === "true",
     text: box.one("req-inner").textContent,
@@ -121,13 +132,201 @@ function sections(at: Scene): { title: string; open: boolean; text: string }[] {
 }
 
 function section(at: Scene, title: string): FakeNode {
-  const box = at.pane.body.find("req-section").find((each) => each.one("row-label").textContent === title);
+  const box = at.pane.body.one("req-detail").find("row").find((each) => each.one("row-label").textContent === title);
   if (!box) throw new Error(`no section ${title}`);
   return box;
 }
 
+/** The classes of a node's element children, in order. */
+function parts(node: FakeNode | undefined): string[] {
+  return (node?.nodes() ?? []).map((child) => child.className);
+}
+
+/** The requests' entry in the catalog. */
+function requestsAction(): Action {
+  const found = ACTIONS.find((action) => action.id === "requests");
+  if (!found) throw new Error("no requests action");
+  return found;
+}
+
+/** The knobs as the panel keeps them, as far as running an action goes. */
+function fakeStore(): Store {
+  let state: DevknobsState = DEFAULT_STATE;
+  return {
+    getState: () => state,
+    setState(patch: DevknobsStatePatch) {
+      state = merge(state, patch);
+    },
+  };
+}
+
 beforeEach(fakeDocument);
-afterEach(leaveDocument);
+afterEach(() => {
+  stage.requests = null;
+  leaveDocument();
+});
+
+describe("the requests' row in the panel", () => {
+  test("the entry says it all: its icon, its key, and no place on a page with no view", () => {
+    const action = requestsAction();
+    expect(action.icon).toBe("arrow-up-down");
+    expect(action.binding).toBe("requests");
+    expect(actionKey(action, defaultKeys(), false)).toBe("Shift N");
+    expect(availableActions().map((each) => each.id)).not.toContain("requests");
+    expect(action.state?.()).toBeNull();
+    // With no view there is nothing to run or to close, and neither throws.
+    action.run();
+    action.off?.();
+    stage.requests = scene().requests;
+    expect(availableActions().map((each) => each.id)).toContain("requests");
+  });
+
+  test("run from the panel it shows the requests, and its row is listed from then on", () => {
+    const at = scene();
+    stage.requests = at.requests;
+    const action = requestsAction();
+    const row = actionRow(action);
+    const store = fakeStore();
+    expect(isListed(row, store.getState())).toBe(false);
+    runAction(action, store);
+    expect(at.pane.view()).toBe(REQUESTS_VIEW);
+    expect(store.getState().panel.pinned).toEqual([...DEFAULT_STATE.panel.pinned, "requests"]);
+    // Run again it goes back to the rows, and the row stays.
+    runAction(action, store);
+    expect(at.pane.view()).toBeNull();
+    expect(listedOrder(store.getState()).map(String)).toEqual([...DEFAULT_STATE.panel.pinned, "requests"]);
+    expect(rowText(row, store.getState(), { now: 0, real: 0, overflow: null })).toBe("off");
+  });
+
+  test("it is on while the list or a request shows, and off with the rows", () => {
+    const at = scene();
+    stage.requests = at.requests;
+    const action = requestsAction();
+    const row = actionRow(action);
+    at.add(10);
+    expect(action.state?.()).toBe("off");
+    action.run();
+    expect(action.state?.()).toBe("on");
+    expect(isActive(row, DEFAULT_STATE)).toBe(true);
+    at.rows()[0]?.click();
+    expect(at.pane.view()).toBe(REQUEST_VIEW);
+    expect(action.state?.()).toBe("on");
+    at.pane.back();
+    expect(action.state?.()).toBe("on");
+    at.pane.back();
+    expect(action.state?.()).toBe("off");
+    expect(isActive(row, DEFAULT_STATE)).toBe(false);
+  });
+
+  test("its x takes the row off the list and closes the view, from a request too", () => {
+    const at = scene();
+    stage.requests = at.requests;
+    const action = requestsAction();
+    const row = actionRow(action);
+    const store = fakeStore();
+    at.add(10);
+    runAction(action, store);
+    at.rows()[0]?.click();
+    // What the row's x does.
+    stopAction(action);
+    store.setState(removePatch(store.getState(), row));
+    expect(at.pane.view()).toBeNull();
+    expect(at.pane.cleanups).toBe(at.pane.mounts);
+    expect(isListed(row, store.getState())).toBe(false);
+    expect(store.getState().panel.pinned).toEqual([...DEFAULT_STATE.panel.pinned]);
+    // With the view closed already the x only takes the row off, and opens nothing.
+    runAction(action, store);
+    runAction(action, store);
+    stopAction(action);
+    expect(at.pane.view()).toBeNull();
+  });
+});
+
+describe("what the view is built from", () => {
+  test("the bar is the kit's: its filter, one set of segments, then the count as plain text", () => {
+    const at = scene();
+    at.add(10);
+    at.requests.toggle();
+    const bar = at.pane.body.one("toolbar");
+    expect(bar.className).toBe("toolbar");
+    expect(parts(bar)).toEqual(["field filter", "seg", "req-count"]);
+    const [filter, kinds, count] = bar.nodes();
+    expect(filter?.tag).toBe("input");
+    expect(filter?.getAttribute("aria-label")).toBe("filter requests");
+    expect(kinds?.getAttribute("role")).toBe("radiogroup");
+    expect(kinds?.getAttribute("aria-label")).toBe("requests shown");
+    expect(kinds?.nodes().map((item) => [item.getAttribute("role"), item.textContent])).toEqual([
+      ["radio", "all"],
+      ["radio", "fetch/xhr"],
+      ["radio", "other"],
+    ]);
+    expect(kinds?.nodes().map((item) => item.tabIndex)).toEqual([0, -1, -1]);
+    expect(count?.tag).toBe("span");
+    expect(count?.nodes()).toEqual([]);
+    expect(at.pane.body.nodes().map((node) => node.className)).toEqual(["toolbar", "req-list", "empty"]);
+    // Nothing of the old bar is left to style.
+    for (const old of ["req-bar", "req-filter", "req-chips", "chip"]) expect(at.pane.body.find(old)).toEqual([]);
+  });
+
+  test("the segments are one choice: the arrows move it and the list follows", () => {
+    const at = scene();
+    at.add(10);
+    at.store.put(image({ id: at.store.nextId() }));
+    at.requests.toggle();
+    const [all, fetch, other] = at.pane.body.one("seg").nodes();
+    expect(names(at)).toEqual(["logo.png", "item-10"]);
+    all?.focus();
+    expect(all?.fire("keydown", { key: "ArrowRight" }).prevented).toBe(true);
+    expect(focused()).toBe(fetch ?? null);
+    expect(names(at)).toEqual(["item-10"]);
+    expect([all, fetch, other].map((item) => item?.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
+    expect([all, fetch, other].map((item) => item?.tabIndex)).toEqual([-1, 0, -1]);
+    fetch?.fire("keydown", { key: "ArrowRight" });
+    expect(names(at)).toEqual(["logo.png"]);
+    expect(at.pane.body.one("req-count").textContent).toBe("1 of 2");
+  });
+
+  test("a row is built by the row builder: its line, its main, and the leading slot kept by the main's own padding", () => {
+    const at = scene();
+    at.add(10, { url: "http://app.test/api/users?page=2" });
+    at.requests.toggle();
+    const [box] = at.boxes();
+    expect(box?.className).toBe("row req-row");
+    expect(parts(box)).toEqual(["line"]);
+    expect(parts(box?.nodes()[0])).toEqual(["main"]);
+    const main = box?.one("main");
+    expect(main?.tag).toBe("button");
+    // The method stands where a row's icon does, the name is the row's label, and the rest is what it ends with.
+    expect(parts(main)).toEqual(["req-method req-post", "row-label req-name", "req-status ok", "req-time"]);
+    expect(parts(main?.one("req-name"))).toEqual(["req-path", "req-query"]);
+    // No slot node and no padding of its own: the column is the one every row's main keeps.
+    expect(box?.find("lead")).toEqual([]);
+    const own = [...CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((match) => ({ selector: (match[1] ?? "").trim(), body: match[2] ?? "" }))
+      .filter((rule) => /\.req-(row|list|name|method)\b/.test(rule.selector));
+    expect(own.length).toBeGreaterThan(3);
+    for (const rule of own) {
+      expect(rule.selector).not.toMatch(/\.main\b/);
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(/(^|[\s;])(padding|margin|border|outline|box-shadow)(-[a-z-]+)?\s*:/);
+    }
+  });
+
+  test("a section of the detail is the kit's fold: its chevron in the leading slot, its label, then what it says", () => {
+    const at = scene();
+    at.add(10);
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    const box = section(at, "initiator");
+    expect(box.className).toBe("row");
+    expect(parts(box)).toEqual(["line", "fold"]);
+    expect(parts(box.one("main"))).toEqual(["lead", "row-label", "row-value idle"]);
+    expect(parts(box.one("lead"))).toEqual(["turn"]);
+    expect(parts(box.one("fold"))).toEqual(["fold-body"]);
+    expect(parts(box.one("fold-body"))).toEqual(["req-inner"]);
+    expect(section(at, "general").className).toBe("row open");
+    expect(at.pane.body.find("req-section")).toEqual([]);
+  });
+});
 
 describe("the action and its key", () => {
   test("requests is an action the search finds, by its name and as the network", () => {
@@ -248,7 +447,7 @@ describe("the list", () => {
     expect(kind?.nodes().map((node) => [node.tag, node.getAttribute("aria-hidden")])).toEqual([["svg", "true"]]);
     expect(full?.one("req-method").textContent).toBe("POST");
     expect(full?.one("req-method").getAttribute("aria-label")).toBeNull();
-    expect(light?.classList.contains("light")).toBe(true);
+    expect(at.boxes().map((box) => box.classList.contains("light"))).toEqual([false, true]);
     expect(light?.title).toBe(`http://cdn.test/img/logo.png\n${LIGHT_WHY}`);
     expect(full?.classList.contains("light")).toBe(false);
     expect(full?.title).toBe("http://app.test/api/item-100");
@@ -301,8 +500,8 @@ describe("the list", () => {
     at.add(10, { source: "frame" });
     at.add(20);
     at.requests.toggle();
-    const [own, framed] = at.rows();
-    expect(framed?.className).toBe("req-row");
+    const [own, framed] = at.boxes();
+    expect(framed?.className).toBe("row req-row");
     expect(framed?.className).toBe(own?.className ?? "");
     expect(at.pane.body.one("req-list").className).toBe("req-list");
   });
@@ -470,8 +669,8 @@ describe("the filter and the chips", () => {
 
   test("the chips pick whose requests show, and say which one is on", () => {
     const at = mixed();
-    const pressed = () => at.pane.body.find("chip").map((node) => node.getAttribute("aria-pressed"));
-    expect(at.pane.body.find("chip").map((node) => node.textContent)).toEqual(["all", "fetch/xhr", "other"]);
+    const pressed = () => at.pane.body.find("seg-item").map((node) => node.getAttribute("aria-checked"));
+    expect(at.pane.body.find("seg-item").map((node) => node.textContent)).toEqual(["all", "fetch/xhr", "other"]);
     expect(pressed()).toEqual(["true", "false", "false"]);
     chip(at, "fetch/xhr").click();
     expect(names(at)).toEqual(["orders", "users"]);
@@ -530,7 +729,7 @@ describe("the top of the list", () => {
 
   test("scrolled down, rows that come in above move the scroll by just their height, so nothing in view moves", () => {
     const at = scrolled(20, 120);
-    const inView = at.rows()[5];
+    const inView = at.boxes()[5];
     const place = () => (inView?.getBoundingClientRect().top ?? 0) - at.pane.body.scrollTop;
     const before = place();
     arrive(at, 1);
@@ -665,7 +864,7 @@ describe("the keys in the list", () => {
   test("escape empties the filter first, and only then goes back to the rows", () => {
     const at = three();
     type(at, "other");
-    const filter = at.pane.body.one("req-filter");
+    const filter = at.pane.body.one("filter");
     filter.focus();
     at.pane.escape();
     expect(at.pane.view()).toBe(REQUESTS_VIEW);
@@ -690,14 +889,14 @@ describe("the keys in the list", () => {
     at.rows()[2]?.fire("blur");
     at.pane.escape();
     expect(at.pane.view()).toBe(REQUESTS_VIEW);
-    expect(at.pane.body.one("req-filter").value).toBe("");
+    expect(at.pane.body.one("filter").value).toBe("");
     at.pane.escape();
     expect(at.pane.view()).toBeNull();
   });
 
   test("with no filter set, escape goes back at once, from the filter's field too", () => {
     const at = three();
-    at.pane.body.one("req-filter").focus();
+    at.pane.body.one("filter").focus();
     at.pane.escape();
     expect(at.pane.view()).toBeNull();
   });
@@ -708,7 +907,7 @@ describe("the keys in the list", () => {
     at.pane.back();
     expect(at.pane.view()).toBeNull();
     at.requests.toggle();
-    expect(at.pane.body.one("req-filter").value).toBe("item-10");
+    expect(at.pane.body.one("filter").value).toBe("item-10");
     expect(names(at)).toEqual(["item-10"]);
   });
 });
@@ -1143,7 +1342,7 @@ describe("the way back", () => {
     const steps: [string | null, string][] = [];
     for (let step = 0; step < 3; step++) {
       at.pane.escape();
-      steps.push([at.pane.view(), at.pane.body.find("req-filter")[0]?.value ?? ""]);
+      steps.push([at.pane.view(), at.pane.body.find("filter")[0]?.value ?? ""]);
     }
     expect(steps).toEqual([
       [REQUESTS_VIEW, "item"],
@@ -1172,7 +1371,7 @@ describe("the way back", () => {
     expect([at.pane.mounts, at.pane.cleanups]).toEqual([1, 0]);
     at.rows()[0]?.click();
     expect([at.pane.mounts, at.pane.cleanups]).toEqual([2, 1]);
-    expect(at.pane.body.find("req-bar")).toEqual([]);
+    expect(at.pane.body.find("toolbar")).toEqual([]);
     at.pane.back();
     expect([at.pane.mounts, at.pane.cleanups]).toEqual([3, 2]);
     expect(at.pane.body.find("req-detail")).toEqual([]);

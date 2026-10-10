@@ -12,6 +12,7 @@ import {
   ROWS,
   type Row,
   type RowId,
+  rowHere,
   summary,
 } from "./catalog";
 
@@ -20,6 +21,11 @@ import {
  * of it is off its default, and once set or added from the panel it stays
  * listed, back at its default too, until its `×` or reset all takes it off. A fresh panel,
  * and reset all, lists the default rows.
+ *
+ * An action's row goes by the same rules, with nothing here that tells the
+ * two apart: it is listed while its mode is on, as a knob set from outside
+ * the panel is, and once run from the panel it stays listed until its `×`.
+ * So a key alone lists a mode only while it is on, and pins nothing.
  */
 
 /**
@@ -134,11 +140,13 @@ export function removePatch(state: DevknobsState, row: Row): DevknobsStatePatch 
 
 /**
  * Would reset all change nothing: every knob at its default, and the default
- * rows listed alone, in their order? An id no row has, such as one an older
- * version kept, is not listed and counts for nothing.
+ * rows listed alone, in their order? An id no row has here, such as one an
+ * older or a newer version kept, is not listed and counts for nothing.
  */
 export function isReset(state: DevknobsState): boolean {
-  const pinned = state.panel.pinned.filter((id) => ROWS.some((row) => row.id === id));
+  const pinned = state.panel.pinned.filter((id) =>
+    ROWS.some((row) => row.id === id && rowHere(row)),
+  );
   return (
     ROWS.every((row) => !isActive(row, state)) &&
     pinned.length === DEFAULT_PINNED.length &&
@@ -147,7 +155,7 @@ export function isReset(state: DevknobsState): boolean {
 }
 
 export function isListed(row: Row, state: DevknobsState): boolean {
-  return isActive(row, state) || state.panel.pinned.includes(row.id);
+  return rowHere(row) && (isActive(row, state) || state.panel.pinned.includes(row.id));
 }
 
 /**
@@ -158,8 +166,12 @@ export function showsLabel(row: Row, knob: Knob): boolean {
   return knob.label !== row.label;
 }
 
-/** What a listed row says: what it emulates, or the value its first knob is back at. */
+/**
+ * What a listed row says: what it emulates, or the value its first knob is
+ * back at. An action's says whether its mode is on, and nothing with no mode.
+ */
 export function rowText(row: Row, state: DevknobsState, live: Live): string {
+  if (row.action) return row.action.state?.() ?? "";
   const text = summary(row, state, live);
   if (text) return text;
   const [knob] = knobsOf(row);

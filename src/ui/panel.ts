@@ -6,7 +6,8 @@ import { isMac } from "../engine/ua";
 import { frameWindow, panelSized, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
 import type { DevknobsState } from "../types";
-import { ACTIONS, type Live } from "./catalog";
+import { runAction, stopAction } from "./actions";
+import { type Action, availableActions, type Live } from "./catalog";
 import { BINDINGS, createKeys, type LiveKeys } from "./bindings";
 import { button, el } from "./dom";
 import { createDrag } from "./drag";
@@ -25,11 +26,12 @@ import { isReset } from "./list";
 import { createPalette } from "./palette";
 import { createPane } from "./pane";
 import { createPrefs } from "./prefs";
-import { createRequests } from "./requests";
+import { createRequests, type Requests } from "./requests";
 import { createRows } from "./rows";
 import { createSettings } from "./settings";
 import { createSizer } from "./size";
 import { createSlide } from "./slide";
+import { stage } from "./stage";
 import { CSS } from "./styles";
 import { createTips } from "./tooltip";
 
@@ -71,17 +73,34 @@ export const HOST_STYLE = "position:fixed;top:0;z-index:2147483646;pointer-event
  *
  * The panel lists the knobs that are off their default or were set from it,
  * one row each, in the order they were added or dragged to, and a row opens
- * into an editor. A fresh panel lists the default rows. Everything else is a
- * search away: the add knob button under the rows opens a field that finds
- * knobs and values, and with nothing typed lists every knob.
+ * into an editor. An action run from the panel has a row among them, which
+ * runs it. A fresh panel lists the default rows. Everything else is a search
+ * away: the add knob button under the rows opens a field that finds knobs,
+ * values and actions, and with nothing typed lists them all.
  */
 export function createPanel(options: PanelOptions = {}): Panel {
   const keys = options.keys ?? createKeys();
   const prefs = createPrefs({ handle: options.handle });
   const grab = options.grab ?? null;
   const mac = isMac();
-  /** The actions search finds: grab only where there is one. */
-  const actionsHere = grab ? ACTIONS : ACTIONS.filter((action) => action.id !== "grab");
+  // What the actions act on, before anything asks which of them the page has.
+  stage.grab = grab;
+  // The requests as the actions drive them. Run from the search, the view
+  // hands the focus back to the button the search opened from.
+  const requestsHere: Requests = {
+    toggle(): void {
+      if (palette.searching()) {
+        palette.leaveSearch();
+        add.focus({ preventScroll: true });
+      }
+      requests.toggle();
+    },
+    shows: () => requests.shows(),
+    close: () => requests.close(),
+  };
+  stage.requests = requestsHere;
+  /** The actions the page has: grab only where there is one. */
+  const actionsHere = availableActions();
   /** The keys the shortcuts list: grab's only where there is one. */
   const bindingsHere = BINDINGS.filter((binding) => binding !== "grab" || grab !== null);
 
@@ -195,7 +214,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   wrap.append(handle, panel, tip);
   root.append(style, wrap);
 
-  const knobRows = createRows({ root, rows, said, render, dragging: () => drag.dragging() });
+  const knobRows = createRows({ root, rows, said, render, dragging: () => drag.dragging(), mac });
   const palette = createPalette({
     root,
     wrap,
@@ -205,7 +224,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
     add,
     results,
     rows: knobRows,
-    grab,
     actionsHere,
     render,
     editingKeys: () => settings.editing(),
@@ -215,7 +233,6 @@ export function createPanel(options: PanelOptions = {}): Panel {
       settings.setEditing(false);
       side.drop();
     },
-    toggleRequests: requests.toggle,
   });
   const drag = createDrag({ host, wrap, handle, panel, render, toggle });
   const { layout } = drag;
@@ -261,6 +278,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     handle.setAttribute("aria-label", `devknobs, press ${comboSpoken(now.panel)}`);
     footer.drawKeys(now);
     settings.drawKeys(now);
+    knobRows.drawKeys(now);
   }
 
   /** The clock runs between knob changes, and its readouts with it. */
@@ -316,19 +334,27 @@ export function createPanel(options: PanelOptions = {}): Panel {
     return true;
   }
 
-  /** Every knob back to its default, the default rows listed and the search left. */
+  /** Every knob back to its default, every mode off, the default rows listed and the search left. */
   function resetAll(): void {
     knobRows.clearOpen();
     searchInput.value = "";
+    for (const action of actionsHere) stopAction(action);
     engine.reset();
   }
 
+  function actionOf(id: Action["id"]): Action | undefined {
+    return actionsHere.find((action) => action.id === id);
+  }
+
+  /** What a control of the footer does. An action run from one has its row listed, as from any of the panel. */
   function runCommand(command: Command): void {
     if (command === "panel") toggle(false);
     else if (command === "search") palette.startBrowsing();
-    else if (command === "grab") palette.runAction("grab");
-    else if (command === "replay") engine.replay();
-    else resetAll();
+    else if (command === "reset") resetAll();
+    else {
+      const action = actionOf(command);
+      if (action) runAction(action);
+    }
   }
 
   for (const [command, node] of hints) node.addEventListener("click", () => runCommand(command));
@@ -355,8 +381,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       return;
     }
     if (!engine.getState().panel.open) return;
-    if (action === "replay") runCommand("replay");
-    else if (action === "requests") requests.toggle();
+    // A key runs its action alone: the panel's rows stay as they are.
+    if (action === "replay" || action === "requests") actionOf(action)?.run();
     else if (action === "reset") runCommand("reset");
     else if (action === "search") palette.startBrowsing();
     else toggle(false);
@@ -477,6 +503,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const stopKeys = keys.subscribe(renderKeys);
   const stopPrefs = prefs.subscribe(render);
   const stopGrab = grab?.subscribe(palette.onGrab);
+  // A mode that goes on or off, by its key too, shows on its row.
+  const stopModes = actionsHere.flatMap((action) => action.watch?.(render) ?? []);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("pointerdown", onPointerDown, true);
@@ -508,6 +536,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
       stopPrefs();
       prefs.destroy();
       stopGrab?.();
+      for (const stop of stopModes) stop();
+      if (stage.grab === grab) stage.grab = null;
+      if (stage.requests === requestsHere) stage.requests = null;
       stopCount();
       clearInterval(ticker);
       tips.destroy();

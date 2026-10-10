@@ -432,20 +432,26 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; align-content: start; }
 .row { position: relative; border-radius: 8px; transition: background-color 120ms ease-out; }
 .row:hover, .row.open { background: var(--card); }
-/* The grip has its own column in the row's leading padding, kept whether it
-   shows or not so nothing moves on hover. It shows on hover or focus, or
-   always where there is no hover. 4 in from the row's edges, so 4 round. */
-.grip {
+/* The leading slot: a column in the main's leading padding, kept whether
+   anything stands in it or not, so every row's content starts at the same
+   place. A knob row's grip stands in it, and a head's way back. It is the
+   one rule that says where the slot is and how wide. 4 in from the row's
+   edges, so 4 round. */
+.lead {
   position: absolute;
   top: 4px;
   left: 4px;
-  z-index: 1;
   width: 14px;
   height: 18px;
   display: grid;
   place-items: center;
   color: var(--faint);
   border-radius: 4px;
+}
+/* The grip shows on hover or focus, or always where there is no hover, so
+   nothing moves on hover. */
+.grip {
+  z-index: 1;
   opacity: 0;
   cursor: grab;
   touch-action: none;
@@ -477,7 +483,15 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   padding: 4px 8px 4px 22px;
   border-radius: 8px;
 }
-.row-label { flex: none; color: var(--faint); }
+/* A title too long for its row is cut short, in the head of a view as in a row. */
+.row-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+}
 .row-value {
   flex: 1;
   min-width: 0;
@@ -489,7 +503,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 /* A row kept in the list with its knobs back at their defaults. */
 .row-value.idle { color: var(--faint); }
 .row-value.hot { color: var(--hot); }
-.clear {
+/* The small icon button a row ends with: a row's x, and an action in the
+   head of a view. 2 in from the row's edges, so 6 round. */
+.row-button {
   flex: none;
   width: 22px;
   height: 22px;
@@ -500,7 +516,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 6px;
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
-.clear:hover { color: var(--fg); background: var(--track); }
+.row-button:hover { color: var(--fg); background: var(--track); }
 
 /* An open row's editor folds out under its line and pushes the rows below it
    down. The fold eases between none and all of the editor's height, and clips
@@ -818,6 +834,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .keys .group-label { padding-left: 22px; }
 .keys .main { padding-right: 2px; }
+/* An action's key, at the end of its row, as quiet as the footer shows a key. */
+.row-key { flex: none; align-self: center; font-size: 10px; line-height: 1.4; color: var(--faint); }
 .row-control { flex: none; align-self: center; margin-left: auto; }
 .keys .clear { align-self: center; margin: -2px 0 -2px auto; }
 .keys .clear:not([hidden]) + .row-control { margin-left: 0; }
@@ -860,9 +878,10 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 
 /* A feature's view, in place of the rows as the settings are: the way back
-   on top, a row as theirs is, with the view's title, cut short where it is
-   long, and then its actions, each as a row's x is. Its body under that
-   scrolls on its own. The view asks for the panel's tallest and the panel's
+   on top, a row built and styled as every row is, with the view's title and
+   then its actions, each the button a row's x is. Nothing here says how the
+   head is padded, edged or rounded: it differs from a row only by what is in
+   its slots. Its body under that scrolls on its own. The view asks for the panel's tallest and the panel's
    own limit shrinks it to what the window has, so the panel is as tall as it
    gets whatever the view holds. */
 .view {
@@ -874,27 +893,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   gap: 4px;
 }
 .view-head { flex: none; }
-.view-head .main { padding-right: 2px; }
-.view-head .row-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .view-actions { flex: none; display: flex; }
-.view-action {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  margin: 2px;
-  display: grid;
-  place-items: center;
-  color: var(--faint);
-  border-radius: 6px;
-  transition: background-color 120ms ease-out, color 120ms ease-out;
-}
-.view-action:hover { color: var(--fg); background: var(--track); }
 .view-body {
   position: relative;
   flex: 1 1 auto;
@@ -905,6 +904,32 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
+
+/* What a view builds its chrome from, see kit.ts. The bar stays over what
+   scrolls under it, flush with the rows' edges, and holds a filter, which
+   takes the room, and segments, which keep theirs. Where the panel is narrow
+   the filter has a line of its own. It never moves, so the browser does not
+   hold the scroll by it. */
+.toolbar {
+  overflow-anchor: none;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 4px;
+  background: var(--bg);
+}
+.toolbar > .filter { flex: 1 1 96px; min-width: 0; }
+.toolbar > .seg { flex: none; }
+/* A section of a view that folds, a row as the rows are: its chevron in the
+   leading slot, to the side while folded and down while out. */
+.turn { display: grid; }
+.turn .glyph { transform: rotate(180deg); transition: transform 120ms ease-out; }
+.row.open > .line .turn .glyph { transform: rotate(270deg); }
+.fold-body { min-height: 0; }
 
 /* The strip that changes the panel's width, as the edge of a docked devtools
    does: it lies across the border on the panel's page side, as tall as the
@@ -938,34 +963,19 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .sizer:focus-visible::after,
 .wrap[data-sizing="true"] .sizer::after { opacity: 1; }
 
-/* The requests view, in the panel. A bar stays over the list while it
-   scrolls: a filter, the chips that pick whose requests show, and how many
-   do, on one line where the panel has the room and with the filter on a line
-   of its own where it is narrow. Under it a row a request, as tall as the
-   panel's rows and 8 round as they are, the panel being 13 with 1 of border
-   and 4 of padding. The panel is as wide as the user drags it, 240 to 720,
-   and only the name gives way or takes the room: the method, the status and
-   the time each keep their width, so the columns line up down the list, and
-   no row wraps.
+/* The requests view, in the panel. Its bar, its rows, its folds and its
+   empty line are the kit's, and what is here is only what stands in them: the
+   count at the bar's far end, and the cells of a row. A row a request, built
+   as the panel's rows are: the method, or the kind's mark, where a row's icon
+   is, the name where its label is, then the status and the time. The panel is
+   as wide as the user drags it, 240 to 720, and only the name gives way or
+   takes the room: the method, the status and the time each keep their width,
+   so the columns line up down the list, and no row wraps.
    New rows go in at the top, and the view moves the scroll for them itself,
    so the browser's own scroll anchoring is off here: one of the two only.
    Color is in the text and the marks alone: a method in its own tone, a kind
    as a mark in the method's place, a status green in the 200s, amber in the
    300s and hot from 400 up. Nothing is drawn around or behind any of them. */
-.req-bar {
-  overflow-anchor: none;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  padding-bottom: 4px;
-  background: var(--bg);
-}
-.req-filter { flex: 1 1 96px; min-width: 0; }
-.req-chips { flex: none; display: flex; gap: 2px; }
 .req-count {
   flex: none;
   min-width: 20px;
@@ -977,18 +987,11 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   color: var(--faint);
 }
 .req-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; overflow-anchor: none; }
-.req-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  transition: background-color 120ms ease-out;
-}
-.req-row:hover { background: var(--card); }
 .req-method { flex: none; width: 36px; overflow: hidden; font-size: 10.5px; color: var(--faint); }
 /* A mark sits mid row, where the text of the row is laid out by its baseline. */
 .req-method.mark { display: flex; align-self: center; }
+/* A mark keeps its kind's tone, where a row's icon is faint. */
+.req-method .glyph { color: inherit; }
 .req-get { color: var(--req-get); }
 .req-post { color: var(--req-post); }
 .req-put { color: var(--req-put); }
@@ -998,7 +1001,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .req-image { color: var(--req-image); }
 .req-font { color: var(--req-font); }
 .req-media { color: var(--req-media); }
-.req-name { flex: 1; min-width: 0; display: flex; font-family: var(--mono); font-size: 11px; }
+/* The name is the row's label, in the text's own color and in mono, with all the room the row has left. */
+.req-name { flex: 1; min-width: 0; display: flex; font-family: var(--mono); font-size: 11px; color: inherit; }
 .req-path { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The query keeps its whole width while that leaves the path 64, and half the name's room at least. */
 .req-query {
@@ -1024,14 +1028,12 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .req-row.light { color: var(--faint); }
 
 /* One request in full, under the head that is its way back: its sections,
-   each a row that folds as the panel's rows do, with no grip column to keep.
-   What a section holds sits 4 in from the row's edges, so 4 round. Addresses,
-   headers and bodies are in mono, wrap anywhere and can be selected. */
+   each the kit's fold, a row as the panel's rows are. What a section holds
+   sits 4 in from the row's edges, so 4 round. Addresses, headers and bodies
+   are in mono, wrap anywhere and can be selected. */
 .req-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
-.req-detail .main { width: 100%; padding-left: 8px; }
 .req-detail > .note { padding: 4px 8px; }
 .req-inner {
-  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 4px;

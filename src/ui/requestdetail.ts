@@ -1,7 +1,8 @@
 import { NativeDate } from "../engine/clock";
 import type { BodyRecord, HeaderList, RequestEntry } from "../requests/types";
-import { button, el } from "./dom";
+import { el } from "./dom";
 import { glyph } from "./icons";
+import { type Fold, sectionFold } from "./kit";
 import {
   bodyNote,
   bodyText,
@@ -43,10 +44,8 @@ interface Part {
 
 interface Section {
   part: Part;
-  box: HTMLElement;
-  head: HTMLButtonElement;
+  fold: Fold;
   brief: HTMLElement;
-  fold: HTMLElement;
   inner: HTMLElement;
   /** What the inner shows now, or nothing yet. */
   shown: unknown;
@@ -199,9 +198,7 @@ export function createDetail(entry: RequestEntry): Detail {
       section.filled = false;
       section.brief.textContent = section.part.brief(now);
     }
-    section.box.classList.toggle("open", open);
-    section.head.setAttribute("aria-expanded", open ? "true" : "false");
-    section.fold.inert = !open;
+    section.fold.set(open);
     if (open && !section.filled) {
       section.inner.replaceChildren(...section.part.fill(now));
       section.filled = true;
@@ -209,22 +206,22 @@ export function createDetail(entry: RequestEntry): Detail {
   }
 
   const sections: Section[] = (entry.detail === "light" ? [GENERAL] : FULL).map((part) => {
-    const box = el("div", "row req-section");
-    const head = button("main", "");
     const brief = el("span", "row-value idle");
-    head.append(el("span", "row-label", part.title), brief);
-    const fold = el("div", "fold");
     const inner = el("div", "req-inner");
-    fold.append(inner);
-    box.append(head, fold);
-    // Not what the part shows, whatever that is, so the first draw fills it in.
-    const section: Section = { part, box, head, brief, fold, inner, shown: box, filled: false };
-    head.addEventListener("click", () => {
-      chosen.set(part.key, !isOpen(section));
-      draw(section);
+    const fold = sectionFold({
+      label: part.title,
+      ends: [brief],
+      open: part.open(entry),
+      onToggle(open: boolean): void {
+        chosen.set(part.key, open);
+        draw(section);
+      },
     });
+    fold.body.append(inner);
+    // Not what the part shows, whatever that is, so the first draw fills it in.
+    const section: Section = { part, fold, brief, inner, shown: fold, filled: false };
     draw(section);
-    node.append(box);
+    node.append(fold.node);
     return section;
   });
   if (entry.detail === "light") {

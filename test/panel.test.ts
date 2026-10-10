@@ -992,7 +992,8 @@ describe("a feature's view", () => {
     expect(body(".view-body")).toMatch(/overflow-y:\s*auto/);
     expect(body(".view-body")).toMatch(/min-height:\s*0/);
     expect(body(".view-body")).toMatch(/overscroll-behavior:\s*contain/);
-    expect(body(".view-head .row-label")).toMatch(/text-overflow:\s*ellipsis/);
+    // The title is cut short as any row's is: the head has no rule of its own for it.
+    expect(body(".row-label")).toMatch(/text-overflow:\s*ellipsis/);
   });
 
   test("has no surface of its own: nothing of the side pane is left", () => {
@@ -1065,7 +1066,11 @@ describe("a request's row", () => {
         /\.req-(row|list)\b/.test(rule.selector) && /border(?!-radius)|outline|box-shadow/.test(rule.body),
     );
     expect(lined).toEqual([]);
-    expect(body(".req-row:hover")).toMatch(/background:\s*var\(--card\)/);
+    // Its hover is the one every row of the panel has, and none of its own.
+    expect(body(".row:hover, .row.open")).toMatch(/background:\s*var\(--card\)/);
+    expect(rules(CSS).filter((rule) => /\.req-row\b/.test(rule.selector)).map((rule) => rule.selector)).toEqual([
+      ".req-row.light",
+    ]);
     // Its frame is the one every button of the panel has, and none of its own.
     expect(body("button")).toMatch(/border:\s*0/);
     expect(body("button:focus-visible")).toMatch(/outline:\s*1px solid var\(--faint\)/);
@@ -1078,9 +1083,9 @@ describe("a request's row", () => {
     expect(parts.length).toBeGreaterThan(20);
     const lined = parts.filter((rule) => /border(?!-radius)|outline|box-shadow/.test(rule.body));
     expect(lined.map((rule) => rule.selector)).toEqual([]);
-    // A ground is the bar's, which the list scrolls under, a body's box in the detail, and a row's hover.
+    // The one ground is a body's box in the detail: the bar's and a row's hover are the kit's.
     const grounded = parts.filter((rule) => /background/.test(rule.body.replace(/transition:[^;]*;/g, "")));
-    expect(grounded.map((rule) => rule.selector)).toEqual([".req-bar", ".req-row:hover", ".req-pre"]);
+    expect(grounded.map((rule) => rule.selector)).toEqual([".req-pre"]);
     const heavy = parts.filter((rule) => /font-weight|padding|border-radius/.test(rule.body));
     expect(heavy.map((rule) => rule.selector).filter((selector) => /method|status|mark|get|post|ok/.test(selector))).toEqual([]);
   });
@@ -1108,11 +1113,15 @@ describe("the requests, at every width the panel takes", () => {
     return Number(found[1]);
   }
 
-  /** How wide the name's column is in a panel `width` wide: what the fixed ones, the gaps and the padding leave. */
+  /**
+   * How wide the name's column is in a panel `width` wide: what the fixed
+   * ones, the gaps and the padding leave. The padding and the gap are the
+   * ones every row's main has.
+   */
   function nameRoom(width: number): number {
     const fixed = px(".req-method", "width") + px(".req-status", "width") + px(".req-time", "width");
-    const padding = Number(/padding:\s*4px (\d+)px;/.exec(body(".req-row"))?.[1]);
-    return width - AROUND - 2 * padding - 3 * px(".req-row", "gap") - fixed;
+    const [, right, left] = /padding:\s*4px (\d+)px 4px (\d+)px;/.exec(body(".main")) ?? [];
+    return width - AROUND - Number(left) - Number(right) - 3 * px(".main", "gap") - fixed;
   }
 
   test("the widths are the panel's: 240 at the least, 340 until it is dragged, 720 at the most", () => {
@@ -1125,17 +1134,17 @@ describe("the requests, at every width the panel takes", () => {
       expect(px(fixed, "width")).toBeGreaterThan(0);
     }
     expect(body(".req-name")).toMatch(/flex:\s*1;\s*min-width:\s*0/);
-    expect(body(".req-row")).toMatch(/display:\s*flex/);
-    expect(body(".req-row")).not.toMatch(/flex-wrap|width/);
+    expect(body(".main")).toMatch(/display:\s*flex/);
+    expect(body(".main")).not.toMatch(/flex-wrap/);
     // The list is one column as wide as the body, however long a name is.
     expect(body(".req-list")).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
     expect(body(".view-body")).toMatch(/overflow-x:\s*hidden/);
   });
 
   test("the name has room at 240, at 340 and at 720, and all of what the panel gains", () => {
-    expect(nameRoom(240)).toBe(70);
-    expect(nameRoom(340)).toBe(170);
-    expect(nameRoom(720)).toBe(550);
+    expect(nameRoom(240)).toBe(56);
+    expect(nameRoom(340)).toBe(156);
+    expect(nameRoom(720)).toBe(536);
     expect(nameRoom(720) - nameRoom(240)).toBe(720 - 240);
   });
 
@@ -1147,18 +1156,21 @@ describe("the requests, at every width the panel takes", () => {
     expect(query).toMatch(/overflow:\s*hidden;\s*text-overflow:\s*ellipsis/);
     /** The most the query takes of the name's room. */
     const most = (width: number) => Math.max(nameRoom(width) / 2, nameRoom(width) - 64);
-    // At 340 that is what it took when the view was always that wide, and at 240 the path keeps half.
-    expect(most(340)).toBe(106);
-    expect(most(240)).toBe(35);
-    expect(nameRoom(240) - most(240)).toBe(35);
+    // At 340 the path keeps its 64, and at 240 it keeps half.
+    expect(most(340)).toBe(92);
+    expect(most(240)).toBe(28);
+    expect(nameRoom(240) - most(240)).toBe(28);
   });
 
   test("the bar wraps where it is narrow: the filter on a line of its own, the count at the far end", () => {
-    expect(body(".req-bar")).toMatch(/flex-wrap:\s*wrap/);
-    expect(body(".req-bar")).toMatch(/position:\s*sticky/);
-    expect(body(".req-filter")).toMatch(/flex:\s*1 1 96px;\s*min-width:\s*0/);
-    expect(body(".req-chips")).toMatch(/flex:\s*none/);
+    // The bar is the kit's, and only the count is the view's own.
+    expect(body(".toolbar")).toMatch(/flex-wrap:\s*wrap/);
+    expect(body(".toolbar")).toMatch(/position:\s*sticky/);
+    expect(body(".toolbar")).toMatch(/overflow-anchor:\s*none/);
+    expect(body(".toolbar > .filter")).toMatch(/flex:\s*1 1 96px;\s*min-width:\s*0/);
+    expect(body(".toolbar > .seg")).toMatch(/flex:\s*none/);
     expect(body(".req-count")).toMatch(/margin-left:\s*auto/);
+    expect(rules(CSS).map((rule) => rule.selector).filter((selector) => /\.req-(bar|filter|chips)\b/.test(selector))).toEqual([]);
   });
 
   test("a request in full is one column as wide as the body, and its values wrap anywhere", () => {

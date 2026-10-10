@@ -10,25 +10,61 @@ import {
   type RowId,
   rowOf,
 } from "./catalog";
-import { button, center, el, firstControl, reveal, rowBox } from "./dom";
+import { actionKey, runAction, stopAction } from "./actions";
+import { button, center, el, firstControl, reveal, rowBox, rowButton } from "./dom";
 import { createEditors, set, type Update } from "./editors";
-import { icon, ROW_ICONS } from "./icons";
+import { icon, rowIcon } from "./icons";
+import type { Keys } from "./keys";
 import { arrange, isListed, listedOrder, movePatch, removePatch, rowOrder, rowText } from "./list";
 import { between, DRAG_SLOP } from "./place";
 
 /**
- * The knob rows: one per row of the catalog, each a line that opens into its
- * editor, folded in place under it. Listed rows stand in the order the state
- * keeps, and their grips reorder them, by drag or by the arrow keys.
+ * The rows: one per row of the catalog, each a line that opens into its
+ * editor, folded in place under it. An action's row is the same line, and
+ * runs the action where a knob row opens. Listed rows stand in the order the
+ * state keeps, and their grips reorder them, by drag or by the arrow keys.
  */
 
-export interface RowView {
-  row: Row;
+/** A row's line: what every row has, a knob row's and an action's alike. */
+export interface RowLine {
   box: HTMLElement;
   grip: HTMLButtonElement;
   main: HTMLButtonElement;
   value: HTMLElement;
+  /** The key that runs the row's action, where it has one. */
+  key: HTMLElement | null;
   clear: HTMLButtonElement;
+}
+
+/**
+ * Build a row's line from its catalog entry: the grip in the leading slot,
+ * its icon and name, what it says, then its x. An action's ends with its key
+ * as the footer shows a key, and its x takes it off the list where a knob
+ * row's puts its knobs back too.
+ */
+export function rowLine(row: Row): RowLine {
+  const grip = button("grip", "");
+  grip.append(icon("grip-vertical"));
+  grip.setAttribute("aria-label", `move ${row.label}`);
+  grip.title = "drag, or press up or down, to reorder";
+  const main = button("main", "");
+  const value = el("span", "row-value");
+  const key = row.action?.binding ? el("kbd", "hint-key row-key") : null;
+  const clear = rowButton("clear", icon("x"), `${row.action ? "remove" : "reset"} ${row.label}`);
+  const { box } = rowBox({
+    main,
+    grip,
+    glyph: icon(rowIcon(row)),
+    title: row.label,
+    ends: key ? [value, key] : [value],
+    after: [clear],
+  });
+  box.dataset.row = row.id;
+  return { box, grip, main, value, key, clear };
+}
+
+export interface RowView extends RowLine {
+  row: Row;
   /** Folds the editor away under the row's line, and out to its height. */
   fold: HTMLElement;
   editor: HTMLElement;
@@ -57,6 +93,8 @@ export interface RowsContext {
   render(): void;
   /** Whether the handle is being dragged, which leaves the grips alone. */
   dragging(): boolean;
+  /** Whether the keys show as a Mac's. */
+  mac: boolean;
 }
 
 export interface Rows {
@@ -72,6 +110,8 @@ export interface Rows {
   renderRows(state: DevknobsState, live: Live): boolean;
   /** Draw the readouts that run with the clock. */
   tick(state: DevknobsState, live: Live): void;
+  /** Show the keys in force on the actions' rows. */
+  drawKeys(now: Keys): void;
   /** Whether a row is being dragged by its grip. */
   reordering(): boolean;
   endReorder(keep: boolean): void;
@@ -100,18 +140,8 @@ export function createRows(context: RowsContext): Rows {
   }
 
   const views: RowView[] = ROWS.map((row) => {
-    const grip = button("grip", "");
-    grip.append(icon("grip-vertical"));
-    grip.setAttribute("aria-label", `move ${row.label}`);
-    grip.title = "drag, or press up or down, to reorder";
-    const main = button("main", "");
-    main.setAttribute("aria-expanded", "false");
-    const value = el("span", "row-value");
-    const clear = button("clear", "");
-    clear.append(icon("x"));
-    clear.setAttribute("aria-label", `reset ${row.label}`);
-    const box = rowBox(main, icon(ROW_ICONS[row.id]), row.label, value, clear, grip);
-    box.dataset.row = row.id;
+    const line = rowLine(row);
+    const { box, grip, main, clear } = line;
     const fold = el("div", "fold");
     const editor = el("div", "editor");
     editor.hidden = true;
@@ -127,9 +157,15 @@ export function createRows(context: RowsContext): Rows {
         else if (type === "transitionend") reveal(box, rows);
       });
     }
-    main.addEventListener("click", () => openEditor(openRow === row.id ? null : row.id));
+    const { action } = row;
+    // An action has nothing to open: its line runs it, and its x turns its mode off.
+    main.addEventListener("click", () => {
+      if (action) runAction(action);
+      else openEditor(openRow === row.id ? null : row.id);
+    });
     clear.addEventListener("click", () => {
       if (openRow === row.id) openRow = null;
+      if (action) stopAction(action);
       engine.setState(removePatch(engine.getState(), row));
     });
     grip.addEventListener("pointerdown", (event: PointerEvent) => startReorder(event, row.id));
@@ -150,7 +186,7 @@ export function createRows(context: RowsContext): Rows {
       moveRow(row.id, event.key === "ArrowUp" ? -1 : 1);
     });
     const updates = editors.buildEditor(row, editor);
-    return { row, box, grip, main, value, clear, fold, editor, updates };
+    return { ...line, row, fold, editor, updates };
   });
 
   /**
@@ -409,7 +445,12 @@ export function createRows(context: RowsContext): Rows {
         const shown = !view.box.hidden;
         view.box.hidden = !listed && !expanded;
         foldRow(view, expanded, shown);
-        view.main.setAttribute("aria-expanded", expanded ? "true" : "false");
+        // A mode says whether it is on, as a row says whether it is open.
+        const mode = view.row.action?.state?.() ?? null;
+        if (mode) view.main.setAttribute("aria-pressed", mode === "on" ? "true" : "false");
+        else if (!view.row.action) {
+          view.main.setAttribute("aria-expanded", expanded ? "true" : "false");
+        }
         view.value.textContent = rowText(view.row, state, live);
         view.value.classList.toggle("idle", !isActive(view.row, state));
         view.clear.hidden = !listed;
@@ -423,6 +464,13 @@ export function createRows(context: RowsContext): Rows {
         if (!view.box.hidden) view.value.textContent = rowText(view.row, state, live);
       }
       if (openRow === "clock") for (const update of viewOf("clock")?.updates ?? []) update(state);
+    },
+    drawKeys(now: Keys): void {
+      for (const view of views) {
+        if (!view.key || !view.row.action) continue;
+        view.key.textContent = actionKey(view.row.action, now, context.mac);
+        view.key.hidden = view.key.textContent === "";
+      }
     },
     reordering: () => reorder !== null,
     endReorder,

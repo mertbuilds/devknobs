@@ -11,7 +11,7 @@
  * return a cleanup that runs once when the view closes or another replaces it.
  */
 
-import { button, el } from "./dom";
+import { button, el, rowBox, rowButton } from "./dom";
 import { icon, type IconName } from "./icons";
 import type { Tips } from "./tooltip";
 
@@ -160,17 +160,19 @@ export function createPane(context: PaneContext): Pane {
 
   const node = el("div", "view pane");
   node.setAttribute("role", "group");
-  // The head is a row as the settings' way back is: the chevron where a row's
-  // icon is, then the title, and the actions where a row's x is.
+  // The head is a row, built as every row is: the way back in the leading
+  // slot, where a knob row's grip is, then the title, and the actions where a
+  // row's x is.
   const back = button("main", "");
-  const title = el("span", "row-label");
-  back.append(icon("chevron-left"), title);
   back.addEventListener("click", leave);
   const actions = el("div", "view-actions");
-  const line = el("div", "line");
-  line.append(back, actions);
-  const head = el("div", "row view-head");
-  head.append(line);
+  const { box: head, label: title } = rowBox({
+    main: back,
+    lead: icon("chevron-left"),
+    title: "",
+    after: [actions],
+  });
+  head.className = `${head.className} view-head`;
   const body = el("div", "view-body");
   node.append(head, body);
 
@@ -191,9 +193,7 @@ export function createPane(context: PaneContext): Pane {
   }
 
   function actionButton(action: PaneAction): HTMLButtonElement {
-    const control = button("view-action", "");
-    control.append(icon(action.icon));
-    control.setAttribute("aria-label", action.label);
+    const control = rowButton("view-action", icon(action.icon), action.label);
     tips.tooltip(control, action.label);
     control.addEventListener("click", () => action.run());
     return control;
