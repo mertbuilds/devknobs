@@ -5,7 +5,9 @@ import { UNFRAMED } from "../src/engine/frame";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
 import { holeAt, holePath, MORPH_TIME, rounded, windowRect } from "../src/engine/morph";
+import { keepDrawing, SNAPSHOT_KEY } from "../src/engine/placeholder";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
+import { type Mark, MARK_EVENT } from "../src/engine/touchmark";
 import {
   apply,
   fit,
@@ -1403,6 +1405,219 @@ describe("a phone's body", () => {
     expect(mockDrawing().children.map((element) => element.tagName)).toContain("path");
     apply(merge(DEFAULT_STATE, { device: "iphone-18-pro", browser: "off", mock: false }));
     expect(everything().some((element) => element.getAttribute("class") === "mock")).toBe(false);
+  });
+});
+
+describe("the touch cursor over the screen", () => {
+  const phone = merge(DEFAULT_STATE, { ...PHONE_KNOBS, mock: false });
+  let frames: FrameRequestCallback[] = [];
+  let reduce = true;
+
+  beforeEach(() => {
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "", transform: "none" }));
+    reduce = true;
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: reduce, media: query }));
+    frames = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+  });
+
+  function byClass(name: string): FakeElement {
+    const found = everything().find((element) =>
+      String(Reflect.get(element, "className")).split(" ").includes(name),
+    );
+    if (!found) throw new Error(`no ${name}`);
+    return found;
+  }
+
+  /** Bring the frame up for `state`, its knobs with it. */
+  function show(state: typeof phone): void {
+    apply(state);
+    sync(state);
+  }
+
+  /** The frame's copy says where the pointer is on its page. True where the page above takes it. */
+  function mark(frame: FakeElement, at: Mark["at"]): boolean {
+    const detail: Mark = { at, pressed: false, held: false };
+    return !frame.dispatchEvent(new CustomEvent(MARK_EVENT, { detail, cancelable: true }));
+  }
+
+  /** Where the cursor is drawn, or null while it is hidden. */
+  function dotAt(): string | null {
+    const [dot] = byClass("touchdot").children;
+    if (!dot || Reflect.get(dot, "hidden")) return null;
+    return String(Reflect.get(dot.style, "transform"));
+  }
+
+  test("hides the mouse on a phone's screen, its layer as big as the screen and zoomed with it", () => {
+    show(merge(phone, { dpr: 3 }));
+    const layer = byClass("touchdot");
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(true);
+    expect(Reflect.get(layer, "hidden")).toBe(false);
+    expect(Reflect.get(layer.style, "width")).toBe("402px");
+    expect(Reflect.get(layer.style, "height")).toBe("874px");
+    expect(Reflect.get(layer.style, "transform")).toBe("scale(3)");
+  });
+
+  test("leaves the mouse a mouse with the knob off, and on a device without touch", () => {
+    show(phone);
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(true);
+    sync(merge(phone, { touchPointer: false }));
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(false);
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(false);
+    sync(phone);
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(true);
+    reset();
+    show(merge(phone, { device: "desktop" }));
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(false);
+  });
+
+  test("draws the page's pointer under Safari's bars, where the page starts on the screen", () => {
+    show(merge(phone, { browser: "auto" }));
+    const page = byClass("placed");
+    const left = Number.parseFloat(String(Reflect.get(page.style, "left")));
+    const top = Number.parseFloat(String(Reflect.get(page.style, "top")));
+    expect(top).toBeGreaterThan(0);
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBe(`translate(${10 + left}px, ${20 + top}px)`);
+    expect(mark(frameElement(), null)).toBe(true);
+    expect(dotAt()).toBeNull();
+  });
+
+  test("shows no cursor on a screen that turns", () => {
+    apply(KNOBS);
+    show(phone);
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBe("translate(10px, 20px)");
+    reduce = false;
+    apply(merge(phone, { orientation: "landscape", width: 874, height: 402 }));
+    expect(dotAt()).toBeNull();
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBeNull();
+  });
+
+  test("shows no cursor on a screen that folds", () => {
+    const duo = merge(phone, { device: "iphone-duo", mock: true });
+    show(merge(duo, { posture: "closed", width: 466, height: 678 }));
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBe("translate(10px, 20px)");
+    reduce = false;
+    apply(merge(duo, { posture: "open", orientation: "landscape", width: 951, height: 669 }));
+    expect(byClass("fold")).toBeDefined();
+    expect(dotAt()).toBeNull();
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBeNull();
+  });
+
+  test("gives the mouse back with the window's own page, while the frame still fades", async () => {
+    show(phone);
+    const glass = byClass("glass");
+    const frame = frameElement();
+    expect(glass.hasAttribute("data-touch")).toBe(true);
+    reduce = false;
+    const animate = FakeElement.prototype.animate;
+    // Each fade is done at once, until the window has its own page back: the veil then stays over it.
+    FakeElement.prototype.animate = () => ({
+      finished: scrolls.length === 0 ? Promise.resolve() : new Promise(() => {}),
+      currentTime: 0,
+      cancel: () => {},
+    });
+    try {
+      apply(KNOBS);
+      for (let now = 0; now < 4000 && scrolls.length === 0; now += 40) {
+        await Bun.sleep(0);
+        for (const callback of frames.splice(0)) callback(now);
+      }
+      // The window has its own page back, and the frame is not gone yet.
+      expect(scrolls).toHaveLength(1);
+      expect(frameElement()).toBe(frame);
+      expect(glass.hasAttribute("data-touch")).toBe(false);
+      expect(Reflect.get(byClass("touchdot"), "hidden")).toBe(true);
+      expect(mark(frame, { x: 10, y: 20 })).toBe(false);
+    } finally {
+      FakeElement.prototype.animate = animate;
+    }
+  });
+
+  test("leaves nothing of the cursor once the frame goes", () => {
+    show(phone);
+    const glass = byClass("glass");
+    const layer = byClass("touchdot");
+    const frame = frameElement();
+    expect(glass.children).toContain(layer);
+    expect(mark(frame, { x: 10, y: 20 })).toBe(true);
+    reset();
+    expect(glass.hasAttribute("data-touch")).toBe(false);
+    expect(glass.children).not.toContain(layer);
+    expect(mark(frame, { x: 10, y: 20 })).toBe(false);
+  });
+
+  /** An element as far as a copy of it is made, searched by class or tag, and written out. */
+  class KeptElement extends FakeElement {
+    override cloneNode(): KeptElement {
+      const copy = new KeptElement(this.tagName);
+      for (const [name, value] of this.attributes) copy.setAttribute(name, value);
+      copy.append(...this.children.map((child) => child.cloneNode(true)));
+      return copy;
+    }
+
+    override querySelectorAll(selector: string): FakeElement[] {
+      return [...this.descendants()].filter((node) =>
+        selector.startsWith(".")
+          ? node.getAttribute("class")?.split(" ").includes(selector.slice(1))
+          : node.tagName === selector.toUpperCase(),
+      );
+    }
+
+    override querySelector(selector: string): FakeElement | null {
+      return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    get outerHTML(): string {
+      const attributes = [...this.attributes].map(([name, value]) => ` ${name}="${value}"`);
+      const inner = this.children.map((child) => String(Reflect.get(child, "outerHTML")));
+      return `<${this.tagName}${attributes.join("")}>${inner.join("")}</${this.tagName}>`;
+    }
+  }
+
+  test("keeps no cursor in the drawing kept for the next page", () => {
+    const kept = new Map<string, string>();
+    Reflect.set(window, "sessionStorage", {
+      setItem: (key: string, value: string) => kept.set(key, value),
+      removeItem: (key: string) => kept.delete(key),
+    });
+    const node = (tag: string, name: string, ...children: KeptElement[]) => {
+      const element = new KeptElement(tag);
+      if (name) element.setAttribute("class", name);
+      element.append(...children);
+      return element;
+    };
+    const glass = node("DIV", "glass", node("IFRAME", ""), node("DIV", "touchdot", node("DIV", "dot")));
+    glass.setAttribute("data-touch", "");
+    const letterbox = node("DIV", "viewport", glass);
+    if (!(letterbox instanceof HTMLElement)) throw new Error("no letterbox");
+    const look = {
+      background: "rgb(255, 255, 255)",
+      dark: false,
+      scheme: "light",
+      host: "localhost:3000",
+      canBack: false,
+      canForward: false,
+    } as const;
+    keepDrawing({ letterbox, zoom: "fit", key: "key", css: "", look });
+    const html = String(Reflect.get(JSON.parse(kept.get(SNAPSHOT_KEY) ?? "{}"), "html"));
+    expect(html).toBe('<DIV class="viewport"><DIV class="glass"></DIV></DIV>');
+    // The live frame keeps its own.
+    expect(glass.hasAttribute("data-touch")).toBe(true);
+    expect(glass.children).toHaveLength(2);
   });
 });
 

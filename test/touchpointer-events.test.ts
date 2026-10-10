@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { type Mark, MARK_EVENT, readMark } from "../src/engine/touchmark";
 import { apply, pause, reset } from "../src/engine/touchpointer";
 
 type Listener = (event: FakeEvent) => void;
@@ -567,5 +568,343 @@ describe("touch pointer in a page", () => {
     expect(heard).toEqual(["touchstart", "pointerdown:touch"]);
     release(target);
     await task();
+  });
+});
+
+/**
+ * Put the page in a frame whose element hears the cursor's marks. With
+ * `takes`, the page above draws the cursor, as it does under a device.
+ */
+function frameOwner(takes: boolean): { marks: Mark[]; takes: boolean } {
+  const marks: Mark[] = [];
+  const owner = {
+    marks,
+    takes,
+    dispatchEvent(event: Event): boolean {
+      if (event.type !== MARK_EVENT) return true;
+      const mark = readMark("detail" in event ? event.detail : null);
+      if (mark) marks.push(mark);
+      if (owner.takes) event.preventDefault();
+      return !event.defaultPrevented;
+    },
+  };
+  Object.assign(win, { frameElement: owner });
+  return owner;
+}
+
+describe("touch pointer in a frame", () => {
+  test("hands its cursor to the page above, and draws none of its own", () => {
+    const owner = frameOwner(true);
+    apply(true);
+    expect(sheets()).toEqual(["touch-pointer"]);
+    expect(dotHost()).toBeUndefined();
+    expect(owner.marks).toEqual([{ at: null, pressed: false, held: false }]);
+    const target = element();
+    move(target, 20, 30, 0);
+    expect(owner.marks.at(-1)).toEqual({ at: { x: 20, y: 30 }, pressed: false, held: false });
+    press(target, 20, 30);
+    expect(owner.marks.at(-1)).toEqual({ at: { x: 20, y: 30 }, pressed: true, held: false });
+    release(target, 20, 30);
+    expect(owner.marks.at(-1)).toEqual({ at: { x: 20, y: 30 }, pressed: false, held: false });
+    fire(target, "pointerout", { relatedTarget: null });
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: false });
+    expect(dotHost()).toBeUndefined();
+    apply(false);
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: true });
+  });
+
+  test("draws its own cursor where the page above leaves the mark", () => {
+    const owner = frameOwner(false);
+    apply(true);
+    expect(owner.marks.length).toBe(1);
+    expect(dotHost()).toBeDefined();
+    move(element(), 20, 30, 0);
+    expect(dotHost()).toBeDefined();
+  });
+
+  test("draws its own cursor where the page above is out of reach", () => {
+    Object.defineProperty(win, "frameElement", {
+      configurable: true,
+      get() {
+        throw new Error("another origin");
+      },
+    });
+    apply(true);
+    expect(dotHost()).toBeDefined();
+  });
+
+  test("gives its own cursor up once the page above takes the mark", () => {
+    const owner = frameOwner(false);
+    apply(true);
+    expect(dotHost()).toBeDefined();
+    owner.takes = true;
+    move(element(), 20, 30, 0);
+    expect(dotHost()).toBeUndefined();
+    owner.takes = false;
+    move(element(), 22, 30, 0);
+    expect(dotHost()).toBeDefined();
+  });
+
+  test("pause tells the page above the mouse is a mouse, and says nothing more until it ends", () => {
+    const owner = frameOwner(true);
+    apply(true);
+    const target = element();
+    move(target, 20, 30, 0);
+    pause(true);
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: true });
+    const told = owner.marks.length;
+    move(target, 25, 30, 0);
+    win.dispatchEvent(new FakeEvent("blur"));
+    expect(owner.marks.length).toBe(told);
+    pause(false);
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: false });
+    expect(dotHost()).toBeUndefined();
+  });
+
+  test("turned on while grab picks, tells the page above the mouse is a mouse", () => {
+    const owner = frameOwner(true);
+    pause(true);
+    apply(true);
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: true });
+    expect(dotHost()).toBeUndefined();
+  });
+
+  test("says the pointer left as its page goes away, and no more once it is off", () => {
+    const owner = frameOwner(true);
+    apply(true);
+    move(element(), 20, 30, 0);
+    win.dispatchEvent(new FakeEvent("pagehide"));
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: false });
+    apply(false);
+    const told = owner.marks.length;
+    win.dispatchEvent(new FakeEvent("pagehide"));
+    expect(owner.marks.length).toBe(told);
+  });
+});
+
+/** What the fake top layer saw, in order. */
+let layer: string[] = [];
+const shown = new WeakSet<FakeElement>();
+
+class FakeMutationObserver {
+  static live: FakeMutationObserver[] = [];
+  callback: (records: unknown[]) => void;
+  target: unknown = null;
+  options: unknown = null;
+
+  constructor(callback: (records: unknown[]) => void) {
+    this.callback = callback;
+  }
+
+  observe(target: unknown, options: unknown): void {
+    this.target = target;
+    this.options = options;
+    FakeMutationObserver.live.push(this);
+  }
+
+  disconnect(): void {
+    FakeMutationObserver.live = FakeMutationObserver.live.filter((entry) => entry !== this);
+  }
+}
+
+const POPOVER = {
+  matches(this: FakeElement, selector: string): boolean {
+    return selector === ":popover-open" && shown.has(this);
+  },
+  showPopover(this: FakeElement): void {
+    if (shown.has(this)) throw new Error("shown already");
+    shown.add(this);
+    layer.push("show");
+  },
+  hidePopover(this: FakeElement): void {
+    shown.delete(this);
+    layer.push("hide");
+  },
+};
+
+/**
+ * A dialog in the shadow tree of a custom element, with a button in it. The
+ * path of an event on the button goes through the dialog, the shadow root and
+ * the custom element, and the page's own tree does not hold the dialog.
+ */
+function shadowDialog(): {
+  custom: FakeHTMLElement;
+  shadowRoot: FakeTarget;
+  dialog: FakeHTMLElement;
+  inside: FakeHTMLElement;
+} {
+  const custom = element("x-sheet");
+  const shadowRoot = new FakeTarget();
+  shadowRoot.parent = custom;
+  const dialog = new FakeHTMLElement("dialog");
+  dialog.parent = shadowRoot;
+  const inside = new FakeHTMLElement("button");
+  dialog.append(inside);
+  return { custom, shadowRoot, dialog, inside };
+}
+
+function toggle(target: FakeElement, type: string, newState: string): FakeEvent {
+  const event = Object.assign(new FakeEvent(type), { newState });
+  dispatch(target, event);
+  return event;
+}
+
+describe("touch pointer in a page with a top layer", () => {
+  beforeEach(() => {
+    layer = [];
+    FakeMutationObserver.live = [];
+    Object.assign(FakeHTMLElement.prototype, POPOVER);
+    install("MutationObserver", FakeMutationObserver);
+  });
+
+  afterEach(() => {
+    reset();
+    for (const name of Object.keys(POPOVER)) Reflect.deleteProperty(FakeHTMLElement.prototype, name);
+  });
+
+  test("puts its cursor in the top layer and leaves nothing behind when off", () => {
+    apply(true);
+    expect(dotHost()?.getAttribute("popover")).toBe("manual");
+    expect(layer).toEqual(["show"]);
+    expect(FakeMutationObserver.live.length).toBe(1);
+    expect(FakeMutationObserver.live[0]?.target).toBe(doc.documentElement);
+    expect(FakeMutationObserver.live[0]?.options).toEqual({
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["open"],
+      attributeOldValue: true,
+    });
+    apply(false);
+    expect(dotHost()).toBeUndefined();
+    expect(win.listeners).toEqual([]);
+    expect(FakeMutationObserver.live).toEqual([]);
+  });
+
+  test("goes in again after a popover that opens, and after the task of one opened from script", async () => {
+    apply(true);
+    const popover = element();
+    layer = [];
+    toggle(popover, "toggle", "open");
+    expect(layer).toEqual(["hide", "show"]);
+    layer = [];
+    toggle(popover, "toggle", "closed");
+    expect(layer).toEqual([]);
+    toggle(popover, "beforetoggle", "open");
+    expect(layer).toEqual([]);
+    await Promise.resolve();
+    expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("keeps its own way in and out to itself", () => {
+    apply(true);
+    const host = dotHost();
+    if (!host) throw new Error("no cursor");
+    const heard: string[] = [];
+    host.addEventListener("toggle", (event) => heard.push(event.type));
+    layer = [];
+    const event = toggle(host, "toggle", "open");
+    expect(layer).toEqual([]);
+    expect(event.stopped).toBe(true);
+    expect(heard).toEqual([]);
+  });
+
+  test("goes in again after a dialog whose open attribute comes on", () => {
+    apply(true);
+    const dialog = element("dialog");
+    dialog.setAttribute("open", "");
+    layer = [];
+    for (const observer of FakeMutationObserver.live) {
+      observer.callback([{ target: dialog, oldValue: null }]);
+    }
+    expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("goes in again when the page goes fullscreen, not when it comes out", () => {
+    apply(true);
+    layer = [];
+    Object.assign(doc, { fullscreenElement: element() });
+    dispatch(win, new FakeEvent("fullscreenchange"));
+    expect(layer).toEqual(["hide", "show"]);
+    layer = [];
+    Object.assign(doc, { fullscreenElement: null });
+    dispatch(win, new FakeEvent("fullscreenchange"));
+    expect(layer).toEqual([]);
+  });
+
+  test("goes in again once when the pointer comes onto a modal dialog no toggle told of", () => {
+    apply(true);
+    const dialog = element("dialog");
+    Object.assign(dialog, { matches: (selector: string) => selector === ":modal" });
+    const inside = new FakeHTMLElement("button");
+    dialog.append(inside);
+    layer = [];
+    fire(inside, "pointerover");
+    expect(layer).toEqual(["hide", "show"]);
+    layer = [];
+    fire(inside, "pointerover");
+    fire(dialog, "pointerover");
+    expect(layer).toEqual([]);
+    // Off the dialog and on it again, it may have come in anew.
+    fire(doc.body, "pointerover");
+    expect(layer).toEqual([]);
+    fire(inside, "pointerover");
+    expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("goes in again when the pointer comes onto a modal dialog in a shadow root", () => {
+    apply(true);
+    const { custom, shadowRoot, dialog, inside } = shadowDialog();
+    Object.assign(dialog, { matches: (selector: string) => selector === ":modal" });
+    expect(all(doc.documentElement)).not.toContain(dialog);
+    layer = [];
+    const event = fire(inside, "pointerover");
+    expect(event.composedPath()).toEqual([
+      inside,
+      dialog,
+      shadowRoot,
+      custom,
+      doc.body,
+      doc.documentElement,
+      win,
+    ]);
+    expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("goes in again once on the first move after a dialog in a shadow root opens under the pointer", () => {
+    apply(true);
+    const { dialog, inside } = shadowDialog();
+    let modal = false;
+    Object.assign(dialog, { matches: (selector: string) => modal && selector === ":modal" });
+    layer = [];
+    fire(inside, "pointermove");
+    expect(layer).toEqual([]);
+    modal = true;
+    fire(inside, "pointermove");
+    expect(layer).toEqual(["hide", "show"]);
+    layer = [];
+    fire(inside, "pointermove");
+    fire(dialog, "pointermove");
+    expect(layer).toEqual([]);
+  });
+
+  test("takes its watch away while paused", () => {
+    apply(true);
+    pause(true);
+    expect(dotHost()).toBeUndefined();
+    expect(win.listeners.some((entry) => entry.type === "toggle")).toBe(false);
+    expect(FakeMutationObserver.live).toEqual([]);
+    pause(false);
+    expect(dotHost()?.getAttribute("popover")).toBe("manual");
+    expect(FakeMutationObserver.live.length).toBe(1);
+  });
+
+  test("stays a plain layer where the browser will not show the popover", () => {
+    Object.assign(FakeHTMLElement.prototype, {
+      showPopover(): void {
+        throw new Error("not in the page");
+      },
+    });
+    apply(true);
+    expect(dotHost()).toBeDefined();
   });
 });
