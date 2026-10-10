@@ -9,17 +9,25 @@ import { LIST_WIDTH, type Showing, VIEW_WIDTH } from "./size";
 export const PREFS_KEY = "devknobs:prefs";
 
 /** The version of the preferences `PREFS_KEY` keeps. Bump it with a new shape, see stored.ts. */
-export const PREFS_VERSION = 2;
+export const PREFS_VERSION = 3;
+
+/** How the styles view shows an element: what applies to it, or every rule in cascade order. */
+export type StylesMode = "simple" | "advanced";
+
+/** The mode the styles view starts in. */
+export const STYLES_MODE: StylesMode = "simple";
 
 /**
  * The panel's preferences: whether the handle shows while the panel is
- * closed, and how wide the panel is with the rows or the settings in it and
- * with a feature's view, in px. Version 1 kept the handle alone.
+ * closed, how wide the panel is with the rows or the settings in it and
+ * with a feature's view, in px, and the mode of the styles view. Version 1
+ * kept the handle alone, and version 2 had no mode.
  */
 export interface Prefs {
   handle: boolean;
   listWidth: number;
   viewWidth: number;
+  stylesMode: StylesMode;
 }
 
 /** The preference that keeps the width of what the panel shows. */
@@ -45,6 +53,8 @@ export function readPrefs(json: string | null | undefined): StoredPrefs {
     const width: unknown = Reflect.get(value, key);
     if (typeof width === "number" && Number.isFinite(width) && width > 0) prefs[key] = width;
   }
+  const mode: unknown = Reflect.get(value, "stylesMode");
+  if (mode === "simple" || mode === "advanced") prefs.stylesMode = mode;
   return prefs;
 }
 
@@ -77,6 +87,8 @@ export interface LivePrefs {
   setHandle(on: boolean): void;
   /** Keep the width of the rows and the settings, or of a view. The one a panel starts with is not kept. */
   setWidth(showing: Showing, px: number): void;
+  /** Keep the mode of the styles view. The one it starts in is not kept. */
+  setStylesMode(mode: StylesMode): void;
   /** Hear the preferences change. Returns the way to stop. */
   subscribe(listener: () => void): () => void;
   destroy(): void;
@@ -88,6 +100,7 @@ export function createPrefs(options: { handle?: boolean } = {}): LivePrefs {
     handle: options.handle !== false,
     listWidth: LIST_WIDTH,
     viewWidth: VIEW_WIDTH,
+    stylesMode: STYLES_MODE,
   };
   let stored = loadPrefs();
   let prefs = resolvePrefs(base, stored);
@@ -128,6 +141,12 @@ export function createPrefs(options: { handle?: boolean } = {}): LivePrefs {
       const next = { ...stored };
       if (px === base[key]) delete next[key];
       else next[key] = px;
+      keep(next);
+    },
+    setStylesMode(mode) {
+      const next = { ...stored };
+      if (mode === base.stylesMode) delete next.stylesMode;
+      else next.stylesMode = mode;
       keep(next);
     },
     subscribe(listener) {

@@ -2,9 +2,11 @@
  * The styles view of the panel: the rules that reach one element, as the
  * engine in `../styles` ranks them, read only. A line of crumbs and a filter
  * stay on top, and under them a block for each rule, the element's own first,
- * then its pseudo-elements', then what each ancestor hands down. To use it:
+ * then its pseudo-elements', then what each ancestor hands down. That is its
+ * advanced mode. Its simple mode lists only what applies to the element, with
+ * no rule around it, and what it inherits folded under that. To use it:
  *
- *   const view = createStylesView({ tips, title, outline });
+ *   const view = createStylesView({ tips, title, outline, mode });
  *   body.append(view.node); view.show(element); view.destroy();
  *
  * The view is built once for each inspection, and the filter only hides what
@@ -25,7 +27,19 @@ import type {
   VariableValue,
 } from "../styles/types";
 import type { DevknobsState } from "../types";
-import { button, el, field } from "./dom";
+import { button, el, field, mark } from "./dom";
+import { icon } from "./icons";
+import { radioMove } from "./keys";
+import type { StylesMode } from "./prefs";
+import {
+  type Applied,
+  appliedInherited,
+  appliedOwn,
+  grouped,
+  hiddenNote,
+  NO_STYLES,
+  resolvedValue,
+} from "./stylesapplied";
 import {
   crumbText,
   hiddenLine,
@@ -58,7 +72,15 @@ export interface StylesContext {
   title(text: string): void;
   /** Keep a quiet box on the element shown, or with null on none. */
   outline(element: Element | null): void;
+  /**
+   * The mode the view starts in, and where the one the user picks is kept.
+   * Without it the view is the advanced one, with no control to change it.
+   */
+  mode?: { get(): StylesMode; set(mode: StylesMode): void };
 }
+
+/** The modes in the order their control has them. */
+const MODES: readonly StylesMode[] = ["simple", "advanced"];
 
 /** What the view reads the page through, so a test can stand in for each. */
 export interface StylesPage {
@@ -113,6 +135,21 @@ interface Built {
   group: HTMLElement | null;
 }
 
+/** A group of the simple mode's lines, with its label where the groups have one. */
+interface LineSet {
+  node: HTMLElement;
+  label: HTMLElement | null;
+  lines: Line[];
+}
+
+/** The simple mode as built: the element's own lines by group, and what it inherits. */
+interface Flat {
+  /** The box of the own lines, or the line that says there are none. */
+  own: HTMLElement;
+  sets: LineSet[];
+  inherited: { head: HTMLElement; body: HTMLElement; lines: Line[] } | null;
+}
+
 function isElement(node: Node): node is Element {
   return node.nodeType === 1;
 }
@@ -142,7 +179,9 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   crumbs.setAttribute("role", "group");
   crumbs.setAttribute("aria-label", "the element and its ancestors");
   const filter = field("filter styles-filter", "filter", "filter the declarations");
-  bar.append(crumbs, filter);
+  const tools = el("div", "styles-tools");
+  tools.append(filter);
+  bar.append(crumbs, tools);
   const blocks = el("div", "css-blocks");
   const note = el("div", "empty", EMPTY);
   node.append(bar, blocks, note);
@@ -151,7 +190,14 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   let pseudo: string | null = null;
   /** The pseudo-elements the element was last seen to have rules for. */
   let pseudos: string[] = [];
+  let mode: StylesMode = context.mode?.get() ?? "advanced";
+  /** What the engine last said, and of which element, to draw again in the other mode. */
+  let read: { found: Inspection; element: Element } | null = null;
   let built: Built[] = [];
+  /** The simple mode's lines, while that is the mode shown. */
+  let flat: Flat | null = null;
+  /** What the element inherits is folded out, in the simple mode. */
+  let unfolded = false;
   /** The blocks by their id in the inspection shown. */
   let byId = new Map<number, HTMLElement>();
   /** The nodes of the blocks that have a tooltip, which goes when they do. */
@@ -230,7 +276,9 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
 
   function clear(text: string): void {
     dropTips();
+    read = null;
     built = [];
+    flat = null;
     byId = new Map();
     blocks.replaceChildren();
     crumbs.replaceChildren();
@@ -311,17 +359,25 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     return control;
   }
 
+  /** The start of a declaration's line: its name, and a swatch where its value is a color. */
+  function named(
+    row: HTMLElement,
+    declaration: StyleDeclaration,
+    variables: Inspection["variables"],
+  ): void {
+    row.append(el("span", "css-name", declaration.name), ": ");
+    const color = swatchOf(declaration, variables, page.isColor);
+    if (!color) return;
+    const swatch = el("span", "css-swatch");
+    swatch.setAttribute("aria-hidden", "true");
+    swatch.style.backgroundColor = color;
+    row.append(swatch);
+  }
+
   function line(declaration: StyleDeclaration, variables: Inspection["variables"]): Line {
     // Struck through, as a declaration another one overrides is no longer in force.
     const row = el(declaration.overridden ? "s" : "div", "css-decl");
-    row.append(el("span", "css-name", declaration.name), ": ");
-    const color = swatchOf(declaration, variables, page.isColor);
-    if (color) {
-      const swatch = el("span", "css-swatch");
-      swatch.setAttribute("aria-hidden", "true");
-      swatch.style.backgroundColor = color;
-      row.append(swatch);
-    }
+    named(row, declaration, variables);
     const value = el("span", "css-value");
     for (const part of valueParts(declaration.value)) {
       const known = part.kind === "var" ? variables[part.text] : undefined;
@@ -397,8 +453,106 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     blocks.replaceChildren(...nodes);
   }
 
+  /**
+   * A line of the simple mode: the declaration as written, with no word on
+   * the cascade, and after a value that reads custom properties what it comes to.
+   */
+  function appliedLine({ declaration }: Applied, variables: Inspection["variables"]): Line {
+    const row = el("div", "css-decl");
+    named(row, declaration, variables);
+    row.append(el("span", "css-value", declaration.value));
+    const comes = resolvedValue(declaration.value, variables);
+    if (comes !== null) row.append(el("span", "css-comes", ` → ${comes}`));
+    return { node: row, declaration };
+  }
+
+  /** Fold what the element inherits out or in. */
+  function fold(view: NonNullable<Flat["inherited"]>): void {
+    unfolded = !unfolded;
+    view.head.setAttribute("aria-expanded", unfolded ? "true" : "false");
+    view.body.hidden = !unfolded;
+  }
+
+  /** What applies to the element as one list by group, then what it inherits, folded. */
+  function drawApplied(found: Inspection): void {
+    dropTips();
+    built = [];
+    byId = new Map();
+    const groups = grouped(appliedOwn(found));
+    const own =
+      groups.length > 0 ? el("div", "css-block css-applied") : el("div", "empty", NO_STYLES);
+    const sets = groups.map(({ group, lines }): LineSet => {
+      const set = el("div", "css-set");
+      set.setAttribute("role", "group");
+      set.setAttribute("aria-label", group);
+      // One group alone needs no name.
+      const name = groups.length > 1 ? el("div", "css-label", group) : null;
+      if (name) name.setAttribute("aria-hidden", "true");
+      const made = lines.map((one) => appliedLine(one, found.variables));
+      set.append(...(name ? [name] : []), ...made.map((one) => one.node));
+      own.append(set);
+      return { node: set, label: name, lines: made };
+    });
+    const nodes = [own];
+    const handed = appliedInherited(found);
+    flat = { own, sets, inherited: null };
+    if (handed.length > 0) {
+      const head = button("css-group css-fold", "");
+      head.append(icon("chevron-left", 10), "inherited");
+      head.setAttribute("aria-expanded", unfolded ? "true" : "false");
+      const body = el("div", "css-block css-applied");
+      body.setAttribute("role", "group");
+      body.setAttribute("aria-label", "inherited");
+      body.hidden = !unfolded;
+      const lines = handed.map((one) => appliedLine(one, found.variables));
+      body.append(...lines.map((one) => one.node));
+      const inherited = { head, body, lines };
+      head.addEventListener("click", () => fold(inherited));
+      flat.inherited = inherited;
+      nodes.push(head, body);
+    }
+    const hidden = hiddenNote(found.hidden);
+    if (hidden !== null) nodes.push(el("div", "css-hidden", hidden));
+    blocks.replaceChildren(...nodes);
+  }
+
+  /** Hide the lines the filter leaves out, the groups left with none, and a label left alone. */
+  function filterApplied(view: Flat): void {
+    const text = filter.value;
+    const filtering = text.trim() !== "";
+    const keeps = (lines: Line[]): boolean => {
+      let kept = false;
+      for (const one of lines) {
+        const matches = matchesFilter(one.declaration, text);
+        one.node.hidden = !matches;
+        if (matches) kept = true;
+      }
+      return kept;
+    };
+    let shown = 0;
+    for (const set of view.sets) {
+      const kept = keeps(set.lines);
+      set.node.hidden = !kept;
+      if (kept) shown += 1;
+    }
+    for (const set of view.sets) if (set.label) set.label.hidden = shown < 2;
+    // The line that says the element sets nothing is no answer to a filter.
+    view.own.hidden = view.sets.length === 0 ? filtering : shown === 0;
+    const inherited = view.inherited;
+    const handed = inherited ? keeps(inherited.lines) : false;
+    if (inherited) {
+      inherited.head.hidden = !handed;
+      inherited.body.hidden = !handed || !unfolded;
+    }
+    say(filtering && shown === 0 && !handed ? NO_MATCH : null);
+  }
+
   /** Hide the declarations the filter leaves out, and the blocks and headings left with none. */
   function applyFilter(): void {
+    if (flat) {
+      filterApplied(flat);
+      return;
+    }
     const text = filter.value;
     const filtering = text.trim() !== "";
     const groups = new Map<HTMLElement, boolean>();
@@ -442,9 +596,62 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     bar.hidden = false;
     context.title(middle(`${found.target.label}${found.target.pseudo ?? ""}`, TITLE_MAX));
     drawCrumbs(element);
-    drawBlocks(found, element);
+    read = { found, element };
+    draw();
+  }
+
+  /** Build what the engine last said in the mode that is on, with no other read of the page. */
+  function draw(): void {
+    if (!read) return;
+    flat = null;
+    if (mode === "simple") drawApplied(read.found);
+    else drawBlocks(read.found, read.element);
     applyFilter();
   }
+
+  /** The control of the two modes, a radio group as the knobs' segments are. */
+  function modeControl(kept: NonNullable<StylesContext["mode"]>): HTMLElement {
+    const track = el("div", "seg styles-mode");
+    track.setAttribute("role", "radiogroup");
+    track.setAttribute("aria-label", "how the styles are shown");
+    const items = MODES.map((value) => {
+      const item = button("seg-item", value);
+      item.setAttribute("role", "radio");
+      track.append(item);
+      return { node: item, value };
+    });
+    const update = () => {
+      for (const item of items) {
+        mark(item.node, item.value === mode, "aria-checked");
+        item.node.tabIndex = item.value === mode ? 0 : -1;
+      }
+    };
+    const set = (next: StylesMode) => {
+      if (next === mode) return;
+      mode = next;
+      kept.set(next);
+      update();
+      // The other mode is another list, and starts from its top.
+      if (node.parentElement) node.parentElement.scrollTop = 0;
+      draw();
+    };
+    for (const item of items) item.node.addEventListener("click", () => set(item.value));
+    track.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      const at = items.findIndex((item) => item.node === event.target);
+      const next = at < 0 ? null : radioMove(event.key, at, items.length);
+      const item = next === null ? undefined : items[next];
+      if (!item) return;
+      event.preventDefault();
+      event.stopPropagation();
+      item.node.focus();
+      set(item.value);
+    });
+    update();
+    return track;
+  }
+
+  if (context.mode) tools.append(modeControl(context.mode));
 
   function show(element: Element | null, name?: string): void {
     if (element !== target) pseudos = [];

@@ -103,7 +103,7 @@ const TAKES_COLOR = /color|background|border|outline|shadow|fill|stroke|caret|de
 const NO_COLOR = new Set(["inherit", "initial", "unset", "revert", "revert-layer", "currentcolor"]);
 
 /** The function call that starts at `start`, to its closing bracket, or null where it has none. */
-function callAt(value: string, start: number): string | null {
+export function callAt(value: string, start: number): string | null {
   let depth = 0;
   for (let at = start; at < value.length; at += 1) {
     if (value[at] === "(") depth += 1;

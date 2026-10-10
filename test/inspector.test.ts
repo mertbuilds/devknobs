@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { InspectControl } from "../src/grab/inspect";
 import { createInspector, type Inspector, type LoadStyles, type PaneDoor } from "../src/ui/inspector";
 import type { PaneView } from "../src/ui/pane";
+import type { StylesMode } from "../src/ui/prefs";
 import type { StylesContext } from "../src/ui/stylesview";
 import type { Tips } from "../src/ui/tooltip";
 
@@ -271,6 +272,42 @@ describe("the pane closing", () => {
     inspect.set(true);
     await settle();
     expect(shown).toEqual([]);
+  });
+});
+
+describe("the mode of the styles view", () => {
+  test("is the one the preferences keep, and one picked in the view is kept there", async () => {
+    inspector?.destroy();
+    let mode: StylesMode = "simple";
+    const kept: StylesMode[] = [];
+    inspector = createInspector(
+      {
+        inspect,
+        tips,
+        prefs: {
+          get: () => ({ handle: true, listWidth: 240, viewWidth: 340, stylesMode: mode }),
+          setStylesMode: (next) => {
+            mode = next;
+            kept.push(next);
+          },
+        },
+      },
+      load,
+      pane,
+    );
+    inspect.set(true);
+    await settle();
+    expect(handed?.mode?.get()).toBe("simple");
+    handed?.mode?.set("advanced");
+    expect(kept).toEqual(["advanced"]);
+    expect(handed?.mode?.get()).toBe("advanced");
+  });
+
+  test("with no preferences, the view is handed none and is the advanced one", async () => {
+    inspect.set(true);
+    await settle();
+    expect(handed).not.toBeNull();
+    expect(handed?.mode).toBeUndefined();
   });
 });
 

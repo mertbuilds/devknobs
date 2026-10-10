@@ -912,6 +912,10 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   font-size: 11px;
   color: var(--faint);
 }
+/* The filter takes the room the control of the two modes leaves it. */
+.styles-tools { display: flex; align-items: center; gap: 4px; }
+.styles-filter { flex: 1 1 0; min-width: 0; }
+.styles-mode { flex: none; }
 .crumb { flex: none; border-radius: 4px; transition: color 120ms ease-out; }
 .crumb:hover, .crumb[aria-current] { color: var(--fg); }
 .crumb-sep { flex: none; opacity: 0.6; }
@@ -992,6 +996,18 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   transition: color 120ms ease-out;
 }
 .css-group:hover { color: var(--fg); }
+/* The simple mode: what applies as one list, with no selector to stand
+   under, so a line starts at the box's edge and wraps further in. A group's
+   name is a label of the panel's, and what a custom property comes to is as
+   quiet. */
+.css-applied { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.css-applied .css-decl { padding-left: 12px; }
+.css-label { font-size: 10.5px; color: var(--faint); }
+.css-comes { color: var(--faint); }
+/* The heading that folds what is inherited out, its chevron to the side while folded and down while out. */
+.css-fold { display: flex; align-items: center; gap: 2px; }
+.css-fold .glyph { transform: rotate(180deg); transition: transform 120ms ease-out; }
+.css-fold[aria-expanded="true"] .glyph { transform: rotate(270deg); }
 .css-hidden { padding: 2px 10px; font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
 
 /* The strip that changes the panel's width, as the edge of a docked devtools

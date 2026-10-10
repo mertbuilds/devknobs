@@ -43,6 +43,10 @@ export class FakeNode {
         .filter((one) => one !== name)
         .join(" ");
     },
+    toggle: (name: string, on: boolean) => {
+      if (on) this.classList.add(name);
+      else this.classList.remove(name);
+    },
     contains: (name: string) => this.className.split(" ").includes(name),
   };
 

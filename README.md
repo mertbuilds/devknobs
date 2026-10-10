@@ -335,7 +335,11 @@ or `css`, the footer has its key, and the shortcuts in the settings set
 another. grab and inspect are never on together, and while grab is on `c` is
 grab's copy.
 
-the view shows, in the order the cascade settles them:
+the view has two modes, set by the control beside the filter, and the one
+you pick is kept. `simple`, the one it starts in, lists only the styles that
+apply to the element, by what they do, with what it inherits folded under
+them, and after a value that reads a custom property what it comes to.
+`advanced` shows, in the order the cascade settles them:
 
 - the element's `style` attribute, as `element.style`
 - every rule that reaches it, the strongest first, with the selectors of a

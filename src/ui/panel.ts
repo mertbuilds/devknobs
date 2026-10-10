@@ -491,7 +491,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const stopGrab = grab?.subscribe(palette.onGrab);
   const stopInspect = inspect?.subscribe(onInspect);
   // After the palette's, so the view takes the focus the palette let go of.
-  const inspector = inspect ? createInspector({ inspect, tips }) : null;
+  const inspector = inspect ? createInspector({ inspect, tips, prefs }) : null;
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("pointerdown", onPointerDown, true);

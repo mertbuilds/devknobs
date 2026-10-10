@@ -11,6 +11,7 @@ import { needsFrame, readMessage } from "../engine/frame";
 import { frameWindow } from "../engine/width";
 import type { InspectControl } from "../grab/inspect";
 import { onPane, openPane, paneView, retitlePane } from "./pane";
+import type { LivePrefs } from "./prefs";
 import type { createStylesView, StylesView } from "./stylesview";
 import type { Tips } from "./tooltip";
 
@@ -35,11 +36,16 @@ export interface PaneDoor {
 const PANE: PaneDoor = { openPane, paneView, onPane, retitlePane };
 
 export function createInspector(
-  context: { inspect: InspectControl; tips: Tips },
+  context: {
+    inspect: InspectControl;
+    tips: Tips;
+    /** Where the view's mode is kept. Without it the view is the advanced one. */
+    prefs?: Pick<LivePrefs, "get" | "setStylesMode">;
+  },
   load: LoadStyles = () => import("./stylesview"),
   pane: PaneDoor = PANE,
 ): Inspector {
-  const { inspect, tips } = context;
+  const { inspect, tips, prefs } = context;
   let view: StylesView | null = null;
   /** An element picked before the view was there to show it. */
   let pending: Element | null = null;
@@ -55,6 +61,9 @@ export function createInspector(
           tips,
           title: (text) => pane.retitlePane(STYLES_VIEW, text),
           outline: inspect.outline,
+          ...(prefs && {
+            mode: { get: () => prefs.get().stylesMode, set: prefs.setStylesMode },
+          }),
         });
         view = made;
         body.append(made.node);

@@ -9,7 +9,7 @@ import {
 } from "../src/ui/prefs";
 
 /** A mount's preferences, with the widths a panel starts with. */
-const BASE: Prefs = { handle: true, listWidth: 240, viewWidth: 340 };
+const BASE: Prefs = { handle: true, listWidth: 240, viewWidth: 340, stylesMode: "simple" };
 
 describe("readPrefs", () => {
   test("keeps a handle that is a boolean", () => {
@@ -40,15 +40,38 @@ describe("readPrefs", () => {
     expect(readPrefs('{"listWidth":1e999}')).toEqual({});
   });
 
-  test("is at version 2, and takes up one kept at version 1, which had no widths", () => {
-    expect(PREFS_VERSION).toBe(2);
+  test("keeps a mode of the styles view that is one of the two", () => {
+    expect(readPrefs(JSON.stringify({ stylesMode: "advanced" }))).toEqual({
+      stylesMode: "advanced",
+    });
+    expect(readPrefs(JSON.stringify({ stylesMode: "simple" }))).toEqual({ stylesMode: "simple" });
+    expect(readPrefs(JSON.stringify({ stylesMode: "expert" }))).toEqual({});
+    expect(readPrefs(JSON.stringify({ stylesMode: true, handle: false }))).toEqual({
+      handle: false,
+    });
+  });
+
+  test("is at version 3, and takes up one kept at version 1, which had no widths", () => {
+    expect(PREFS_VERSION).toBe(3);
     expect(readPrefs(JSON.stringify({ v: 1, handle: false }))).toEqual({ handle: false });
     expect(resolvePrefs(BASE, readPrefs(JSON.stringify({ v: 1, handle: false })))).toEqual({
       handle: false,
       listWidth: 240,
       viewWidth: 340,
+      stylesMode: "simple",
     });
-    expect(readPrefs(JSON.stringify({ v: 3, handle: false, listWidth: 300 }))).toEqual({});
+    expect(readPrefs(JSON.stringify({ v: 4, handle: false, listWidth: 300 }))).toEqual({});
+  });
+
+  test("takes up one kept at version 2, which had no mode: the styles view is simple", () => {
+    const kept = JSON.stringify({ v: 2, handle: false, viewWidth: 500 });
+    expect(readPrefs(kept)).toEqual({ handle: false, viewWidth: 500 });
+    expect(resolvePrefs(BASE, readPrefs(kept))).toEqual({
+      handle: false,
+      listWidth: 240,
+      viewWidth: 500,
+      stylesMode: "simple",
+    });
   });
 
   test("reads its own version and one kept before versions, and leaves a newer one alone", () => {
@@ -170,7 +193,12 @@ describe("createPrefs", () => {
       listWidth: 280,
       viewWidth: 500,
     });
-    expect(prefs.get()).toEqual({ handle: false, listWidth: 280, viewWidth: 500 });
+    expect(prefs.get()).toEqual({
+      handle: false,
+      listWidth: 280,
+      viewWidth: 500,
+      stylesMode: "simple",
+    });
     prefs.setWidth("view", 340);
     prefs.setWidth("list", 240);
     expect(JSON.parse(local.get(PREFS_KEY) ?? "")).toEqual({ v: PREFS_VERSION, handle: false });
@@ -184,7 +212,12 @@ describe("createPrefs", () => {
     const { local } = stubWindow();
     local.set(PREFS_KEY, JSON.stringify({ v: 2, listWidth: 300, viewWidth: 600 }));
     const prefs = createPrefs();
-    expect(prefs.get()).toEqual({ handle: true, listWidth: 300, viewWidth: 600 });
+    expect(prefs.get()).toEqual({
+      handle: true,
+      listWidth: 300,
+      viewWidth: 600,
+      stylesMode: "simple",
+    });
     prefs.destroy();
   });
 
@@ -199,6 +232,43 @@ describe("createPrefs", () => {
     expect(prefs.get()).toMatchObject({ listWidth: 260, viewWidth: 480 });
     expect(local.get(PREFS_KEY)).toBe(kept);
     prefs.destroy();
+  });
+
+  test("the styles view is simple by default, and its mode is kept and dropped when set back", () => {
+    const { local } = stubWindow();
+    const prefs = createPrefs();
+    let heard = 0;
+    prefs.subscribe(() => heard++);
+    expect(prefs.get().stylesMode).toBe("simple");
+    prefs.setStylesMode("advanced");
+    expect(JSON.parse(local.get(PREFS_KEY) ?? "")).toEqual({ v: 3, stylesMode: "advanced" });
+    expect(prefs.get().stylesMode).toBe("advanced");
+    prefs.destroy();
+    const next = createPrefs();
+    expect(next.get().stylesMode).toBe("advanced");
+    next.setStylesMode("simple");
+    expect(local.has(PREFS_KEY)).toBe(false);
+    expect(next.get().stylesMode).toBe("simple");
+    expect(heard).toBe(1);
+    next.destroy();
+  });
+
+  test("in fresh mode the styles view is simple, and a mode set here is not written", () => {
+    const { local } = stubWindow("?devknobs=fresh");
+    const kept = JSON.stringify({ v: 3, stylesMode: "advanced" });
+    local.set(PREFS_KEY, kept);
+    const prefs = createPrefs();
+    expect(prefs.get().stylesMode).toBe("simple");
+    prefs.setStylesMode("advanced");
+    expect(prefs.get().stylesMode).toBe("advanced");
+    prefs.setStylesMode("simple");
+    expect(local.get(PREFS_KEY)).toBe(kept);
+    prefs.destroy();
+    const { local: empty } = stubWindow("?devknobs=fresh");
+    const first = createPrefs();
+    first.setStylesMode("advanced");
+    expect(empty.size).toBe(0);
+    first.destroy();
   });
 
   test("hears a choice another document of the origin made", () => {
