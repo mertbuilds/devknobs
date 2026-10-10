@@ -34,6 +34,10 @@ export class FakeNode {
   tabIndex = 0;
   hidden = false;
   inert = false;
+  rows = 0;
+  scrollTop = 0;
+  isConnected = true;
+  shadowRoot = null;
   dataset: Record<string, string> = {};
   children: FakeNode[] = [];
   attributes = new Map<string, string>();
@@ -65,6 +69,27 @@ export class FakeNode {
 
   replaceChildren(...nodes: FakeNode[]): void {
     this.children = [...nodes];
+  }
+
+  /** Put a node before another of this one's, or last, taking it from where it stood here. */
+  insertBefore(node: FakeNode, before: FakeNode | null): void {
+    this.children = this.children.filter((child) => child !== node);
+    const at = before ? this.children.indexOf(before) : -1;
+    if (at < 0) this.children.push(node);
+    else this.children.splice(at, 0, node);
+  }
+
+  removeChild(node: FakeNode): void {
+    this.children = this.children.filter((child) => child !== node);
+  }
+
+  getClientRects(): unknown[] {
+    return [{}];
+  }
+
+  /** All the text under this node, in the order it stands. */
+  text(): string {
+    return [this.textContent, ...this.children.map((child) => child.text())].join(" ").trim();
   }
 
   contains(node: FakeNode): boolean {

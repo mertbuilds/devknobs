@@ -6,6 +6,10 @@
 
 - `?devknobs=fresh` in the page's address shows the page and the panel as a first visit sees them: `localStorage` is left alone, and every load devknobs did not ask for starts with no knobs set. the footer says so while it is on
 
+### storage
+
+- a storage view in the panel (`⇧S`, or search for storage, data, cookies): `localStorage`, `sessionStorage` and the cookies a page can read, to look at, copy, edit, add and delete; IndexedDB and Cache Storage to read; clear site data in one go after one question; and presets, named sets of values to put back with a press or on every load. see the storage section of the readme
+
 ### panel
 
 - a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept

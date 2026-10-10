@@ -508,7 +508,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   overflow: clip;
   transition: grid-template-rows 180ms ease-out;
 }
-.row.open .fold { grid-template-rows: minmax(0, 1fr); }
+.row.open > .fold { grid-template-rows: minmax(0, 1fr); }
 .editor {
   min-height: 0;
   display: grid;
@@ -898,13 +898,70 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   background: var(--bg);
 }
 .toolbar > .filter { flex: 1 1 96px; min-width: 0; }
-.toolbar > .seg { flex: none; }
+.toolbar > .seg { flex: none; max-width: 100%; }
 /* A section of a view that folds, a row as the rows are: its chevron in the
    leading slot, to the side while folded and down while out. */
 .turn { display: grid; }
 .turn .glyph { transform: rotate(180deg); transition: transform 120ms ease-out; }
 .row.open > .line .turn .glyph { transform: rotate(270deg); }
 .fold-body { min-height: 0; }
+/* What folds out under a view's row, one thing under another, padded as a
+   row's editor is: 4 in from the row's edges, so what it holds is 4 round. */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 2px 4px 6px; }
+.field-line { width: 100%; }
+/* A text box and a block of code, in the type code is read in. Both stop
+   growing where they would crowd the view, and scroll from there. */
+.field-area, .code {
+  box-sizing: border-box;
+  max-height: 240px;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.field-area { display: block; width: 100%; height: auto; padding: 3px 6px; resize: vertical; }
+.code {
+  margin: 0;
+  padding: 3px 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--bg);
+  border-radius: 4px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.defs {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1px 8px;
+  margin: 0;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.defs dt { color: var(--faint); }
+.defs dd { margin: 0; overflow-wrap: anywhere; }
+.ask { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+
+/* The storage view's own cells: a key and a cookie's name in the type code is
+   read in, the value after it cut to the line, and its size at the end. One
+   of devknobs' own items is told by its fainter key alone. */
+.st-key {
+  max-width: 55%;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--fg);
+}
+.st-key.own { color: var(--faint); }
+.st-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--faint);
+}
+.st-size { flex: none; margin-left: auto; font-size: 10px; color: var(--faint); }
+.st-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 
 /* The strip that changes the panel's width, as the edge of a docked devtools
    does: it lies across the border on the panel's page side, as tall as the

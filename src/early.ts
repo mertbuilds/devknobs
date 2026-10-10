@@ -6,6 +6,7 @@ import { showEarly } from "./engine/placeholder";
 import { load } from "./engine/store";
 import { apply as earlyUa } from "./engine/ua";
 import { installHook } from "./grab/hook";
+import { applyOnLoad } from "./storage/onload";
 
 /**
  * The optional early script. As the first script in `<head>` it applies the
@@ -15,7 +16,10 @@ import { installHook } from "./grab/hook";
  * It also puts a React devtools hook in place, for grab, when there is none.
  * Where the stored knobs put the page in a frame, it hides the page under the
  * frame's drawing from the first paint, so a reload never shows it full width.
+ * Before all of that it sets what the storage presets marked "apply on load"
+ * hold, so the page's own scripts start with them.
  */
+applyOnLoad();
 const stored = load();
 const inFrame = isDevknobsFrame();
 // In a frame that gets the scheme natively, the patch steps aside, as in the full script.

@@ -27,9 +27,13 @@ export function runAction(action: Action, store: Store = engine): void {
   action.run();
 }
 
-/** Turn a mode off where it is on, as its row's `×` and reset all do. */
+/**
+ * Turn a mode off where it is on, and put back what the action emulates, as
+ * its row's `×` and reset all do.
+ */
 export function stopAction(action: Action): void {
   if (action.state?.() === "on") action.off?.();
+  action.reset?.();
 }
 
 /** The key that runs an action, as its row shows it. Nothing with no key. */

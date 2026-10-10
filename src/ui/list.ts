@@ -168,10 +168,11 @@ export function showsLabel(row: Row, knob: Knob): boolean {
 
 /**
  * What a listed row says: what it emulates, or the value its first knob is
- * back at. An action's says whether its mode is on, and nothing with no mode.
+ * back at. An action's says what it emulates, else whether its mode is on,
+ * and nothing with no mode.
  */
 export function rowText(row: Row, state: DevknobsState, live: Live): string {
-  if (row.action) return row.action.state?.() ?? "";
+  if (row.action) return row.action.value?.() || (row.action.state?.() ?? "");
   const text = summary(row, state, live);
   if (text) return text;
   const [knob] = knobsOf(row);

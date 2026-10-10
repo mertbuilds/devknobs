@@ -44,6 +44,7 @@ import {
   TIME_ZONE,
   TRANSPARENCY,
 } from "./knobs";
+import { appliedOnLoad, stopOnLoad } from "../storage/onload";
 import { stage } from "./stage";
 
 export { hasMock } from "./deviceknobs";
@@ -229,7 +230,7 @@ export type Row = KnobRow | ActionRow;
 
 /** Something the panel does rather than a knob it sets. Its row comes from what is said here. */
 export interface Action {
-  id: "grab" | "replay";
+  id: "grab" | "replay" | "storage";
   label: string;
   /** What a search result says after the name. */
   long: string;
@@ -249,6 +250,19 @@ export interface Action {
   watch?(listener: () => void): () => void;
   /** False where the page has nothing for the action to act on. */
   available?(): boolean;
+  /**
+   * What the action emulates now, as its row says it and as a knob's summary
+   * does. Empty while it emulates nothing. A row that says something is
+   * listed, so what changes the page is never out of sight.
+   */
+  value?(): string;
+  /** Put back what the action emulates, as its row's `×` and reset all do. */
+  reset?(): void;
+}
+
+/** What the storage row says once presets applied as the page loaded: `1 preset`. */
+export function appliedText(count: number): string {
+  return count > 0 ? `${count} ${count === 1 ? "preset" : "presets"}` : "";
 }
 
 /**
@@ -278,6 +292,35 @@ export const ACTIONS: readonly Action[] = [
     icon: "rotate-ccw",
     binding: "replay",
     run: () => engine.replay(),
+  },
+  {
+    id: "storage",
+    label: "storage",
+    long: "local storage, cookies, databases and presets",
+    aliases: [
+      "data",
+      "browser data",
+      "application",
+      "cookies",
+      "localstorage",
+      "local storage",
+      "session storage",
+      "indexeddb",
+      "indexed db",
+      "cache",
+      "presets",
+      "clear site data",
+    ],
+    icon: "database",
+    binding: "storage",
+    run: () => stage.storage?.toggle(),
+    state: () => (stage.storage ? (stage.storage.isOn() ? "on" : "off") : null),
+    off: () => stage.storage?.close(),
+    watch: (listener) => stage.storage?.subscribe(listener) ?? (() => {}),
+    available: () => stage.storage !== null,
+    value: () => appliedText(appliedOnLoad()),
+    // Applying on load is emulation, as a knob is: reset all turns it off.
+    reset: () => stopOnLoad(),
   },
 ];
 
@@ -401,7 +444,7 @@ export function rowHere(row: Row): boolean {
 
 /** Does any knob of the row differ from its default, or is its action's mode on? */
 export function isActive(row: Row, state: DevknobsState): boolean {
-  if (row.action) return row.action.state?.() === "on";
+  if (row.action) return row.action.state?.() === "on" || Boolean(row.action.value?.());
   return knobsOf(row).some((knob) => offDefault(knob, state));
 }
 

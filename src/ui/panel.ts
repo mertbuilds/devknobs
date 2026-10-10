@@ -31,6 +31,7 @@ import { createSettings } from "./settings";
 import { createSizer } from "./size";
 import { createSlide } from "./slide";
 import { stage } from "./stage";
+import { createStorageControl } from "./storageaction";
 import { CSS } from "./styles";
 import { createTips } from "./tooltip";
 
@@ -84,6 +85,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const mac = isMac();
   // What the actions act on, before anything asks which of them the page has.
   stage.grab = grab;
+  const storage = createStorageControl();
+  stage.storage = storage;
   /** The actions the page has: grab only where there is one. */
   const actionsHere = availableActions();
   /** The keys the shortcuts list: grab's only where there is one. */
@@ -364,6 +367,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
       toggle();
       return;
     }
+    // The storage view's key shows it from a closed panel too, which it opens.
+    if (action === "storage") {
+      actionOf("storage")?.run();
+      return;
+    }
     if (!engine.getState().panel.open) return;
     // A key runs its action alone: the panel's rows stay as they are.
     if (action === "replay") actionOf("replay")?.run();
@@ -449,7 +457,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       action !== null &&
       action !== "close" &&
       !drag.dragging() &&
-      (action === "toggle" || engine.getState().panel.open);
+      (action === "toggle" || action === "storage" || engine.getState().panel.open);
     const inSearch = event.composedPath()[0] === searchInput;
     if (acts || (action && action !== "close" && inSearch)) event.preventDefault();
     if (action === "close") escape();
@@ -522,6 +530,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       stopGrab?.();
       for (const stop of stopModes) stop();
       if (stage.grab === grab) stage.grab = null;
+      storage.destroy();
+      if (stage.storage === storage) stage.storage = null;
       stopCount();
       clearInterval(ticker);
       tips.destroy();
