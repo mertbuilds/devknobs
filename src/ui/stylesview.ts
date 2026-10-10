@@ -1,10 +1,12 @@
 /**
  * The styles view of the panel: the rules that reach one element, as the
- * engine in `../styles` ranks them, read only. A line of crumbs and a filter
- * stay on top, and under them a block for each rule, the element's own first,
- * then its pseudo-elements', then what each ancestor hands down. That is its
- * advanced mode. Its simple mode lists only what applies to the element, with
- * no rule around it, and what it inherits folded under that. To use it:
+ * engine in `../styles` ranks them, read only. A line of crumbs heads it, a
+ * bar with a filter stays on top, and under them a block for each rule, the
+ * element's own first, then its pseudo-elements', then what each ancestor
+ * hands down. That is its advanced mode. Its simple mode lists only what
+ * applies to the element, with no rule around it, and what it inherits folded
+ * under that. Its bar, filter, modes, fold and empty lines are the kit's, and
+ * only the crumbs and the css are its own. To use it:
  *
  *   const view = createStylesView({ tips, title, outline, mode });
  *   body.append(view.node); view.show(element); view.destroy();
@@ -27,9 +29,8 @@ import type {
   VariableValue,
 } from "../styles/types";
 import type { DevknobsState } from "../types";
-import { button, el, field, mark } from "./dom";
-import { icon } from "./icons";
-import { radioMove } from "./keys";
+import { button, el } from "./dom";
+import { emptyLine, type Fold, filterField, sectionFold, segments, toolbar } from "./kit";
 import type { StylesMode } from "./prefs";
 import {
   type Applied,
@@ -147,7 +148,7 @@ interface Flat {
   /** The box of the own lines, or the line that says there are none. */
   own: HTMLElement;
   sets: LineSet[];
-  inherited: { head: HTMLElement; body: HTMLElement; lines: Line[] } | null;
+  inherited: { fold: Fold; lines: Line[] } | null;
 }
 
 function isElement(node: Node): node is Element {
@@ -173,24 +174,33 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   const node = el("div", "styles");
   // Takes the focus from script only, and the tab key goes on to its controls.
   node.tabIndex = -1;
-  // Stays on top while the blocks scroll under it.
-  const bar = el("div", "styles-bar");
   const crumbs = el("div", "crumbs");
   crumbs.setAttribute("role", "group");
   crumbs.setAttribute("aria-label", "the element and its ancestors");
-  const filter = field("filter styles-filter", "filter", "filter the declarations");
-  const tools = el("div", "styles-tools");
-  tools.append(filter);
-  bar.append(crumbs, tools);
+  const filter = filterField({
+    placeholder: "filter",
+    label: "filter the declarations",
+    onInput: () => applyFilter(),
+  });
+  let mode: StylesMode = context.mode?.get() ?? "advanced";
+  const modes = context.mode
+    ? segments({
+        options: MODES.map((value) => ({ value, label: value })),
+        label: "how the styles are shown",
+        value: mode,
+        onChange: setMode,
+      })
+    : null;
+  // Stays on top while the blocks scroll under it.
+  const bar = toolbar(modes ? [filter.node, modes.node] : [filter.node]);
   const blocks = el("div", "css-blocks");
-  const note = el("div", "empty", EMPTY);
-  node.append(bar, blocks, note);
+  const note = emptyLine(EMPTY);
+  node.append(crumbs, bar, blocks, note);
 
   let target: Element | null = null;
   let pseudo: string | null = null;
   /** The pseudo-elements the element was last seen to have rules for. */
   let pseudos: string[] = [];
-  let mode: StylesMode = context.mode?.get() ?? "advanced";
   /** What the engine last said, and of which element, to draw again in the other mode. */
   let read: { found: Inspection; element: Element } | null = null;
   let built: Built[] = [];
@@ -282,6 +292,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     byId = new Map();
     blocks.replaceChildren();
     crumbs.replaceChildren();
+    crumbs.hidden = true;
     bar.hidden = true;
     say(text);
   }
@@ -466,21 +477,13 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     return { node: row, declaration };
   }
 
-  /** Fold what the element inherits out or in. */
-  function fold(view: NonNullable<Flat["inherited"]>): void {
-    unfolded = !unfolded;
-    view.head.setAttribute("aria-expanded", unfolded ? "true" : "false");
-    view.body.hidden = !unfolded;
-  }
-
   /** What applies to the element as one list by group, then what it inherits, folded. */
   function drawApplied(found: Inspection): void {
     dropTips();
     built = [];
     byId = new Map();
     const groups = grouped(appliedOwn(found));
-    const own =
-      groups.length > 0 ? el("div", "css-block css-applied") : el("div", "empty", NO_STYLES);
+    const own = groups.length > 0 ? el("div", "css-block css-applied") : emptyLine(NO_STYLES);
     const sets = groups.map(({ group, lines }): LineSet => {
       const set = el("div", "css-set");
       set.setAttribute("role", "group");
@@ -497,19 +500,21 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     const handed = appliedInherited(found);
     flat = { own, sets, inherited: null };
     if (handed.length > 0) {
-      const head = button("css-group css-fold", "");
-      head.append(icon("chevron-left", 10), "inherited");
-      head.setAttribute("aria-expanded", unfolded ? "true" : "false");
-      const body = el("div", "css-block css-applied");
+      const fold = sectionFold({
+        label: "inherited",
+        open: unfolded,
+        onToggle: (open) => {
+          unfolded = open;
+        },
+      });
+      const body = el("div", "css-applied");
       body.setAttribute("role", "group");
       body.setAttribute("aria-label", "inherited");
-      body.hidden = !unfolded;
       const lines = handed.map((one) => appliedLine(one, found.variables));
       body.append(...lines.map((one) => one.node));
-      const inherited = { head, body, lines };
-      head.addEventListener("click", () => fold(inherited));
-      flat.inherited = inherited;
-      nodes.push(head, body);
+      fold.body.append(body);
+      flat.inherited = { fold, lines };
+      nodes.push(fold.node);
     }
     const hidden = hiddenNote(found.hidden);
     if (hidden !== null) nodes.push(el("div", "css-hidden", hidden));
@@ -518,7 +523,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
 
   /** Hide the lines the filter leaves out, the groups left with none, and a label left alone. */
   function filterApplied(view: Flat): void {
-    const text = filter.value;
+    const text = filter.node.value;
     const filtering = text.trim() !== "";
     const keeps = (lines: Line[]): boolean => {
       let kept = false;
@@ -540,10 +545,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     view.own.hidden = view.sets.length === 0 ? filtering : shown === 0;
     const inherited = view.inherited;
     const handed = inherited ? keeps(inherited.lines) : false;
-    if (inherited) {
-      inherited.head.hidden = !handed;
-      inherited.body.hidden = !handed || !unfolded;
-    }
+    if (inherited) inherited.fold.node.hidden = !handed;
     say(filtering && shown === 0 && !handed ? NO_MATCH : null);
   }
 
@@ -553,7 +555,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       filterApplied(flat);
       return;
     }
-    const text = filter.value;
+    const text = filter.node.value;
     const filtering = text.trim() !== "";
     const groups = new Map<HTMLElement, boolean>();
     let any = false;
@@ -593,6 +595,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     if (pseudo === null) {
       pseudos = found.blocks.flatMap((block) => (block.kind === "pseudo" ? [block.pseudo] : []));
     }
+    crumbs.hidden = false;
     bar.hidden = false;
     context.title(middle(`${found.target.label}${found.target.pseudo ?? ""}`, TITLE_MAX));
     drawCrumbs(element);
@@ -609,49 +612,17 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     applyFilter();
   }
 
-  /** The control of the two modes, a radio group as the knobs' segments are. */
-  function modeControl(kept: NonNullable<StylesContext["mode"]>): HTMLElement {
-    const track = el("div", "seg styles-mode");
-    track.setAttribute("role", "radiogroup");
-    track.setAttribute("aria-label", "how the styles are shown");
-    const items = MODES.map((value) => {
-      const item = button("seg-item", value);
-      item.setAttribute("role", "radio");
-      track.append(item);
-      return { node: item, value };
-    });
-    const update = () => {
-      for (const item of items) {
-        mark(item.node, item.value === mode, "aria-checked");
-        item.node.tabIndex = item.value === mode ? 0 : -1;
-      }
-    };
-    const set = (next: StylesMode) => {
-      if (next === mode) return;
-      mode = next;
-      kept.set(next);
-      update();
-      // The other mode is another list, and starts from its top.
-      if (node.parentElement) node.parentElement.scrollTop = 0;
-      draw();
-    };
-    for (const item of items) item.node.addEventListener("click", () => set(item.value));
-    track.addEventListener("keydown", (event: KeyboardEvent) => {
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-      const at = items.findIndex((item) => item.node === event.target);
-      const next = at < 0 ? null : radioMove(event.key, at, items.length);
-      const item = next === null ? undefined : items[next];
-      if (!item) return;
-      event.preventDefault();
-      event.stopPropagation();
-      item.node.focus();
-      set(item.value);
-    });
-    update();
-    return track;
+  /** Show the other mode, and keep it as the one the view starts in. */
+  function setMode(value: string): void {
+    const next = MODES.find((one) => one === value);
+    if (!next || next === mode) return;
+    mode = next;
+    context.mode?.set(next);
+    modes?.set(next);
+    // The other mode is another list, and starts from its top.
+    if (node.parentElement) node.parentElement.scrollTop = 0;
+    draw();
   }
-
-  if (context.mode) tools.append(modeControl(context.mode));
 
   function show(element: Element | null, name?: string): void {
     if (element !== target) pseudos = [];
@@ -680,19 +651,13 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     if (target) later();
   });
 
-  filter.addEventListener("input", applyFilter);
   clear(EMPTY);
 
   return {
     node,
     show,
     refresh,
-    escape(): boolean {
-      if (filter.value === "") return false;
-      filter.value = "";
-      applyFilter();
-      return true;
-    },
+    escape: filter.clear,
     focus: () => node.focus({ preventScroll: true }),
     destroy(): void {
       clearTimeout(timer);
@@ -700,7 +665,6 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       unwatch();
       unsubscribe();
       crumbs.removeEventListener("keydown", onCrumbKey);
-      filter.removeEventListener("input", applyFilter);
       dropTips();
       target = null;
     },

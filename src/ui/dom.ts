@@ -19,29 +19,66 @@ export function button(className: string, label: string): HTMLButtonElement {
   return node;
 }
 
+/** What a row is built from. Every part but the main and the title may be left out. */
+export interface RowParts {
+  /** The row's control: a button, or a plain box where the line itself does nothing. */
+  main: HTMLElement;
+  /** A control of its own in the leading slot, as a knob row's grip is. */
+  grip?: HTMLElement;
+  /** A drawing in the leading slot that is part of the main, as a head's way back is. */
+  lead?: Element;
+  /** The icon before the title. */
+  glyph?: Element;
+  title: string;
+  /** What the main ends with, in order: the row's value, its key or a control. */
+  ends?: readonly HTMLElement[];
+  /** What stands after the main, in order: the row's x, or a head's actions. */
+  after?: readonly HTMLElement[];
+}
+
+/** A row as built: its box, and the node that holds its title. */
+export interface RowBox {
+  box: HTMLElement;
+  label: HTMLElement;
+}
+
 /**
- * A row: its line, with the grip's column kept in the main's leading padding
- * whether a grip is in it or not, its icon, its title and what it ends with,
- * its value or a control, and its x after the main. The knob rows and the
- * settings are all built here, so they line up and take the same styles.
+ * A row: its line, with the leading slot kept in the main's leading padding
+ * whether anything stands in it or not, then its icon, its title and what it
+ * ends with, and what stands after the main. The knob rows, the actions'
+ * rows, the settings and the head of a view are all built here and differ
+ * only by what is in their slots, so they line up and take the same styles.
  */
-export function rowBox(
-  main: HTMLElement,
-  glyph: Element,
-  title: string,
-  value?: HTMLElement,
-  clear?: HTMLElement,
-  grip?: HTMLElement,
-): HTMLElement {
+export function rowBox(parts: RowParts): RowBox {
+  const { main, grip, lead, glyph } = parts;
   const box = el("div", "row");
   const line = el("div", "line");
-  main.append(glyph, el("span", "row-label", title));
-  if (value) main.append(value);
-  if (grip) line.append(grip);
-  line.append(main);
-  if (clear) line.append(clear);
+  const label = el("span", "row-label", parts.title);
+  if (lead) {
+    const slot = el("span", "lead");
+    slot.append(lead);
+    main.append(slot);
+  }
+  if (glyph) main.append(glyph);
+  main.append(label, ...(parts.ends ?? []));
+  if (grip) {
+    grip.className = `lead ${grip.className}`;
+    line.append(grip);
+  }
+  line.append(main, ...(parts.after ?? []));
   box.append(line);
-  return box;
+  return { box, label };
+}
+
+/**
+ * A small icon button a row ends with: a knob row's x, or an action in the
+ * head of a view. `className` names which, for the code that looks for it.
+ */
+export function rowButton(className: string, glyph: Element, label: string): HTMLButtonElement {
+  const node = button(`row-button ${className}`, "");
+  node.append(glyph);
+  node.setAttribute("aria-label", label);
+  return node;
 }
 
 export function field(className: string, placeholder: string, label: string): HTMLInputElement {

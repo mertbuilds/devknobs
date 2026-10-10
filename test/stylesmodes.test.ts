@@ -139,7 +139,7 @@ function note(node: FakeNode): string | null {
 
 /** The control's two choices: what each says, and whether it is the one that is on. */
 function choices(node: FakeNode): [string, string | null, boolean][] {
-  return (node.find("styles-mode")[0]?.find("seg-item") ?? []).map((item) => [
+  return (node.find("seg")[0]?.find("seg-item") ?? []).map((item) => [
     item.textContent,
     item.getAttribute("aria-checked"),
     item.classList.contains("on"),
@@ -153,14 +153,15 @@ function choose(node: FakeNode, name: StylesMode): void {
 }
 
 function typed(node: FakeNode, text: string): void {
-  const [filter] = node.find("styles-filter");
+  const [filter] = node.find("filter");
   if (!filter) throw new Error("no filter");
   filter.value = text;
   filter.fire("input");
 }
 
+/** The row that folds what is inherited, which the kit builds. */
 function heading(node: FakeNode): FakeNode {
-  const [head] = node.find("css-fold");
+  const [head] = node.find("row").flatMap((row) => row.find("main"));
   if (!head) throw new Error("no inherited heading");
   return head;
 }
@@ -255,12 +256,11 @@ afterEach(() => {
 describe("the control of the two modes", () => {
   test("is a radio group of two in the bar, beside the filter, simple first", () => {
     const node = start();
-    const [bar] = node.find("styles-bar");
-    const [tools] = node.find("styles-tools");
-    const [control] = node.find("styles-mode");
-    expect(bar?.children).toContain(tools as FakeNode);
-    expect(tools?.children).toEqual([node.find("styles-filter")[0] as FakeNode, control as FakeNode]);
-    expect(control?.classList.contains("seg")).toBe(true);
+    const [bar] = node.find("toolbar");
+    const [control] = node.find("seg");
+    expect(bar?.children).toEqual([node.find("filter")[0] as FakeNode, control as FakeNode]);
+    // The kit's segments, with no class of the view's own.
+    expect(control?.className).toBe("seg");
     expect(control?.getAttribute("role")).toBe("radiogroup");
     expect(control?.getAttribute("aria-label")).toBe("how the styles are shown");
     expect(control?.find("seg-item").map((item) => item.getAttribute("role"))).toEqual(["radio", "radio"]);
@@ -302,26 +302,28 @@ describe("the control of the two modes", () => {
     expect(node.find("css-decl")).toEqual(before);
   });
 
-  test("the arrows move the choice with the focus, and the press goes no further", () => {
+  test("the arrows move the choice with the focus", () => {
     const node = start();
     view?.show(as(save));
     const [simple, advanced] = node.find("seg-item");
-    const event = { key: "ArrowRight", target: simple, prevented: false, stopped: false };
+    const event = { key: "ArrowRight", target: simple, prevented: false };
     const press = {
       ...event,
       preventDefault: () => {
         event.prevented = true;
       },
-      stopPropagation: () => {
-        event.stopped = true;
-      },
+      stopPropagation: () => undefined,
     };
-    for (const listener of node.find("styles-mode")[0]?.listeners.get("keydown") ?? []) {
+    for (const listener of node.find("seg")[0]?.listeners.get("keydown") ?? []) {
       listener(press);
     }
     expect(kept).toEqual(["advanced"]);
     expect(advanced?.focused).toBe(true);
-    expect([event.prevented, event.stopped]).toEqual([true, true]);
+    expect(event.prevented).toBe(true);
+    expect(choices(node)).toEqual([
+      ["simple", "false", false],
+      ["advanced", "true", true],
+    ]);
   });
 
   test("a switch draws once from what was read, and asks the engine nothing", () => {
@@ -343,7 +345,7 @@ describe("the control of the two modes", () => {
     ]);
     // Nothing of the simple mode is left under the advanced one.
     expect(node.find("css-applied")).toEqual([]);
-    expect(node.find("css-fold")).toEqual([]);
+    expect(node.find("row")).toEqual([]);
     choose(node, "simple");
     expect(asked).toHaveLength(1);
     expect(node.find("css-selector")).toEqual([]);
@@ -358,7 +360,7 @@ describe("the control of the two modes", () => {
     const crumbs = node.find("crumb");
     choose(node, "advanced");
     expect(paneBody.scrollTop).toBe(0);
-    expect(node.find("styles-filter")[0]?.value).toBe("color");
+    expect(node.find("filter")[0]?.value).toBe("color");
     expect(node.find("crumb")).toEqual(crumbs);
     expect(node.shown("css-decl").map((one) => one.textContent)).toEqual([
       "color: var(--ink);",
@@ -371,7 +373,7 @@ describe("the control of the two modes", () => {
 
   test("before a pick shows with the bar hidden, and a switch then draws nothing", () => {
     const node = start();
-    expect(node.shown("styles-mode")).toEqual([]);
+    expect(node.shown("seg")).toEqual([]);
     choose(node, "advanced");
     expect(kept).toEqual(["advanced"]);
     expect(asked).toEqual([]);
@@ -382,8 +384,66 @@ describe("the control of the two modes", () => {
     view = createStylesView({ tips, title: () => undefined, outline: () => undefined }, page);
     const node = fake(view.node);
     view.show(as(save));
-    expect(node.find("styles-mode")).toEqual([]);
+    expect(node.find("seg")).toEqual([]);
+    expect(node.find("toolbar")[0]?.children).toEqual([node.find("filter")[0] as FakeNode]);
     expect(node.find("css-selector").length).toBeGreaterThan(0);
+  });
+});
+
+describe("the view's chrome", () => {
+  /** Every class the view has put on a node. */
+  function classes(node: FakeNode): string[] {
+    return [...new Set(node.all().flatMap((one) => one.className.split(" ")))].filter(Boolean);
+  }
+
+  test("is the kit's: the crumbs, then the bar with the filter and the modes, then the blocks", () => {
+    const node = start();
+    view?.show(as(save));
+    expect(node.children.map((part) => (part as FakeNode).className)).toEqual([
+      "crumbs",
+      "toolbar",
+      "css-blocks",
+      "empty",
+    ]);
+    expect(node.find("toolbar")[0]?.children.map((part) => (part as FakeNode).className)).toEqual([
+      "field filter",
+      "seg",
+    ]);
+    // The crumbs are the view's own content, and no part of the bar.
+    expect(node.find("toolbar")[0]?.find("crumbs")).toEqual([]);
+  });
+
+  test("has no class of its own for a bar, a filter, a mode control or a fold, in either mode", () => {
+    const node = start();
+    view?.show(as(save));
+    heading(node).fire("click");
+    const simple = classes(node);
+    choose(node, "advanced");
+    for (const name of [...simple, ...classes(node)]) {
+      expect(name).not.toMatch(/^styles-|^css-fold$/);
+    }
+    expect(simple).toContain("fold-body");
+  });
+
+  test("says what it has to say in the panel's empty line", () => {
+    answer = () => found([]);
+    const node = start();
+    expect(node.shown("empty").map((one) => one.className)).toEqual(["empty"]);
+    view?.show(as(save));
+    expect(node.shown("empty").map((one) => [one.className, one.textContent])).toEqual([
+      ["empty", NO_STYLES],
+    ]);
+  });
+
+  test("before a pick hides the crumbs with the bar, and shows both with an element", () => {
+    const node = start();
+    expect(node.shown("crumbs")).toEqual([]);
+    expect(node.shown("toolbar")).toEqual([]);
+    view?.show(as(save));
+    expect(node.shown("crumbs")).toHaveLength(1);
+    expect(node.shown("toolbar")).toHaveLength(1);
+    view?.show(null);
+    expect(node.shown("crumbs")).toEqual([]);
   });
 });
 
@@ -510,10 +570,20 @@ describe("the simple mode", () => {
     expect(head.tag).toBe("button");
     expect(head.textContent).toBe("inherited");
     expect(head.getAttribute("aria-expanded")).toBe("false");
-    expect(node.find("css-fold")).toHaveLength(1);
-    expect(node.find("css-group")).toEqual([head]);
+    // The fold is the kit's: a row, its chevron in the leading slot, its body under its line.
+    const [fold] = node.find("row");
+    expect(node.find("row")).toHaveLength(1);
+    expect(fold?.className).toBe("row");
+    expect(fold?.children.map((part) => (part as FakeNode).className)).toEqual(["line", "fold"]);
+    expect(head.children.map((part) => (part as FakeNode).className)).toEqual(["lead", "row-label"]);
+    expect(head.find("lead")[0]?.find("turn")).toHaveLength(1);
+    expect(fold?.find("fold-body")[0]?.find("css-applied")[0]?.getAttribute("aria-label")).toBe(
+      "inherited",
+    );
+    expect(node.find("css-group")).toEqual([]);
     expect(lines(node)).not.toContain("font-size: 14px");
     head.fire("click");
+    expect(fold?.className).toBe("row open");
     expect(head.getAttribute("aria-expanded")).toBe("true");
     expect(lines(node).slice(-3)).toEqual(["font-size: 14px", "line-height: 1.5", "--ink: #111827"]);
     head.fire("click");
@@ -534,7 +604,7 @@ describe("the simple mode", () => {
     answer = () => found([rule(".primary", [declaration("color", "red")])]);
     const node = start();
     view?.show(as(save));
-    expect(node.find("css-fold")).toEqual([]);
+    expect(node.find("row")).toEqual([]);
   });
 
   test("lists no pseudo-element, and keeps its crumb, which shows its styles the same way", () => {
@@ -593,7 +663,7 @@ describe("the simple mode", () => {
     view?.show(as(save));
     expect(NO_STYLES).toBe("no styles set on this element");
     expect(note(node)).toBe(NO_STYLES);
-    expect(node.shown("css-fold")).toHaveLength(1);
+    expect(node.shown("row")).toHaveLength(1);
     heading(node).fire("click");
     expect(lines(node)).toEqual(["font-size: 14px"]);
     heading(node).fire("click");
@@ -631,7 +701,7 @@ describe("the filter in the simple mode", () => {
     ]);
     // One group alone needs no name.
     expect(labels(node)).toEqual([]);
-    expect(node.shown("css-fold")).toEqual([]);
+    expect(node.shown("row")).toEqual([]);
     expect(asked).toHaveLength(1);
   });
 
@@ -649,7 +719,7 @@ describe("the filter in the simple mode", () => {
     typed(node, "line-height");
     expect(lines(node)).toEqual([]);
     expect(note(node)).toBeNull();
-    expect(node.shown("css-fold")).toHaveLength(1);
+    expect(node.shown("row")).toHaveLength(1);
     heading(node).fire("click");
     expect(lines(node)).toEqual(["line-height: 1.5"]);
   });

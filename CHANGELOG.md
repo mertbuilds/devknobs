@@ -9,11 +9,14 @@
 ### inspect
 
 - `⇧C` (`Shift C` off a Mac), the inspect action in the search or its key in the footer picks an element as grab does and shows its css in the panel, in place of the rows, read only: its `style` attribute, the rules that reach it in cascade order with overridden declarations struck through, each rule's `@layer`, `@media`, `@supports` and `@container` and its stylesheet's file, its `::before` and `::after`, what each ancestor hands down, color swatches and what a custom property resolves to. a click copies nothing and inspect stays on. a stylesheet from another origin shows as `rules hidden`. the key is set in the settings like the others, and `inspect` in the search no longer finds grab. the styles have two modes, set beside the filter and kept: `simple`, the default, lists only the declarations that apply to the element, grouped by what they do, with what it inherits folded under them, and `advanced` is the cascade view above
+- inspect has a row as grab and replay animations do: run from the search, the add knob list, the footer or its row, its row stays in the list, says `on` while it picks, and its x takes it off and ends the picking. its key in the footer and its row now turn it off where it is on
 
 ### panel
 
 - a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept
 - the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
+- grab and replay animations have rows as the knobs do. run one from the search, the add knob list, the footer or its row and its row stays in the list, to drag where you want it. its row runs it, shows its key and whether a mode is on, and its x takes it off and turns the mode off. a key alone lists a mode only while it is on
+- the head of the settings has its way back at the row's leading edge, where a row's grip is, and its title where a row's content starts
 
 ## 0.1.2
 

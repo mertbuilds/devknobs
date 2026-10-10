@@ -368,6 +368,36 @@ describe("going back", () => {
   });
 });
 
+describe("the head", () => {
+  test("is a row from the builder every row is from: the way back in the leading slot, then the title", () => {
+    page = build();
+    openPane(viewOf("styles").view);
+    const [head] = page.node.find("view-head");
+    expect(head?.className).toBe("row view-head");
+    expect(head?.children.map((child) => child.className)).toEqual(["line"]);
+    expect(page.back.className).toBe("main");
+    expect(page.back.children.map((child) => child.className)).toEqual(["lead", "row-label"]);
+    const [slot] = page.back.children;
+    expect(slot?.children.map((child) => child.tag)).toEqual(["svg"]);
+    expect(page.title.textContent).toBe("styles");
+  });
+
+  test("takes the focus on the row's main, the button a knob row's ring is drawn on", () => {
+    page = build();
+    openPane(viewOf("styles").view);
+    expect(active).toBe(page.back);
+    expect(page.back.tag).toBe("button");
+    expect(page.back.className).toBe("main");
+  });
+
+  test("its actions are the small button a row's x is", () => {
+    page = build();
+    openPane(viewOf("requests", { actions: [{ label: "clear", icon: "eraser", run() {} }] }).view);
+    const [control] = page.node.find("view-action");
+    expect(control?.className).toBe("row-button view-action");
+  });
+});
+
 describe("the head's actions", () => {
   test("show after the title in the view's order, named, with a tooltip, and run on a click", () => {
     page = build();

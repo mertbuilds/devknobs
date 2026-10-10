@@ -10,7 +10,7 @@ import {
 } from "../src/ui/bindings";
 import { ACTIONS } from "../src/ui/catalog";
 import { keyChips } from "../src/ui/footer";
-import { ACTION_ICONS, BINDING_ICONS, ICONS } from "../src/ui/icons";
+import { BINDING_ICONS, ICONS } from "../src/ui/icons";
 import { comboText, defaultKeys, keyAction, type KeyLike, withShift } from "../src/ui/keys";
 
 function press(patch: Partial<KeyLike>): KeyLike {
@@ -32,9 +32,12 @@ describe("the inspect action", () => {
     const inspect = ACTIONS.find((action) => action.id === "inspect");
     expect(inspect?.label).toBe("inspect");
     expect(inspect?.long).toBe("pick an element to see its styles");
-    expect(ACTION_ICONS.inspect).not.toBe(ACTION_ICONS.grab);
-    expect(ICONS[ACTION_ICONS.inspect].length).toBeGreaterThan(0);
-    expect(BINDING_ICONS.inspect).toBe(ACTION_ICONS.inspect);
+    const grab = ACTIONS.find((action) => action.id === "grab");
+    expect(inspect?.icon).toBe("braces");
+    expect(inspect?.icon).not.toBe(grab?.icon);
+    expect(ICONS.braces.length).toBeGreaterThan(0);
+    expect(inspect?.binding).toBe("inspect");
+    expect(BINDING_ICONS.inspect).toBe("braces");
   });
 
   test("grab is no longer found as inspect", () => {

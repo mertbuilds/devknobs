@@ -992,7 +992,8 @@ describe("a feature's view", () => {
     expect(body(".view-body")).toMatch(/overflow-y:\s*auto/);
     expect(body(".view-body")).toMatch(/min-height:\s*0/);
     expect(body(".view-body")).toMatch(/overscroll-behavior:\s*contain/);
-    expect(body(".view-head .row-label")).toMatch(/text-overflow:\s*ellipsis/);
+    // The title is cut short as any row's is: the head has no rule of its own for it.
+    expect(body(".row-label")).toMatch(/text-overflow:\s*ellipsis/);
   });
 
   test("has no surface of its own: nothing of the side pane is left", () => {
@@ -1039,9 +1040,20 @@ describe("the styles view at any width", () => {
   });
 
   test("fits its columns to the panel, whatever a line in them is worth", () => {
-    for (const selector of [".styles", ".styles-bar", ".css-blocks"]) {
+    for (const selector of [".styles", ".css-blocks"]) {
       expect(body(selector)).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
     }
+  });
+
+  test("has rules for its content alone: its bar, filter, modes and fold are the kit's", () => {
+    const selectors = rules(CSS).map((rule) => rule.selector);
+    for (const selector of selectors) {
+      expect(selector).not.toMatch(/\.styles-|\.css-fold\b/);
+      if (/\.(styles|crumb|css-)/.test(selector)) {
+        expect(selector).not.toMatch(/\.(toolbar|filter|seg|seg-item|row|main|lead|turn|fold|empty)\b/);
+      }
+    }
+    expect(selectors).toContain(".styles");
   });
 
   test("wraps a declaration, a selector and what a rule sits in, anywhere in a long word", () => {

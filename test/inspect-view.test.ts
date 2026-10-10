@@ -138,7 +138,7 @@ function one(className: string): PanelNode {
 
 /** The styles view's filter, and a text typed in it. */
 function filter(): PanelNode {
-  return one("styles-filter");
+  return one("filter");
 }
 
 function type(text: string): void {

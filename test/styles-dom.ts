@@ -17,6 +17,8 @@ export interface FakeEvent {
 export class FakeNode {
   className = "";
   hidden = false;
+  /** Set on what a fold has folded away. */
+  inert = false;
   tabIndex = 0;
   value = "";
   type = "";
@@ -137,9 +139,9 @@ export class FakeNode {
     return this.all().filter((node) => node.classList.contains(className));
   }
 
-  /** The same, less what is hidden or sits in something hidden. */
+  /** The same, less what is hidden or folded away, or sits in something that is. */
   shown(className: string): FakeNode[] {
-    if (this.hidden) return [];
+    if (this.hidden || this.inert) return [];
     const own = this.classList.contains(className) ? [this] : [];
     const under = this.children.flatMap((child) =>
       typeof child === "string" ? [] : child.shown(className),

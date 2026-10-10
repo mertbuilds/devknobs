@@ -62,7 +62,7 @@ describe("pinned rows", () => {
   test("a row listed for being off its default, but not pinned, stands after the pinned ones", () => {
     const set = merge(DEFAULT_STATE, { vision: "blur" });
     expect(listedOrder(set)).toEqual(["device", "scheme", "text", "locale", "vision"]);
-    const old = merge(DEFAULT_STATE, { panel: { pinned: ["grab", "text"] } });
+    const old = merge(DEFAULT_STATE, { panel: { pinned: ["gone", "text"] } });
     expect(listedOrder(old)).toEqual(["text"]);
   });
 
@@ -156,8 +156,8 @@ describe("pinned rows", () => {
     expect(isReset(resetState(moved))).toBe(true);
   });
 
-  test("an id no row has, such as grab's from an older version, lists nothing and changes nothing", () => {
-    const old = merge(DEFAULT_STATE, { panel: { pinned: [...DEFAULT_PINNED, "grab"] } });
+  test("an id no row has here, such as one from another version, lists nothing and changes nothing", () => {
+    const old = merge(DEFAULT_STATE, { panel: { pinned: [...DEFAULT_PINNED, "gone"] } });
     expect(listed(old)).toEqual(listed(DEFAULT_STATE));
     expect(isReset(old)).toBe(true);
   });

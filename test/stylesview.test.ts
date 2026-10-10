@@ -199,7 +199,7 @@ describe("the styles view before a pick", () => {
   test("says one calm line, and shows no crumbs, filter or block", () => {
     const node = start();
     expect(note(node)).toBe(EMPTY);
-    expect(node.shown("styles-bar")).toEqual([]);
+    expect(node.shown("toolbar")).toEqual([]);
     expect(node.find("css-block")).toEqual([]);
     expect(asked).toEqual([]);
   });
@@ -535,7 +535,7 @@ describe("the styles view of an element", () => {
     const node = start();
     view?.show(as(save));
     expect(note(node)).toBe(NO_RULES);
-    expect(node.shown("styles-bar")).toHaveLength(1);
+    expect(node.shown("toolbar")).toHaveLength(1);
   });
 
   test("shown nothing again, is back to its first line and boxes nothing", () => {
@@ -551,7 +551,7 @@ describe("the styles view of an element", () => {
 
 describe("the filter", () => {
   function typed(node: FakeNode, text: string): void {
-    const [filter] = node.find("styles-filter");
+    const [filter] = node.find("filter");
     if (!filter) throw new Error("no filter");
     filter.value = text;
     filter.fire("input");
@@ -573,9 +573,11 @@ describe("the filter", () => {
 
   test("is a field of the panel's own look, with a name", () => {
     const node = start();
-    const [filter] = node.find("styles-filter");
+    const [filter] = node.find("filter");
     expect(filter?.tag).toBe("input");
-    expect(filter?.classList.contains("field")).toBe(true);
+    // The kit's, with no class of the view's own.
+    expect(filter?.className).toBe("field filter");
+    expect(filter?.placeholder).toBe("filter");
     expect(filter?.getAttribute("aria-label")).toBe("filter the declarations");
   });
 
@@ -621,7 +623,7 @@ describe("the filter", () => {
     view?.show(as(save));
     typed(node, "col");
     expect(view?.escape()).toBe(true);
-    expect(node.find("styles-filter")[0]?.value).toBe("");
+    expect(node.find("filter")[0]?.value).toBe("");
     expect(lines(node)).toHaveLength(3);
     expect(view?.escape()).toBe(false);
   });
@@ -762,7 +764,7 @@ describe("an element that left the page", () => {
     wait(SETTLE);
     expect(note(node)).toBe(GONE);
     expect(node.find("css-block")).toEqual([]);
-    expect(node.shown("styles-bar")).toEqual([]);
+    expect(node.shown("toolbar")).toEqual([]);
     expect(outlined).toEqual([as(save), null]);
     expect(watching.connected).toBe(false);
     expect(asked).toHaveLength(1);
