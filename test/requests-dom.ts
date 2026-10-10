@@ -35,6 +35,8 @@ export class FakeNode {
   inert = false;
   scrollHeight = 0;
   clientHeight = 0;
+  /** What the code under test set on the node's own style. */
+  style: Record<string, string> = {};
   isConnected = true;
   shadowRoot = null;
   parent: FakeNode | null = null;

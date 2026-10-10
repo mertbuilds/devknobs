@@ -1,25 +1,44 @@
 import { NativeDate } from "../engine/clock";
-import type { BodyRecord, HeaderList, RequestEntry } from "../requests/types";
-import { el } from "./dom";
-import { glyph } from "./icons";
-import { type Fold, sectionFold } from "./kit";
+import type { BodyRecord, RequestEntry } from "../requests/types";
+import { button, el } from "./dom";
+import { glyph, icon } from "./icons";
+import { codeBlock, emptyLine, filterField, group, type Pairs, pairs, rowButton, segments, splitBar, toolbar } from "./kit";
+import { clockTime, durationLabel, hasText, type Lead, LIGHT_WHY, middle, STATUS_TONES } from "./requestformat";
 import {
-  bodyNote,
-  bodyText,
-  clockTime,
-  generalLines,
-  hasText,
-  lead,
-  LIGHT_WHY,
-  LONG_BODY,
-  statusTone,
-} from "./requestformat";
+  BODY_LINES,
+  bodyShape,
+  cutNote,
+  type Frame,
+  headerGroups,
+  headersFilter,
+  isSegment,
+  LIGHT_BODIES,
+  moreLines,
+  noResponse,
+  pathRoom,
+  queryLines,
+  type Segment,
+  SEGMENTS,
+  segmentsOf,
+  stackFile,
+  stackLines,
+  startSegment,
+  summary,
+  timingLines,
+  timingParts,
+} from "./requestparts";
 
 /**
- * One request in full, in place of the list: what is known of it, in
- * sections that fold as the panel's rows do. The way back is the view's head. A section is filled
- * when it first opens, so a long body costs nothing until it is asked for,
- * and is drawn again only when what it shows has changed.
+ * One request in full, in place of the list. What is read most is on top: a
+ * summary that stays, with the method and the path and then how it went, and
+ * under it one of three segments at a time. `body` has the request's body
+ * and the answer's, `headers` both sets of headers, and `more` the rest: the
+ * address in full, what the request is, its timing and the call that made
+ * it. The way back is the view's head.
+ *
+ * A part is built once and drawn again only when what it shows has changed,
+ * so a request that changes while it shows keeps its segment, its scroll and
+ * what the user opened.
  */
 
 /** What the detail says once, the first time a request is copied. */
@@ -29,139 +48,18 @@ export const HIDES_NOTE =
 /** What the detail says of a request the log let go while it showed. */
 export const GONE_NOTE = "this request is no longer in the log, and shows as it last was";
 
-/** One part of the detail. */
-interface Part {
-  key: string;
-  title: string;
-  /** What the part shows. A new one means it is drawn again. */
-  of(entry: RequestEntry): unknown;
-  /** What its line says while it is folded, and open. */
-  brief(entry: RequestEntry): string;
-  /** Whether it starts open. */
-  open(entry: RequestEntry): boolean;
-  fill(entry: RequestEntry): HTMLElement[];
+/** What the headers say where the filter leaves none. */
+export const NO_HEADER = "no header matches";
+
+/** What the detail needs from the view it shows in. */
+export interface DetailContext {
+  /** Copy a text, and say how that went. */
+  copy(text: string): void;
+  /** The user picked another segment, which starts at its top. */
+  picked?(): void;
+  /** The file devknobs runs from, as a stack names it. Read from a stack of its own where left out. */
+  own?: string;
 }
-
-interface Section {
-  part: Part;
-  fold: Fold;
-  brief: HTMLElement;
-  inner: HTMLElement;
-  /** What the inner shows now, or nothing yet. */
-  shown: unknown;
-  filled: boolean;
-}
-
-function pairs(lines: readonly (readonly [string, string])[], className: string): HTMLElement {
-  const grid = el("div", `req-kv ${className}`);
-  for (const [label, value] of lines) {
-    grid.append(el("span", "req-k", label), el("span", "req-v", value));
-  }
-  return grid;
-}
-
-/**
- * The general lines, colored as the request's row is: the status in its
- * tone, the method in its own, and the kind with its mark before it where
- * the row shows that in the method's place.
- */
-function general(entry: RequestEntry): HTMLElement {
-  const first = lead(entry);
-  const grid = el("div", "req-kv req-general");
-  for (const [label, value] of generalLines(entry, clockTime(new NativeDate(entry.timing.start)))) {
-    const shown = el("span", "req-v");
-    if (label === "kind" && first.icon) {
-      const mark = el("span", ["req-mark", first.tone].filter(Boolean).join(" "));
-      mark.append(glyph(first.icon));
-      shown.append(mark);
-    }
-    shown.append(value);
-    const tone = label === "status" ? statusTone(entry) : label === "method" && !first.icon ? first.tone : null;
-    if (tone) shown.classList.add(tone);
-    grid.append(el("span", "req-k", label), shown);
-  }
-  return grid;
-}
-
-function headers(list: HeaderList): HTMLElement[] {
-  return list.length === 0 ? [el("div", "note", "none")] : [pairs(list, "req-headers")];
-}
-
-function count(list: HeaderList): string {
-  return list.length === 0 ? "none" : String(list.length);
-}
-
-function bodyBrief(record: BodyRecord | null): string {
-  if (!record) return "none";
-  return [record.type, bodyNote(record)].filter(Boolean).join(", ");
-}
-
-function body(record: BodyRecord | null, type: string): HTMLElement[] {
-  if (!record) return [el("div", "note", "none")];
-  const note = bodyNote(record);
-  if (!hasText(record)) return [el("div", "note", note)];
-  const text = el("pre", "req-pre", bodyText(record, type));
-  return record.truncated ? [el("div", "note", note), text] : [text];
-}
-
-function short(record: BodyRecord | null): boolean {
-  return !record || record.text.length <= LONG_BODY;
-}
-
-const GENERAL: Part = {
-  key: "general",
-  title: "general",
-  of: (entry) => entry,
-  brief: () => "",
-  open: () => true,
-  fill: (entry) => [general(entry)],
-};
-
-const FULL: readonly Part[] = [
-  GENERAL,
-  {
-    key: "request-headers",
-    title: "request headers",
-    of: (entry) => entry.requestHeaders,
-    brief: (entry) => count(entry.requestHeaders),
-    open: () => true,
-    fill: (entry) => headers(entry.requestHeaders),
-  },
-  {
-    key: "request-body",
-    title: "request body",
-    of: (entry) => entry.requestBody,
-    brief: (entry) => bodyBrief(entry.requestBody),
-    open: (entry) => short(entry.requestBody),
-    fill: (entry) => body(entry.requestBody, ""),
-  },
-  {
-    key: "response-headers",
-    title: "response headers",
-    of: (entry) => entry.responseHeaders,
-    brief: (entry) => count(entry.responseHeaders),
-    open: () => true,
-    fill: (entry) => headers(entry.responseHeaders),
-  },
-  {
-    key: "response-body",
-    title: "response body",
-    of: (entry) => entry.responseBody,
-    brief: (entry) => bodyBrief(entry.responseBody),
-    open: (entry) => short(entry.responseBody),
-    fill: (entry) => body(entry.responseBody, entry.contentType),
-  },
-  {
-    key: "initiator",
-    title: "initiator",
-    of: (entry) => entry.initiator,
-    brief: (entry) => (entry.initiator ? "" : "none"),
-    open: () => false,
-    fill: (entry) => [
-      entry.initiator ? el("pre", "req-pre", entry.initiator) : el("div", "note", "none"),
-    ],
-  },
-];
 
 export interface Detail {
   node: HTMLElement;
@@ -171,74 +69,321 @@ export interface Detail {
   gone(): void;
   /** Say what a copy leaves out. */
   hides(): void;
+  /** Escape came: empty the headers' filter, and say whether there was anything in it. */
+  escape(): boolean;
+  /** The detail left the view. */
+  destroy(): void;
 }
 
-export function createDetail(entry: RequestEntry): Detail {
-  const node = el("div", "req-detail");
-  const hides = el("div", "note", HIDES_NOTE);
-  hides.hidden = true;
-  const left = el("div", "note", GONE_NOTE);
-  left.hidden = true;
-  node.append(hides, left);
+/** One part of a segment: what it shows, and its node while that is the same. */
+interface Block {
+  /** What the block shows. A new one of any of them means it is built again. */
+  of(entry: RequestEntry): readonly unknown[];
+  /** The block, or null where it has nothing to show. */
+  build(entry: RequestEntry): HTMLElement | null;
+  shown: readonly unknown[] | null;
+  node: HTMLElement | null;
+}
 
-  /** The sections the user opened or folded by hand, which then stay so. */
-  const chosen = new Map<string, boolean>();
+function block(of: Block["of"], build: Block["build"]): Block {
+  return { of, build, shown: null, node: null };
+}
+
+function same(one: readonly unknown[] | null, other: readonly unknown[]): boolean {
+  return one !== null && one.length === other.length && one.every((each, at) => each === other[at]);
+}
+
+/** Set a node's text, unless it says so already. */
+function put(node: HTMLElement, text: string): void {
+  if (node.textContent !== text) node.textContent = text;
+}
+
+function line(text: string): HTMLElement {
+  return el("div", "note", text);
+}
+
+export function createDetail(entry: RequestEntry, context: DetailContext): Detail {
+  const own = context.own ?? stackFile(new Error().stack);
   let now = entry;
+  /** The segment the user picked for this request. Until then it opens on what it has. */
+  let picked: Segment | null = null;
 
-  function isOpen(section: Section): boolean {
-    return chosen.get(section.part.key) ?? section.part.open(now);
-  }
+  const verb = el("span", "req-verb");
+  let verbShown: Lead | null = null;
+  const path = button("req-url", "");
+  path.addEventListener("click", () => context.copy(now.url));
+  const first = el("div", "req-first");
+  first.append(verb, path);
+  const status = el("span", "req-stat");
+  const took = el("span", "req-took");
+  const host = el("span", "req-host");
+  const second = el("div", "req-second");
+  second.append(status, took, host);
+  const top = el("div", "req-sum");
+  top.append(first, second);
 
-  /** Show a section as it stands: its line, whether it is open, and its inside once it is. */
-  function draw(section: Section): void {
-    const open = isOpen(section);
-    const what = section.part.of(now);
-    if (what !== section.shown) {
-      section.shown = what;
-      section.filled = false;
-      section.brief.textContent = section.part.brief(now);
-    }
-    section.fold.set(open);
-    if (open && !section.filled) {
-      section.inner.replaceChildren(...section.part.fill(now));
-      section.filled = true;
-    }
-  }
-
-  const sections: Section[] = (entry.detail === "light" ? [GENERAL] : FULL).map((part) => {
-    const brief = el("span", "row-value idle");
-    const inner = el("div", "req-inner");
-    const fold = sectionFold({
-      label: part.title,
-      ends: [brief],
-      open: part.open(entry),
-      onToggle(open: boolean): void {
-        chosen.set(part.key, open);
-        draw(section);
-      },
-    });
-    fold.body.append(inner);
-    // Not what the part shows, whatever that is, so the first draw fills it in.
-    const section: Section = { part, fold, brief, inner, shown: fold, filled: false };
-    draw(section);
-    node.append(fold.node);
-    return section;
+  const choice = segments({
+    options: SEGMENTS.map((each) => ({ value: each, label: each })),
+    label: "what of the request shows",
+    onChange(value: string): void {
+      if (!isSegment(value) || value === shown()) return;
+      picked = value;
+      draw();
+      context.picked?.();
+    },
   });
-  if (entry.detail === "light") {
-    node.append(el("div", "note", `${LIGHT_WHY}: no headers and no bodies`));
+  /** The headers' lists, which the filter goes through. */
+  let lists: { box: HTMLElement; list: Pairs }[] = [];
+  const unmatched = emptyLine(NO_HEADER);
+  const filter = filterField({ placeholder: "filter", label: "filter headers", onInput: refilter });
+
+  const hides = line(HIDES_NOTE);
+  hides.hidden = true;
+  const left = line(GONE_NOTE);
+  left.hidden = true;
+  const region = el("div", "req-body");
+  region.setAttribute("role", "region");
+  const node = el("div", "req-detail");
+  node.append(toolbar([top, choice.node, filter.node]), hides, left, region);
+
+  function shown(): Segment {
+    return picked !== null && segmentsOf(now).includes(picked) ? picked : startSegment(now);
   }
+
+  function refilter(): void {
+    const words = filter.node.value.toLowerCase().split(/\s+/).filter((word) => word !== "");
+    let kept = 0;
+    for (const { box, list } of lists) {
+      const here = list.keep((name, value) => {
+        const text = `${name} ${value}`.toLowerCase();
+        return words.every((word) => text.includes(word));
+      });
+      box.hidden = here === 0;
+      kept += here;
+    }
+    unmatched.hidden = kept > 0;
+  }
+
+  /** The summary, changed in place. */
+  function drawTop(): void {
+    const said = summary(now);
+    const was = verbShown;
+    const next = said.verb;
+    if (!was || was.text !== next.text || was.icon !== next.icon || was.tone !== next.tone) {
+      verbShown = next;
+      verb.className = ["req-verb", next.icon ? "mark" : "", next.tone].filter(Boolean).join(" ");
+      if (next.icon) {
+        verb.replaceChildren(glyph(next.icon));
+        verb.setAttribute("role", "img");
+        verb.setAttribute("aria-label", next.text);
+        verb.title = next.text;
+      } else {
+        verb.textContent = next.text;
+        verb.removeAttribute("role");
+        verb.removeAttribute("aria-label");
+        verb.title = "";
+      }
+    }
+    put(path, middle(said.path, pathRoom(path.clientWidth)));
+    if (path.title !== now.url) path.title = now.url;
+    path.setAttribute("aria-label", `copy the address ${now.url}`);
+    put(status, said.status);
+    for (const each of STATUS_TONES) status.classList.toggle(each, each === said.tone);
+    put(took, said.time);
+    put(host, said.host);
+  }
+
+  /** A body: what is missing of it, then its text, its fields, or the line that says why it has none. */
+  function body(record: BodyRecord, type: string, name: string, lines?: number): { ends: HTMLElement[]; nodes: HTMLElement[] } {
+    const ends: HTMLElement[] = [];
+    const nodes: HTMLElement[] = [];
+    const cut = cutNote(record);
+    if (cut) nodes.push(line(cut));
+    const shape = bodyShape(record, type);
+    if (shape.kind === "line") nodes.push(line(shape.text));
+    else if (shape.kind === "fields") nodes.push(pairs(shape.lines).node);
+    else {
+      const code = codeBlock({ text: shape.text, lines });
+      if (code.wrap) ends.push(code.wrap);
+      nodes.push(code.node);
+    }
+    if (hasText(record) && record.text !== "") {
+      const copy = rowButton("req-copy", icon("copy"), `copy the ${name} body`);
+      copy.addEventListener("click", () => context.copy(record.text));
+      ends.push(copy);
+    }
+    return { ends, nodes };
+  }
+
+  function stack(text: string): HTMLElement {
+    const box = el("div", "req-stack");
+    const frameLine = (frame: Frame): HTMLElement => {
+      const row = el("div", "req-frame");
+      row.append(el("span", "req-fn", frame.name));
+      if (frame.where !== "") {
+        const where = button("req-where", frame.short);
+        where.title = frame.where;
+        where.setAttribute("aria-label", `copy ${frame.where}`);
+        where.addEventListener("click", () => context.copy(frame.where));
+        row.append(where);
+      }
+      return row;
+    };
+    for (const each of stackLines(text, own)) {
+      if (each.kind === "frame") box.append(frameLine(each.frame));
+      else {
+        // The frames that are not the page's own show once they are asked for.
+        const more = button("chip req-skipped", `${each.frames.length} more`);
+        const row = el("div", "req-frame");
+        row.append(more);
+        more.addEventListener("click", () => {
+          for (const frame of each.frames) box.insertBefore(frameLine(frame), row);
+          row.remove();
+        });
+        box.append(row);
+      }
+    }
+    return box;
+  }
+
+  const blocks: Record<Segment, Block[]> = {
+    body: [
+      block(
+        (at) => [at.detail],
+        (at) => (at.detail === "light" ? line(LIGHT_BODIES) : null),
+      ),
+      block(
+        (at) => [at.detail, at.url, at.requestBody],
+        (at) => {
+          const query = queryLines(at.url);
+          if (at.detail === "light" || (at.requestBody === null && query.length === 0)) return null;
+          const sent = at.requestBody ? body(at.requestBody, "", "request", BODY_LINES) : { ends: [], nodes: [] };
+          const box = group({ label: "request", ends: sent.ends });
+          if (query.length > 0) box.append(pairs(query).node);
+          box.append(...sent.nodes);
+          return box;
+        },
+      ),
+      block(
+        (at) => [at.detail, at.responseBody, at.contentType, at.state === "pending"],
+        (at) => {
+          if (at.detail === "light") return null;
+          const got = at.responseBody
+            ? body(at.responseBody, at.contentType, "response")
+            : { ends: [], nodes: [line(noResponse(at))] };
+          const box = group({ label: "response", ends: got.ends });
+          box.append(...got.nodes);
+          return box;
+        },
+      ),
+    ],
+    headers: [
+      block(
+        (at) => [at.responseHeaders, at.requestHeaders],
+        (at) => {
+          const box = el("div", "req-headers");
+          lists = headerGroups(at).map((each) => {
+            const part = group({ label: each.label });
+            const list = pairs(each.lines);
+            part.append(list.node);
+            box.append(part);
+            return { box: part, list };
+          });
+          box.append(unmatched);
+          refilter();
+          return box;
+        },
+      ),
+    ],
+    more: [
+      block(
+        (at) => [at.detail],
+        (at) => (at.detail === "light" ? line(LIGHT_WHY) : null),
+      ),
+      block(
+        (at) => [at],
+        (at) => {
+          const box = group({ label: "request" });
+          box.append(pairs(moreLines(at)).node);
+          return box;
+        },
+      ),
+      block(
+        (at) => [at.timing],
+        (at) => {
+          const box = group({ label: "timing" });
+          const parts = timingParts(at.timing);
+          if (parts.shares) {
+            const label = `waiting ${durationLabel(parts.waiting)}, download ${durationLabel(parts.download)}`;
+            box.append(splitBar(parts.shares, label));
+          }
+          box.append(pairs(timingLines(at.timing, clockTime(new NativeDate(at.timing.start)))).node);
+          return box;
+        },
+      ),
+      block(
+        (at) => [at.initiator],
+        (at) => {
+          if (at.initiator === "") return null;
+          const box = group({ label: "initiator" });
+          box.append(stack(at.initiator));
+          return box;
+        },
+      ),
+    ],
+  };
+
+  /** Which blocks the region holds now. */
+  let held: readonly HTMLElement[] = [];
+
+  /** Show the request as it stands: the summary, the segments it has, and the one that shows. */
+  function draw(): void {
+    drawTop();
+    const has = segmentsOf(now);
+    for (const item of choice.items) item.node.hidden = !isSegment(item.value) || !has.includes(item.value);
+    const segment = shown();
+    choice.set(segment);
+    region.setAttribute("aria-label", segment);
+    filter.node.hidden = segment !== "headers" || !headersFilter(now);
+    const nodes: HTMLElement[] = [];
+    for (const each of blocks[segment]) {
+      const what = each.of(now);
+      if (!same(each.shown, what)) {
+        each.shown = what;
+        each.node = each.build(now);
+      }
+      if (each.node) nodes.push(each.node);
+    }
+    // What is the same stays where it is, so nothing the user scrolled to or opened moves.
+    if (nodes.length !== held.length || nodes.some((each, at) => each !== held[at])) {
+      region.replaceChildren(...nodes);
+      held = nodes;
+    }
+  }
+
+  draw();
+
+  // The path is cut to the two lines it has, which are as wide as the panel is dragged.
+  const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(drawTop);
+  sized?.observe(path);
 
   return {
     node,
     update(next: RequestEntry): void {
       now = next;
-      for (const section of sections) draw(section);
+      draw();
     },
     gone(): void {
       left.hidden = false;
     },
     hides(): void {
       hides.hidden = false;
+    },
+    escape(): boolean {
+      return !filter.node.hidden && filter.clear();
+    },
+    destroy(): void {
+      sized?.disconnect();
     },
   };
 }

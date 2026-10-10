@@ -391,6 +391,19 @@ export function createRequests(context: RequestsContext = {}): Requests {
     let detail: Detail | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     opened = id;
+    /** Copy a text, and say how it went: aloud, and for a moment in the head, in its title's place. */
+    function send(text: string, then?: (view: Detail, copied: boolean) => void): void {
+      void copy(text).then((copied) => {
+        const word = copied ? "copied" : "copy failed";
+        if (context.said) context.said.textContent = word;
+        // The request left the view while the copy was on its way.
+        if (!detail) return;
+        clearTimeout(timer);
+        pane.retitle(REQUEST_VIEW, word);
+        timer = setTimeout(() => pane.retitle(REQUEST_VIEW, REQUEST_TITLE), COPIED_SHOWS);
+        then?.(detail, copied);
+      });
+    }
     pane.open({
       id: REQUEST_VIEW,
       title: REQUEST_TITLE,
@@ -399,23 +412,20 @@ export function createRequests(context: RequestsContext = {}): Requests {
           label: "copy as text for AI",
           icon: "copy",
           run(): void {
-            void copy(copyText(entry)).then((copied) => {
-              const word = copied ? "copied" : "copy failed";
-              if (context.said) context.said.textContent = word;
-              // The request left the view while the copy was on its way.
-              if (!detail) return;
-              // The head says how it went, for a moment, in its title's place.
-              clearTimeout(timer);
-              pane.retitle(REQUEST_VIEW, word);
-              timer = setTimeout(() => pane.retitle(REQUEST_VIEW, REQUEST_TITLE), COPIED_SHOWS);
-              if (copied && !told) detail.hides();
+            send(copyText(entry), (view, copied) => {
+              if (copied && !told) view.hides();
               if (copied) told = true;
             });
           },
         },
       ],
       mount(body: HTMLElement): () => void {
-        const view = createDetail(entry);
+        const view = createDetail(entry, {
+          copy: (text) => send(text),
+          picked(): void {
+            if (body.scrollTop !== 0) body.scrollTop = 0;
+          },
+        });
         detail = view;
         body.append(view.node);
         const from = log();
@@ -430,9 +440,12 @@ export function createRequests(context: RequestsContext = {}): Requests {
         return () => {
           stop?.();
           clearTimeout(timer);
+          view.destroy();
           detail = null;
         };
       },
+      // Escape empties the headers' filter first, as it does the list's.
+      escape: () => detail?.escape() ?? false,
       // The head's way back and Escape go to the list, and from there to the rows.
       back,
     });

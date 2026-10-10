@@ -1083,9 +1083,9 @@ describe("a request's row", () => {
     expect(parts.length).toBeGreaterThan(20);
     const lined = parts.filter((rule) => /border(?!-radius)|outline|box-shadow/.test(rule.body));
     expect(lined.map((rule) => rule.selector)).toEqual([]);
-    // The one ground is a body's box in the detail: the bar's and a row's hover are the kit's.
+    // None has a ground: the bar's, a row's hover and a block of code's are the kit's.
     const grounded = parts.filter((rule) => /background/.test(rule.body.replace(/transition:[^;]*;/g, "")));
-    expect(grounded.map((rule) => rule.selector)).toEqual([".req-pre"]);
+    expect(grounded.map((rule) => rule.selector)).toEqual([]);
     const heavy = parts.filter((rule) => /font-weight|padding|border-radius/.test(rule.body));
     expect(heavy.map((rule) => rule.selector).filter((selector) => /method|status|mark|get|post|ok/.test(selector))).toEqual([]);
   });
@@ -1095,7 +1095,7 @@ describe("a request's row", () => {
     expect(body(".req-method.mark")).toMatch(/align-self:\s*center/);
     expect(body(".req-method.mark")).not.toMatch(/width|height|margin|padding/);
     const tones = rules(CSS).filter((rule) =>
-      /^\.req-(get|post|put|patch|delete|rest|image|font|media)$|^\.req-status\.\w+, \.req-v\.\w+$/.test(rule.selector),
+      /^\.req-(get|post|put|patch|delete|rest|image|font|media)$|^\.req-status\.\w+, \.req-stat\.\w+$/.test(rule.selector),
     );
     expect(tones.length).toBe(13);
     for (const rule of tones) expect(rule.body.trim()).toMatch(/^color:\s*var\(--[a-z-]+\);$/);
@@ -1175,8 +1175,13 @@ describe("the requests, at every width the panel takes", () => {
 
   test("a request in full is one column as wide as the body, and its values wrap anywhere", () => {
     expect(body(".req-detail")).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
-    expect(body(".req-kv")).toMatch(/grid-template-columns:\s*fit-content\(45%\) minmax\(0, 1fr\)/);
-    expect(body(".req-v, .req-pre")).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(body(".req-body, .req-headers")).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    // The path breaks anywhere and keeps to two lines of 18.
+    expect(body(".req-url")).toMatch(/word-break:\s*break-all/);
+    expect(body(".req-url")).toMatch(/max-height:\s*36px;\s*overflow:\s*hidden/);
+    expect(body(".req-url")).toMatch(/line-height:\s*18px/);
+    // The segments give way before the bar is wider than the view.
+    expect(body(".toolbar > .seg")).toMatch(/max-width:\s*100%/);
   });
 
   test("nothing of the requests is sized by the old pane, or by any width of the panel", () => {
