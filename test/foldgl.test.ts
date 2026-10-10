@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import {
+  blurArea,
+  blurLight,
   blurShare,
+  brightness,
   darkAt,
+  edgeLight,
   freeDepth,
   type Pane,
   type Quad,
@@ -10,7 +14,12 @@ import {
   shotPicture,
   shotQuad,
   shotWindow,
+  shotOpen,
+  shown,
   turnBlur,
+  uvOf,
+  wipeAmount,
+  wipeLight,
 } from "../src/engine/fold";
 import {
   blurAt,
@@ -23,9 +32,10 @@ import {
   reachOf,
   screenGl,
   screenLook,
+  shadeAt,
   wedgeOf,
 } from "../src/engine/foldgl";
-import { TUNE_DEFAULTS } from "../src/engine/foldtune";
+import { resetTune, setTune, TUNE_DEFAULTS } from "../src/engine/foldtune";
 
 /** Deep in the picture, past any end's blur. */
 const DEEP = 1e4;
@@ -77,7 +87,7 @@ describe("the screen's blur", () => {
     expect(FRAGMENT).toContain("float wide = peak * (shape.x + (1.0 - shape.x) * pow(across, shape.y));");
     // None of the look's numbers is written into it.
     expect(FRAGMENT).not.toContain("${");
-    for (const name of ["peak", "shape", "rimmed", "band", "edge", "dark"]) expect(FRAGMENT).toMatch(new RegExp(`uniform \\w+ ${name};`));
+    for (const name of ["peak", "shape", "rimmed", "band", "edge", "dark", "lit", "grain"]) expect(FRAGMENT).toMatch(new RegExp(`uniform \\w+ ${name};`));
   });
 
   test("darkens the free edge as deep as freeDepth, and not at all lying flat", () => {
@@ -109,6 +119,83 @@ describe("the screen's blur", () => {
   test("keeps the screen's own where that is the wider at the ends", () => {
     const look = screenLook(0.4, 2);
     expect(blurAt(look, 1, 0)).toBe(blurAt(look, 1, DEEP));
+  });
+});
+
+describe("the screen's shade", () => {
+  afterEach(resetTune);
+
+  test("as it ships is none, with nothing of a shade worked out", () => {
+    if (!DUO_FOLD) return;
+    for (const shot of DUO_FOLD.frames) {
+      const pane = shotPane(DUO_FOLD, shot);
+      if (!pane) continue;
+      const open = shotOpen(shot);
+      const quad = shotQuad(shot, pane);
+      const picture = shotPicture(DUO_FOLD, pane, quad);
+      const free = freeOf(shotWindow(quad, pane, picture), pane, picture);
+      const look = screenLook(open, 20, free, pane);
+      expect(look.dark).toBe(0);
+      // The wipe, Apple's blurs' dark and the far side's shadow are each 0, which the shader skips on.
+      expect(look.lit).toEqual([0, 0, 0]);
+      for (const t of [0, 0.3, 1]) expect(shadeAt(pane, look, t)).toBe(1);
+    }
+  });
+
+  test("is every px what the gradients' stops were worked out from, where a hand turns the shades on", () => {
+    setTune("wipeShade", 1.5);
+    setTune("farShade", 1);
+    const smooth = (from: number, to: number, value: number) => {
+      const t = Math.min(1, Math.max(0, (value - from) / (to - from)));
+      return t * t * (3 - 2 * t);
+    };
+    for (const pane of ["inner", "cover"] as const) {
+      for (const open of [0.05, 0.3, 0.45, 0.55, 0.7, 0.75, 0.9]) {
+        const look = screenLook(open, 0, 1, pane);
+        const amount = wipeAmount(pane, open);
+        const light = smooth(0.1, 1, brightness(pane, open));
+        for (const t of HUNDREDTHS) {
+          const uv = uvOf(pane, t);
+          const turned = shown(light * wipeLight(pane, uv, amount));
+          const flat = shown(blurLight(blurArea(pane, uv, amount)) * edgeLight(pane, uv, amount));
+          // All but the screen's own light, which stays a dark over the canvas as over the other half.
+          if (light > 0) expect(shadeAt(pane, look, t) * shown(light)).toBeCloseTo(turned * flat, 9);
+        }
+      }
+    }
+    // Past where the turned screen is cut it stays as dark as there, as a gradient's last stop does.
+    const cut = screenLook(0.7, 0, 0.6, "inner");
+    expect(shadeAt("inner", cut, 0.9)).toBe(shadeAt("inner", cut, 0.6));
+    expect(shadeAt("inner", cut, 0.3)).toBeGreaterThan(shadeAt("inner", cut, 0.6));
+  });
+
+  test("is left to the gradients over the canvas where they shade it: all of the light, and the free edge's dark still", () => {
+    setTune("wipeShade", 1.5);
+    setTune("darkMost", 0.7);
+    const look = screenLook(0.7, 20, 0.6);
+    expect(look.lit).toEqual([0, 0, 0]);
+    expect(look.dark).toBe(freeDepth(0.7));
+    for (const t of HUNDREDTHS) expect(shadeAt("inner", look, t)).toBe(1);
+  });
+
+  test("is worked out in the shader at every px, from no table of stops, with a little noise where it varies", () => {
+    expect(FRAGMENT).toContain("return vec4(rgb * shadow(t) * shade(min(t, free)) + speck, 1.0);");
+    expect(FRAGMENT).toContain("return pow(clamp(wipe * soft * soft * away, 0.0, 1.0), 1.0 / 2.2);");
+    // Its one table is the taps' weights.
+    expect(FRAGMENT.match(/\[\d+\]\(/g)).toEqual(["[3]("]);
+    expect(FRAGMENT).not.toContain("mix(mix(");
+    // A shade that is off costs a compare: its smoothsteps are behind one.
+    expect(FRAGMENT).toContain("if (dark <= 0.0) return 1.0;");
+    expect(FRAGMENT).toContain("if (lit.x + lit.y + lit.z <= 0.0) return 1.0;");
+    expect(FRAGMENT).toContain("if (grain > 0.0 && dark + lit.x + lit.y + lit.z > 0.0) {");
+    // Under a step of the screen's 256 either way, so a page not shaded is drawn as it is.
+    expect(FRAGMENT).toContain("- 0.5) * grain / 255.0;");
+    expect(TUNE_DEFAULTS.grain).toBe(1);
+    // Both ways out of the shader go through it, and no loop runs to a number handed in.
+    expect(FRAGMENT.match(/color = /g)).toHaveLength(2);
+    expect(FRAGMENT.match(/color = shaded\(/g)).toHaveLength(2);
+    expect(FRAGMENT.match(/for \(int \w = -2; \w <= 2; \w\+\+\)/g)).toHaveLength(2);
+    expect(FRAGMENT.match(/for \(/g)).toHaveLength(2);
   });
 });
 
@@ -254,11 +341,18 @@ describe("WebGL2", () => {
   /** A canvas whose WebGL2 fails as `fail` has it, what was told of each refusal, and the way to lose its context. */
   function fake(fail: Fail | null) {
     const calls: string[] = [];
+    const located: string[] = [];
+    const set: unknown[] = [];
     const gl = new Proxy(new FakeGl(), {
       get: (_target, name) => {
         if (name === "NO_ERROR") return 0;
         return (...args: unknown[]) => {
           calls.push(String(name));
+          if (name === "getUniformLocation") {
+            located.push(String(args[1]));
+            return String(args[1]);
+          }
+          if (String(name).startsWith("uniform")) set.push(args[0]);
           if (name === "getParameter") return 4096;
           if (name === "createShader") return fail?.made ? null : {};
           if (name === "isContextLost") return fail?.lost === true;
@@ -288,7 +382,7 @@ describe("WebGL2", () => {
     Object.defineProperty(globalThis, "document", { configurable: true, value: { createElement: () => canvas } });
     const refused: [string, unknown][] = [];
     const screen = screenGl(place, (why, shot) => refused.push([why, shot]));
-    return { screen, refused, calls, lose: () => heard.webglcontextlost?.(), removed: () => removed };
+    return { screen, refused, calls, located, set, lose: () => heard.webglcontextlost?.(), removed: () => removed };
   }
 
   /** A picture as far as WebGL2 takes one up. */
@@ -337,6 +431,18 @@ describe("WebGL2", () => {
     expect(refused).toEqual([]);
     expect(calls).toContain("generateMipmap");
     expect(calls.filter((call) => call === "drawArrays")).toHaveLength(1);
+  });
+
+  test("sets every number its shader takes, so none is left as it was made", () => {
+    const { screen, located, set } = fake({});
+    screen?.paint(shotOf(951, 669));
+    screen?.draw(screenLook(0.5, 10, 0.4, "inner"));
+    const taken = Array.from(FRAGMENT.matchAll(/uniform \w+ (\w+);/g), (found) => found[1] ?? "");
+    expect(taken).toHaveLength(17);
+    for (const name of [...taken, "view"]) {
+      expect(located).toContain(name);
+      expect(set).toContain(name);
+    }
   });
 
   test("hands a picture it cannot take up to the layers, lets go of itself, and says why", () => {

@@ -842,15 +842,11 @@ export function freeDark(t: number, open: number): number {
  * The free edge's dark as gradient stops over the picture lying flat, from
  * the hinge to its free edge: where each is, as a share of the way, and how
  * dark. The turned screen is seen out to `free` of the way, so its free edge,
- * and its dark, is there.
+ * and its dark, is there. None where there is no dark, or the shades are off.
  */
-export function freeShades(open: number, free: number): [at: number, dark: number][] {
-  const depth = freeDepth(open);
-  if (depth <= 0 || free <= 0) return [];
-  const { darkFrom: from, darkBand: band } = tune;
-  // In order, wherever a hand has put where the dark starts and how wide its strip is.
-  const steps = [0, from, (from + 1) / 2, 1 - 2 * band, 1 - band, 1 - band / 2, 1].sort((a, b) => a - b);
-  return steps.map((t) => [fine(t * free), fine(freeDark(t, open))]);
+export function freeShades(open: number, free: number): Shades {
+  if (!shadesOn() || freeDepth(open) <= 0 || free <= 0) return [];
+  return shadeStops((at) => freeDark(at / free, open), free);
 }
 
 /**
@@ -894,8 +890,77 @@ export function screenDim(pane: Pane, open: number): number {
   return fine(1 - shown(smoothstep(0.1, 1, brightness(pane, open))));
 }
 
-/** How many points along the half that turns its shades are worked out at, hinge to free edge. */
-const STEPS = 8;
+/**
+ * A shade from the hinge to the free edge as gradient stops: where each is,
+ * as a share of the way, and how dark. One stop where it is as dark all the
+ * way.
+ */
+export type Shades = [at: number, dark: number][];
+
+/**
+ * A gradient through stops bends at each, and the eye sees a line where it
+ * bends sharply. How sharply one may: the change in the dark's slope there,
+ * per whole way from the hinge to the free edge, as a share of the light
+ * left there.
+ */
+export const SMOOTH = 0.1;
+
+/** The least light a bend is measured against: in less, near black, no line is seen. */
+const DIM = 0.2;
+
+/** How many pieces a shade starts in, how many times a piece next to too sharp a bend is halved, and how many stops there are at most. */
+const PIECES = 16;
+const HALVINGS = 4;
+const STOPS = 64;
+
+/** The narrowest piece that is halved, as a share of the way: narrower, where its stops are rounded to shows. */
+const LEAST = 1 / 200;
+
+/** A share of dark, or of the way, to a hundred thousandth: stops this close together bend by their rounding otherwise. */
+function finer(value: number): number {
+  return Math.round(value * 1e5) / 1e5;
+}
+
+/** How sharply the gradient through `stops` bends at stop `index`, as `SMOOTH` measures it. */
+function bendAt(stops: Shades, index: number): number {
+  const [before, here, after] = [stops[index - 1], stops[index], stops[index + 1]];
+  if (!before || !here || !after) return 0;
+  const into = (here[1] - before[1]) / (here[0] - before[0]);
+  const out = (after[1] - here[1]) / (after[0] - here[0]);
+  return Math.abs(out - into) / Math.max(DIM, 1 - here[1]);
+}
+
+/** The sharpest bend of the gradient through `stops`, as `SMOOTH` measures it. */
+export function sharpest(stops: Shades): number {
+  return stops.reduce((most, _stop, index) => Math.max(most, bendAt(stops, index)), 0);
+}
+
+/**
+ * The shade `dark` has at each share of the way, as stops from the hinge out
+ * to `to` of the way: evenly spaced, then closer together wherever the
+ * gradient through them would bend more sharply than `SMOOTH`.
+ */
+export function shadeStops(dark: (t: number) => number, to = 1): Shades {
+  const stop = (t: number): [number, number] => [finer(t), finer(dark(t))];
+  if (!(to > 0)) return [stop(0)];
+  let stops: Shades = Array.from({ length: PIECES + 1 }, (_, step) => stop((to * step) / PIECES));
+  for (let halving = 0; halving < HALVINGS; halving++) {
+    const next: Shades = [];
+    let room = STOPS - stops.length;
+    stops.forEach((here, index) => {
+      const before = stops[index - 1];
+      const wide = before && here[0] - before[0] > LEAST;
+      if (before && wide && room > 0 && Math.max(bendAt(stops, index - 1), bendAt(stops, index)) > SMOOTH) {
+        next.push(stop((before[0] + here[0]) / 2));
+        room--;
+      }
+      next.push(here);
+    });
+    if (next.length === stops.length) break;
+    stops = next;
+  }
+  return stops;
+}
 
 /**
  * A blurrier picture fading in over the ones under it, from the hinge to the
@@ -907,12 +972,16 @@ export interface BlurFade {
   stops: [at: number, share: number][];
 }
 
+/** How the half that turns is lit. */
+export interface PaneShades {
+  /** How dark the half is as it turns, from the hinge to the free edge: the screen's light, as dark all the way, and the wipe where it is on. */
+  turned: Shades;
+  /** How dark the picture is as it lies flat, out to where it is seen: its blurs' dark and the far side's shadow. */
+  flat: Shades;
+}
+
 /** How the half that turns is lit and blurred. */
-export interface PaneLook {
-  /** How dark the half is as it turns, at `STEPS + 1` points from the hinge to the free edge: the screen's light and the wipe. */
-  turned: number[];
-  /** How dark the picture is at the same points of it as it lies flat: its blurs' dark and the far side's shadow. */
-  flat: number[];
+export interface PaneLook extends PaneShades {
   /** Where each blurrier picture fades in, or null where it does not show. */
   blurs: (BlurFade | null)[];
 }
@@ -971,23 +1040,73 @@ function blurFade(low: number, width: number, peak: number, free: number): BlurF
   return { stops };
 }
 
+/** Are the shades over the half that turns drawn, and is it blurred: both, but where a hand looks for what draws a line. */
+export function shadesOn(): boolean {
+  return tune.shadeOn >= 0.5;
+}
+
+export function blurOn(): boolean {
+  return tune.blurOn >= 0.5;
+}
+
+/**
+ * The numbers the half that turns, of `pane`, is lit by with the hinge
+ * `open` of the way open, seen out to `free` of the way: the screen's light,
+ * how strong the wipe is, how fast Apple's blur area rises, and how deep the
+ * far side's shadow is. Each of the last three is 0 where it darkens nothing
+ * in sight, so none of its work is done.
+ */
+export function shadeOf(pane: Pane, open: number, free = 1): [light: number, wipe: number, area: number, far: number] {
+  const light = smoothstep(0.1, 1, brightness(pane, open));
+  const amount = wipeAmount(pane, open);
+  if (!shadesOn() || amount <= 0) return [light, 0, 0, 0];
+  // Apple's blurs darken only where their area is past 0.9, which is furthest out.
+  const blurred = rawArea(pane, uvOf(pane, free), amount) > 0.9;
+  const far = pane === "inner" ? clamp(tune.farShade * smoothstep(0, 0.55, amount)) : 0;
+  return [light, amount * tune.wipeShade, blurred ? (amount * 2.5) / 0.75 : 0, far];
+}
+
+/**
+ * How the half that turns, of `pane`, is lit with the hinge `open` of the
+ * way open, seen out to `free` of the way from the hinge to the picture's
+ * free edge. A shade that darkens nothing is one stop, and none of it is
+ * worked out.
+ */
+export function paneShades(pane: Pane, open: number, free = 1): PaneShades {
+  const [light, wipe, area, far] = shadeOf(pane, open, free);
+  const amount = wipeAmount(pane, open);
+  const turned: Shades =
+    wipe > 0
+      ? shadeStops((t) => 1 - shown(light * wipeLight(pane, uvOf(pane, t), amount)))
+      : [[0, fine(1 - shown(light))]];
+  const flat: Shades =
+    area > 0 || far > 0
+      ? shadeStops((t) => {
+          const uv = uvOf(pane, t);
+          return 1 - shown(blurLight(blurArea(pane, uv, amount)) * edgeLight(pane, uv, amount));
+        }, free)
+      : [[0, 0]];
+  return { turned, flat };
+}
+
+/**
+ * Where each blurrier picture fades in with the hinge `open` of the way
+ * open, the turned screen seen out to `free` of the way, or null where it
+ * does not show: none does with the blur off.
+ */
+export function paneBlurs(open: number, free = 1): (BlurFade | null)[] {
+  const peak = blurOn() ? turnBlur(open) : 0;
+  const widths = blurWidths();
+  return widths.slice(1).map((width, index) => blurFade(widths[index] ?? width, width, peak, free));
+}
+
 /**
  * How the half that turns, of `pane`, looks with the hinge `open` of the way
  * open, seen out to `free` of the way from the hinge to the picture's free
  * edge.
  */
 export function paneLook(pane: Pane, open: number, free = 1): PaneLook {
-  const amount = wipeAmount(pane, open);
-  const light = smoothstep(0.1, 1, brightness(pane, open));
-  const points = Array.from({ length: STEPS + 1 }, (_, step) => uvOf(pane, step / STEPS));
-  const turned = points.map((uv) => fine(1 - shown(light * wipeLight(pane, uv, amount))));
-  const flat = points.map((uv) =>
-    fine(1 - shown(blurLight(blurArea(pane, uv, amount)) * edgeLight(pane, uv, amount))),
-  );
-  const peak = turnBlur(open);
-  const widths = blurWidths();
-  const blurs = widths.slice(1).map((width, index) => blurFade(widths[index] ?? width, width, peak, free));
-  return { turned, flat, blurs };
+  return { ...paneShades(pane, open, free), blurs: paneBlurs(open, free) };
 }
 
 /**
