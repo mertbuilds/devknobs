@@ -1,23 +1,21 @@
 /**
- * The side pane: one surface docked beside the panel, on the page's side of
- * it, that a feature shows a view in. One view shows at a time. To use it:
+ * A feature's view inside the panel. It takes the place of the rows, as the
+ * settings do, under a head with the way back, its title and its actions, and
+ * the panel is wider and as tall as it gets while it shows. One view shows at
+ * a time. To use it:
  *
- *   openPane({ id: "styles", title: "styles", mount, actions, escape });
- *   closePane(); paneView(); onPane((id) => {});
+ *   openPane({ id: "styles", title: "styles", mount, actions, escape, back });
+ *   closePane(); paneView(); retitlePane(id, title); onPane((id) => {});
  *
- * `mount(body)` fills the pane's scrolling body, which comes empty, and may
+ * `mount(body)` fills the view's scrolling body, which comes empty, and may
  * return a cleanup that runs once when the view closes or another replaces it.
- * `actions` are icon buttons in the head, before the x. Nothing of the pane
- * is kept in web storage: a reload starts with it closed.
  */
 
-import type { EdgeValue } from "../types";
 import { button, el } from "./dom";
 import { icon, type IconName } from "./icons";
-import { between, GLIDE_MAX, PANEL_GAP, type Place } from "./place";
 import type { Tips } from "./tooltip";
 
-/** A small icon button in the pane's head, such as copy or clear. */
+/** A small icon button in the view's head, such as copy or clear. */
 export interface PaneAction {
   /** What it does, in a word or two: its tooltip, and its name for assistive tech. */
   label: string;
@@ -25,128 +23,78 @@ export interface PaneAction {
   run(): void;
 }
 
-/** What a feature shows in the pane. */
+/** What a feature shows in the panel. */
 export interface PaneView {
   /** Names the view. Opening the one that is open does nothing. */
   id: string;
   /** What the head says, in lower case as the panel's labels are. */
   title: string;
   /**
-   * Fill the pane's body, which scrolls on its own under the head. What it
+   * Fill the view's body, which scrolls on its own under the head. What it
    * returns runs once, when the view closes or another takes its place.
    */
   mount(body: HTMLElement): void | (() => void);
-  /** The buttons the head shows before the x, in this order. */
+  /** The buttons the head shows after the title, in this order. */
   actions?: PaneAction[];
   /**
-   * Escape came with the focus in the pane. Return true where the view took
-   * it, to clear a filter of its own, say, and the pane stays open.
+   * Escape came while the view shows. Return true where the view took it, to
+   * clear a filter of its own, say, and the view stays open.
    */
   escape?(): boolean;
+  /**
+   * Where the way back goes, in place of the rows: a view one step inside
+   * another gives this, and opens that other from it. The head's way back and
+   * Escape both go there.
+   */
+  back?(): void;
 }
 
-/** Hears the id of the view that opened, or null when the pane closed. */
+/** Hears the id of the view that opened, or null when the view closed. */
 export type PaneListener = (view: string | null) => void;
 
-/** How wide the pane is where the window has the room, and at the least, in px. */
+/** How wide the panel is while a view shows, until the user drags its edge, in px. */
 export const PANE_WIDTH = 340;
-export const PANE_MIN = 240;
 
-/** How tall the pane is where the window has the room, the panel's own tallest, in px. */
-export const PANE_HEIGHT = 672;
-
-/** The panel's width, and how far the handle stands out of what it sits on, in px. */
-const PANEL_WIDTH = 240;
-const HANDLE_REACH = 21;
-
-/** The pixel the pane sits over the panel's border, as the handle sits over the pane's. */
-const SEAM = 1;
-
-/** How long past the longest glide a pane on its way out lands without its end, in ms. */
-const PANE_LATE = 200;
-
-/** Where the pane goes, in window px. */
-export interface PaneBox {
-  width: number;
-  height: number;
-  top: number;
-  /** How far it sits over the panel, where the window has no room beside it. */
-  over: number;
-  /** How far past the panel it reaches, which is how far the handle rides out. */
-  reach: number;
-  /** The corner of the pane the handle covers, if any. */
-  tab: EdgeValue;
-}
-
-/**
- * Lay the pane out beside a panel whose top is at `at.top` and whose handle
- * is at `at.y`, in a window of `view`, with a handle `handle` tall.
- *
- * It is as tall as the panel at its tallest whatever the panel holds, so it
- * stays still while rows open and close, and it starts at the panel's top
- * unless the window's bottom pushes it up. That always spans the panel, so
- * the two meet along the panel's whole side.
- *
- * Across, it is `PANE_WIDTH` where that leaves the page a gap, and narrower
- * down to `PANE_MIN` where it does not. In a window with no room for that
- * beside the panel it sits over the panel by what is missing, and in one
- * narrower than itself it takes what the handle leaves. The panel never moves
- * for it, and nothing of it leaves the window.
- */
-export function paneBox(
-  at: Pick<Place, "y" | "top">,
-  view: { width: number; height: number },
-  handle: number,
-): PaneBox {
-  const height = Math.max(0, Math.min(PANE_HEIGHT, view.height - 2 * PANEL_GAP));
-  const top = between(at.top, PANEL_GAP, view.height - PANEL_GAP - height);
-  const room = view.width - PANEL_WIDTH - HANDLE_REACH + SEAM;
-  const width = Math.min(
-    between(room - PANEL_GAP, PANE_MIN, PANE_WIDTH),
-    Math.max(0, view.width - HANDLE_REACH),
-  );
-  const over = Math.max(0, width - room);
-  const flush = (a: number, b: number) => Math.abs(a - b) < 0.5;
-  const tab = flush(at.y, top) ? "top" : flush(at.y + handle, top + height) ? "bottom" : "none";
-  return { width, height, top, over, reach: Math.max(0, width - SEAM - over), tab };
-}
-
-/** What the pane needs from the panel. */
+/** What the view needs from the panel. */
 export interface PaneContext {
-  wrap: HTMLElement;
   /** The panel's shadow root, which knows where the focus is in it. */
   root: Pick<ShadowRoot, "activeElement">;
-  handle: HTMLElement;
-  /** Where the focus goes back to when what opened the pane is gone. */
+  /** Where the focus goes back to when what opened the view is gone. */
   home: HTMLElement;
   tips: Tips;
-  /** Open the panel, as the pane shows only beside an open one. */
+  /** Open the panel, as a view shows only in an open one. */
   openPanel(): void;
-  /** Say how much more of the window's edge the panel covers with the pane, in px. */
-  cover(px: number): void;
+  /** Leave the search and the settings, which show in a view's place, without drawing anything. */
+  uncover(): void;
+  /** Draw the whole panel again. */
+  render(): void;
 }
 
-/** The pane as the panel drives it. */
+/** The view as the panel drives it. */
 export interface Pane {
-  /** The pane's node, which goes in the wrapper between the handle and the panel. */
+  /** The view's node, which goes in the panel's body with the rows and the settings. */
   node: HTMLElement;
   open(view: PaneView): void;
+  /** Go back to the rows, and put the focus back where it was. */
   close(): void;
-  /** The id of the open view, also while the pane hides with a closed panel. */
+  /** Close the view for what the panel shows next, which draws itself and takes the focus. */
+  drop(): void;
+  retitle(id: string, title: string): void;
+  /** The id of the open view, also while a closed panel or the settings hide it. */
   view(): string | null;
-  /** The panel is open or closed: a closed one hides the pane and keeps its view. */
-  render(open: boolean): void;
-  /** The panel was put at a place: the pane goes beside it. */
-  place(at: Pick<Place, "y" | "top">): void;
-  /** Escape came. Says whether the pane took it, which it does with the focus in it. */
-  escape(): boolean;
-  /** Close the view and stop listening. */
+  /** Give the focus to the view's head, and say whether there is a view to take it. */
+  focus(): boolean;
+  /** Escape came for the view: the view takes it, or the panel goes one step back. */
+  escape(): void;
+  /** The panel's slide landed: a view that closed is out of sight, and its nodes go. */
+  landed(): void;
+  /** Close the view and forget the panel. */
   destroy(): void;
 }
 
 const listeners = new Set<PaneListener>();
 
-/** The pane of the panel on this page, once there is one. */
+/** The view's place in the panel on this page, once there is one. */
 let shell: Pane | null = null;
 
 function emit(view: string | null): void {
@@ -154,28 +102,34 @@ function emit(view: string | null): void {
 }
 
 /**
- * Show a view in the pane, in place of the one that is open, and move the
- * focus into it. It opens the panel where that is closed. Nothing happens for
- * the view that is open already, or on a page with no panel.
+ * Show a view in the panel, in place of the one that is open, and move the
+ * focus to its head. It opens the panel where that is closed, and leaves the
+ * search and the settings. Nothing happens for the view that is open already,
+ * or on a page with no panel.
  */
 export function openPane(view: PaneView): void {
   shell?.open(view);
 }
 
-/** Close the pane, and put the focus back where it was when it opened. */
+/** Go back to the rows, and put the focus back where it was when the view opened. */
 export function closePane(): void {
   shell?.close();
 }
 
-/** The id of the open view, or null with the pane closed. */
+/** The id of the open view, or null with none. */
 export function paneView(): string | null {
   return shell?.view() ?? null;
 }
 
+/** Change what the head says for the open view `id`. Nothing happens for any other. */
+export function retitlePane(id: string, title: string): void {
+  shell?.retitle(id, title);
+}
+
 /**
- * Hear the pane open and close: the id of the view that opened, a new one in
- * place of another included, or null once it closed. A pane that hides with
- * the panel stays open. Returns the way to stop.
+ * Hear a view open and close: the id of the view that opened, a new one in
+ * place of another included, or null once it closed. A view that hides with
+ * the panel, or under the settings, stays open. Returns the way to stop.
  */
 export function onPane(listener: PaneListener): () => void {
   listeners.add(listener);
@@ -196,92 +150,48 @@ function showing(node: HTMLElement): boolean {
   return node.isConnected && node.getClientRects().length > 0;
 }
 
-function isZero(duration: string): boolean {
-  return parseFloat(duration) === 0;
-}
-
 /**
- * Build the pane for a panel. The stylesheet holds how it looks and moves:
- * `data-pane` on the wrapper says `open` while it is out and `leaving` until
- * it has slid away, and the `--pane-*` properties say where it goes.
+ * Build the view's place in a panel: a pane of the panel's body, which the
+ * panel slides in over the rows while there is a view, as it does the
+ * settings. The stylesheet holds how it looks.
  */
 export function createPane(context: PaneContext): Pane {
-  const { wrap, root, handle, tips } = context;
+  const { root, tips } = context;
 
-  // Clips the pane at the panel's edge, so it slides out of the edge itself.
-  const node = el("div", "side-clip");
-  const box = el("div", "side");
-  box.tabIndex = -1;
-  box.setAttribute("role", "region");
-  const head = el("div", "side-head");
-  const title = el("span", "side-title");
-  const actions = el("div", "side-actions");
-  const closer = button("side-action", "");
-  closer.append(icon("x"));
-  closer.setAttribute("aria-label", "close");
-  tips.tooltip(closer, "close");
-  closer.addEventListener("click", close);
-  head.append(title, actions, closer);
-  const body = el("div", "side-body");
-  box.append(head, body);
-  node.append(box);
-  node.inert = true;
+  const node = el("div", "view pane");
+  node.setAttribute("role", "group");
+  // The head is a row as the settings' way back is: the chevron where a row's
+  // icon is, then the title, and the actions where a row's x is.
+  const back = button("main", "");
+  const title = el("span", "row-label");
+  back.append(icon("chevron-left"), title);
+  back.addEventListener("click", leave);
+  const actions = el("div", "view-actions");
+  const line = el("div", "line");
+  line.append(back, actions);
+  const head = el("div", "row view-head");
+  head.append(line);
+  const body = el("div", "view-body");
+  node.append(head, body);
 
   let shown: PaneView | null = null;
   let cleanup: (() => void) | null = null;
-  let panelOpen = false;
-  /** What had the focus when the pane opened. */
+  /** What had the focus when the view opened. */
   let opener: Element | null = null;
-  let laid: PaneBox | null = null;
-  /** The handle's height, which the stylesheet sets once and for all, read once it is on the page. */
-  let handleHeight = 0;
-  /** Runs while the pane slides away. */
-  let timer = 0;
 
   function holdsFocus(): boolean {
     const at = root.activeElement;
-    return at !== null && box.contains(at);
+    return at !== null && node.contains(at);
   }
 
-  /** The pane is out of sight: the panel has its corners back, and a closed view is gone. */
-  function land(): void {
-    clearTimeout(timer);
-    timer = 0;
-    if (wrap.dataset.pane === "leaving") delete wrap.dataset.pane;
-    if (!shown) body.replaceChildren();
-  }
-
-  /** Slide away, and land at once where nothing animates, as under reduced motion. */
-  function leave(): void {
-    wrap.dataset.pane = "leaving";
-    clearTimeout(timer);
-    timer = 0;
-    if (getComputedStyle(box).transitionDuration.split(",").every(isZero)) land();
-    else timer = window.setTimeout(land, GLIDE_MAX + PANE_LATE);
-  }
-
-  function onEnd(event: TransitionEvent): void {
-    if (timer && event.target === box && event.propertyName === "transform") land();
-  }
-
-  box.addEventListener("transitionend", onEnd);
-
-  /** Show the pane beside an open panel while it has a view, and hide it otherwise. */
-  function draw(): void {
-    const out = shown !== null && panelOpen;
-    node.inert = !out;
-    if (out) {
-      clearTimeout(timer);
-      timer = 0;
-      wrap.dataset.pane = "open";
-    } else if (wrap.dataset.pane === "open") leave();
-    // The device frame counts the pane while the panel is closed too, so one
-    // that comes back with the panel moves the frame once.
-    context.cover(shown && laid ? laid.reach : 0);
+  function name(text: string): void {
+    title.textContent = text;
+    node.setAttribute("aria-label", text);
+    back.setAttribute("aria-label", `back from ${text}`);
   }
 
   function actionButton(action: PaneAction): HTMLButtonElement {
-    const control = button("side-action", "");
+    const control = button("view-action", "");
     control.append(icon(action.icon));
     control.setAttribute("aria-label", action.label);
     tips.tooltip(control, action.label);
@@ -306,76 +216,72 @@ export function createPane(context: PaneContext): Pane {
     body.replaceChildren();
     body.scrollTop = 0;
     shown = view;
-    title.textContent = view.title;
-    box.setAttribute("aria-label", view.title);
+    name(view.title);
     actions.replaceChildren(...(view.actions ?? []).map(actionButton));
     const made = view.mount(body);
     cleanup = typeof made === "function" ? made : null;
+    context.uncover();
     context.openPanel();
-    draw();
-    // The pane itself, so no control of the view shows a ring or a tooltip unasked.
-    box.focus({ preventScroll: true });
+    context.render();
+    back.focus({ preventScroll: true });
     emit(view.id);
   }
 
   /**
-   * Close the view. Its nodes stay while the pane slides away. The focus goes
-   * back only from inside the pane, to what opened it, or to the panel where
-   * that is gone.
+   * Go back to the rows. The view's nodes stay while it slides away. The
+   * focus goes back only from inside the view, to what opened it, or to the
+   * panel where that is gone.
    */
   function close(): void {
     if (!shown) return;
     const inside = holdsFocus();
     unmount();
-    draw();
-    if (!timer) land();
+    context.render();
+    // Under the settings or in a closed panel nothing slides, and it is gone at once.
+    if (!node.classList.contains("leaving")) body.replaceChildren();
     if (inside) {
-      const back = opener instanceof HTMLElement && showing(opener) ? opener : context.home;
-      back.focus({ preventScroll: true });
+      const to = opener instanceof HTMLElement && showing(opener) ? opener : context.home;
+      to.focus({ preventScroll: true });
     }
     opener = null;
     emit(null);
+  }
+
+  /** One step back: to where the view says, or to the rows. */
+  function leave(): void {
+    if (shown?.back) shown.back();
+    else close();
   }
 
   const pane: Pane = {
     node,
     open,
     close,
+    drop(): void {
+      if (!shown) return;
+      unmount();
+      opener = null;
+      emit(null);
+    },
+    retitle(id: string, text: string): void {
+      if (shown?.id === id) name(text);
+    },
     view: () => shown?.id ?? null,
-    render(isOpen: boolean): void {
-      panelOpen = isOpen;
-      draw();
+    focus(): boolean {
+      if (shown) back.focus({ preventScroll: true });
+      return shown !== null;
     },
-    place(at): void {
-      const view = {
-        width: document.documentElement.clientWidth || window.innerWidth,
-        height: window.innerHeight,
-      };
-      if (handleHeight === 0) handleHeight = handle.getBoundingClientRect().height;
-      laid = paneBox(at, view, handleHeight);
-      // The wrapper's box starts at the handle's top, which is where the host is.
-      wrap.style.setProperty("--pane-top", `${laid.top - at.y}px`);
-      wrap.style.setProperty("--pane-right", `${PANEL_WIDTH - SEAM - laid.over}px`);
-      wrap.style.setProperty("--pane-width", `${laid.width}px`);
-      wrap.style.setProperty("--pane-height", `${laid.height}px`);
-      wrap.style.setProperty("--pane-reach", `${laid.reach}px`);
-      wrap.dataset.paneTab = laid.tab;
-      if (shown) context.cover(laid.reach);
+    escape(): void {
+      if (shown && shown.escape?.() !== true) leave();
     },
-    escape(): boolean {
-      if (!shown || !holdsFocus()) return false;
-      if (shown.escape?.() !== true) close();
-      return true;
+    landed(): void {
+      if (!shown) body.replaceChildren();
     },
     destroy(): void {
-      clearTimeout(timer);
-      timer = 0;
-      box.removeEventListener("transitionend", onEnd);
       if (shown) {
         unmount();
         emit(null);
       }
-      context.cover(0);
       if (shell === pane) shell = null;
     },
   };

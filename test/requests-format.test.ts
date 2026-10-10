@@ -582,7 +582,7 @@ describe("copyText", () => {
         "at http://app.test/boot.js?v=4&key=<hidden>",
       ].join("\n"),
     );
-    // The row keeps its own, for the pane to show.
+    // The row keeps its own, for the view to show.
     expect(entry.url).toContain("access_token=tok123");
   });
 

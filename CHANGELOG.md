@@ -4,7 +4,7 @@
 
 ### requests
 
-- `⇧N`, or `requests` in the search, shows what the page asks for in the pane beside the panel: `fetch` and `XMLHttpRequest` whole, and what the page loads on its own by its timing and size. a row opens its request in full, and copy puts it on the clipboard as text for an AI, with the values of secret headers left out. the key can be set in the settings like the others
+- `⇧N`, or `requests` in the search, shows what the page asks for, as a view in the panel: `fetch` and `XMLHttpRequest` whole, and what the page loads on its own by its timing and size. a row opens its request in full, and copy puts it on the clipboard as text for an AI, with the values of secret headers left out. the key can be set in the settings like the others
 
 ### fresh mode
 
@@ -13,6 +13,7 @@
 ### panel
 
 - a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept
+- the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
 
 ## 0.1.2
 

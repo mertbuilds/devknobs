@@ -331,31 +331,24 @@ function showZoom(place: Fit): void {
   picker.value = String(zoom);
 }
 
-/** How much more of its edge an open panel covers than its host's width, in px. */
-let beside = 0;
-
 /**
- * How much of its edge an open panel covers, in a letterbox `room` px wide.
- * Its host is as wide as the panel out, and its side pane reaches past that.
- * `fit` puts the frame beside what covers half the room at most, so where the
- * pane would take the two past that, the panel alone counts: the frame still
- * keeps clear of the panel, and only the pane sits over it.
+ * How much of its edge an open panel covers. Its host is as wide as the panel
+ * out, and takes a new width at once where the panel glides to it.
  */
-function panelWidth(room: number): number {
-  const width = document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
-  return width + beside <= room / 2 ? width + beside : width;
+function panelWidth(): number {
+  return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
 }
 
 /**
- * The panel's side pane came out, went away or changed its width: an open
- * panel covers `px` more of its edge, and the frame glides to its place
- * beside the two.
+ * The panel changed its width: the frame is fitted beside it again, and with
+ * `glide` it glides to its place as the panel does to its width.
  */
-export function coverBeside(px: number): void {
-  if (px === beside) return;
-  const from = { ...current.panel, beside };
-  beside = px;
-  glideFrame(screen, { first: false, from, to: { ...current.panel, beside } }, resize);
+export function panelSized(glide: boolean): void {
+  if (!glide) {
+    resize();
+    return;
+  }
+  glideFrame(screen, { first: false, from: current.panel, to: current.panel, sized: true }, resize);
 }
 
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
@@ -442,7 +435,7 @@ function resize(): void {
   readout.hidden = !hasStrip(current);
   letterbox.setAttribute("data-mat", current.mat);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
-  const aside = current.panel.open ? panelWidth(size.width) : 0;
+  const aside = current.panel.open ? panelWidth() : 0;
   const mock = bodyFor(current);
   const place = fit(current, size, {
     frameZoom: zoomFor(current.dpr),
@@ -589,7 +582,7 @@ function screenFor(value: ViewportValue): Rect | null {
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
   const place = fit(value, size, {
     frameZoom: zoomFor(value.dpr),
-    aside: value.panel.open ? panelWidth(size.width) : 0,
+    aside: value.panel.open ? panelWidth() : 0,
     side: value.panel.side,
     mock: mock?.inset,
   });

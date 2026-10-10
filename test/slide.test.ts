@@ -7,6 +7,13 @@ describe("slideOf", () => {
     expect(slideOf("keys", "home", true, true)).toBe("pop");
   });
 
+  test("a feature's view sits between the two: over the rows, under the settings", () => {
+    expect(slideOf("home", "view", true, true)).toBe("push");
+    expect(slideOf("view", "home", true, true)).toBe("pop");
+    expect(slideOf("view", "keys", true, true)).toBe("push");
+    expect(slideOf("keys", "view", true, true)).toBe("pop");
+  });
+
   test("does nothing for the view already shown", () => {
     expect(slideOf("home", "home", true, true)).toBeNull();
     expect(slideOf("keys", "keys", false, false)).toBeNull();

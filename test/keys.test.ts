@@ -479,6 +479,15 @@ describe("escapeStep", () => {
     expect(escapeStep({ ...idle, search: true, keys: true })).toBe("search");
   });
 
+  test("hands the key to a feature's view before an editor under it, and before the panel", () => {
+    expect(escapeStep({ ...idle, view: true })).toBe("view");
+    expect(escapeStep({ ...idle, view: true, editor: true })).toBe("view");
+  });
+
+  test("leaves the settings that show over a view first, and the view stays for the next", () => {
+    expect(escapeStep({ ...idle, keys: true, view: true })).toBe("keys");
+  });
+
   test("closes the panel when nothing else is open", () => {
     expect(escapeStep(idle)).toBe("panel");
   });

@@ -102,7 +102,8 @@ open after a reload leaves the focus on the page.
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
 panel. with the panel closed, a drag moves the handle, and the panel opens
-beside it where it left it.
+beside it where it left it. drag the panel's edge on the page's side to change
+its width, which is kept in `localStorage` under `devknobs:prefs`.
 
 the handle follows the pointer sideways too. let go past the middle of the
 window, or fling it toward the other edge, and the panel moves to the left or
@@ -323,20 +324,22 @@ pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
 ## requests
 
 press `⇧N` (`Shift N` off a Mac), or find `requests` in the search, to see what
-the page asks for, in the pane beside the panel: a row a request, the newest
-on top, with its method, name, status and time. a filter finds rows by address,
-method or status, and `all`, `fetch/xhr` and `other` pick whose requests show.
-a click on a row, or enter, shows it in full: the address, status, timing and
-sizes, the request and response headers and bodies, and the call that made it.
-escape goes back to the list, and then closes the pane. clear in the pane's
-head empties the log.
+the page asks for, as a view in the panel: a row a request, the newest on top,
+with its method, name, status and time. the panel is wider while the view
+shows, and as wide as you drag its edge. a filter finds rows by address, method
+or status, and `all`, `fetch/xhr` and `other` pick whose requests show. a click
+on a row, or enter, shows it in full: the address, status, timing and sizes,
+the request and response headers and bodies, and the call that made it. the
+way back in the view's head, or escape, goes one step back: from a request to
+the list, and from the list to the panel's rows. escape empties a filter
+first. clear in the list's head empties the log.
 
 copy in a request's head puts it on the clipboard as plain text, ready to paste
 into an AI chat. header values and address parameters that look like secrets
 are copied as `<hidden>`: `authorization`, `cookie`, `set-cookie` and
 `proxy-authorization`, and any header or parameter with `token`, `secret`,
 `key`, `password`, `auth`, `session`, `signature`, `credential` or `jwt` in its
-name. bodies are copied as they are, so check before you paste. the pane shows
+name. bodies are copied as they are, so check before you paste. the view shows
 all of it as the page set it.
 
 what it records, and what it cannot:
@@ -354,7 +357,7 @@ what it records, and what it cannot:
   its headers is kept as far as it came.
 - the last 300 requests are kept, in memory. nothing is stored, and nothing is
   sent anywhere. a reload starts the log again.
-- it records for as long as devknobs is mounted, the pane open or not, and from
+- it records for as long as devknobs is mounted, the view open or not, and from
   the page's first request with the early script below. there is no fake slow
   or failed response, and no throttling.
 
@@ -434,7 +437,7 @@ screen shows the page loading as Safari does a reload. without devknobs after
 | outlines | on, off | injects one style rule that outlines every element |
 | grab color | auto, blue, green, pink, orange, purple, cyan | the color of grab's boxes and glow, wider on a p3 screen. auto is blue, and green on an element with blue behind it, so the box shows. a picked color stays whatever the page. the frame's grab follows |
 | replay animations | action, `⇧R` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
-| requests | action, `⇧N` | shows the requests the page made, in the pane beside the panel. see requests below |
+| requests | action, `⇧N` | shows the requests the page made, as a view in the panel. see requests below |
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.

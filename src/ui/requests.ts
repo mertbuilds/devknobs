@@ -2,7 +2,7 @@ import { copyText as copyToClipboard } from "../grab/copy";
 import { type RequestEntry, type RequestStore, requestLog } from "../requests";
 import { button, el, field, mark } from "./dom";
 import { glyph } from "./icons";
-import { closePane, openPane, type PaneView, paneView } from "./pane";
+import { closePane, openPane, type PaneView, paneView, retitlePane } from "./pane";
 import { createDetail, type Detail } from "./requestdetail";
 import {
   atTop,
@@ -25,8 +25,10 @@ import {
 } from "./requestformat";
 
 /**
- * The requests view: the page's log in the side pane, a row a request, the
- * newest first, and one request in full in its place when a row is picked.
+ * The requests view: the page's log as a view in the panel, a row a request,
+ * the newest first, and one request in full in its place when a row is
+ * picked. The two are one way in: back from a request is the list, and back
+ * from the list is the panel's rows.
  *
  * A row is built once and then changed in place: the log hands over the rows
  * that are new or changed, and swaps a changed row for a new object, so one
@@ -34,19 +36,24 @@ import {
  * records nothing itself, and listens only while it is on the page.
  */
 
-/** The pane view that lists the requests, and the one that shows one of them. */
+/** The view that lists the requests, and the one that shows one of them. */
 export const REQUESTS_VIEW = "requests";
 export const REQUEST_VIEW = "request";
+
+/** What the head says over one request, and how long the word a copy leaves takes its place, in ms. */
+export const REQUEST_TITLE = "request";
+export const COPIED_SHOWS = 1800;
 
 /** What the list says while it has no rows, and while its filter leaves none. */
 export const NO_REQUESTS = "no requests yet";
 export const NO_MATCH = "no request matches";
 
-/** The side pane, as far as the view drives it. */
+/** The panel's place for a view, as far as the requests drive it. */
 export interface PaneHost {
   open(view: PaneView): void;
   close(): void;
   view(): string | null;
+  retitle(id: string, title: string): void;
 }
 
 /** What the view is made of. The panel gives the live region, the tests the rest. */
@@ -60,7 +67,7 @@ export interface RequestsContext {
 }
 
 export interface Requests {
-  /** Show the requests in the pane, or close the pane where they show. */
+  /** Show the requests in the panel, or go back to its rows where they show. */
   toggle(): void;
 }
 
@@ -116,7 +123,7 @@ function putLead(row: Row, next: Lead): void {
 
 export function createRequests(context: RequestsContext = {}): Requests {
   const log = context.log ?? requestLog;
-  const pane = context.pane ?? { open: openPane, close: closePane, view: paneView };
+  const pane = context.pane ?? { open: openPane, close: closePane, view: paneView, retitle: retitlePane };
   const copy = context.copy ?? copyToClipboard;
 
   // The list is kept between showings, so a way back from a request finds it as it was.
@@ -139,12 +146,11 @@ export function createRequests(context: RequestsContext = {}): Requests {
   let chip: Chip = "all";
   /** The list keeps to its top, where the new rows go in, while it is scrolled there. */
   let stuck = true;
-  /** Where the list was when it last left the pane, if it was not at its top. */
+  /** Where the list was when it last left the view, if it was not at its top. */
   let left: Held | null = null;
-  let filtering = false;
   /** The one row the tab key stops at. */
   let tabbed: Row | null = null;
-  /** The pane's body while the list is in it, and the log it listens to. */
+  /** The view's body while the list is in it, and the log it listens to. */
   let scroller: HTMLElement | null = null;
   let store: RequestStore | null = null;
   /** The row a request was opened from, which gets the focus back. */
@@ -330,12 +336,6 @@ export function createRequests(context: RequestsContext = {}): Requests {
   }
 
   filter.addEventListener("input", refilter);
-  filter.addEventListener("focus", () => {
-    filtering = true;
-  });
-  filter.addEventListener("blur", () => {
-    filtering = false;
-  });
   list.addEventListener("keydown", onKeydown);
   drawChips();
 
@@ -365,14 +365,13 @@ export function createRequests(context: RequestsContext = {}): Requests {
         stop?.();
         body.removeEventListener("scroll", onScroll);
         left = hold();
-        filtering = false;
         scroller = null;
         store = null;
       };
     },
-    // Escape empties a filter that has the focus first, and then closes the pane.
+    // Escape empties the filter first, wherever the focus is, and then goes back to the rows.
     escape(): boolean {
-      if (!filtering || filter.value === "") return false;
+      if (filter.value === "") return false;
       filter.value = "";
       refilter();
       return true;
@@ -391,10 +390,11 @@ export function createRequests(context: RequestsContext = {}): Requests {
     const id = row.entry.id;
     let entry = row.entry;
     let detail: Detail | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     opened = id;
     pane.open({
       id: REQUEST_VIEW,
-      title: "request",
+      title: REQUEST_TITLE,
       actions: [
         {
           label: "copy as text for AI",
@@ -402,15 +402,21 @@ export function createRequests(context: RequestsContext = {}): Requests {
           run(): void {
             void copy(copyText(entry)).then((copied) => {
               const word = copied ? "copied" : "copy failed";
-              detail?.say(word, !copied, copied && !told);
-              if (copied) told = true;
               if (context.said) context.said.textContent = word;
+              // The request left the view while the copy was on its way.
+              if (!detail) return;
+              // The head says how it went, for a moment, in its title's place.
+              clearTimeout(timer);
+              pane.retitle(REQUEST_VIEW, word);
+              timer = setTimeout(() => pane.retitle(REQUEST_VIEW, REQUEST_TITLE), COPIED_SHOWS);
+              if (copied && !told) detail.hides();
+              if (copied) told = true;
             });
           },
         },
       ],
       mount(body: HTMLElement): () => void {
-        const view = createDetail(entry, back);
+        const view = createDetail(entry);
         detail = view;
         body.append(view.node);
         const from = log();
@@ -424,14 +430,12 @@ export function createRequests(context: RequestsContext = {}): Requests {
         });
         return () => {
           stop?.();
-          view.destroy();
+          clearTimeout(timer);
           detail = null;
         };
       },
-      escape(): boolean {
-        back();
-        return true;
-      },
+      // The head's way back and Escape go to the list, and from there to the rows.
+      back,
     });
   }
 

@@ -1,7 +1,7 @@
 import { NativeDate } from "../engine/clock";
 import type { BodyRecord, HeaderList, RequestEntry } from "../requests/types";
-import { button, el, rowBox } from "./dom";
-import { glyph, icon } from "./icons";
+import { button, el } from "./dom";
+import { glyph } from "./icons";
 import {
   bodyNote,
   bodyText,
@@ -15,14 +15,11 @@ import {
 } from "./requestformat";
 
 /**
- * One request in full, in place of the list: a way back, then what is known
- * of it in sections that fold as the panel's rows do. A section is filled
+ * One request in full, in place of the list: what is known of it, in
+ * sections that fold as the panel's rows do. The way back is the view's head. A section is filled
  * when it first opens, so a long body costs nothing until it is asked for,
  * and is drawn again only when what it shows has changed.
  */
-
-/** How long the word a copy leaves stays, in ms. */
-export const COPIED_SHOWS = 1800;
 
 /** What the detail says once, the first time a request is copied. */
 export const HIDES_NOTE =
@@ -173,27 +170,21 @@ export interface Detail {
   update(entry: RequestEntry): void;
   /** The log let the request go: say that what shows will not change again. */
   gone(): void;
-  /** Say how a copy went, for a moment, and with `note` what it left out. */
-  say(text: string, hot: boolean, note: boolean): void;
-  destroy(): void;
+  /** Say what a copy leaves out. */
+  hides(): void;
 }
 
-export function createDetail(entry: RequestEntry, back: () => void): Detail {
+export function createDetail(entry: RequestEntry): Detail {
   const node = el("div", "req-detail");
-  const backButton = button("main", "");
-  backButton.setAttribute("aria-label", "back to requests");
-  backButton.addEventListener("click", back);
-  const copied = el("span", "row-value idle");
   const hides = el("div", "note", HIDES_NOTE);
   hides.hidden = true;
   const left = el("div", "note", GONE_NOTE);
   left.hidden = true;
-  node.append(rowBox(backButton, icon("chevron-left"), "requests", copied), hides, left);
+  node.append(hides, left);
 
   /** The sections the user opened or folded by hand, which then stay so. */
   const chosen = new Map<string, boolean>();
   let now = entry;
-  let timer: ReturnType<typeof setTimeout> | undefined;
 
   function isOpen(section: Section): boolean {
     return chosen.get(section.part.key) ?? section.part.open(now);
@@ -249,17 +240,8 @@ export function createDetail(entry: RequestEntry, back: () => void): Detail {
     gone(): void {
       left.hidden = false;
     },
-    say(text: string, hot: boolean, note: boolean): void {
-      clearTimeout(timer);
-      copied.textContent = text;
-      copied.classList.toggle("hot", hot);
-      if (note) hides.hidden = false;
-      timer = setTimeout(() => {
-        copied.textContent = "";
-      }, COPIED_SHOWS);
-    },
-    destroy(): void {
-      clearTimeout(timer);
+    hides(): void {
+      hides.hidden = false;
     },
   };
 }

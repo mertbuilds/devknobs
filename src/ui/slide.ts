@@ -1,9 +1,10 @@
 /**
- * The panel's two views, the rows and the settings, and the slide between
- * them. The settings push in from the right and push the rows out to the
- * left, and going back pops them off the same way, as a navigation does on
- * iOS. The view that leaves is out of sight by the time it lands. It goes left to right on either side of the
- * window: the order is that of the views, not of the dock.
+ * The panel's views, the rows, a feature's view and the settings, and the
+ * slide between them. They stack in that order: one further up pushes in
+ * from the right and pushes the one under it out to the left, and going back
+ * pops it off the same way, as a navigation does on iOS. The view that
+ * leaves is out of sight by the time it lands. It goes left to right on
+ * either side of the window: the order is that of the views, not of the dock.
  *
  * The stylesheet holds the motion. Each view rests where the view shown puts
  * it, and a view that comes in starts from where it rests while it is away.
@@ -16,8 +17,11 @@
  * have been, where the page held the frames up.
  */
 
-/** The rows view, the search and its results with it, or the settings. */
-export type View = "home" | "keys";
+/** The rows view, the search and its results with it, a feature's view, or the settings. */
+export type View = "home" | "view" | "keys";
+
+/** The views from the bottom of the stack up. */
+const STACK: readonly View[] = ["home", "view", "keys"];
 
 /** How long a slide takes, in ms, as the stylesheet sets it. */
 export const SLIDE = 500;
@@ -27,8 +31,8 @@ const SLIDE_LATE = 500;
 
 /**
  * How a change of view shows: none for the same view, at once where the
- * panel is closed or nothing animates, else a push into the settings or a
- * pop back out of them.
+ * panel is closed or nothing animates, else a push to a view further up the
+ * stack or a pop back to one under it.
  */
 export function slideOf(
   from: View,
@@ -38,7 +42,7 @@ export function slideOf(
 ): "push" | "pop" | "swap" | null {
   if (from === to) return null;
   if (!open || !motion) return "swap";
-  return to === "keys" ? "push" : "pop";
+  return STACK.indexOf(to) > STACK.indexOf(from) ? "push" : "pop";
 }
 
 /**
@@ -61,8 +65,12 @@ export interface Slide {
   destroy(): void;
 }
 
-/** Slide the panes of a body between the views. */
-export function createSlide(body: HTMLElement, panes: Record<View, HTMLElement>): Slide {
+/** Slide the panes of a body between the views. `landed` hears each slide land. */
+export function createSlide(
+  body: HTMLElement,
+  panes: Record<View, HTMLElement>,
+  landed?: () => void,
+): Slide {
   let shown: View = "home";
   let timer = 0;
 
@@ -77,21 +85,23 @@ export function createSlide(body: HTMLElement, panes: Record<View, HTMLElement>)
       pane.style.height = "";
       pane.inert = false;
     }
+    landed?.();
   }
 
   /**
    * Whether the panes animate: the stylesheet times them only while the body
    * slides, and times nothing under reduced motion, where a slide would only
-   * leave both views up for its length.
+   * leave both views up for its length. The body says which view it slides
+   * from, as a feature's view comes in from the side that one is on.
    */
-  function moves(pane: HTMLElement): boolean {
-    body.dataset.slide = "";
+  function moves(pane: HTMLElement, from: View): boolean {
+    body.dataset.slide = from;
     return !getComputedStyle(pane).transitionDuration.split(",").every(isZero);
   }
 
   function show(view: View, open: boolean, apply: () => void): void {
     const from = shown;
-    const step = slideOf(from, view, open, open && view !== from && moves(panes[view]));
+    const step = slideOf(from, view, open, open && view !== from && moves(panes[view], from));
     shown = view;
     if (step === null) {
       apply();

@@ -11,11 +11,11 @@ import { DEFAULT_STATE, merge } from "../src/engine/store";
 import { type Mark, MARK_EVENT } from "../src/engine/touchmark";
 import {
   apply,
-  coverBeside,
   fit,
   label,
   onZoom,
   origin,
+  panelSized,
   reset,
   STRIP,
   sync,
@@ -1975,24 +1975,26 @@ describe("the drawn browser's reload button", () => {
   });
 });
 
-describe("the panel's side pane", () => {
+describe("the panel's width", () => {
   /** How the frame's screen is drawn, as the letterbox scaled it. */
   function drawnScale(): string {
     const screen = everything().find((element) => Reflect.get(element, "className") === "screen");
     return String(Reflect.get(screen?.style ?? {}, "transform"));
   }
 
-  test("counts as part of what an open panel covers, and the frame is fitted beside the two", () => {
+  test("is what an open panel covers, and the frame is fitted beside it again as it changes", () => {
     const box = { width: 1600, height: 800 + STRIP };
     const create = document.createElement;
     const find = document.querySelector;
+    // The host, which is as wide as the panel and its handle.
+    const host = { offsetWidth: PANEL };
     Reflect.set(document, "createElement", (tag: string) => {
       const element = new FakeElement(tag.toUpperCase());
       Object.assign(element, { clientWidth: box.width, clientHeight: box.height });
       return element;
     });
     Reflect.set(document, "querySelector", (selector: string) =>
-      selector === '[data-devknobs="panel"]' ? { offsetWidth: PANEL } : null,
+      selector === '[data-devknobs="panel"]' ? host : null,
     );
     const knobs = { ...KNOBS, width: 1500, panel: { open: true, side: "right" } } as const;
     const beside = (aside: number) => {
@@ -2002,79 +2004,24 @@ describe("the panel's side pane", () => {
     try {
       apply(knobs);
       expect(drawnScale()).toBe(beside(PANEL));
-      coverBeside(339);
-      expect(drawnScale()).toBe(beside(PANEL + 339));
-      expect(beside(PANEL + 339)).not.toBe(beside(PANEL));
-      // A closed panel covers nothing, whatever its pane would.
+      // A view came in: the host is 100 wider at once, and the frame hears of it.
+      host.offsetWidth = PANEL + 100;
+      expect(drawnScale()).toBe(beside(PANEL));
+      panelSized(true);
+      expect(drawnScale()).toBe(beside(PANEL + 100));
+      expect(beside(PANEL + 100)).not.toBe(beside(PANEL));
+      // A closed panel covers nothing, whatever its width.
       apply({ ...knobs, panel: { open: false, side: "right" } });
       expect(drawnScale()).toBe(beside(0));
       apply(knobs);
-      expect(drawnScale()).toBe(beside(PANEL + 339));
-      coverBeside(0);
-      expect(drawnScale()).toBe(beside(PANEL));
+      expect(drawnScale()).toBe(beside(PANEL + 100));
+      // Under the strip it follows with no glide.
+      host.offsetWidth = PANEL + 40;
+      panelSized(false);
+      expect(drawnScale()).toBe(beside(PANEL + 40));
     } finally {
-      coverBeside(0);
       Reflect.set(document, "createElement", create);
       Reflect.set(document, "querySelector", find);
     }
-  });
-
-  /** A letterbox `width` px wide with an open panel beside a frame of 1500, and how often the panel was measured. */
-  function narrow(width: number, run: (beside: (aside: number) => string, measured: () => number) => void): void {
-    const box = { width, height: 800 + STRIP };
-    const create = document.createElement;
-    const find = document.querySelector;
-    let measured = 0;
-    Reflect.set(document, "createElement", (tag: string) => {
-      const element = new FakeElement(tag.toUpperCase());
-      Object.assign(element, { clientWidth: box.width, clientHeight: box.height });
-      return element;
-    });
-    Reflect.set(document, "querySelector", (selector: string) => {
-      if (selector !== '[data-devknobs="panel"]') return null;
-      measured++;
-      return { offsetWidth: PANEL };
-    });
-    const knobs = { ...KNOBS, width: 1500, panel: { open: true, side: "right" } } as const;
-    try {
-      apply(knobs);
-      run(
-        (aside) => {
-          const scale = fit(knobs, box, { aside }).transform;
-          return scale === 1 ? "" : `scale(${scale})`;
-        },
-        () => measured,
-      );
-    } finally {
-      coverBeside(0);
-      Reflect.set(document, "createElement", create);
-      Reflect.set(document, "querySelector", find);
-    }
-  }
-
-  test("in a window where the two cover more than half, the frame still keeps clear of the panel", () => {
-    narrow(1100, (beside) => {
-      // The panel and its pane are 600 of 1100: fit would give up on both, and the frame would sit under the panel.
-      expect(beside(PANEL + 339)).toBe(beside(0));
-      expect(beside(PANEL)).not.toBe(beside(0));
-      expect(drawnScale()).toBe(beside(PANEL));
-      coverBeside(339);
-      expect(drawnScale()).toBe(beside(PANEL));
-      // A pane narrow enough to fit beside is counted again.
-      coverBeside(280);
-      expect(drawnScale()).toBe(beside(PANEL + 280));
-      expect(beside(PANEL + 280)).not.toBe(beside(PANEL));
-    });
-  });
-
-  test("a pane that covers what it covered already moves nothing", () => {
-    narrow(1600, (_beside, measured) => {
-      coverBeside(339);
-      const before = measured();
-      coverBeside(339);
-      expect(measured()).toBe(before);
-      coverBeside(340);
-      expect(measured()).toBeGreaterThan(before);
-    });
   });
 });

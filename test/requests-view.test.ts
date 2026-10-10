@@ -8,9 +8,11 @@ import { GONE_NOTE, HIDES_NOTE } from "../src/ui/requestdetail";
 import { BRANDS } from "../src/ui/icons";
 import { clockTime, copyText, LIGHT_WHY, LONG_BODY } from "../src/ui/requestformat";
 import {
+  COPIED_SHOWS,
   createRequests,
   NO_MATCH,
   NO_REQUESTS,
+  REQUEST_TITLE,
   REQUEST_VIEW,
   type Requests,
   REQUESTS_VIEW,
@@ -163,7 +165,7 @@ describe("the action and its key", () => {
     expect(keyAction(press({ altKey: true, code: "KeyN" }), keys)).toBe("requests");
   });
 
-  test("the action shows the requests, and closes the pane where they show", () => {
+  test("the action shows the requests, and goes back to the rows where they show", () => {
     const at = scene();
     at.requests.toggle();
     expect(at.pane.view()).toBe(REQUESTS_VIEW);
@@ -172,7 +174,7 @@ describe("the action and its key", () => {
     expect(at.pane.view()).toBeNull();
   });
 
-  test("it closes the pane from a request's detail too", () => {
+  test("it goes back to the rows from a request's detail too, in one step", () => {
     const at = scene();
     at.add(10);
     at.requests.toggle();
@@ -388,7 +390,7 @@ describe("the list", () => {
     expect(at.pane.body.one("req-count").textContent).toBe("0");
   });
 
-  test("clear in the pane's head empties the log, and the list at once", () => {
+  test("clear in the view's head empties the log, and the list at once", () => {
     const at = scene();
     at.add(10);
     at.requests.toggle();
@@ -417,7 +419,7 @@ describe("the list", () => {
     expect(names(at).at(-1)).toBe("item-5");
   });
 
-  test("comes back as it was, rows and all, after the pane closed", () => {
+  test("comes back as it was, rows and all, after the view closed", () => {
     const at = scene();
     at.add(10);
     at.requests.toggle();
@@ -660,24 +662,54 @@ describe("the keys in the list", () => {
     expect(first?.fire("keydown", { key: "a" }).prevented).toBe(false);
   });
 
-  test("escape empties a filter that has the focus, and only then closes the pane", () => {
+  test("escape empties the filter first, and only then goes back to the rows", () => {
     const at = three();
     type(at, "other");
-    at.pane.body.one("req-filter").focus();
+    const filter = at.pane.body.one("req-filter");
+    filter.focus();
     at.pane.escape();
     expect(at.pane.view()).toBe(REQUESTS_VIEW);
-    expect(at.pane.body.one("req-filter").value).toBe("");
+    expect(filter.value).toBe("");
     expect(names(at).length).toBe(3);
+    // The filter keeps the focus, to be typed in again.
+    expect(focused()).toBe(filter);
     at.pane.escape();
     expect(at.pane.view()).toBeNull();
   });
 
-  test("escape from a row closes the pane, filter or not", () => {
+  test("it empties the filter wherever the focus is, as the panel asks the view whenever it shows", () => {
     const at = three();
+    type(at, "item-10");
+    expect(names(at)).toEqual(["item-10"]);
+    at.rows()[2]?.focus();
+    at.pane.escape();
+    expect(at.pane.view()).toBe(REQUESTS_VIEW);
+    expect(names(at).length).toBe(3);
     type(at, "item");
-    at.rows()[0]?.focus();
+    // The focus is the page's.
+    at.rows()[2]?.fire("blur");
+    at.pane.escape();
+    expect(at.pane.view()).toBe(REQUESTS_VIEW);
+    expect(at.pane.body.one("req-filter").value).toBe("");
     at.pane.escape();
     expect(at.pane.view()).toBeNull();
+  });
+
+  test("with no filter set, escape goes back at once, from the filter's field too", () => {
+    const at = three();
+    at.pane.body.one("req-filter").focus();
+    at.pane.escape();
+    expect(at.pane.view()).toBeNull();
+  });
+
+  test("the head's way back leaves a filter as it is, for the next time the list shows", () => {
+    const at = three();
+    type(at, "item-10");
+    at.pane.back();
+    expect(at.pane.view()).toBeNull();
+    at.requests.toggle();
+    expect(at.pane.body.one("req-filter").value).toBe("item-10");
+    expect(names(at)).toEqual(["item-10"]);
   });
 });
 
@@ -829,7 +861,7 @@ describe("the detail", () => {
     expect(at.pane.view()).toBeNull();
   });
 
-  test("the back control goes back too, and the list is where it was", () => {
+  test("the head's way back goes back too, and the list is where it was", () => {
     const at = scene();
     for (let index = 0; index < 10; index++) at.add(index);
     at.pane.body.scrollHeight = 500;
@@ -837,9 +869,7 @@ describe("the detail", () => {
     at.pane.body.scrollTop = 120;
     at.pane.body.fire("scroll");
     at.rows()[3]?.click();
-    const back = at.pane.body.one("req-detail").one("main");
-    expect(back.getAttribute("aria-label")).toBe("back to requests");
-    back.click();
+    at.pane.back();
     expect(at.pane.view()).toBe(REQUESTS_VIEW);
     expect(at.pane.body.scrollTop).toBe(120);
   });
@@ -856,7 +886,7 @@ describe("the detail", () => {
     at.add(100);
     at.add(110);
     at.pane.body.scrollHeight = 500 + 2 * ROW_PITCH;
-    at.pane.body.one("req-detail").one("main").click();
+    at.pane.back();
     expect(at.rows()[7]).toBe(row);
     expect(focused()).toBe(row ?? null);
     // The row is as far from the top of the box as it was.
@@ -941,10 +971,10 @@ describe("copy", () => {
     expect(at.copies).toEqual([copyText(entry)]);
     expect(at.copies[0]).toContain("Authorization: <hidden>");
     expect(at.copies[0]).not.toContain("Bearer abc");
-    expect(at.pane.body.one("req-detail").one("row-value").textContent).toBe("copied");
+    expect(at.pane.title()).toBe("copied");
     expect(at.said.textContent).toBe("copied");
     expect(note()?.hidden).toBe(false);
-    // The pane shows the headers as the page set them.
+    // The view shows the headers as the page set them.
     expect(section(at, "request headers").one("req-inner").textContent).toContain("Bearer abc");
     at.pane.escape();
     at.rows()[0]?.click();
@@ -959,21 +989,95 @@ describe("copy", () => {
     at.add(10);
     at.requests.toggle();
     at.rows()[0]?.click();
-    const word = () => at.pane.body.one("req-detail").one("row-value");
     const note = () => at.pane.body.find("note").find((node) => node.textContent === HIDES_NOTE);
     at.copying.works = false;
     at.pane.act("copy as text for AI");
     await Promise.resolve();
-    expect(word().textContent).toBe("copy failed");
-    expect(word().classList.contains("hot")).toBe(true);
+    expect(at.pane.title()).toBe("copy failed");
+    expect(at.said.textContent).toBe("copy failed");
     expect(note()?.hidden).toBe(true);
     at.copying.works = true;
     at.pane.act("copy as text for AI");
     await Promise.resolve();
-    expect(word().textContent).toBe("copied");
-    expect(word().classList.contains("hot")).toBe(false);
+    expect(at.pane.title()).toBe("copied");
     expect(note()?.hidden).toBe(false);
     at.pane.close();
+  });
+
+  /** Run with the clock's timers held: what waits, by its delay, and the way to let one run. */
+  async function held(run: (waits: () => number[], fire: () => void) => Promise<void>): Promise<void> {
+    const real = { set: globalThis.setTimeout, clear: globalThis.clearTimeout };
+    let pending: { id: number; ms: number; run: () => void }[] = [];
+    let last = 0;
+    Reflect.set(globalThis, "setTimeout", (callback: () => void, ms: number) => {
+      pending.push({ id: ++last, ms, run: callback });
+      return last;
+    });
+    Reflect.set(globalThis, "clearTimeout", (id: number) => {
+      pending = pending.filter((each) => each.id !== id);
+    });
+    try {
+      await run(
+        () => pending.map((each) => each.ms),
+        () => pending.shift()?.run(),
+      );
+    } finally {
+      Reflect.set(globalThis, "setTimeout", real.set);
+      Reflect.set(globalThis, "clearTimeout", real.clear);
+    }
+  }
+
+  test("the head says how it went for a moment, in its title's place, and then its title again", async () => {
+    await held(async (waits, fire) => {
+      const at = scene();
+      at.add(10);
+      at.requests.toggle();
+      at.rows()[0]?.click();
+      expect(at.pane.title()).toBe(REQUEST_TITLE);
+      at.pane.act("copy as text for AI");
+      await Promise.resolve();
+      expect(at.pane.title()).toBe("copied");
+      // A second copy starts the moment again: one timer waits, not two.
+      at.pane.act("copy as text for AI");
+      await Promise.resolve();
+      expect(waits()).toEqual([COPIED_SHOWS]);
+      fire();
+      expect(at.pane.title()).toBe(REQUEST_TITLE);
+      expect(at.pane.view()).toBe(REQUEST_VIEW);
+    });
+  });
+
+  test("the word does not outlive its request: back takes the timer, and the list keeps its title", async () => {
+    await held(async (waits) => {
+      const at = scene();
+      at.add(10);
+      at.requests.toggle();
+      at.rows()[0]?.click();
+      at.pane.act("copy as text for AI");
+      await Promise.resolve();
+      expect(waits().length).toBe(1);
+      at.pane.back();
+      expect(waits()).toEqual([]);
+      expect(at.pane.title()).toBe("requests");
+    });
+  });
+
+  test("a copy that lands after its request left says nothing in the head", async () => {
+    await held(async (waits) => {
+      const at = scene();
+      at.add(10);
+      at.add(20);
+      at.requests.toggle();
+      at.rows()[0]?.click();
+      at.pane.act("copy as text for AI");
+      at.pane.back();
+      at.rows()[1]?.click();
+      await Promise.resolve();
+      expect(at.pane.title()).toBe(REQUEST_TITLE);
+      expect(waits()).toEqual([]);
+      expect(at.said.textContent).toBe("copied");
+      at.pane.close();
+    });
   });
 
   test("copies the request as it is now, not as it was when it opened", async () => {
@@ -990,8 +1094,121 @@ describe("copy", () => {
   });
 });
 
+describe("the way back", () => {
+  /** Two requests in the list, which a control of the panel opened. */
+  function opened(): { at: Scene; trigger: FakeNode } {
+    const at = scene();
+    at.add(10);
+    at.add(20);
+    const trigger = fake(document.createElement("button"));
+    trigger.focus();
+    at.requests.toggle();
+    return { at, trigger };
+  }
+
+  test("is one control at a time, in the head: over the list, and over a request", () => {
+    const { at } = opened();
+    expect(at.pane.ways().map((way) => way.getAttribute("aria-label"))).toEqual(["back from requests"]);
+    expect(at.pane.title()).toBe("requests");
+    at.rows()[0]?.click();
+    expect(at.pane.ways().map((way) => way.getAttribute("aria-label"))).toEqual(["back from request"]);
+    expect(at.pane.title()).toBe(REQUEST_TITLE);
+    // The detail has no way back of its own: every button in it folds a section.
+    const inBody = at.pane.body.find("main");
+    expect(inBody.length).toBe(6);
+    for (const each of inBody) expect(each.getAttribute("aria-expanded")).not.toBeNull();
+    at.pane.back();
+    expect(at.pane.ways().map((way) => way.getAttribute("aria-label"))).toEqual(["back from requests"]);
+  });
+
+  test("from a request it is the list, and from the list the panel's rows", () => {
+    const { at, trigger } = opened();
+    const [first] = at.rows();
+    first?.click();
+    expect(focused()).toBe(at.pane.ways()[0] ?? null);
+    at.pane.back();
+    expect(at.pane.view()).toBe(REQUESTS_VIEW);
+    expect(at.rows()[0]).toBe(first);
+    expect(focused()).toBe(first ?? null);
+    at.pane.back();
+    expect(at.pane.view()).toBeNull();
+    // The focus is back on what opened the list, not on what opened the request.
+    expect(focused()).toBe(trigger);
+  });
+
+  test("escape takes the same steps: the request, the list's filter, the list", () => {
+    const { at, trigger } = opened();
+    type(at, "item");
+    at.rows()[1]?.click();
+    const steps: [string | null, string][] = [];
+    for (let step = 0; step < 3; step++) {
+      at.pane.escape();
+      steps.push([at.pane.view(), at.pane.body.find("req-filter")[0]?.value ?? ""]);
+    }
+    expect(steps).toEqual([
+      [REQUESTS_VIEW, "item"],
+      [REQUESTS_VIEW, ""],
+      [null, ""],
+    ]);
+    expect(focused()).toBe(trigger);
+    // With no view, escape is not the view's any more.
+    at.pane.escape();
+    expect(at.pane.view()).toBeNull();
+  });
+
+  test("back from a request the log let go leaves the focus on the head, as its row is gone", () => {
+    const { at } = opened();
+    at.rows()[1]?.click();
+    at.store.clear();
+    at.timer.run();
+    at.pane.back();
+    expect(at.pane.view()).toBe(REQUESTS_VIEW);
+    expect(at.rows()).toEqual([]);
+    expect(focused()).toBe(at.pane.ways()[0] ?? null);
+  });
+
+  test("each step cleans up the view it leaves, once, and the body is empty after the last", () => {
+    const { at } = opened();
+    expect([at.pane.mounts, at.pane.cleanups]).toEqual([1, 0]);
+    at.rows()[0]?.click();
+    expect([at.pane.mounts, at.pane.cleanups]).toEqual([2, 1]);
+    expect(at.pane.body.find("req-bar")).toEqual([]);
+    at.pane.back();
+    expect([at.pane.mounts, at.pane.cleanups]).toEqual([3, 2]);
+    expect(at.pane.body.find("req-detail")).toEqual([]);
+    at.pane.back();
+    expect([at.pane.mounts, at.pane.cleanups]).toEqual([3, 3]);
+    expect(at.pane.body.children).toEqual([]);
+    // Nothing listens to the log any more.
+    at.add(30);
+    expect(at.timer.waiting()).toBe(0);
+  });
+
+  test("the view opened again starts at the list, never at the request it last showed", () => {
+    const { at } = opened();
+    at.rows()[0]?.click();
+    at.requests.toggle();
+    expect(at.pane.view()).toBeNull();
+    expect(at.pane.body.children).toEqual([]);
+    at.requests.toggle();
+    expect(at.pane.view()).toBe(REQUESTS_VIEW);
+    expect(at.rows().length).toBe(2);
+  });
+
+  test("the head's actions are the view's own, with their tooltips: clear over the list, copy over a request", () => {
+    const { at } = opened();
+    const labels = () => at.pane.node.find("view-action").map((each) => each.getAttribute("aria-label"));
+    expect(labels()).toEqual(["clear"]);
+    at.rows()[0]?.click();
+    expect(labels()).toEqual(["copy as text for AI"]);
+    at.pane.back();
+    expect(labels()).toEqual(["clear"]);
+    expect(at.pane.tipped).toEqual(["clear", "copy as text for AI", "clear"]);
+  });
+});
+
 describe("listening", () => {
-  test("the list listens while it shows, and stops when the pane closes", () => {
+  test("the list listens while it shows, and stops when the view closes", () => {
     const at = scene();
     at.add(10);
     expect(at.timer.waiting()).toBe(0);

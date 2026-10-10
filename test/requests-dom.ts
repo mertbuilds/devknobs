@@ -1,5 +1,6 @@
-import type { PaneView } from "../src/ui/pane";
+import { createPane, type PaneView } from "../src/ui/pane";
 import type { PaneHost } from "../src/ui/requests";
+import type { Tips } from "../src/ui/tooltip";
 
 type Listener = (event: FakeEvent) => void;
 
@@ -34,6 +35,8 @@ export class FakeNode {
   inert = false;
   scrollHeight = 0;
   clientHeight = 0;
+  isConnected = true;
+  shadowRoot = null;
   parent: FakeNode | null = null;
   children: (FakeNode | string)[] = [];
   attributes = new Map<string, string>();
@@ -51,6 +54,15 @@ export class FakeNode {
   set scrollTop(value: number) {
     this.top = Math.max(0, Math.min(value, Math.max(0, this.scrollHeight - this.clientHeight)));
     this.scrolls++;
+  }
+
+  /** It takes room on the page, so it can take the focus. */
+  getClientRects(): unknown[] {
+    return [{}];
+  }
+
+  contains(node: FakeNode): boolean {
+    return node === this || this.nodes().some((child) => child.contains(node));
   }
 
   /** Where the node is under its parent: after the ones before it that show. */
@@ -190,71 +202,115 @@ export function fakeDocument(): void {
     value: {
       createElement: (tag: string) => new FakeNode(tag),
       createElementNS: (_namespace: string, tag: string) => new FakeNode(tag),
+      get activeElement(): FakeNode | null {
+        return active;
+      },
     },
   });
+  Object.defineProperty(globalThis, "HTMLElement", { configurable: true, value: FakeNode });
 }
 
 export function leaveDocument(): void {
   Reflect.deleteProperty(globalThis, "document");
+  Reflect.deleteProperty(globalThis, "HTMLElement");
 }
 
 /**
- * The side pane, as far as a view can tell: one view at a time, in a body
- * that scrolls. It is built in the fake document, so that comes first.
+ * The panel's own place for a view, in a panel that draws nothing: one view
+ * at a time, under a head with the way back, in a body that scrolls. It is
+ * built in the fake document, so that comes first.
  */
 export interface FakePane extends PaneHost {
+  /** The whole view: its head and its body. */
+  node: FakeNode;
   body: FakeNode;
+  /** What the panel gives the focus to when what opened the view is gone. */
+  home: FakeNode;
   shown(): PaneView | null;
+  /** What the head says. */
+  title(): string;
+  /** Every way back that shows, in the head and in the body. */
+  ways(): FakeNode[];
+  /** Press the head's way back. */
+  back(): void;
   /** Press the head's button with this label. */
   act(label: string): void;
-  /** Escape with the focus in the pane, as the pane hands it to the view. */
+  /** Escape, as the panel hands it to the view. */
   escape(): void;
   /** How often a view was mounted and cleaned up. */
   mounts: number;
   cleanups: number;
+  /** What the head's buttons say in their tooltips, in order. */
+  tipped: string[];
 }
 
 export function fakePane(): FakePane {
-  const node = document.createElement("div");
-  const body = fake(node);
+  const home = document.createElement("button");
+  const tipped: string[] = [];
+  const tips: Tips = {
+    show: () => {},
+    hide: () => false,
+    hideAfter: () => {},
+    isFor: () => false,
+    tooltip: (_node, text) => {
+      tipped.push(text);
+    },
+    destroy: () => {},
+  };
+  const real = createPane({
+    root: {
+      get activeElement() {
+        return document.activeElement;
+      },
+    },
+    home,
+    tips,
+    openPanel: () => {},
+    uncover: () => {},
+    render: () => {},
+  });
+  const node = fake(real.node);
+  const head = node.one("view-head");
+  const body = node.one("view-body");
   body.clientHeight = 100;
   let shown: PaneView | null = null;
-  let cleanup: (() => void) | null = null;
-  const unmount = () => {
-    const done = cleanup;
-    cleanup = null;
-    shown = null;
-    if (done) {
-      pane.cleanups++;
-      done();
-    }
-  };
   const pane: FakePane = {
+    node,
     body,
+    home: fake(home),
     mounts: 0,
     cleanups: 0,
+    tipped,
     shown: () => shown,
-    view: () => shown?.id ?? null,
+    view: real.view,
+    close: real.close,
+    retitle: real.retitle,
+    escape: real.escape,
     open(view) {
-      if (shown?.id === view.id) return;
-      unmount();
-      body.replaceChildren();
-      body.scrollTop = 0;
-      shown = view;
-      pane.mounts++;
-      const made = view.mount(node);
-      cleanup = typeof made === "function" ? made : null;
+      real.open({
+        ...view,
+        mount(into) {
+          pane.mounts++;
+          shown = view;
+          const made = view.mount(into);
+          return () => {
+            pane.cleanups++;
+            if (shown === view) shown = null;
+            if (typeof made === "function") made();
+          };
+        },
+      });
     },
-    close() {
-      unmount();
+    title: () => head.one("row-label").textContent,
+    ways: () =>
+      node.find("main").filter((each) => (each.getAttribute("aria-label") ?? "").startsWith("back")),
+    back() {
+      head.one("main").click();
     },
     act(label) {
-      const action = shown?.actions?.find((each) => each.label === label);
-      if (!action) throw new Error(`no action ${label}`);
-      action.run();
-    },
-    escape() {
-      if (shown?.escape?.() !== true) pane.close();
+      const control = head.find("view-action").find((each) => each.getAttribute("aria-label") === label);
+      if (!control) throw new Error(`no action ${label}`);
+      control.click();
     },
   };
   return pane;
