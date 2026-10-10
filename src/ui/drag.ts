@@ -13,6 +13,7 @@ import {
   GLIDE,
   glideTime,
   landSide,
+  otherSide,
   type Anchor,
   type Place,
   type Room,
@@ -26,7 +27,8 @@ import {
  * Where the handle and the panel show on the page, and the drag that moves
  * them: a press on the handle that travels drags, a fling throws the panel to
  * the other side, and what was dragged glides to where it lands. A pinned
- * panel is a column down its side, which a drag only takes to the other one.
+ * panel is a column down its side with no handle while it is open: its edge
+ * changes its width, and a control in it takes it to the other side.
  */
 
 /** What the drag needs from the panel. */
@@ -40,8 +42,6 @@ export interface DragContext {
   render(): void;
   /** Open or close the panel, as a click on the handle does. */
   toggle(): void;
-  /** The panel was put at a place, on a drag's every move too. */
-  placed?(at: Pick<Place, "y" | "top">): void;
 }
 
 export interface Drag {
@@ -52,6 +52,8 @@ export interface Drag {
   layout(anchor?: Anchor): void;
   /** Whether the handle is being dragged. */
   dragging(): boolean;
+  /** Take the panel to the other side of the window, and glide it there. */
+  flip(): void;
   /** End a drag the window took away, back where it came from. */
   cancel(): void;
 }
@@ -78,18 +80,15 @@ export function createDrag(context: DragContext): Drag {
 
   /**
    * Make a change to the wrapper show at once, with no transition. A slide
-   * that was running stops where the change puts it. The handle goes with it,
-   * as it rides the side pane's far edge by a transform of its own.
+   * that was running stops where the change puts it.
    */
   function jump(change: () => void): void {
     const was = wrap.style.transitionProperty;
     wrap.style.transitionProperty = "none";
-    handle.style.transitionProperty = "none";
     change();
     // Read the style back, so the change is in before the transitions return.
     wrap.getBoundingClientRect();
     wrap.style.transitionProperty = was;
-    handle.style.transitionProperty = "";
   }
 
   /**
@@ -121,14 +120,13 @@ export function createDrag(context: DragContext): Drag {
     wrap.dataset.tab = open ? at.tab : cornerAt(at.y, shownTop, measure());
     host.style.top = `${at.y}px`;
     panel.style.marginTop = `${shownTop - at.y}px`;
-    context.placed?.({ y: at.y, top: shownTop });
   }
 
   /**
    * Put a pinned panel where it goes: a column from the window's top to its
-   * bottom, whatever its place says. Open, its handle is a strip down the
-   * column's edge, and the host starts at the window's top. Closed, the
-   * handle shows where it was put, and the column slides away from under it.
+   * bottom, whatever its place says. Open, it shows no handle, and the host
+   * starts at the window's top. Closed, the handle shows where it was put,
+   * and the column slides away from under it.
    */
   function placeColumn(at: Place, open: boolean): void {
     const room = { view: window.innerHeight, handle: handle.getBoundingClientRect().height };
@@ -136,7 +134,6 @@ export function createDrag(context: DragContext): Drag {
     wrap.dataset.tab = "none";
     host.style.top = `${y}px`;
     panel.style.marginTop = `${-y}px`;
-    context.placed?.({ y, top: 0 });
   }
 
   /** Does nothing here move, as under reduced motion? The stylesheet says. */
@@ -240,6 +237,8 @@ export function createDrag(context: DragContext): Drag {
     const tab = handle.getBoundingClientRect();
     if (!open) return { left: tab.left, top: tab.top, width: tab.width };
     const box = panel.getBoundingClientRect();
+    // A pinned panel that is out shows no handle.
+    if (tab.width === 0) return { left: box.left, top: box.top, width: box.width };
     const left = Math.min(tab.left, box.left);
     return { left, top: Math.min(tab.top, box.top), width: Math.max(tab.right, box.right) - left };
   }
@@ -295,10 +294,10 @@ export function createDrag(context: DragContext): Drag {
     }
     dragged = true;
     // The panel and the handle move as one, and shift lets the handle go
-    // alone, halfway through a drag too, from where it shows. A pinned
-    // panel's handle is its edge, with nowhere to go along it.
+    // alone, halfway through a drag too, from where it shows. A pinned panel
+    // shows its handle only while it is closed.
     const { open, side, docked } = engine.getState().panel;
-    const target = dragTarget(event.shiftKey && !docked, open);
+    const target = dragTarget(event.shiftKey, open);
     wrap.dataset.drag = target;
     if (target !== moving) {
       moving = target;
@@ -307,9 +306,10 @@ export function createDrag(context: DragContext): Drag {
     }
     loose += step;
     // Not through the store: a pointermove is no reason to re-apply every knob.
-    // An open column stays put up and down, and a closed one's handle moves alone.
-    if (!docked) dragAt = dragTo(target, open, loose, dragFrom, measure());
-    else if (!open) dragAt = dragDocked(loose, dragFrom, measure());
+    // A closed column's handle moves alone, along the window's edge.
+    dragAt = docked
+      ? dragDocked(loose, dragFrom, measure())
+      : dragTo(target, open, loose, dragFrom, measure());
     placePanel(dragAt, open, side);
     // Across, what shows follows the pointer as far as the window goes. A
     // shift drag slides the handle along the panel and nowhere else.
@@ -414,6 +414,12 @@ export function createDrag(context: DragContext): Drag {
   return {
     layout,
     dragging: () => dragging,
+    flip(): void {
+      if (dragging) return;
+      land({ side: otherSide(engine.getState().panel.side) });
+      // A move the user makes, kept for new tabs.
+      engine.keepPlace();
+    },
     cancel(): void {
       if (!dragging) return;
       endDrag(null);

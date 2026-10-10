@@ -18,6 +18,25 @@ import type { Slide } from "./slide";
  * action. Picking an entry sets a value or adds and opens a knob's row.
  */
 
+/** What the panel's body shows, as the wrapper's `data-mode` says it. */
+export type Mode = "rows" | "results" | "browse" | "view" | "keys";
+
+/**
+ * What the body shows: the settings over everything, then a feature's view
+ * over the rows, then the search with a query or without one, and the rows
+ * with none of them.
+ */
+export function modeOf(scene: {
+  keys: boolean;
+  view: boolean;
+  query: boolean;
+  browsing: boolean;
+}): Mode {
+  if (scene.keys) return "keys";
+  if (scene.view) return "view";
+  return scene.query ? "results" : scene.browsing ? "browse" : "rows";
+}
+
 /** A line of the results or the browse list, and what picking it does. */
 interface Entry {
   node: HTMLElement;
@@ -43,8 +62,12 @@ export interface PaletteContext {
   render(): void;
   /** Whether the settings show in place of the rows. */
   editingKeys(): boolean;
-  /** Stop recording a key and leave the settings, without drawing anything. */
+  /** Whether a feature's view shows in place of the rows. */
+  viewing(): boolean;
+  /** Stop recording a key, and leave the settings and a feature's view, without drawing anything. */
   dropKeys(): void;
+  /** Take the panel to the other side of the window. */
+  flipSide(): void;
 }
 
 export interface Palette {
@@ -158,11 +181,16 @@ export function createPalette(context: PaletteContext): Palette {
     return { nodes, list };
   }
 
-  /** Show the active rows, the results of a query, or every knob to browse. */
+  /** Show what `modeOf` says: the rows, the search, a feature's view or the settings. */
   function renderBody(state: DevknobsState): void {
     const query = searchInput.value.trim();
-    const mode = context.editingKeys() ? "keys" : query ? "results" : browsing ? "browse" : "rows";
-    slide.show(mode === "keys" ? "keys" : "home", state.panel.open, () => {
+    const mode = modeOf({
+      keys: context.editingKeys(),
+      view: context.viewing(),
+      query: query !== "",
+      browsing,
+    });
+    slide.show(mode === "keys" || mode === "view" ? mode : "home", state.panel.open, () => {
       wrap.dataset.mode = mode;
     });
     searchInput.setAttribute("aria-expanded", mode === "rows" ? "false" : "true");
@@ -202,6 +230,11 @@ export function createPalette(context: PaletteContext): Palette {
     if (id === "pin") {
       leaveSearch();
       togglePin();
+      return;
+    }
+    if (id === "side") {
+      leaveSearch();
+      context.flipSide();
       return;
     }
     grab?.set(true);

@@ -4,7 +4,7 @@ import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { isMac } from "../engine/ua";
 import { setDockWidth } from "../engine/dock";
-import { coverBeside, frameWindow, zoomKey } from "../engine/width";
+import { frameWindow, panelSized, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
 import type { DevknobsState } from "../types";
 import { ACTIONS, type Live } from "./catalog";
@@ -14,6 +14,7 @@ import { createDrag } from "./drag";
 import { type Command, createFooter, overflowBadge } from "./footer";
 import { icon } from "./icons";
 import {
+  comboLabel,
   comboSpoken,
   escapeStep,
   isSearchKey,
@@ -25,10 +26,11 @@ import {
 import { isReset } from "./list";
 import { createPalette } from "./palette";
 import { createPane } from "./pane";
-import { pinTip, togglePin } from "./pin";
+import { collapseTip, pinTip, SIDE_WORD, togglePin } from "./pin";
 import { createPrefs } from "./prefs";
 import { createRows } from "./rows";
 import { createSettings } from "./settings";
+import { createSizer } from "./size";
 import { createSlide } from "./slide";
 import { CSS } from "./styles";
 import { createTips } from "./tooltip";
@@ -64,17 +66,16 @@ export interface Panel {
  */
 export const HOST_STYLE = "position:fixed;top:0;z-index:2147483646;pointer-events:none";
 
-/** What the handle says it does: as the tab of a floating panel, or as the edge of a pinned one. */
-export const HANDLE_TITLE = "drag to move · shift-drag moves the handle";
-export const EDGE_TITLE = "click to close · drag across to move to the other side";
-
 /**
  * Build the panel, put it on the page and keep it in step with the engine. The
  * host carries an open shadow root, so the page cannot style the panel and the
  * panel cannot style the page.
  *
  * The pin in the footer docks the panel to its side as a column the window's
- * height, and the engine puts the page in a frame beside it.
+ * height, as wide as the panel is, and the engine puts the page in a frame
+ * beside it. Open, the column has no handle: its edge changes its width as a
+ * floating panel's does, and two controls by the pin take it to the other
+ * side and close it.
  *
  * The panel lists the knobs that are off their default or were set from it,
  * one row each, in the order they were added or dragged to, and a row opens
@@ -101,7 +102,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const wrap = el("div", "wrap");
   const handle = button("handle", "knobs");
-  handle.title = HANDLE_TITLE;
+  handle.title = "drag to move · shift-drag moves the handle";
   const panel = el("div", "panel");
 
   // A label, so a click anywhere around the field lands in it.
@@ -138,12 +139,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const said = el("div", "said");
   said.setAttribute("aria-live", "polite");
 
-  // The rows view, which the settings slide in over.
+  // The rows view, which the settings and a feature's view slide in over.
   const home = el("div", "home pane");
   home.append(rows, empty, add, head, results);
 
   const footer = createFooter(keys, grab, mac);
-  const { foot, badge, hints, keysToggle, pin } = footer;
+  const { foot, badge, hints, keysToggle, pin, flip, collapse } = footer;
   // The tooltip the icon-only controls share. Their aria-label already says
   // the same, so assistive tech is not told twice.
   const tip = el("div", "tip");
@@ -156,6 +157,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
       document.documentElement.clientWidth || window.innerWidth,
     ),
   );
+  flip.addEventListener("click", () => drag.flip());
+  tips.tooltip(flip, SIDE_WORD);
+  collapse.addEventListener("click", () => toggle(false));
+  tips.tooltip(collapse, () => collapseTip(comboLabel(keys.get().panel, mac)));
 
   const settings = createSettings({
     keys,
@@ -171,24 +176,43 @@ export function createPanel(options: PanelOptions = {}): Panel {
     searching: () => palette.searching(),
     leaveSearch: () => palette.leaveSearch(),
   });
-  body.append(home, settings.view, said);
-  const slide = createSlide(body, { home, keys: settings.view });
-
-  // The side pane, between the handle and the panel as the tab key goes.
+  // A feature's view, which takes the place of the rows as the settings do.
   const side = createPane({
-    wrap,
     root,
-    handle,
     home: add,
     tips,
     openPanel: () => {
       if (!engine.getState().panel.open) toggle(true);
     },
-    cover: coverBeside,
+    uncover: () => {
+      palette.clear();
+      settings.stopRecording();
+      settings.setEditing(false);
+    },
+    render,
+  });
+  // The settings come after the view, so they ride over it as they slide.
+  body.append(home, side.node, settings.view, said);
+  const slide = createSlide(body, { home, view: side.node, keys: settings.view }, side.landed);
+
+  /** A view shows unless the settings are over it. */
+  const viewing = (): boolean => side.view() !== null && !settings.editing();
+  const sizer = createSizer({
+    host,
+    wrap,
+    panel,
+    prefs,
+    showing: () => (viewing() ? "view" : "list"),
+    place: () => engine.getState().panel,
+    // The frame gives a pinned panel's column the width the panel has or glides to.
+    wide: setDockWidth,
+    sized: panelSized,
   });
 
-  panel.append(body, foot, tip);
-  wrap.append(handle, side.node, panel);
+  // The strip comes last, so the tab key reaches it after all the panel holds.
+  // The tooltip sits in the wrapper it is placed in, as the panel places the strip.
+  panel.append(body, foot, sizer.strip);
+  wrap.append(handle, panel, tip);
   root.append(style, wrap);
 
   const knobRows = createRows({ root, rows, said, render, dragging: () => drag.dragging() });
@@ -205,12 +229,15 @@ export function createPanel(options: PanelOptions = {}): Panel {
     actionsHere,
     render,
     editingKeys: () => settings.editing(),
+    viewing,
     dropKeys: () => {
       settings.stopRecording();
       settings.setEditing(false);
+      side.drop();
     },
+    flipSide: () => drag.flip(),
   });
-  const drag = createDrag({ host, wrap, handle, panel, render, toggle, placed: side.place });
+  const drag = createDrag({ host, wrap, handle, panel, render, toggle });
   const { layout } = drag;
 
   /** What the copy inside the width knob's frame last counted, null until it says. */
@@ -230,10 +257,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     wrap.dataset.handle = handleShown ? "shown" : "hidden";
     settings.drawHandle(handleShown);
     panel.toggleAttribute("inert", !open);
-    side.render(open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
-    // Pinned and open, the handle is the column's edge.
-    handle.title = open && state.panel.docked ? EDGE_TITLE : HANDLE_TITLE;
     footer.drawPin(state.panel.docked);
     const live = liveOf(state);
     const anyShown = knobRows.renderRows(state, live);
@@ -246,7 +270,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     badge.textContent = overflowBadge(state.overflow, live.overflow);
     badge.hidden = badge.textContent === "";
     badge.classList.toggle("hot", hot);
-    palette.renderBody(state);
+    // The view is drawn at the width the panel glides to, so its height holds.
+    sizer.size(() => palette.renderBody(state));
     renderKeys();
     layout();
   }
@@ -273,7 +298,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /**
    * Open or close the panel. Opened, it shows by the time the store has
    * rendered, and the add knob button takes the focus, where typing a knob's
-   * name opens the search with it. Closed, it keeps no focus, so the next
+   * name opens the search with it, or the head of a feature's view where one
+   * was left open. Closed, it keeps no focus, so the next
    * keys go to the page, to what had them before it opened when that is
    * still there. Says whether the focus moved, so the key that did it is not
    * typed where the focus went.
@@ -307,7 +333,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
     engine.setState({ panel: { open: next } });
     if (!next || was) return moved;
-    add.focus({ preventScroll: true });
+    if (!side.focus()) add.focus({ preventScroll: true });
     return true;
   }
 
@@ -332,6 +358,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     settings.stopRecording();
     knobRows.endReorder(false);
     drag.cancel();
+    sizer.cancel();
   }
 
   const { onPointerDown, onPointerUp } = palette;
@@ -358,8 +385,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   /**
    * Escape takes one step back at a time, as `escapeStep` says. With the focus
    * out on the page, it closes the panel straight away. A row being dragged
-   * goes back where it was first, and with the focus in the side pane it is
-   * the pane's, whatever the panel shows.
+   * goes back where it was first. A field of a feature's view is the view's,
+   * not a list filter of the panel's.
    */
   function escape(): void {
     if (drag.dragging() || !engine.getState().panel.open) return;
@@ -367,16 +394,20 @@ export function createPanel(options: PanelOptions = {}): Panel {
       knobRows.endReorder(false);
       return;
     }
-    if (side.escape()) return;
     const focused = root.activeElement;
     const filter =
-      focused instanceof HTMLInputElement && focused.classList.contains("filter") ? focused : null;
+      focused instanceof HTMLInputElement &&
+      focused.classList.contains("filter") &&
+      !side.node.contains(focused)
+        ? focused
+        : null;
     const openRow = knobRows.openRow();
     const view = openRow ? knobRows.viewOf(openRow) : undefined;
     const step = escapeStep({
       search: palette.searching(),
       filter: filter !== null && filter.value !== "",
       keys: settings.editing(),
+      view: side.view() !== null,
       editor: focused !== null && view !== undefined,
     });
     if (step === "search") {
@@ -389,6 +420,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
       filter.dispatchEvent(new Event("input"));
     } else if (step === "keys") {
       settings.leaveKeys();
+    } else if (step === "view") {
+      side.escape();
     } else if (step === "editor" && view) {
       knobRows.openEditor(null);
       view.main.focus();
@@ -399,7 +432,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
    * Shift and the hotkey toggles the panel unless the focus is in a field
    * other than the search. While the panel is out and the focus is in no
    * field, `/` opens the search without typing into it, and with the focus on
-   * one of the panel's controls a character opens it with that typed in.
+   * one of the panel's controls a character opens it with that typed in. A
+   * feature's view keeps the characters typed on its controls, and `/` goes
+   * back from it to the search.
    * While the frame is up, the zoom keys zoom it instead of the browser.
    * Every other key goes to the page.
    */
@@ -430,7 +465,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     if (action === "close") escape();
     else if (action) onAction(action);
     if (action || drag.dragging() || knobRows.reordering() || !engine.getState().panel.open) return;
-    const text = event.composedPath().includes(panel) ? typeAhead(event) : null;
+    const path = event.composedPath();
+    const text = path.includes(panel) && !path.includes(side.node) ? typeAhead(event) : null;
     if (text === null && !isSearchKey(event)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -450,8 +486,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
   }
 
-  /** The window changed size: the panel keeps to the edge it is flush with. */
+  /** The window changed size: the panel keeps inside it, and to the edge it is flush with. */
   function onResize(): void {
+    sizer.fit();
     layout("edge");
   }
 
@@ -469,12 +506,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
   window.addEventListener("resize", onResize);
   window.addEventListener("blur", onBlur);
   // The panel also grows and shrinks between renders, as a list filters or a
-  // text box is resized, and lays itself out again each time. Its width goes
-  // to the frame, which gives a pinned panel's column that much room.
-  const resizes = new ResizeObserver(() => {
-    setDockWidth(panel.getBoundingClientRect().width);
-    layout();
-  });
+  // text box is resized, and lays itself out again each time.
+  const resizes = new ResizeObserver(() => layout());
   resizes.observe(panel);
 
   function attach(): void {

@@ -2,14 +2,15 @@ import { fresh } from "../engine/fresh";
 import type { GrabControl } from "../grab/control";
 import { BINDING_WORDS, type LiveKeys } from "./bindings";
 import { button, el } from "./dom";
-import { icon } from "./icons";
+import { icon, type IconName } from "./icons";
 import { comboLabel, type Keys } from "./keys";
-import { pinWord } from "./pin";
+import { COLLAPSE_WORD, pinWord, SIDE_WORD } from "./pin";
 
 /**
  * The panel's footer: the overflow badge, the fresh mode note, the keys the
  * panel answers to, each a control that does what its key does, the pin that
- * docks the panel to its side, and the way into the settings.
+ * docks the panel to its side, with the two controls a pinned panel has
+ * before it, and the way into the settings.
  */
 
 /** What the footer says while fresh mode is on, so a panel back at its defaults is no surprise. */
@@ -60,10 +61,17 @@ export interface Footer {
   hints: Map<Command, HTMLButtonElement>;
   /** Pins the panel to its side, and lets it float again. */
   pin: HTMLButtonElement;
+  /** Takes a pinned panel to the other side of the window. */
+  flip: HTMLButtonElement;
+  /** Closes a pinned panel, which has no handle to click while it is open. */
+  collapse: HTMLButtonElement;
   keysToggle: HTMLButtonElement;
   /** Show the keys in force on the hints. */
   drawKeys(now: Keys): void;
-  /** Show whether the panel is pinned: the pin pressed, and what it does next. */
+  /**
+   * Show whether the panel is pinned: the pin pressed, what it does next,
+   * and the two controls only a pinned panel has.
+   */
   drawPin(docked: boolean): void;
 }
 
@@ -86,15 +94,30 @@ export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: bool
   // Pins the panel to its side. It has no key, so it is its icon alone.
   const pin = button("hint pin-toggle", "");
   let pinShown: boolean | null = null;
+  // A pinned panel's edge changes its width, so these take it across and
+  // close it. Their icons face the side the panel is on.
+  const sided = (name: IconName): SVGElement => {
+    const glyph = icon(name, 12);
+    glyph.setAttribute("class", "glyph sided");
+    return glyph;
+  };
+  const flip = button("hint flip-toggle", "");
+  flip.append(sided("panel-left"));
+  flip.setAttribute("aria-label", SIDE_WORD);
+  const collapse = button("hint collapse-toggle", "");
+  collapse.append(sided("panel-right-close"));
+  collapse.setAttribute("aria-label", COLLAPSE_WORD);
   // Opens the settings, where the keys are set.
   const keysToggle = button("hint keys-toggle", "");
   keysToggle.append(icon("settings", 12));
   keysToggle.setAttribute("aria-label", "settings");
-  meta.append(pin, keysToggle);
+  meta.append(flip, collapse, pin, keysToggle);
 
   function drawPin(docked: boolean): void {
     if (docked === pinShown) return;
     pinShown = docked;
+    flip.hidden = !docked;
+    collapse.hidden = !docked;
     pin.replaceChildren(icon(docked ? "pin-off" : "pin", 12));
     pin.setAttribute("aria-label", pinWord(docked));
     pin.setAttribute("aria-pressed", docked ? "true" : "false");
@@ -109,6 +132,8 @@ export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: bool
     badge,
     hints,
     pin,
+    flip,
+    collapse,
     keysToggle,
     drawPin,
     drawKeys(now: Keys): void {

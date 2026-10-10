@@ -62,6 +62,11 @@ export interface Room {
   handle: number;
 }
 
+/** The side of the window across from one. */
+export function otherSide(side: SideValue): SideValue {
+  return side === "right" ? "left" : "right";
+}
+
 /** A value kept between two bounds. With no room between them, the lower one. */
 export function between(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -248,7 +253,7 @@ export function landSide(
   vx: number,
   vy: number,
 ): SideValue {
-  const other = side === "right" ? "left" : "right";
+  const other = otherSide(side);
   // Speed toward the other side, less than zero toward home.
   const toward = side === "right" ? -vx : vx;
   const across = Math.abs(vx) >= FLING && Math.abs(vx) > FLING_LEAN * Math.abs(vy);

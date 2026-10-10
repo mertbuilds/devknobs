@@ -27,14 +27,12 @@ describe("glides", () => {
     expect(glides({ ...CUE, to: RIGHT })).toBe(false);
   });
 
-  test("glides when the panel covers more or less beside itself, as its side pane comes and goes", () => {
-    expect(glides({ ...CUE, to: { ...RIGHT, beside: 339 } })).toBe(true);
-    expect(glides({ ...CUE, from: { ...RIGHT, beside: 339 }, to: RIGHT })).toBe(true);
-    expect(glides({ ...CUE, from: { ...RIGHT, beside: 339 }, to: { ...RIGHT, beside: 339 } })).toBe(
-      false,
-    );
-    expect(glides({ ...CUE, to: { ...RIGHT, beside: 0 } })).toBe(false);
-    expect(glides({ ...CUE, to: { ...RIGHT, beside: 339 }, first: true })).toBe(false);
+  test("glides when the panel changed its width, as a view comes and goes", () => {
+    expect(glides({ ...CUE, to: RIGHT, sized: true })).toBe(true);
+    expect(glides({ ...CUE, to: RIGHT, sized: false })).toBe(false);
+    expect(glides({ ...CUE, to: RIGHT, sized: true, first: true })).toBe(false);
+    expect(glides({ ...CUE, to: RIGHT, sized: true, still: true })).toBe(false);
+    expect(glides({ ...CUE, to: RIGHT, sized: true, moving: true })).toBe(false);
   });
 
   test("glides when the panel is pinned to its side or let go, which changes the room it has", () => {

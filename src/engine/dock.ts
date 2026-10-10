@@ -27,9 +27,10 @@ export function dockWidth(): number {
 }
 
 /**
- * The panel is `px` wide now, as it says each time its box changes size. The
- * frame hears, and gives a pinned panel's column that much room. A width that
- * is no size, as before the panel is on the page, is left out.
+ * The panel is `px` wide now, or glides there, as it says each time it takes
+ * a width: the rows' or a view's, as its edge sets them. The frame hears, and
+ * gives a pinned panel's column that much room. A width that is no size is
+ * left out.
  */
 export function setDockWidth(px: number): void {
   if (!(px > 0) || px === width) return;

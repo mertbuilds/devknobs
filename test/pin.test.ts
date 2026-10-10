@@ -60,6 +60,21 @@ describe("the pin action", () => {
     expect(actionLabel(replay, true)).toBe("replay animations");
   });
 
+  test("leaves the action that takes the panel across to its own words", () => {
+    for (const query of ["move panel", "other side", "left", "right", "flip", "across"]) {
+      expect(searchActions(query).map((action) => action.id)).toEqual(["side"]);
+    }
+    expect(searchActions("panel").map((action) => action.id)).toEqual(["pin", "side"]);
+    const side = ACTIONS.find((action) => action.id === "side");
+    if (!side) throw new Error("no side action");
+    // It is named the same whether the panel is pinned or not.
+    expect(actionLabel(side, true)).toBe("move panel across");
+    expect(actionLabel(side, false)).toBe("move panel across");
+    expect(ACTION_ICONS.side).toBe("panel-left");
+    expect(ICONS["panel-left"]).toHaveLength(2);
+    expect(ICONS["panel-right-close"]).toHaveLength(3);
+  });
+
   test("has lucide's pin, and the control its pin-off", () => {
     expect(ACTION_ICONS.pin).toBe("pin");
     expect(ICONS.pin).toHaveLength(2);

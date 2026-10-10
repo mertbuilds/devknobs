@@ -8,8 +8,9 @@
 
 ### panel
 
-- the pin button in the footer, and the pin panel action in the search, dock the panel to its side as a column the height of the window, like devtools. the page runs in a frame beside it, so its viewport really is narrower: media queries, `100vw` and fixed boxes follow. pinning loads the page once more when no frame is up, and never with a device or a width set. the pin is kept with the panel's place
+- the pin button in the footer, and the pin panel action in the search, dock the panel to its side as a column the height of the window, like devtools. the page runs in a frame beside it, so its viewport really is narrower: media queries, `100vw` and fixed boxes follow. pinning loads the page once more when no frame is up, and never with a device or a width set. the pin is kept with the panel's place. the column is as wide as the panel, a view's width while one shows, and its edge sets that width down to a page of 320px. two buttons by the pin, and the move panel across action, take it to the other side and close it
 - a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept
+- the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
 
 ## 0.1.2
 

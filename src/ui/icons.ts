@@ -112,6 +112,15 @@ export const ICONS = {
     ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }],
     p("M15 3v18"),
   ],
+  "panel-left": [
+    ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }],
+    p("M9 3v18"),
+  ],
+  "panel-right-close": [
+    ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }],
+    p("M15 3v18"),
+    p("m8 9 3 3-3 3"),
+  ],
   "panel-right-open": [
     ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2" }],
     p("M15 3v18"),
@@ -174,6 +183,7 @@ export const ACTION_ICONS: Record<Action["id"], IconName> = {
   grab: "square-dashed-mouse-pointer",
   replay: "rotate-ccw",
   pin: "pin",
+  side: "panel-left",
 };
 
 /** The icon each shortcut shows in the settings, an action's own where it has one. */

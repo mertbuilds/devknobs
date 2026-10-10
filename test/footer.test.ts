@@ -2,11 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { LiveKeys } from "../src/ui/bindings";
 import { createFooter, FRESH_NOTE } from "../src/ui/footer";
 import { defaultKeys } from "../src/ui/keys";
+import { collapseTip, COLLAPSE_WORD, SIDE_WORD } from "../src/ui/pin";
+import { CSS } from "../src/ui/styles";
 
 /** An element, as far as the footer builds one. */
 class FakeNode {
   className = "";
   textContent = "";
+  hidden = false;
   dataset: Record<string, string> = {};
   children: (FakeNode | string)[] = [];
   attributes = new Map<string, string>();
@@ -118,5 +121,60 @@ describe("the pin control", () => {
     const icon = fake(footer.pin).children[0];
     footer.drawPin(true);
     expect(fake(footer.pin).children[0]).toBe(icon);
+  });
+});
+
+describe("a pinned panel's controls", () => {
+  /** The class and the shapes of a control's icon. */
+  const glyph = (control: unknown) => {
+    const icon = fake(fake(control).children[0]);
+    return { class: icon.attributes.get("class"), shapes: icon.children.length };
+  };
+
+  test("sit before the pin, the one that takes it across and then the one that closes it", () => {
+    page("");
+    const footer = createFooter(keys, null, true);
+    const meta = fake(fake(footer.foot).children.at(-1));
+    expect(meta.children.slice(-4)).toEqual([
+      fake(footer.flip),
+      fake(footer.collapse),
+      fake(footer.pin),
+      fake(footer.keysToggle),
+    ]);
+    expect(footer.flip.className).toBe("hint flip-toggle");
+    expect(footer.collapse.className).toBe("hint collapse-toggle");
+  });
+
+  test("show only while the panel is pinned", () => {
+    page("");
+    const footer = createFooter(keys, null, true);
+    expect([footer.flip.hidden, footer.collapse.hidden]).toEqual([true, true]);
+    footer.drawPin(true);
+    expect([footer.flip.hidden, footer.collapse.hidden]).toEqual([false, false]);
+    footer.drawPin(false);
+    expect([footer.flip.hidden, footer.collapse.hidden]).toEqual([true, true]);
+  });
+
+  test("are icons alone, named for assistive tech, that face the side the panel is on", () => {
+    page("");
+    const footer = createFooter(keys, null, true);
+    expect(fake(footer.flip).attributes.get("aria-label")).toBe(SIDE_WORD);
+    expect(fake(footer.collapse).attributes.get("aria-label")).toBe(COLLAPSE_WORD);
+    expect(fake(footer.flip).textContent).toBe("");
+    expect(fake(footer.collapse).textContent).toBe("");
+    // lucide's panel-left has two shapes, and its panel-right-close three.
+    expect(glyph(footer.flip)).toEqual({ class: "glyph sided", shapes: 2 });
+    expect(glyph(footer.collapse)).toEqual({ class: "glyph sided", shapes: 3 });
+    expect(CSS).toContain('.wrap[data-side="left"] .glyph.sided { transform: scaleX(-1); }');
+  });
+
+  test("say what they do, the one that closes with the panel's key", () => {
+    expect(SIDE_WORD).toBe("move to the other side");
+    expect(collapseTip("⇧K")).toBe("close the panel · ⇧K");
+  });
+
+  test("take the pin's place at the start of the icons, which stay at the end of the line", () => {
+    expect(CSS).toContain(".pin-toggle, .flip-toggle { margin-left: auto; }");
+    expect(CSS).toContain(".flip-toggle:not([hidden]) ~ .pin-toggle { margin-left: 0; }");
   });
 });

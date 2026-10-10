@@ -339,7 +339,7 @@ export function resetPatch(row: Row): DevknobsStatePatch {
 
 /** Something the panel does rather than a knob it sets. */
 export interface Action {
-  id: "grab" | "replay" | "pin";
+  id: "grab" | "replay" | "pin" | "side";
   label: string;
   /** What a search result says after the name. */
   long: string;
@@ -365,6 +365,12 @@ export const ACTIONS: readonly Action[] = [
     label: "pin panel",
     long: "dock the panel to its side, the page beside it",
     aliases: ["unpin", "dock", "undock", "sidebar", "column", "devtools"],
+  },
+  {
+    id: "side",
+    label: "move panel across",
+    long: "take the panel to the other side of the window",
+    aliases: ["side", "left", "right", "other", "flip", "switch"],
   },
 ];
 

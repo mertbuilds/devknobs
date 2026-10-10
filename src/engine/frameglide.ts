@@ -8,10 +8,11 @@ import type { Point } from "./zoom";
 
 /**
  * The frame glides to its new place when the panel goes to the other side,
- * or opens or closes, and moves what the frame is fitted beside. What shows
- * is measured before and after the frame is drawn there, moved back by the
- * difference and let go, by `translate` and `scale` alone, so the case, the
- * page and the bars glide as one and the page inside lays out once.
+ * opens or closes, or changes its width, and moves what the frame is fitted
+ * beside. What shows is measured before and after the frame is drawn there,
+ * moved back by the difference and let go, by `translate` and `scale` alone,
+ * so the case, the page and the bars glide as one and the page inside lays
+ * out once.
  */
 
 /** How long a glide takes at the least and at the most, in ms, as the panel's own. */
@@ -22,11 +23,10 @@ export const FRAME_GLIDE_MAX = 440;
 const FRAME_GLIDE_SPEED = 6;
 
 /**
- * The panel as the frame is fitted beside it, with how much more of its edge
- * it covers than its own width, in px, as its side pane does, and whether it
- * is pinned there, which takes its room from the frame's.
+ * The panel as the frame is fitted beside it, and whether it is pinned there,
+ * which takes its room from the frame's.
  */
-export type PanelSpot = Pick<PanelValue, "open" | "side"> & { beside?: number; docked?: boolean };
+export type PanelSpot = Pick<PanelValue, "open" | "side"> & { docked?: boolean };
 
 /** What decides whether a change of the knobs glides the frame. */
 export interface GlideCue {
@@ -38,16 +38,18 @@ export interface GlideCue {
   moving: boolean;
   from: PanelSpot;
   to: PanelSpot;
+  /** The panel changed its width. */
+  sized?: boolean;
 }
 
 /**
- * Does the frame glide? Only when the panel changed side, opened or closed,
- * was pinned or let go, or covers more or less beside itself, never on the
- * first paint, with less motion, or while the device moves.
+ * Does the frame glide? Only when the panel changed side or width, opened or
+ * closed, or was pinned or let go, never on the first paint, with less motion,
+ * or while the device moves.
  */
 export function glides(cue: GlideCue): boolean {
   if (cue.first || cue.still || cue.moving) return false;
-  if ((cue.from.beside ?? 0) !== (cue.to.beside ?? 0)) return true;
+  if (cue.sized) return true;
   if ((cue.from.docked ?? false) !== (cue.to.docked ?? false)) return true;
   return cue.from.side !== cue.to.side || cue.from.open !== cue.to.open;
 }

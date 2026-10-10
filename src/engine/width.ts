@@ -338,16 +338,12 @@ function showZoom(place: Fit): void {
   picker.value = String(zoom);
 }
 
-/** How much more of its edge an open panel covers than its host's width, in px. */
-let beside = 0;
-
 /**
  * How much of its edge an open panel covers. Its host is as wide as the panel
- * out, and its side pane reaches past that.
+ * out, and takes a new width at once where the panel glides to it.
  */
 function panelWidth(): number {
-  const width = document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
-  return width + beside;
+  return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
 }
 
 /**
@@ -364,14 +360,16 @@ let room: Record<SideValue, number> = { left: 0, right: 0 };
 /** The wait before the page gives the column more room, and whether it is over. */
 let making = 0;
 let made = false;
+/** The frame in which the stage takes the column's new width. */
+let following = 0;
 
 /**
  * Keep the stage clear of a pinned panel's column, as wide as `dockWidth`
  * says the panel is. The mat still lies under it, so no edge of it shows as
  * it slides. A frame up for the panel alone is the page: it gives up more
- * room only once the column has slid in over it, so the page lays out once
- * and no gap shows beside it, and takes room back at once, under the column
- * as it leaves.
+ * room only once the column has slid in or grown over it, so the page lays
+ * out once and no gap shows beside it, and takes room back at once, under the
+ * column as it leaves or narrows. The notice keeps to the stage as well.
  */
 function makeRoom(): void {
   if (!letterbox) return;
@@ -381,27 +379,39 @@ function makeRoom(): void {
   if (more && !made && drawn && plainFrame(current) && !still()) {
     making ||= window.setTimeout(() => {
       making = 0;
-      made = true;
-      resize();
-      made = false;
+      roomNow();
     }, DOCK_SETTLE);
     return;
   }
   clearTimeout(making);
   making = 0;
   room = next;
-  letterbox.style.paddingLeft = next.left ? `${next.left}px` : "";
-  letterbox.style.paddingRight = next.right ? `${next.right}px` : "";
+  for (const box of [letterbox, notice]) {
+    if (!box) continue;
+    box.style.paddingLeft = next.left ? `${next.left}px` : "";
+    box.style.paddingRight = next.right ? `${next.right}px` : "";
+  }
 }
 
-/**
- * The panel got wider or narrower. A pinned one's column takes that room now,
- * with no wait, so the page follows its edge as it is dragged.
- */
-onDockWidth(() => {
+/** Give the column the room it takes now, with no wait. */
+function roomNow(): void {
   made = true;
   resize();
   made = false;
+}
+
+/**
+ * The panel got wider or narrower. A pinned one's column takes that room in
+ * the next frame, with no wait, and once a frame however often its width
+ * changes, so the page follows its edge as it is dragged and is laid out no
+ * more than it is painted.
+ */
+onDockWidth(() => {
+  if (!host || !current.panel.docked) return;
+  following ||= window.requestAnimationFrame(() => {
+    following = 0;
+    roomNow();
+  });
 });
 
 /** The room the frame is fitted to: the letterbox less what the column takes. */
@@ -411,15 +421,22 @@ function stageSize(): { width: number; height: number } {
 }
 
 /**
- * The panel's side pane came out, went away or changed its width: an open
- * panel covers `px` more of its edge, and the frame glides to its place
- * beside the two.
+ * The panel changed its width, and with `glide` it glides to it. A floating
+ * panel's frame is fitted beside it again, and glides to its place as the
+ * panel does. A pinned panel's column is followed as `onDockWidth` says,
+ * unless it glides: then the stage takes the width the column ends at, once.
+ * A device glides to its place in it, and the page changes size in place,
+ * under a column that narrows, or once a wider one has grown over it.
  */
-export function coverBeside(px: number): void {
-  if (px === beside) return;
-  const from = { ...current.panel, beside };
-  beside = px;
-  glideFrame(screen, { first: false, from, to: { ...current.panel, beside } }, resize);
+export function panelSized(glide: boolean): void {
+  if (!glide) {
+    if (!current.panel.docked) resize();
+    return;
+  }
+  if (following) window.cancelAnimationFrame(following);
+  following = 0;
+  if (plainFrame(current)) resize();
+  else glideFrame(screen, { first: false, from: current.panel, to: current.panel, sized: true }, resize);
 }
 
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
@@ -475,8 +492,9 @@ function showBrowser(
 }
 
 /**
- * Draw the mat for the letterbox's size, its lines one device pixel thin, and
- * its top ruler unnumbered under the readout.
+ * Draw the mat for the stage's size, its lines one device pixel thin, and
+ * its top ruler unnumbered under the readout. Its grid runs on under a
+ * pinned panel's column, and its rulers count from the stage's edge.
  */
 function showMat(size: { width: number; height: number }): void {
   if (!letterbox || !readout || !caption || !picker) return;
@@ -484,10 +502,10 @@ function showMat(size: { width: number; height: number }): void {
   const avoid = readout.hidden
     ? undefined
     : { from: caption.offsetLeft - 8, to: picker.offsetLeft + picker.offsetWidth + 8 };
-  const key = `${size.width}|${size.height}|${hair}|${avoid?.from}|${avoid?.to}`;
+  const key = `${size.width}|${size.height}|${hair}|${avoid?.from}|${avoid?.to}|${room.left}|${room.right}`;
   if (key === matKey) return;
   matKey = key;
-  const next = drawMat(size, hair, avoid);
+  const next = drawMat(size, hair, avoid, room);
   if (mat) mat.replaceWith(next);
   else back?.append(next);
   mat = next;
@@ -527,7 +545,7 @@ function resize(): void {
   const knobs = { ...current, dpr: zoomWorks ? current.dpr : "system" };
   caption.textContent = label(place, knobs, page ?? place);
   showZoom(place);
-  showMat({ width: letterbox.clientWidth, height: letterbox.clientHeight });
+  showMat(size);
   // A fitted frame never scrolls, so no rounding can bring a scrollbar.
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
@@ -1006,6 +1024,8 @@ function teardown(): void {
   held = null;
   clearTimeout(making);
   making = 0;
+  if (following) window.cancelAnimationFrame(following);
+  following = 0;
   room = { left: 0, right: 0 };
   pending = null;
   forgetTurn();

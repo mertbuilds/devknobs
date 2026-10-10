@@ -102,7 +102,8 @@ open after a reload leaves the focus on the page.
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
 panel. with the panel closed, a drag moves the handle, and the panel opens
-beside it where it left it.
+beside it where it left it. drag the panel's edge on the page's side to change
+its width, which is kept in `localStorage` under `devknobs:prefs`.
 
 the handle follows the pointer sideways too. let go past the middle of the
 window, or fling it toward the other edge, and the panel moves to the left or
@@ -189,7 +190,8 @@ the overflow knob on, the count of overflowing boxes sits above them.
 the pin button in the footer, before the gear, docks the panel to its side the
 way devtools dock: a column from the top of the window to the bottom, flush
 with the edge, with the rows using the whole height and the footer at the
-bottom. the pin panel action in the search does the same, and unpin, the same
+bottom. the settings and a feature's view fill the column the same way, and
+scroll in it. the pin panel action in the search does the same, and unpin, the same
 button or action, makes it the floating panel again, where it was.
 
 the page gets narrower, for real. it runs in a same-origin frame, the one the
@@ -205,19 +207,26 @@ what is left.
 pinning loads the page once more when no frame is up yet, like picking a
 width, and unpinning hands the window its own page back, at the address the
 frame was on. with a device or a width set already, pinning and unpinning only
-change the room, and nothing loads. closing a pinned panel (`⇧K`, or a click on
-its edge) gives the page the whole window back and keeps the frame, so opening
-and closing never load anything either. closed, the handle is where it always
-is.
+change the room, and nothing loads. closing a pinned panel (`⇧K`, or the close
+button by the pin) gives the page the whole window back and keeps the frame,
+so opening and closing never load anything either. closed, the handle is where
+it always is.
 
 open, the pinned panel has no handle out on the page. its edge on the page's
-side is the handle: click it to close the panel, or drag or fling it across to
-move the column to the other side. it is one column, as wide as the panel is,
-and when the panel's width changes the page's frame follows it, with no load.
+side changes its width, as a floating panel's does: drag it, double click it,
+or focus it and press the arrows. two buttons show by the pin while the panel
+is pinned: one moves the column to the other side of the window, which the
+move panel across action in the search does too, and one closes the panel.
 
-the page never gets narrower than 320px. in a window too narrow to leave it
-that beside the panel (under 560px for a panel 240px wide), the panel lies
-over the page instead, and the pin's tooltip says so.
+it is one column, as wide as the panel is: the rows' width, or a view's while
+one shows. the page's frame follows that width with no load. under a drag it
+follows the edge, once a frame. when the panel glides to a new width, as a
+view opens or closes, the page is resized once: at the start under a column
+that narrows, at the end under one that grew over it.
+
+the page never gets narrower than 320px, so the edge stops there. in a window
+too narrow to leave it that beside the panel (under 560px for a panel 240px
+wide), the panel lies over the page instead, and the pin's tooltip says so.
 
 the pin is kept with the panel's place, in `localStorage` under
 `devknobs:place`, so a new tab starts pinned too. reset all leaves it, as it

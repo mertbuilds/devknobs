@@ -20,6 +20,12 @@
  * the wrapper mirrors it onto the left: the handle on the panel's other side,
  * the borders, the radii and the slide.
  *
+ * The panel is as wide as `--panel-width` on the wrapper says, which the
+ * panel sets for what it shows and the strip on its page side changes. The
+ * host is that wide and the handle more from the moment the width is set, and
+ * the wrapper packs the two against the window's edge, so a panel on its way
+ * to a new width keeps to the edge.
+ *
  * The side on the window's edge has no border and no radius. A drag that
  * carries the panel off its edge sets `data-float`, which draws that side like
  * the others, and the padding there gives the border its pixel, so the box is
@@ -52,15 +58,19 @@ export const CSS = `
   --edge: 0px;
   --edge-line: transparent;
   --glide: 220ms;
+  --panel-width: 240px;
   display: flex;
   align-items: flex-start;
+  justify-content: flex-end;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 12px;
   font-weight: 400;
   line-height: 1.5;
   color: var(--fg);
   -webkit-font-smoothing: antialiased;
-  transform: translateX(239px);
+  /* Closed, the wrapper slides out by the panel less the pixel the handle
+     sits over it, which leaves the handle on the edge. */
+  transform: translateX(calc(var(--panel-width) - 1px));
   /* The open and close slide is the transform. A drag moves the wrapper by
      translate, one to one, and lets it glide to its place from there. A glide
      takes --glide, which the panel sets longer for a long way, and the edge
@@ -80,7 +90,10 @@ export const CSS = `
     --hot: #ff6369;
   }
 }
-.wrap[data-side="left"] { flex-direction: row-reverse; transform: translateX(-239px); }
+.wrap[data-side="left"] {
+  flex-direction: row-reverse;
+  transform: translateX(calc(1px - var(--panel-width)));
+}
 /* With the handle hidden, a closed panel slides all the way off its edge,
    handle and all, and once there nothing of it paints or takes a pointer. The
    panel key brings it back, and an open panel shows its handle as ever. */
@@ -187,7 +200,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .panel {
   flex: none;
   box-sizing: border-box;
-  width: 240px;
+  /* The strip that changes the width is placed in it. */
+  position: relative;
+  width: var(--panel-width);
   display: flex;
   flex-direction: column;
   /* All the height there is, less the gap the panel keeps top and bottom, and
@@ -203,18 +218,20 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
      handle overlaps the panel by a pixel, so the panel's border by the handle
      would stay on the window's edge as a line the panel's height. It hides
      once the slide is over. The edge side's border and the padding that pays
-     for it go once its color has eased out. */
+     for it go once its color has eased out. The width glides to a new one, as
+     a view comes or goes, and the panel turns that off under the strip. */
   visibility: hidden;
   transition: visibility 0s linear 150ms, border-top-right-radius var(--glide) ease-out,
     border-bottom-right-radius var(--glide) ease-out, border-right-color var(--glide) ease-out,
-    border-right-width 0s linear var(--glide), padding-right 0s linear var(--glide);
+    border-right-width 0s linear var(--glide), padding-right 0s linear var(--glide),
+    width var(--glide) ease-out;
 }
 /* Only a panel that is out catches anything. The attribute flips the moment
    the close starts, so the slide back leaves nothing hit-testable behind. */
 .wrap[data-open="true"] .panel {
   pointer-events: auto;
   visibility: visible;
-  transition-delay: 0s, 0s, 0s, 0s, var(--glide), var(--glide);
+  transition-delay: 0s, 0s, 0s, 0s, var(--glide), var(--glide), 0s;
 }
 /* The handle covers one of these corners, so square that one off. It goes by
    the tab alone, not by data-open: the open flag flips the moment a close
@@ -228,7 +245,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-left: 0 solid var(--edge-line);
   border-radius: var(--edge) 13px 13px var(--edge);
   transition-property: visibility, border-top-left-radius, border-bottom-left-radius,
-    border-left-color, border-left-width, padding-left;
+    border-left-color, border-left-width, padding-left, width;
 }
 .wrap[data-side="left"][data-tab="top"] .panel { border-top-right-radius: 0; }
 .wrap[data-side="left"][data-tab="bottom"] .panel { border-bottom-right-radius: 0; }
@@ -245,7 +262,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   padding: 4px 4px 4px 3px;
   border-left-width: 1px;
 }
-.wrap[data-float="true"][data-open="false"] .panel { transition-delay: 150ms, 0s, 0s, 0s, 0s, 0s; }
+.wrap[data-float="true"][data-open="false"] .panel {
+  transition-delay: 150ms, 0s, 0s, 0s, 0s, 0s, 0s;
+}
 
 /* The search opens where the add knob button was, and is as tall as a row. */
 .head {
@@ -299,8 +318,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 
 /* The rows on top, then the add knob button, or the search in its place with
    its results under it. The rows and the results each scroll in their own
-   room, so the results never cover the rows. The settings take the place of
-   all of it. */
+   room, so the results never cover the rows. The settings and a feature's
+   view take the place of all of it. */
 .body, .home {
   position: relative;
   flex: 0 1 auto;
@@ -319,7 +338,11 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    across. The view that leaves is taken out of the
    flow and the panel holds it at the height it had, and the settings ride
    above the rows. Reduced motion swaps them at once, as the panel finds no
-   time on them. */
+   time on them. A feature's view sits between the two: it pushes the rows
+   out as the settings do, and the settings push it out in turn. data-slide
+   names the view the slide left, so a view the settings leave comes back in
+   from the left. It may shrink while it slides, so it is measured at the
+   height the panel leaves it and grows with the body. */
 .body[data-slide] {
   clip-path: inset(0 -4px);
   transition: height 500ms cubic-bezier(0.32, 0.72, 0, 1);
@@ -329,12 +352,27 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: transform 500ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 .body[data-slide] > .keys { position: relative; z-index: 1; background: var(--bg); }
+.body[data-slide] > .view {
+  position: relative;
+  z-index: 1;
+  flex: 0 1 auto;
+  background: var(--bg);
+}
 .body[data-slide] > .pane.leaving { position: absolute; top: 0; left: 0; width: 100%; }
 .wrap[data-mode="keys"] .body[data-slide] > .home { transform: translateX(calc(-100% - 4px)); }
+.wrap[data-mode="view"] .body[data-slide] > .home { transform: translateX(calc(-100% - 4px)); }
+.wrap[data-mode="keys"] .body[data-slide] > .view { transform: translateX(calc(-100% - 4px)); }
 .wrap:not([data-mode="keys"]) .body[data-slide] > .keys { transform: translateX(calc(100% + 4px)); }
+.wrap:not([data-mode="keys"], [data-mode="view"]) .body[data-slide] > .view {
+  transform: translateX(calc(100% + 4px));
+}
 @starting-style {
   .wrap[data-mode="keys"] .body[data-slide] > .keys { transform: translateX(calc(100% + 4px)); }
   .wrap:not([data-mode="keys"]) .body[data-slide] > .home { transform: translateX(calc(-100% - 4px)); }
+  .wrap[data-mode="view"] .body[data-slide] > .view { transform: translateX(calc(100% + 4px)); }
+  .wrap[data-mode="view"] .body[data-slide="keys"] > .view {
+    transform: translateX(calc(-100% - 4px));
+  }
 }
 .rows, .results {
   position: relative;
@@ -353,14 +391,16 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   max-height: calc(min(672px, 100vh - 16px) * 0.4);
   max-height: calc(min(672px, 100dvh - 16px) * 0.4);
 }
-/* The rows view stays as it was while the settings show, so it leaves and
-   comes back as it is. */
+/* The rows view stays as it was while the settings or a view show, so it
+   leaves and comes back as it is. */
 .wrap:not([data-mode="results"], [data-mode="browse"]) .results,
 .wrap:not([data-mode="results"], [data-mode="browse"]) .head,
 .wrap:is([data-mode="results"], [data-mode="browse"]) .add,
 .wrap:is([data-mode="results"], [data-mode="browse"]) .home > .empty,
 .wrap[data-mode="keys"] .home:not(.leaving),
-.wrap:not([data-mode="keys"]) .keys:not(.leaving) { display: none; }
+.wrap[data-mode="view"] .home:not(.leaving),
+.wrap:not([data-mode="keys"]) .keys:not(.leaving),
+.wrap:not([data-mode="view"]) .view:not(.leaving) { display: none; }
 .empty { padding: 4px 10px; color: var(--faint); }
 /* Heard, not seen. */
 .said {
@@ -714,8 +754,10 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .hint:focus-visible { outline-offset: 2px; }
 .hint:disabled { cursor: default; opacity: 0.5; }
 .hint:disabled:hover { color: inherit; }
-/* The pin and the way into the settings, at the end of the last line. */
-.pin-toggle { margin-left: auto; }
+/* The pin and the way into the settings, at the end of the last line, and
+   before them the two controls of a pinned panel. */
+.pin-toggle, .flip-toggle { margin-left: auto; }
+.flip-toggle:not([hidden]) ~ .pin-toggle { margin-left: 0; }
 .keys-toggle[aria-pressed="true"], .pin-toggle[aria-pressed="true"] { color: var(--fg); }
 /* The tooltip of an icon-only control, set over it by the panel. */
 .tip {
@@ -800,91 +842,31 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   90% { transform: translateX(-0.5px); }
 }
 
-/* The side pane, a feature's view beside the panel on the page's side of it:
-   the panel's ground, hairline and radii, grown sideways. It is as tall as
-   the panel at its tallest whatever the panel holds, so it stays still while
-   rows open and close. The panel says where it goes as --pane-top, --pane-right,
-   --pane-width and --pane-height. It slides out of the panel's edge by
-   transform alone, clipped at that edge, in the glide's time, and goes with
-   the panel's own slide when the panel closes. data-pane on the wrapper says
-   open while it is out and leaving until it has slid away, so it shows and
-   the corners where the two meet stay square for as long as it does. Its
-   panel side sits a pixel over the panel's border, as the handle does, so
-   the two share one line there. */
-.side-clip {
-  position: absolute;
-  top: var(--pane-top, 0px);
-  right: var(--pane-right, 239px);
-  width: var(--pane-width, 340px);
-  height: var(--pane-height, 0px);
-  overflow: clip;
-  visibility: hidden;
-}
-.wrap[data-side="left"] .side-clip { right: auto; left: var(--pane-right, 239px); }
-.wrap:is([data-pane="open"], [data-pane="leaving"]) .side-clip { visibility: visible; }
-.side {
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
+/* A feature's view, in place of the rows as the settings are: the way back
+   on top, a row as theirs is, with the view's title, cut short where it is
+   long, and then its actions, each as a row's x is. Its body under that
+   scrolls on its own. The view asks for the panel's tallest and the panel's
+   own limit shrinks it to what the window has, so the panel is as tall as it
+   gets whatever the view holds. */
+.view {
+  flex: 0 1 auto;
+  min-height: 0;
+  height: 672px;
   display: flex;
   flex-direction: column;
-  padding: 4px;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 13px 0 0 13px;
-  transform: translateX(100%);
-  transition: transform var(--glide) ease-out;
+  gap: 4px;
 }
-/* The handle covers one of the pane's far corners where it sits flush with
-   it, which data-pane-tab names, so that one is square. The left side's own
-   radii come after the right side's corners, as the panel's do. */
-.wrap[data-pane-tab="top"] .side { border-top-left-radius: 0; }
-.wrap[data-pane-tab="bottom"] .side { border-bottom-left-radius: 0; }
-.wrap[data-side="left"] .side { border-radius: 0 13px 13px 0; transform: translateX(-100%); }
-.wrap[data-side="left"][data-pane-tab="top"] .side { border-top-right-radius: 0; }
-.wrap[data-side="left"][data-pane-tab="bottom"] .side { border-bottom-right-radius: 0; }
-.wrap[data-open="false"] .side { transition-duration: 150ms; }
-/* Only a pane that is out catches anything, as with the panel. */
-.wrap[data-pane="open"] .side { pointer-events: auto; transform: translateX(0); }
-/* The pane spans the panel's whole side, so both of the panel's corners
-   there are square while it shows. */
-.wrap:is([data-pane="open"], [data-pane="leaving"]):not([data-side="left"]) .panel {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
-.wrap:is([data-pane="open"], [data-pane="leaving"])[data-side="left"] .panel {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-/* The handle rides out on the pane's far edge, --pane-reach from its place on
-   the panel, and back with it. For that while its move is all that eases. */
-.wrap:is([data-pane="open"], [data-pane="leaving"]) .handle {
-  transition: transform var(--glide) ease-out;
-}
-.wrap[data-open="false"][data-pane="leaving"] .handle { transition-duration: 150ms; }
-.wrap[data-pane="open"] .handle { transform: translateX(calc(-1 * var(--pane-reach, 0px))); }
-.wrap[data-pane="open"][data-side="left"] .handle { transform: translateX(var(--pane-reach, 0px)); }
-/* The head stays while the body scrolls: the view's title, as quiet as a
-   row's label, then its actions and the x, each as a row's x is. They sit 7
-   in from the pane's outer edge, so 6 round. */
-.side-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  margin-bottom: 4px;
-  padding: 0 0 4px 10px;
-  border-bottom: 1px solid var(--line);
-}
-.side-title {
+.view-head { flex: none; }
+.view-head .main { padding-right: 2px; }
+.view-head .row-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--faint);
 }
-.side-actions { flex: none; display: flex; }
-.side-action {
+.view-actions { flex: none; display: flex; }
+.view-action {
   flex: none;
   width: 22px;
   height: 22px;
@@ -895,8 +877,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 6px;
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
-.side-action:hover { color: var(--fg); background: var(--card); }
-.side-body {
+.view-action:hover { color: var(--fg); background: var(--track); }
+.view-body {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
@@ -910,8 +892,10 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 /* The pinned panel: a column the window's height, flush with its edge and
    square, the one hairline it keeps on the page's side. The top and bottom
    borders go, and the padding there pays for them, so nothing in it moves
-   across. The rows take all the height there is, with the footer at the
-   bottom. Dragged off its edge it is still a column, square all round. */
+   across. What it shows takes all the height there is, the rows, the
+   settings or a feature's view, and scrolls in it, with the footer at the
+   bottom. The window sets its height, so a slide between the views eases
+   none. Dragged off its edge it is still a column, square all round. */
 .wrap[data-dock="true"] .panel {
   height: 100vh;
   height: 100dvh;
@@ -923,30 +907,70 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 0;
 }
 .wrap[data-dock="true"] .body,
-.wrap[data-dock="true"] .home { flex: 1 1 auto; }
+.wrap[data-dock="true"] .home,
+.wrap[data-dock="true"] .view,
+.wrap[data-dock="true"] .keys { flex: 1 1 auto; }
+.wrap[data-dock="true"] .body[data-slide] { transition: none; }
+.wrap[data-dock="true"] .view { height: auto; }
+.wrap[data-dock="true"] .keys {
+  min-height: 0;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
 .wrap[data-dock="true"]:is([data-mode="results"], [data-mode="browse"]) .rows {
   max-height: 40vh;
   max-height: 40dvh;
 }
-/* Open, the pinned panel has no handle out on the page. The handle is a strip
-   down the column's edge, over its hairline and its padding, that takes no
-   room: a click closes the panel, and a drag across takes the column to the
-   other side. It shows as it is hovered or focused. Closed, it is the handle
-   as ever, at the window's edge. */
-.wrap[data-dock="true"][data-open="true"] .handle {
-  width: 5px;
-  height: 100vh;
-  height: 100dvh;
-  margin: 0 -5px 0 0;
-  padding: 0;
-  font-size: 0;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  transition: background-color 120ms ease-out, transform var(--glide) ease-out;
+/* Open, the pinned panel shows no handle: its edge on the page's side is the
+   strip that changes its width, and the controls by the pin close it and
+   take it across. Closed, the handle is as ever, at the window's edge. */
+.wrap[data-dock="true"][data-open="true"] .handle { display: none; }
+
+/* The strip that changes the panel's width, as the edge of a docked devtools
+   does: it lies across the border on the panel's page side, as tall as the
+   panel, and shows a hairline on that border under the pointer, the keys'
+   focus or a drag, clear of the round corners. The handle rides above it
+   where the two meet. */
+.sizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 7px;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.wrap[data-dock="true"][data-open="true"][data-side="left"] .handle { margin: 0 0 0 -5px; }
-.wrap[data-dock="true"][data-open="true"] .handle:hover,
-.wrap[data-dock="true"][data-open="true"] .handle:focus-visible { background: var(--line); }
-.wrap[data-dock="true"][data-open="true"] .handle:focus-visible { outline-offset: -1px; }
+.wrap[data-side="left"] .sizer { right: -4px; left: auto; }
+.sizer::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  bottom: 13px;
+  left: 3px;
+  width: 1px;
+  background: var(--faint);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.sizer:hover::after,
+.sizer:focus-visible::after,
+.wrap[data-sizing="true"] .sizer::after { opacity: 1; }
+/* Down a pinned panel the hairline runs the window's height, as its border does. */
+.wrap[data-dock="true"] .sizer::after { top: 0; bottom: 0; }
+/* While it is dragged the strip covers the window, so every move of the drag
+   comes to it, over the page and a frame in it, whatever the capture does. */
+.wrap[data-sizing="true"] .sizer::before {
+  content: "";
+  position: absolute;
+  top: -100vh;
+  right: -100vw;
+  bottom: -100vh;
+  left: -100vw;
+}
 `;
