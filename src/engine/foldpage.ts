@@ -1,8 +1,9 @@
 import { type BarsKnobs, copyBars, type Drawn, withBars } from "./barshot";
-import { type BlurFade, type FoldLayout, type FoldSide, freeShades, type Pane, paneLook, type Point } from "./fold";
+import { type BlurFade, blurWidths, type FoldLayout, type FoldSide, freeShades, type Pane, paneLook, type Point } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners } from "./mockdraw";
 import { type ScreenGl, screenGl } from "./foldgl";
+import { BY_WEBGL, drew } from "./foldtune";
 import type { Corners } from "./morph";
 import { blurPictures, marginPlace, paintPage, shootPage } from "./pageshot";
 
@@ -27,6 +28,11 @@ export interface Panel {
   stage: HTMLElement;
   /** The page, and the same blurred more and more. */
   pictures: HTMLElement[];
+  /** The picture those were made of, and how wide the blur of each is, for making them again once a hand sets the widest. */
+  shot: HTMLCanvasElement | null;
+  widths: number[];
+  /** Why its pictures are laid over each other, where WebGL2 does not draw the page, in a plain sentence. */
+  why: string;
   /** The dark of the picture as it lies, and of the screen as it turns. */
   flat: HTMLElement;
   shade: HTMLElement;
@@ -74,11 +80,12 @@ export function placeAt(node: HTMLElement, rect: Rect): HTMLElement {
 /** Put `shot` on a leaf's stage, and the same blurred over it, as much as was shown before. */
 export function paintLeaf(leaf: Panel, shot: HTMLCanvasElement): void {
   const { across } = leaf;
-  const blurred = blurPictures(shot, leaf.width, across);
-  const next = [shot, ...blurred].map(fill);
-  for (const picture of blurred) {
+  const widths = blurWidths();
+  const blurred = blurPictures(shot, leaf.width, across, widths.slice(1));
+  const next = [shot, ...blurred.map((blur) => blur.canvas)].map(fill);
+  for (const { canvas: picture, long } of blurred) {
     // Its black past the ends along the hinge reaches past the screen's.
-    const { start, size } = across ? marginPlace(shot.height, picture.height) : marginPlace(shot.width, picture.width);
+    const { start, size } = marginPlace(across ? shot.height : shot.width, long);
     picture.style[across ? "top" : "left"] = `${start}%`;
     picture.style[across ? "height" : "width"] = `${size}%`;
     picture.style[across ? "bottom" : "right"] = "auto";
@@ -94,6 +101,8 @@ export function paintLeaf(leaf: Panel, shot: HTMLCanvasElement): void {
   // Under the bars.
   leaf.stage.prepend(...next);
   leaf.pictures = next;
+  leaf.shot = shot;
+  leaf.widths = widths;
 }
 
 /** The screen of a side's body, where it is in the body, and its corners. */
@@ -232,11 +241,12 @@ function onStage(leaf: Panel, t: number): number {
   return Math.round((hinge + (free - hinge) * t) * 100) / 100;
 }
 
-/** Show a blurrier picture as `fade` has it, faded in along the stage. */
+/** Show a blurrier picture as `fade` has it, faded in along the stage, or whole where all of it shows all the way. */
 function blurTo(leaf: Panel, picture: HTMLElement, fade: BlurFade | null): void {
   picture.style.opacity = fade ? "" : "0";
   if (!fade) return;
-  const mask = `linear-gradient(${leaf.toward}, rgba(0, 0, 0, ${fade.least}) ${onStage(leaf, fade.from)}%, rgba(0, 0, 0, ${fade.most}) ${onStage(leaf, fade.to)}%)`;
+  const stops = fade.stops.map(([at, share]) => `rgba(0, 0, 0, ${share}) ${onStage(leaf, at)}%`);
+  const mask = fade.stops.every(([, share]) => share >= 1) ? "" : `linear-gradient(${leaf.toward}, ${stops.join(", ")})`;
   picture.style.maskImage = mask;
   picture.style.setProperty("-webkit-mask-image", mask);
 }
@@ -253,9 +263,15 @@ function edging(toward: string, stops: [at: number, dark: number][]): string {
  * `open` of the way open has it, and darken it toward the turned screen's
  * free edge, seen `free` of the way from the hinge, or not where WebGL2
  * does, null. Its blur is least at the hinge and most at the turned screen's
- * free edge, seen `out` of the way from the hinge to the picture's.
+ * free edge, seen `out` of the way from the hinge to the picture's. Which
+ * of the two draws the page, and why, is noted for the tuning hook to tell.
  */
 export function light(panel: Panel, open: number, free: number | null, out: number): void {
+  drew(free === null ? "webgl" : "layers", free === null ? BY_WEBGL : panel.why);
+  // A hand has set how wide the blur gets since its pictures were made: they are made again, as wide as it asks.
+  const widths = blurWidths();
+  const same = widths.length === panel.widths.length && widths.every((width, index) => width === panel.widths[index]);
+  if (panel.shot && !same) paintLeaf(panel, panel.shot);
   const look = paneLook(panel.pane, open, out);
   panel.shade.style.background = shading(panel.toward, look.turned);
   panel.flat.style.background = shading(panel.toward, look.flat);
@@ -329,6 +345,9 @@ export function gluedOf(
     radii,
     stage,
     pictures: [],
+    shot: null,
+    widths: [],
+    why: "",
     flat,
     shade,
     edge,
@@ -340,8 +359,9 @@ export function gluedOf(
   };
   const part = { ...rect, x: rect.x - whole.rect.x, y: rect.y - whole.rect.y };
   const place = { pane: turning.pane, across, stage: side.size, part, margin, density };
-  glued.gl = screenGl(place, (shot) => {
+  glued.gl = screenGl(place, (why, shot) => {
     glued.gl = null;
+    glued.why = why;
     if (shot) paintLeaf(glued, shot);
   });
   // Under the bars.
@@ -353,10 +373,8 @@ export function gluedOf(
   return glued;
 }
 
-/** Put `shot` on a glued screen: drawn by WebGL2, or where it cannot be, as the pictures laid over each other. */
+/** Put `shot` on a glued screen: drawn by WebGL2, which hands it to the pictures laid over each other where it cannot. */
 function paintGlued(glued: Glued, shot: HTMLCanvasElement): void {
-  if (glued.gl?.paint(shot)) return;
-  glued.gl?.release();
-  glued.gl = null;
-  paintLeaf(glued, shot);
+  if (glued.gl) glued.gl.paint(shot);
+  else paintLeaf(glued, shot);
 }

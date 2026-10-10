@@ -6,10 +6,12 @@
 
 - the half that turns shows the page at the text size knob's size: its lines meet the other half's at the hinge. a page that sets its own root font size folds right too
 - the half that turns stays all but sharp next to the hinge through the whole fold, and blurs gently toward its free edge: 48 px at most, where it was 128
+- where WebGL2 does not draw the half that turns, its blur rises with no lines down it: the blurred pictures laid over each other are twice as wide each, not four times, and each fades in exactly where the one under it is all in
 
 ### internal
 
 - the numbers of the fold's look are in one table, on `window` under `Symbol.for("devknobs.foldtune")`, to tune by hand on a live page. nothing is stored
+- the same hook's `info()` says what drew the half that turns the last time, WebGL2 or the layers, and why
 
 ## 0.1.2
 
