@@ -1,23 +1,17 @@
 import {
-  appleSeen,
-  BLURS,
-  blurWidth,
+  blurShare,
   darkAt,
-  FREE_DARK,
   type FoldShots,
   freeDepth,
-  nearBlur,
   type Pane,
   type Quad,
-  rawArea,
   shotPane,
   shotPicture,
   shotQuad,
   shotWindow,
-  seenAlong,
-  uvOf,
-  wipeAmount,
+  turnBlur,
 } from "./fold";
+import { tune } from "./foldtune";
 import type { Rect } from "./mock";
 
 /**
@@ -34,73 +28,38 @@ import type { Rect } from "./mock";
  * pictures are laid over each other instead.
  */
 
-/** How far apart the taps are, as a share of the blur's width: a spread about as soft as Apple's two passes. */
-export const SPREAD = 0.5;
-
-/** How far into the picture from an end the blur past it reaches, in widths of that blur. */
-export const REACH = 1.5;
-
-/**
- * How wide the blur at the picture's ends is, in widths of the dark past
- * them at the turned screen's free edge: at the hinge, and at the free edge.
- */
-export const EDGE = [0.3, 1] as const;
-
-/** How wide the blur grows, at most, in css px: as wide as the widest blurred picture. */
-const MOST = BLURS[BLURS.length - 1];
-
 /** How the screen is blurred with the hinge where it is, in the picture's css px. */
 export interface ScreenLook {
-  /** Apple's `blurArea` from the hinge to the free edge, before it is held to its range: where it starts, and how much it grows. */
-  area: [start: number, slope: number];
-  /** How wide a blur of `blurArea` 0 is, and the most. */
-  base: number;
-  most: number;
+  /** How wide the blur at the turned screen's free edge is, as `turnBlur` has it. */
+  peak: number;
   /** How wide the blur at the picture's ends is, at the hinge and at the free edge. */
   edge: [hinge: number, free: number];
   /** Where the turned screen's free edge is seen on the picture, as a share of the way from the hinge to its own. */
   free: number;
   /** How deep the dark at the turned screen's free edge is, as `freeDepth` has it. */
   dark: number;
-  /** How much of the turned screen Apple's camera sees, as `appleSeen` has it, which `area` runs along. */
-  seen: number;
-  /** How wide the blur all over the turned screen is, as `nearBlur` has it. */
-  near: number;
 }
 
 /**
- * How the screen of `pane` is blurred with the hinge `open` of the way open,
- * the screen `extent` css px across the hinge, the turned screen reaching
- * `wedge` css px past the picture's ends at its free edge, and its free
- * edge seen `free` of the way from the hinge to the picture's.
+ * How the turned screen is blurred with the hinge `open` of the way open,
+ * reaching `wedge` css px past the picture's ends at its free edge, and its
+ * free edge seen `free` of the way from the hinge to the picture's.
  */
-export function screenLook(pane: Pane, open: number, extent: number, wedge: number, free = 1): ScreenLook {
-  const amount = wipeAmount(pane, open);
-  const start = rawArea(pane, uvOf(pane, 0), amount);
-  return {
-    area: [start, rawArea(pane, uvOf(pane, 1), amount) - start],
-    base: blurWidth(pane, 0) * extent,
-    most: MOST,
-    edge: [EDGE[0] * wedge, EDGE[1] * wedge],
-    free,
-    dark: freeDepth(open),
-    seen: appleSeen(pane, open),
-    near: nearBlur(pane, open) * extent,
-  };
+export function screenLook(open: number, wedge: number, free = 1): ScreenLook {
+  return { peak: turnBlur(open), edge: [tune.edgeHinge * wedge, tune.edgeFree * wedge], free, dark: freeDepth(open) };
 }
 
 /**
  * How wide the blur is, in css px, `t` of the way from the hinge to the free
  * edge, `inside` css px in from the picture's nearer end along the hinge,
- * less than 0 past it: Apple's where its camera sees as far across, or the
- * blur all over, or the ends', whichever is the widest.
+ * less than 0 past it: least at the hinge and most at the turned screen's
+ * free edge, as `blurShare` has it, or the ends', whichever is the wider.
  */
 export function blurAt(look: ScreenLook, t: number, inside: number): number {
-  const area = Math.min(4 / 3, Math.max(0, look.area[0] + look.area[1] * seenAlong(t, look.free, look.seen)));
-  const wipe = Math.min(look.most, Math.max(area > 0 ? look.base * 2 ** (8 * area) : 0, look.near));
+  const wipe = look.peak * blurShare(look.free > 0 ? Math.min(1, t / look.free) : 1);
   const rim = look.edge[0] + (look.edge[1] - look.edge[0]) * t;
   if (rim <= 0) return wipe;
-  return Math.max(wipe, rim * (1 - smoothstep(0, REACH * rim, inside)));
+  return Math.max(wipe, rim * (1 - smoothstep(0, tune.edgeReach * rim, inside)));
 }
 
 /** How much of the picture there is `at` css px along a picture `span` long, softened over `soft` either way: none past its ends. */
@@ -203,31 +162,26 @@ void main() {
   gl_Position = vec4(corner.x * 2.0 - 1.0, 1.0 - corner.y * 2.0, 0.0, 1.0);
 }`;
 
-/** A number as a GLSL float. */
-function glFloat(value: number): string {
-  return value.toFixed(3);
-}
-
 /**
- * `blurAt`, `seenAlong` and `coverage`, the same, then the picture and the
+ * `blurAt` and `coverage`, the same, then the picture and the
  * black past it blurred together: past its ends along the hinge, and past
  * where the turned screen's free edge cuts it, and darkened toward that edge
- * as `freeDark` has it.
+ * as `freeDark` has it. What `tune` has comes in as uniforms, so a number
+ * changed by hand shows at the next draw.
  */
-const FRAGMENT = `#version 300 es
+export const FRAGMENT = `#version 300 es
 precision highp float;
 uniform sampler2D page;
 uniform vec2 stage;
 uniform vec2 along;
 uniform vec3 line;
-uniform vec2 area;
-uniform float base;
-uniform float most;
+uniform float peak;
 uniform vec2 edge;
 uniform float free;
 uniform float dark;
-uniform float appleSeen;
-uniform float nearBlur;
+uniform vec2 shape;
+uniform vec2 rimmed;
+uniform vec3 band;
 uniform float px;
 in vec2 pos;
 out vec4 color;
@@ -237,9 +191,8 @@ float cover(float at, float span, float soft) {
 }
 float shadow(float t) {
   float across = t / max(free, 0.001);
-  float band = ${glFloat(FREE_DARK.broad)} * smoothstep(${glFloat(FREE_DARK.from)}, 1.0, across)
-    + ${glFloat(1 - FREE_DARK.broad)} * smoothstep(${glFloat(1 - FREE_DARK.band)}, 1.0, across);
-  return 1.0 - dark * band;
+  float deep = band.z * smoothstep(band.x, 1.0, across) + (1.0 - band.z) * smoothstep(1.0 - band.y, 1.0, across);
+  return 1.0 - dark * deep;
 }
 float seen(vec2 at, float soft) {
   float reach = soft * length(line.xy);
@@ -249,12 +202,11 @@ void main() {
   float t = clamp(dot(line.xy, pos) + line.z, 0.0, 1.0);
   float span = dot(along, stage);
   float at = dot(along, pos);
-  float apple = (free > 0.0 ? min(1.0, t / free) : 1.0) * appleSeen;
-  float blur = clamp(area.x + area.y * apple, 0.0, 4.0 / 3.0);
-  float wide = min(most, max(blur > 0.0 ? base * exp2(8.0 * blur) : 0.0, nearBlur));
+  float across = free > 0.0 ? min(1.0, t / free) : 1.0;
+  float wide = peak * (shape.x + (1.0 - shape.x) * pow(across, shape.y));
   float rim = mix(edge.x, edge.y, t);
-  if (rim > 0.0) wide = max(wide, rim * (1.0 - smoothstep(0.0, ${REACH.toFixed(3)} * rim, min(at, span - at))));
-  float gap = ${SPREAD.toFixed(3)} * wide;
+  if (rim > 0.0) wide = max(wide, rim * (1.0 - smoothstep(0.0, rimmed.x * rim, min(at, span - at))));
+  float gap = rimmed.y * wide;
   vec2 texels = vec2(textureSize(page, 0)) / stage;
   float soft = max(0.5 * px, 0.75 * gap);
   if (gap < 0.5 * px) {
@@ -351,7 +303,7 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
   gl.uniform3f(at("line"), ...hingeLine(place.pane, place.across, place.part));
   gl.uniform1f(at("px"), canvas.width > 0 ? rect.width / canvas.width : 1);
   gl.uniform1i(at("page"), 0);
-  const uniforms = { area: at("area"), base: at("base"), most: at("most"), edge: at("edge"), free: at("free"), dark: at("dark"), seen: at("appleSeen"), near: at("nearBlur") };
+  const uniforms = { peak: at("peak"), edge: at("edge"), free: at("free"), dark: at("dark"), shape: at("shape"), rimmed: at("rimmed"), band: at("band") };
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -364,14 +316,13 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
   const draw = (next: ScreenLook) => {
     look = next;
     if (gone || !shot) return;
-    gl.uniform2f(uniforms.area, ...next.area);
-    gl.uniform1f(uniforms.base, next.base);
-    gl.uniform1f(uniforms.most, next.most);
+    gl.uniform1f(uniforms.peak, next.peak);
     gl.uniform2f(uniforms.edge, ...next.edge);
     gl.uniform1f(uniforms.free, next.free);
     gl.uniform1f(uniforms.dark, next.dark);
-    gl.uniform1f(uniforms.seen, next.seen);
-    gl.uniform1f(uniforms.near, next.near);
+    gl.uniform2f(uniforms.shape, tune.blurHinge, tune.blurRise);
+    gl.uniform2f(uniforms.rimmed, tune.edgeReach, tune.blurSpread);
+    gl.uniform3f(uniforms.band, tune.darkFrom, tune.darkBand, tune.darkBroad);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   };
   canvas.addEventListener("webglcontextlost", () => {

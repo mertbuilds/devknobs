@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  appleSeen,
   BLURS,
   blurArea,
   blurLight,
-  blurWidth,
+  blurReach,
+  blurShare,
   brightness,
   darkAt,
   edgeLight,
@@ -15,7 +15,6 @@ import {
   type FoldSide,
   FOLD_TIME,
   foldWarm,
-  FREE_DARK,
   freeBand,
   freeDark,
   freeDepth,
@@ -41,7 +40,6 @@ import {
   RIM,
   roundedPath,
   screenDim,
-  seenAlong,
   seenAt,
   SHOTS_AHEAD,
   SHOTS_AROUND,
@@ -56,12 +54,14 @@ import {
   towardFrom,
   shotWindow,
   shownAt,
+  turnBlur,
   uvOf,
   wipeAmount,
   wipeLight,
 } from "../src/engine/fold";
 import { bezelMock } from "../src/engine/bezels";
 import { screenLook } from "../src/engine/foldgl";
+import { TUNE_DEFAULTS } from "../src/engine/foldtune";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import { mockOf, type Rect } from "../src/engine/mock";
 import { corners } from "../src/engine/mockdraw";
@@ -531,9 +531,6 @@ describe("Apple's wipe", () => {
     expect(blurLight(0.9)).toBe(1);
     expect(blurLight(1.1)).toBeCloseTo(0.25);
     expect(blurLight(1.3)).toBe(0);
-    // A level is twice the texels of the one before; the inner texture is 2853 px across.
-    expect(blurWidth("inner", 0.5) / blurWidth("inner", 0.375)).toBeCloseTo(2);
-    expect(blurWidth("inner", 0)).toBeCloseTo((Math.SQRT2 * 1.12) / 2853);
   });
 
   test("shades the open screen's far side the more the wipe is on", () => {
@@ -576,7 +573,7 @@ describe("the free edge's dark", () => {
       expect(freeDark(t, 0)).toBe(0);
       expect(freeDark(t, 1)).toBe(0);
     }
-    expect(freeDepth(0.5)).toBe(FREE_DARK.most);
+    expect(freeDepth(0.5)).toBe(TUNE_DEFAULTS.darkMost);
     expect(freeDepth(0.6)).toBeCloseTo(freeDepth(0.4));
     expect(freeShades(0, 0.8)).toEqual([]);
     expect(freeShades(1, 1)).toEqual([]);
@@ -584,7 +581,7 @@ describe("the free edge's dark", () => {
 
   test("is none at the hinge, and deepens all the way out to the free edge", () => {
     expect(freeBand(0)).toBe(0);
-    expect(freeBand(FREE_DARK.from)).toBe(0);
+    expect(freeBand(TUNE_DEFAULTS.darkFrom)).toBe(0);
     expect(freeBand(1)).toBe(1);
     let last = 0;
     for (let t = 0; t <= 1; t += 0.01) {
@@ -602,17 +599,60 @@ describe("the free edge's dark", () => {
   });
 });
 
+describe("the turned screen's blur", () => {
+  test("is none lying flat, open or shut, and rises all the way to a right angle, where it is its widest", () => {
+    expect(turnBlur(0)).toBe(0);
+    expect(turnBlur(1)).toBe(0);
+    expect(turnBlur(0.5)).toBe(TUNE_DEFAULTS.blurMost);
+    let last = 0;
+    for (let open = 0.01; open <= 0.5; open += 0.01) {
+      expect(turnBlur(open)).toBeGreaterThan(last);
+      expect(turnBlur(1 - open)).toBeCloseTo(turnBlur(open), 9);
+      last = turnBlur(open);
+    }
+    // Next to none as the page itself takes over from its picture, so nothing steps there.
+    expect(turnBlur(0.99)).toBeLessThan(0.2);
+    expect(turnBlur(0.01)).toBeLessThan(0.2);
+  });
+
+  test("is at most 48 css px: three eighths of the 128 it was", () => {
+    expect(TUNE_DEFAULTS.blurMost).toBe(48);
+    expect(TUNE_DEFAULTS.blurMost).toBeLessThanOrEqual(BLURS[BLURS.length - 1] / 2);
+    expect(TUNE_DEFAULTS.blurMost).toBeGreaterThanOrEqual(BLURS[BLURS.length - 1] / 3);
+  });
+
+  test("is least at the hinge, under 2 css px at any angle, and never falls on the way to the free edge", () => {
+    expect(blurShare(0)).toBe(TUNE_DEFAULTS.blurHinge);
+    expect(blurShare(1)).toBe(1);
+    expect(TUNE_DEFAULTS.blurMost * blurShare(0)).toBeLessThan(2);
+    let last = blurShare(0);
+    for (let across = 0.01; across <= 1; across += 0.01) {
+      expect(blurShare(across)).toBeGreaterThan(last);
+      last = blurShare(across);
+    }
+    // Low for long near the hinge: a quarter of the way out, under a tenth of the free edge's.
+    expect(blurShare(0.25)).toBeLessThanOrEqual(0.1);
+    expect(blurShare(-1)).toBe(blurShare(0));
+    expect(blurShare(2)).toBe(1);
+  });
+
+  test("is found again from how wide it is", () => {
+    for (const across of [0, 0.2, 0.5, 0.9, 1]) expect(blurReach(blurShare(across))).toBeCloseTo(across, 9);
+    expect(blurReach(0)).toBe(0);
+  });
+});
+
 describe("paneLook", () => {
   test("is bright and sharp on a screen lying flat", () => {
-    const flat = paneLook("inner", 1, 951);
+    const flat = paneLook("inner", 1);
     expect(flat.turned.every((dark) => dark === 0)).toBe(true);
     expect(flat.flat.every((dark) => dark === 0)).toBe(true);
     expect(flat.blurs).toEqual([null, null, null]);
-    expect(paneLook("cover", 0, 466).blurs).toEqual([null, null, null]);
+    expect(paneLook("cover", 0).blurs).toEqual([null, null, null]);
   });
 
   test("darkens the half that turns toward its free edge, from the dark of the half that stays", () => {
-    const look = paneLook("inner", 0.6, 951);
+    const look = paneLook("inner", 0.6);
     expect(look.turned).toHaveLength(9);
     expect(look.turned[0]).toBeCloseTo(screenDim("inner", 0.6), 2);
     for (let step = 1; step < look.turned.length; step++) {
@@ -622,16 +662,41 @@ describe("paneLook", () => {
     expect(look.flat.at(-1) ?? 0).toBeGreaterThan(look.flat[0] ?? 0);
   });
 
-  test("fades the blurrier pictures in one after the other along the half, as wide as Apple's blur", () => {
-    const { blurs } = paneLook("inner", 0.6, 951);
-    const [first, second] = blurs;
-    if (!first || !second) throw new Error("no blur");
+  test("fades the blurrier pictures in one after the other along the half, each all in where the blur is as wide as it", () => {
+    const { blurs } = paneLook("inner", 0.5);
+    const [first, second, third] = blurs;
+    if (!first || !second || !third) throw new Error("no blur");
     expect(first.from).toBeLessThan(first.to);
     expect(first.to).toBeCloseTo(second.from, 2);
+    expect(second.to).toBeCloseTo(third.from, 2);
     expect(first.most).toBe(1);
-    // Where the first is all the way in, the blur is as wide as it, Apple's as far across what its camera sees.
-    const area = blurArea("inner", uvOf("inner", seenAlong(first.to, 1, appleSeen("inner", 0.6))), wipeAmount("inner", 0.6));
-    expect(blurWidth("inner", area) * 951).toBeCloseTo(BLURS[1], 0);
+    expect(turnBlur(0.5) * blurShare(first.to)).toBeCloseTo(BLURS[1], 0);
+    expect(turnBlur(0.5) * blurShare(second.to)).toBeCloseTo(BLURS[2], 0);
+    // Seen less far out, they fade in as much nearer the hinge.
+    expect(paneLook("inner", 0.5, 0.5).blurs[0]?.to).toBeCloseTo(first.to / 2, 2);
+  });
+
+  test("shows none of a blurrier picture at the hinge, at any angle, so it is no blurrier there than WebGL2 draws it", () => {
+    for (const pane of ["inner", "cover"] as const) {
+      for (let open = 0; open <= 1; open += 0.01) {
+        for (const blur of paneLook(pane, open).blurs) {
+          if (!blur) continue;
+          expect(blur.least).toBe(0);
+          expect(blur.most).toBeGreaterThan(0);
+          expect(blur.from).toBeGreaterThan(0);
+          expect(blur.to).toBeGreaterThanOrEqual(blur.from);
+        }
+      }
+    }
+  });
+
+  test("is as wide at the free edge as WebGL2 draws it, at its widest", () => {
+    const { blurs } = paneLook("cover", 0.5);
+    // The widest picture that shows, and the one under it, mixed by how much of it shows, as widths double.
+    const at = blurs.findLastIndex((blur) => blur !== null);
+    const [low, high] = [BLURS[at] ?? 0, BLURS[at + 1] ?? 0];
+    expect(low * (high / low) ** (blurs[at]?.most ?? 0)).toBeCloseTo(TUNE_DEFAULTS.blurMost, 0);
+    expect(blurs[at]?.to).toBe(1);
   });
 
   test("dims the screens as Apple lights them, through the display's gamma", () => {
@@ -1017,13 +1082,12 @@ describe("the Duo's fold frames", () => {
           shotsDrift(shots, layout, inside, outside, at, "closed"),
           screenDim("inner", at),
           screenDim("cover", at),
-          paneLook("inner", at, 951),
-          paneLook("cover", at, 466),
-          paneLook("inner", at, 951, 0.4),
-          paneLook("cover", at, 466, 0.4),
+          paneLook("inner", at),
+          paneLook("cover", at),
+          paneLook("inner", at, 0.4),
+          paneLook("cover", at, 0.4),
           freeShades(at, 0.9),
-          screenLook("inner", at, 951, 12, 0.9),
-          screenLook("cover", at, 466, 12, 0.9),
+          screenLook(at, 12, 0.9),
         ]);
       };
       let last = drawn(0);

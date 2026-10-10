@@ -1,121 +1,113 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import {
-  appleSeen,
-  BLURS,
-  blurArea,
-  blurWidth,
+  blurShare,
   darkAt,
   freeDepth,
-  nearBlur,
   type Pane,
   type Quad,
-  seenAlong,
   shotPane,
   shotPicture,
   shotQuad,
   shotWindow,
-  uvOf,
-  wipeAmount,
+  turnBlur,
 } from "../src/engine/fold";
 import {
   blurAt,
   canvasRect,
   contextOf,
   coverage,
-  EDGE,
+  FRAGMENT,
   freeOf,
   hingeLine,
-  REACH,
   reachOf,
   screenGl,
   screenLook,
   wedgeOf,
 } from "../src/engine/foldgl";
+import { TUNE_DEFAULTS } from "../src/engine/foldtune";
 
-const EXTENT = { inner: 951, cover: 466 } as const;
 /** Deep in the picture, past any end's blur. */
 const DEEP = 1e4;
+/** Every hundredth of the way, from 0 to 1. */
+const HUNDREDTHS = Array.from({ length: 101 }, (_, step) => step / 100);
 
 describe("the screen's blur", () => {
   test("is none anywhere with the screen lying flat, open or shut, so the page hands back unchanged", () => {
-    const flat = [screenLook("inner", 1, EXTENT.inner, 0), screenLook("cover", 0, EXTENT.cover, 0), screenLook("cover", 1, EXTENT.cover, 0)];
-    for (const look of flat) {
+    for (const look of [screenLook(1, 0), screenLook(0, 0)]) {
       for (const t of [0, 0.25, 0.5, 0.75, 1]) {
         for (const inside of [-40, 0, 3, DEEP]) expect(blurAt(look, t, inside)).toBe(0);
       }
     }
   });
 
-  test("away from the ends is Apple's as far across what its camera sees, growing from the hinge toward the free edge", () => {
-    for (const pane of ["inner", "cover"] as const) {
-      for (const open of [0.8, 0.6, 0.4, 0.2]) {
-        for (const free of [1, 0.5]) {
-          const look = screenLook(pane, open, EXTENT[pane], 30, free);
-          let last = 0;
-          for (const t of [0, 0.25, 0.5, 0.75, 1]) {
-            const along = seenAlong(t, free, appleSeen(pane, open));
-            const area = blurArea(pane, uvOf(pane, along), wipeAmount(pane, open));
-            const wipe = area > 0 ? blurWidth(pane, area) * EXTENT[pane] : 0;
-            const apple = Math.min(BLURS[BLURS.length - 1], Math.max(wipe, nearBlur(pane, open) * EXTENT[pane]));
-            expect(blurAt(look, t, DEEP)).toBeCloseTo(apple, 6);
-            expect(blurAt(look, t, DEEP)).toBeGreaterThanOrEqual(last);
-            last = blurAt(look, t, DEEP);
-          }
+  test("away from the ends is least at the hinge, under 2 css px at any angle, and never falls toward the free edge", () => {
+    for (const open of HUNDREDTHS) {
+      for (const free of [1, 0.5, 0.1]) {
+        const look = screenLook(open, 0, free);
+        const hinge = blurAt(look, 0, DEEP);
+        expect(hinge).toBeLessThan(2);
+        expect(hinge).toBeCloseTo(TUNE_DEFAULTS.blurHinge * turnBlur(open), 9);
+        let last = hinge;
+        for (const t of HUNDREDTHS) {
+          expect(blurAt(look, t, DEEP)).toBeGreaterThanOrEqual(last);
+          last = blurAt(look, t, DEEP);
         }
+        // Its widest is at the free edge the turned screen is seen to, and past it no wider.
+        expect(blurAt(look, free, DEEP)).toBeCloseTo(turnBlur(open), 9);
+        expect(last).toBeCloseTo(turnBlur(open), 9);
+        expect(blurAt(look, free / 2, DEEP)).toBeCloseTo(turnBlur(open) * blurShare(0.5), 9);
       }
     }
   });
 
-  test("near a right angle blurs the turned screen all over, its hinge too, and Apple's at the free edge it is seen to", () => {
-    for (const pane of ["inner", "cover"] as const) {
-      const open = pane === "inner" ? 0.53 : 0.47;
-      const look = screenLook(pane, open, EXTENT[pane], 0, 0.1);
-      expect(look.near).toBeCloseTo(nearBlur(pane, open) * EXTENT[pane], 9);
-      expect(blurAt(look, 0, DEEP)).toBeGreaterThan(12);
-      const area = blurArea(pane, uvOf(pane, appleSeen(pane, open)), wipeAmount(pane, open));
-      expect(blurAt(look, 0.1, DEEP)).toBeCloseTo(Math.max(blurWidth(pane, area) * EXTENT[pane], look.near), 6);
+  test("is never wider than 48 css px, and that wide only at the free edge at a right angle", () => {
+    let most = 0;
+    for (const open of HUNDREDTHS) {
+      for (const t of HUNDREDTHS) most = Math.max(most, blurAt(screenLook(open, 0), t, DEEP));
     }
-    // Far from it, sharp at the hinge.
-    expect(blurAt(screenLook("inner", 0.9, EXTENT.inner, 0, 0.95), 0, DEEP)).toBeLessThan(1);
+    expect(most).toBe(48);
+    expect(blurAt(screenLook(0.5, 0), 1, DEEP)).toBe(48);
+    // Half way out there, a little over a quarter of it.
+    expect(blurAt(screenLook(0.5, 0), 0.5, DEEP)).toBeLessThan(14);
+  });
+
+  test("draws the same in the shader, from numbers handed to it at each draw", () => {
+    expect(FRAGMENT).toContain("float across = free > 0.0 ? min(1.0, t / free) : 1.0;");
+    expect(FRAGMENT).toContain("float wide = peak * (shape.x + (1.0 - shape.x) * pow(across, shape.y));");
+    // None of the look's numbers is written into it.
+    expect(FRAGMENT).not.toContain("${");
+    for (const name of ["peak", "shape", "rimmed", "band", "edge", "dark"]) expect(FRAGMENT).toMatch(new RegExp(`uniform \\w+ ${name};`));
   });
 
   test("darkens the free edge as deep as freeDepth, and not at all lying flat", () => {
-    for (const pane of ["inner", "cover"] as const) {
-      expect(screenLook(pane, 0, EXTENT[pane], 0).dark).toBe(0);
-      expect(screenLook(pane, 1, EXTENT[pane], 0).dark).toBe(0);
-      expect(screenLook(pane, 0.6, EXTENT[pane], 12, 0.4).dark).toBe(freeDepth(0.6));
-    }
-  });
-
-  test("is never wider than the widest blurred picture", () => {
-    expect(blurAt(screenLook("inner", 0.65, EXTENT.inner, 0), 1, DEEP)).toBe(BLURS[BLURS.length - 1]);
+    expect(screenLook(0, 0).dark).toBe(0);
+    expect(screenLook(1, 0).dark).toBe(0);
+    expect(screenLook(0.6, 12, 0.4).dark).toBe(freeDepth(0.6));
   });
 
   test("blurs the page into the dark past its ends, as wide as that dark at the free edge, even at the hinge", () => {
     const wedge = 40;
-    for (const pane of ["inner", "cover"] as const) {
-      // Barely turned, Apple's blur is all but none near the hinge: the ends' is what shows there.
-      const look = screenLook(pane, pane === "inner" ? 0.95 : 0.05, EXTENT[pane], wedge);
-      expect(look.edge).toEqual([EDGE[0] * wedge, EDGE[1] * wedge]);
-      expect(blurAt(look, 0, -5)).toBeCloseTo(EDGE[0] * wedge);
-      expect(blurAt(look, 0, 0)).toBeCloseTo(EDGE[0] * wedge);
-      expect(blurAt(look, 1, 0)).toBeCloseTo(EDGE[1] * wedge);
-      expect(blurAt(look, 0.5, -20)).toBeCloseTo(((EDGE[0] + EDGE[1]) / 2) * wedge);
+    for (const open of [0.95, 0.05]) {
+      // Barely turned, the screen's blur is all but none near the hinge: the ends' is what shows there.
+      const look = screenLook(open, wedge);
+      expect(look.edge).toEqual([TUNE_DEFAULTS.edgeHinge * wedge, TUNE_DEFAULTS.edgeFree * wedge]);
+      expect(blurAt(look, 0, -5)).toBeCloseTo(TUNE_DEFAULTS.edgeHinge * wedge);
+      expect(blurAt(look, 0, 0)).toBeCloseTo(TUNE_DEFAULTS.edgeHinge * wedge);
+      expect(blurAt(look, 1, 0)).toBeCloseTo(TUNE_DEFAULTS.edgeFree * wedge);
+      expect(blurAt(look, 0.5, -20)).toBeCloseTo(((TUNE_DEFAULTS.edgeHinge + TUNE_DEFAULTS.edgeFree) / 2) * wedge);
       // It eases off into the picture, and is gone as far in as it reaches.
-      const rim = EDGE[0] * wedge;
+      const rim = TUNE_DEFAULTS.edgeHinge * wedge;
       expect(blurAt(look, 0, rim)).toBeLessThan(rim);
       expect(blurAt(look, 0, rim)).toBeGreaterThan(0);
-      expect(blurAt(look, 0, REACH * rim)).toBe(blurAt(look, 0, DEEP));
+      expect(blurAt(look, 0, TUNE_DEFAULTS.edgeReach * rim)).toBe(blurAt(look, 0, DEEP));
     }
     // The further the screen reaches past the page, the wider.
-    expect(blurAt(screenLook("cover", 0.3, EXTENT.cover, 60), 0.2, 0)).toBeGreaterThan(
-      blurAt(screenLook("cover", 0.3, EXTENT.cover, 20), 0.2, 0),
-    );
+    expect(blurAt(screenLook(0.3, 60), 0.2, 0)).toBeGreaterThan(blurAt(screenLook(0.3, 20), 0.2, 0));
   });
 
-  test("keeps Apple's where that is the wider at the ends", () => {
-    const look = screenLook("inner", 0.2, EXTENT.inner, 2);
+  test("keeps the screen's own where that is the wider at the ends", () => {
+    const look = screenLook(0.4, 2);
     expect(blurAt(look, 1, 0)).toBe(blurAt(look, 1, DEEP));
   });
 });
@@ -157,8 +149,8 @@ describe("the turned screen's free edge", () => {
   });
 
   test("leaves the look's free edge at the picture's own where none is given", () => {
-    expect(screenLook("cover", 0.4, EXTENT.cover, 10).free).toBe(1);
-    expect(screenLook("cover", 0.4, EXTENT.cover, 10, 0.6).free).toBe(0.6);
+    expect(screenLook(0.4, 10).free).toBe(1);
+    expect(screenLook(0.4, 10, 0.6).free).toBe(0.6);
   });
 });
 

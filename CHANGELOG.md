@@ -22,6 +22,14 @@
 - the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
 - grab, replay animations and requests have rows as the knobs do. run one from the search, the add knob list, the footer or its row and its row stays in the list, to drag where you want it. its row runs it, shows its key and whether a mode is on, and its x takes it off and turns the mode off. a key alone lists a mode only while it is on
 - the head of the settings has its way back at the row's leading edge, where a row's grip is, and its title where a row's content starts
+### iPhone Duo
+
+- the half that turns shows the page at the text size knob's size: its lines meet the other half's at the hinge. a page that sets its own root font size folds right too
+- the half that turns stays all but sharp next to the hinge through the whole fold, and blurs gently toward its free edge: 48 px at most, where it was 128
+
+### internal
+
+- the numbers of the fold's look are in one table, on `window` under `Symbol.for("devknobs.foldtune")`, to tune by hand on a live page. nothing is stored
 
 ## 0.1.2
 

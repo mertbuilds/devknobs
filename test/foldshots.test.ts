@@ -28,6 +28,7 @@ import {
   watchFold,
   watchHinge,
 } from "../src/engine/foldrun";
+import { resetTune, setTune } from "../src/engine/foldtune";
 import { DEFAULT_STATE } from "../src/engine/store";
 import type { ViewportValue } from "../src/engine/width";
 
@@ -576,6 +577,40 @@ describe("a Duo folding in its frames", () => {
     expect(moved).toBeGreaterThan(100);
   });
 
+  test("draws again at once, resting between its ends, as a number of its look is set by hand", async () => {
+    foldDevice(SHUT, OPEN, sceneOf(), (value) => drawn.push(value), true);
+    await Bun.sleep(0);
+    let now = 0;
+    const step = async () => {
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      await Bun.sleep(0);
+    };
+    // A slow hand takes the hinge to where the folded screen still shows, and holds it there till it rests.
+    for (let target = 0; target <= 0.3; target += 1 / 540) {
+      scrubFold(target);
+      await step();
+    }
+    for (let waited = 0; waited < 2000 && frames.length > 0; waited += 1) await step();
+    expect(frames).toHaveLength(0);
+    /** The dark at the free edge of each turned screen, which the layers draw where WebGL2 is not. */
+    const edges = () => {
+      const [, inner, outer] = model()?.children ?? [];
+      return [inner, outer].map((one) => style(one?.children[0]?.children[0]?.children[3], "background")).join("|");
+    };
+    const before = edges();
+    expect(before).toContain("linear-gradient(");
+    try {
+      setTune("darkMost", 0.2);
+      // No frame was asked for: it is drawn by the time the number is set.
+      expect(frames).toHaveLength(0);
+      expect(edges()).not.toBe(before);
+    } finally {
+      resetTune();
+    }
+    expect(edges()).toBe(before);
+  });
+
   test("writes nothing to the page between frames, once the fades are done, and draws it all again at one", async () => {
     foldDevice(SHUT, OPEN, sceneOf(), (value) => drawn.push(value), true);
     await Bun.sleep(0);
@@ -971,7 +1006,7 @@ describe("a fold the knobs start, waiting for the pictures of the page", () => {
     };
     const frame = Object.assign(new FakeNode(), {
       contentDocument: page,
-      contentWindow: { innerWidth: 400, innerHeight: 600, scrollX: 0, scrollY: 0 },
+      contentWindow: { innerWidth: 400, innerHeight: 600, scrollX: 0, scrollY: 0, getComputedStyle: () => ({ fontSize: "16px" }) },
     });
     return { ...sceneOf(), frame: frame as unknown as HTMLIFrameElement, body: () => null };
   }
