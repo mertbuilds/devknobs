@@ -124,6 +124,28 @@ describe("the pin control", () => {
   });
 });
 
+describe("the footer's icon controls", () => {
+  test("are one kind of button: the pin and a pinned panel's two are built as the settings' is", () => {
+    page("");
+    const footer = createFooter(keys, null, true);
+    footer.drawPin(true);
+    const controls = [footer.flip, footer.collapse, footer.pin, footer.keysToggle].map(fake);
+    expect(controls.map((control) => control.className)).toEqual([
+      "hint flip-toggle",
+      "hint collapse-toggle",
+      "hint pin-toggle",
+      "hint keys-toggle",
+    ]);
+    for (const control of controls) {
+      expect(control.textContent).toBe("");
+      expect(control.children).toHaveLength(1);
+      expect(control.attributes.get("aria-label")).toBeTruthy();
+    }
+    // No rule sizes, pads or edges one of them apart from the others.
+    expect(CSS).not.toMatch(/\.(pin|flip|collapse)-toggle[^{]*\{[^}]*(padding|border|outline|box-shadow|width|height)/);
+  });
+});
+
 describe("a pinned panel's controls", () => {
   /** The class and the shapes of a control's icon. */
   const glyph = (control: unknown) => {

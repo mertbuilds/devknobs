@@ -1,3 +1,4 @@
+import * as engine from "../engine";
 import { DEFAULT_STATE } from "../engine/store";
 import type { DevknobsState, DevknobsStatePatch } from "../types";
 import {
@@ -18,6 +19,8 @@ import {
   WIDTH,
   ZOOM,
 } from "./deviceknobs";
+import type { IconName } from "./icons";
+import type { Binding } from "./keys";
 import {
   CLOCK,
   CLOCK_MODE,
@@ -41,14 +44,16 @@ import {
   TIME_ZONE,
   TRANSPARENCY,
 } from "./knobs";
+import { togglePin } from "./pin";
+import { stage } from "./stage";
 
 export { hasMock } from "./deviceknobs";
 export { nameOf, parseShift, shiftLabel, wallInput } from "./knobs";
 
 /**
  * Every knob the panel offers, as data: what it is called, what it can be set
- * to and how, and how it reads back. The active rows, their editors and the
- * search all come from here.
+ * to and how, and how it reads back. The actions are here too, each with what
+ * it does. The rows, their editors and the search all come from here.
  */
 
 export type Category =
@@ -181,7 +186,8 @@ export interface Knob {
   base?(state: DevknobsState): string | undefined;
 }
 
-export type RowId =
+/** The rows of knobs. */
+export type KnobRowId =
   | "scheme"
   | "contrast"
   | "transparency"
@@ -196,11 +202,107 @@ export type RowId =
   | "viewport"
   | "debug";
 
-/** One line of the active list, with the knobs that read best together. */
-export interface Row {
-  id: RowId;
+/** Every row: the rows of knobs, and one for each action, under the action's id. */
+export type RowId = KnobRowId | Action["id"];
+
+/** One line of the list, with the knobs that read best together. */
+export interface KnobRow {
+  id: KnobRowId;
   label: string;
   knobs: readonly KnobId[];
+  action?: undefined;
+}
+
+/**
+ * An action's line of the list. It is a row as a knob row is, so the list
+ * keeps, orders and drops it by the same rules: it has no knob to set, and
+ * the action to run in their place.
+ */
+export interface ActionRow {
+  id: Action["id"];
+  label: string;
+  /** None, ever: what a knob row sets, an action's row runs. */
+  knobs: readonly KnobId[];
+  action: Action;
+}
+
+export type Row = KnobRow | ActionRow;
+
+/** Something the panel does rather than a knob it sets. Its row comes from what is said here. */
+export interface Action {
+  id: "grab" | "replay" | "pin" | "side";
+  label: string;
+  /** What a search result says after the name. */
+  long: string;
+  /** More words search finds the action by. */
+  aliases: readonly string[];
+  /** The icon its row and its search result show. */
+  icon: IconName;
+  /** The binding whose key runs it, which its row shows. */
+  binding?: Binding;
+  /** Do it. A mode goes on, or off where it is on. */
+  run(): void;
+  /** Whether a mode or a toggle is on. An action that is neither has none. */
+  state?(): "on" | "off" | null;
+  /** Turn a mode off, as its row's `×` and reset all do. A toggle those leave alone has none. */
+  off?(): void;
+  /** Hear a mode go on or off, however it did. Returns the way to stop. */
+  watch?(listener: () => void): () => void;
+  /** False where the page has nothing for the action to act on. */
+  available?(): boolean;
+}
+
+/**
+ * Every action, in the order the browse list shows them. A new one is an
+ * entry here, and its id in `Action`: its row, its search result and its
+ * place in the list all follow.
+ */
+export const ACTIONS: readonly Action[] = [
+  {
+    id: "grab",
+    label: "grab",
+    long: "pick an element to copy",
+    aliases: ["inspect", "pick", "element", "component", "select", "agent"],
+    icon: "square-dashed-mouse-pointer",
+    binding: "grab",
+    run: () => stage.grab?.set(!stage.grab.isOn()),
+    state: () => (stage.grab ? (stage.grab.isOn() ? "on" : "off") : null),
+    off: () => stage.grab?.set(false),
+    watch: (listener) => stage.grab?.subscribe(() => listener()) ?? (() => {}),
+    available: () => stage.grab !== null,
+  },
+  {
+    id: "replay",
+    label: "replay animations",
+    long: "restart every animation from the start",
+    aliases: ["restart", "animation", "rerun"],
+    icon: "rotate-ccw",
+    binding: "replay",
+    run: () => engine.replay(),
+  },
+  {
+    id: "pin",
+    label: "pin panel",
+    long: "dock the panel to its side, the page beside it",
+    aliases: ["unpin", "dock", "undock", "sidebar", "column", "devtools"],
+    icon: "pin",
+    run: togglePin,
+    // No way off: the pin is place, so its row's `×` and reset all leave it be.
+    state: () => (engine.getState().panel.docked ? "on" : "off"),
+  },
+  {
+    id: "side",
+    label: "move panel across",
+    long: "take the panel to the other side of the window",
+    aliases: ["side", "left", "right", "other", "flip", "switch"],
+    icon: "panel-left",
+    run: () => stage.flip?.(),
+  },
+];
+
+/** An action's row: named as the action is, with nothing to set. */
+export function actionRow(action: Action): ActionRow {
+  return { id: action.id, label: action.label, knobs: [], action };
 }
 
 /**
@@ -247,7 +349,7 @@ export const KNOBS: readonly Knob[] = [
   GRAB_COLOR,
 ];
 
-export const ROWS: readonly Row[] = [
+export const KNOB_ROWS: readonly KnobRow[] = [
   { id: "scheme", label: "scheme", knobs: ["scheme"] },
   { id: "contrast", label: "contrast", knobs: ["contrast"] },
   { id: "transparency", label: "transparency", knobs: ["transparency"] },
@@ -271,14 +373,17 @@ export const ROWS: readonly Row[] = [
   { id: "debug", label: "debug", knobs: ["overflow", "outlines", "grabColor"] },
 ];
 
+/** Every row: the rows of knobs in the catalog's order, then the actions' in theirs. */
+export const ROWS: readonly Row[] = [...KNOB_ROWS, ...ACTIONS.map(actionRow)];
+
 export function knobOf(id: KnobId): Knob {
   const knob = KNOBS.find((entry) => entry.id === id);
   if (!knob) throw new Error(`devknobs: no knob ${id}`);
   return knob;
 }
 
-export function rowOf(id: KnobId): Row {
-  const row = ROWS.find((entry) => entry.knobs.includes(id));
+export function rowOf(id: KnobId): KnobRow {
+  const row = KNOB_ROWS.find((entry) => entry.knobs.includes(id));
   if (!row) throw new Error(`devknobs: no row for ${id}`);
   return row;
 }
@@ -303,8 +408,23 @@ export function brief(knob: Knob, state: DevknobsState, live: Live): string {
   return knob.brief?.(state, live) ?? nameOf(knob, knob.read(state));
 }
 
-/** Does any knob of the row differ from its default? */
+/** The actions this page has something for. */
+export function availableActions(): Action[] {
+  return ACTIONS.filter((action) => action.available?.() ?? true);
+}
+
+/** Whether the row has a place on this page: a row of knobs always, an action's where it has one. */
+export function rowHere(row: Row): boolean {
+  return row.action?.available?.() ?? true;
+}
+
+/**
+ * Does any knob of the row differ from its default, or is its action's mode
+ * on? A toggle with no way off is on as place is, not as a mode: it lists no
+ * row and reset all has nothing of it to put back.
+ */
 export function isActive(row: Row, state: DevknobsState): boolean {
+  if (row.action) return row.action.off !== undefined && row.action.state?.() === "on";
   return knobsOf(row).some((knob) => offDefault(knob, state));
 }
 
@@ -336,43 +456,6 @@ export function combine(patches: readonly DevknobsStatePatch[]): DevknobsStatePa
 export function resetPatch(row: Row): DevknobsStatePatch {
   return combine(row.knobs.map((id) => knobOf(id).reset));
 }
-
-/** Something the panel does rather than a knob it sets. */
-export interface Action {
-  id: "grab" | "replay" | "pin" | "side";
-  label: string;
-  /** What a search result says after the name. */
-  long: string;
-  /** More words search finds the action by. */
-  aliases: readonly string[];
-}
-
-export const ACTIONS: readonly Action[] = [
-  {
-    id: "grab",
-    label: "grab",
-    long: "pick an element to copy",
-    aliases: ["inspect", "pick", "element", "component", "select", "agent"],
-  },
-  {
-    id: "replay",
-    label: "replay animations",
-    long: "restart every animation from the start",
-    aliases: ["restart", "animation", "rerun"],
-  },
-  {
-    id: "pin",
-    label: "pin panel",
-    long: "dock the panel to its side, the page beside it",
-    aliases: ["unpin", "dock", "undock", "sidebar", "column", "devtools"],
-  },
-  {
-    id: "side",
-    label: "move panel across",
-    long: "take the panel to the other side of the window",
-    aliases: ["side", "left", "right", "other", "flip", "switch"],
-  },
-];
 
 /** The browse list: every knob the browser can use, by category. */
 export function browse(): { category: Category; knobs: Knob[] }[] {

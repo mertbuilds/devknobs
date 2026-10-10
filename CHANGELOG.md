@@ -8,9 +8,11 @@
 
 ### panel
 
-- the pin button in the footer, and the pin panel action in the search, dock the panel to its side as a column the height of the window, like devtools. the page runs in a frame beside it, so its viewport really is narrower: media queries, `100vw` and fixed boxes follow. pinning loads the page once more when no frame is up, and never with a device or a width set. the pin is kept with the panel's place. the column is as wide as the panel, a view's width while one shows, and its edge sets that width down to a page of 320px. two buttons by the pin, and the move panel across action, take it to the other side and close it
+- the pin button in the footer, and the pin panel action in the search, dock the panel to its side as a column the height of the window, like devtools. the page runs in a frame beside it, so its viewport really is narrower: media queries, `100vw` and fixed boxes follow. pinning loads the page once more when no frame is up, and never with a device or a width set. the pin is kept with the panel's place. the column is as wide as the panel, a view's width while one shows, and its edge sets that width down to a page of 320px. two buttons by the pin, and the move panel across action, take it to the other side and close it. run from the panel, pin panel and move panel across are rows like any action: the pin's row says `on` while the panel is pinned, and its `×` and reset all leave the panel where it is
 - a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept
 - the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
+- grab and replay animations have rows as the knobs do. run one from the search, the add knob list, the footer or its row and its row stays in the list, to drag where you want it. its row runs it, shows its key and whether a mode is on, and its x takes it off and turns the mode off. a key alone lists a mode only while it is on
+- the head of the settings has its way back at the row's leading edge, where a row's grip is, and its title where a row's content starts
 
 ## 0.1.2
 

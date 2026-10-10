@@ -1,13 +1,13 @@
 import * as engine from "../engine";
 import { frameForced } from "../engine/frame";
-import type { GrabControl } from "../grab/control";
 import type { DevknobsState } from "../types";
+import { runAction } from "./actions";
 import { type Action, browse, type Knob, nameOf, rowOf } from "./catalog";
 import { el, reveal } from "./dom";
 import { commit, set } from "./editors";
-import { ACTION_ICONS, icon, ROW_ICONS } from "./icons";
+import { icon, ROW_ICONS } from "./icons";
 import { highlightAt, paletteMove } from "./keys";
-import { actionLabel, togglePin } from "./pin";
+import { actionLabel } from "./pin";
 import type { Rows } from "./rows";
 import { type Result, resultText, search, searchActions } from "./search";
 import type { Slide } from "./slide";
@@ -15,7 +15,8 @@ import type { Slide } from "./slide";
 /**
  * The search that opens from the add knob button: its field, the results of
  * what is typed and, with nothing typed, the browse list of every knob and
- * action. Picking an entry sets a value or adds and opens a knob's row.
+ * action. Picking an entry sets a value, adds and opens a knob's row, or runs
+ * an action, which adds its row.
  */
 
 /** What the panel's body shows, as the wrapper's `data-mode` says it. */
@@ -55,7 +56,6 @@ export interface PaletteContext {
   add: HTMLButtonElement;
   results: HTMLElement;
   rows: Rows;
-  grab: GrabControl | null;
   /** The actions search finds. */
   actionsHere: readonly Action[];
   /** Draw the whole panel again. */
@@ -66,8 +66,6 @@ export interface PaletteContext {
   viewing(): boolean;
   /** Stop recording a key, and leave the settings and a feature's view, without drawing anything. */
   dropKeys(): void;
-  /** Take the panel to the other side of the window. */
-  flipSide(): void;
 }
 
 export interface Palette {
@@ -78,15 +76,13 @@ export interface Palette {
   renderBody(state: DevknobsState): void;
   leaveSearch(): void;
   startBrowsing(text?: string): void;
-  runAction(id: Action["id"]): void;
   onGrab(on: boolean): void;
   onPointerDown(): void;
   onPointerUp(): void;
 }
 
 export function createPalette(context: PaletteContext): Palette {
-  const { root, wrap, slide, searchInput, closeSearch, add, results, rows, grab, actionsHere } =
-    context;
+  const { root, wrap, slide, searchInput, closeSearch, add, results, rows, actionsHere } = context;
   const { render } = context;
 
   /** The search has focus and lists every knob, as nothing is typed. */
@@ -128,8 +124,8 @@ export function createPalette(context: PaletteContext): Palette {
   function actionEntry(id: number, action: Action, state: DevknobsState): Entry {
     return entry(
       id,
-      () => runAction(action.id),
-      icon(ACTION_ICONS[action.id]),
+      () => runAction(action),
+      icon(action.icon),
       el("span", "entry-knob", actionLabel(action, state.panel.docked)),
       el("span", "entry-value", action.long),
     );
@@ -219,25 +215,6 @@ export function createPalette(context: PaletteContext): Palette {
     // The blur renders.
     if (root.activeElement === searchInput) searchInput.blur();
     else render();
-  }
-
-  /** Do what an action says. */
-  function runAction(id: Action["id"]): void {
-    if (id === "replay") {
-      engine.replay();
-      return;
-    }
-    if (id === "pin") {
-      leaveSearch();
-      togglePin();
-      return;
-    }
-    if (id === "side") {
-      leaveSearch();
-      context.flipSide();
-      return;
-    }
-    grab?.set(true);
   }
 
   /**
@@ -364,7 +341,6 @@ export function createPalette(context: PaletteContext): Palette {
     renderBody,
     leaveSearch,
     startBrowsing,
-    runAction,
     onGrab,
     onPointerDown,
     onPointerUp,

@@ -54,6 +54,17 @@ export function keyChips(keys: Keys, grab: boolean, mac: boolean): KeyChip[] {
   return chips;
 }
 
+/**
+ * A control of the footer that is its icon alone, as the way into the
+ * settings is: a hint with no key and no word, named for assistive tech.
+ */
+function iconHint(className: string, label: string, glyph?: Element): HTMLButtonElement {
+  const node = button(`hint ${className}`, "");
+  if (glyph) node.append(glyph);
+  node.setAttribute("aria-label", label);
+  return node;
+}
+
 /** The footer's nodes, and the controls in it. */
 export interface Footer {
   foot: HTMLElement;
@@ -92,7 +103,7 @@ export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: bool
     hintKeys.set(chip.command, key);
   }
   // Pins the panel to its side. It has no key, so it is its icon alone.
-  const pin = button("hint pin-toggle", "");
+  const pin = iconHint("pin-toggle", pinWord(false));
   let pinShown: boolean | null = null;
   // A pinned panel's edge changes its width, so these take it across and
   // close it. Their icons face the side the panel is on.
@@ -101,16 +112,10 @@ export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: bool
     glyph.setAttribute("class", "glyph sided");
     return glyph;
   };
-  const flip = button("hint flip-toggle", "");
-  flip.append(sided("panel-left"));
-  flip.setAttribute("aria-label", SIDE_WORD);
-  const collapse = button("hint collapse-toggle", "");
-  collapse.append(sided("panel-right-close"));
-  collapse.setAttribute("aria-label", COLLAPSE_WORD);
+  const flip = iconHint("flip-toggle", SIDE_WORD, sided("panel-left"));
+  const collapse = iconHint("collapse-toggle", COLLAPSE_WORD, sided("panel-right-close"));
   // Opens the settings, where the keys are set.
-  const keysToggle = button("hint keys-toggle", "");
-  keysToggle.append(icon("settings", 12));
-  keysToggle.setAttribute("aria-label", "settings");
+  const keysToggle = iconHint("keys-toggle", "settings", icon("settings", 12));
   meta.append(flip, collapse, pin, keysToggle);
 
   function drawPin(docked: boolean): void {
