@@ -411,20 +411,26 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; align-content: start; }
 .row { position: relative; border-radius: 8px; transition: background-color 120ms ease-out; }
 .row:hover, .row.open { background: var(--card); }
-/* The grip has its own column in the row's leading padding, kept whether it
-   shows or not so nothing moves on hover. It shows on hover or focus, or
-   always where there is no hover. 4 in from the row's edges, so 4 round. */
-.grip {
+/* The leading slot: a column in the main's leading padding, kept whether
+   anything stands in it or not, so every row's content starts at the same
+   place. A knob row's grip stands in it, and a head's way back. It is the
+   one rule that says where the slot is and how wide. 4 in from the row's
+   edges, so 4 round. */
+.lead {
   position: absolute;
   top: 4px;
   left: 4px;
-  z-index: 1;
   width: 14px;
   height: 18px;
   display: grid;
   place-items: center;
   color: var(--faint);
   border-radius: 4px;
+}
+/* The grip shows on hover or focus, or always where there is no hover, so
+   nothing moves on hover. */
+.grip {
+  z-index: 1;
   opacity: 0;
   cursor: grab;
   touch-action: none;
@@ -456,7 +462,15 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   padding: 4px 8px 4px 22px;
   border-radius: 8px;
 }
-.row-label { flex: none; color: var(--faint); }
+/* A title too long for its row is cut short, in the head of a view as in a row. */
+.row-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+}
 .row-value {
   flex: 1;
   min-width: 0;
@@ -468,7 +482,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 /* A row kept in the list with its knobs back at their defaults. */
 .row-value.idle { color: var(--faint); }
 .row-value.hot { color: var(--hot); }
-.clear {
+/* The small icon button a row ends with: a row's x, and an action in the
+   head of a view. 2 in from the row's edges, so 6 round. */
+.row-button {
   flex: none;
   width: 22px;
   height: 22px;
@@ -479,7 +495,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 6px;
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
-.clear:hover { color: var(--fg); background: var(--track); }
+.row-button:hover { color: var(--fg); background: var(--track); }
 
 /* An open row's editor folds out under its line and pushes the rows below it
    down. The fold eases between none and all of the editor's height, and clips
@@ -795,6 +811,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 .keys .group-label { padding-left: 22px; }
 .keys .main { padding-right: 2px; }
+/* An action's key, at the end of its row, as quiet as the footer shows a key. */
+.row-key { flex: none; align-self: center; font-size: 10px; line-height: 1.4; color: var(--faint); }
 .row-control { flex: none; align-self: center; margin-left: auto; }
 .keys .clear { align-self: center; margin: -2px 0 -2px auto; }
 .keys .clear:not([hidden]) + .row-control { margin-left: 0; }
@@ -837,9 +855,10 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 
 /* A feature's view, in place of the rows as the settings are: the way back
-   on top, a row as theirs is, with the view's title, cut short where it is
-   long, and then its actions, each as a row's x is. Its body under that
-   scrolls on its own. The view asks for the panel's tallest and the panel's
+   on top, a row built and styled as every row is, with the view's title and
+   then its actions, each the button a row's x is. Nothing here says how the
+   head is padded, edged or rounded: it differs from a row only by what is in
+   its slots. Its body under that scrolls on its own. The view asks for the panel's tallest and the panel's
    own limit shrinks it to what the window has, so the panel is as tall as it
    gets whatever the view holds. */
 .view {
@@ -851,27 +870,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   gap: 4px;
 }
 .view-head { flex: none; }
-.view-head .main { padding-right: 2px; }
-.view-head .row-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .view-actions { flex: none; display: flex; }
-.view-action {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  margin: 2px;
-  display: grid;
-  place-items: center;
-  color: var(--faint);
-  border-radius: 6px;
-  transition: background-color 120ms ease-out, color 120ms ease-out;
-}
-.view-action:hover { color: var(--fg); background: var(--track); }
 .view-body {
   position: relative;
   flex: 1 1 auto;
@@ -882,6 +881,30 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
+
+/* What a view builds its chrome from, see kit.ts. The bar stays over what
+   scrolls under it, flush with the rows' edges, and holds a filter, which
+   takes the room, and segments, which keep theirs. Where the panel is narrow
+   the filter has a line of its own. */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 4px;
+  background: var(--bg);
+}
+.toolbar > .filter { flex: 1 1 96px; min-width: 0; }
+.toolbar > .seg { flex: none; }
+/* A section of a view that folds, a row as the rows are: its chevron in the
+   leading slot, to the side while folded and down while out. */
+.turn { display: grid; }
+.turn .glyph { transform: rotate(180deg); transition: transform 120ms ease-out; }
+.row.open > .line .turn .glyph { transform: rotate(270deg); }
+.fold-body { min-height: 0; }
 
 /* The strip that changes the panel's width, as the edge of a docked devtools
    does: it lies across the border on the panel's page side, as tall as the

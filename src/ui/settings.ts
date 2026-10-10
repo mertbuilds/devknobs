@@ -1,6 +1,6 @@
 import type { GrabControl } from "../grab/control";
 import { BINDING_WORDS, type LiveKeys, recordStep } from "./bindings";
-import { button, el, mark, rowBox } from "./dom";
+import { button, el, mark, rowBox, rowButton } from "./dom";
 import { BINDING_ICONS, icon, type IconName } from "./icons";
 import { type Binding, comboLabel, comboSpoken, type Keys } from "./keys";
 import type { LivePrefs } from "./prefs";
@@ -70,7 +70,8 @@ export function createSettings(context: SettingsContext): Settings {
   const { keys, prefs, grab, mac, bindingsHere, keysToggle, said, tips, render, renderKeys } =
     context;
 
-  // The settings, in place of the rows: a way back to them, whether the
+  // The settings, in place of the rows: a way back to them, its chevron in
+  // the leading slot as the head of a view has it, whether the
   // handle shows while the panel is closed, then each binding's key, to set
   // or put back. A key that is not taken shakes its chip and says why in the
   // tooltip. The panel's icons face the side it is on.
@@ -88,8 +89,13 @@ export function createSettings(context: SettingsContext): Settings {
     return glyph;
   };
   keysView.append(
-    rowBox(keysBack, icon("chevron-left"), "settings"),
-    rowBox(el("div", "main"), sided("panel-right"), "show handle", handleSwitch),
+    rowBox({ main: keysBack, lead: icon("chevron-left"), title: "settings" }).box,
+    rowBox({
+      main: el("div", "main"),
+      glyph: sided("panel-right"),
+      title: "show handle",
+      ends: [handleSwitch],
+    }).box,
     el("div", "group-label", "shortcuts"),
   );
   const keyViews = new Map<
@@ -99,12 +105,16 @@ export function createSettings(context: SettingsContext): Settings {
   for (const binding of bindingsHere) {
     const word = BINDING_WORDS[binding];
     const set = button("key-set row-control", "");
-    const back = button("clear", "");
-    back.append(icon("x"));
-    back.setAttribute("aria-label", `put the ${word} key back`);
+    const back = rowButton("clear", icon("x"), `put the ${word} key back`);
     // Its x sits before its key, so every key ends on the row's right edge.
-    keysView.append(rowBox(el("div", "main"), sided(BINDING_ICONS[binding]), word, set));
-    set.before(back);
+    keysView.append(
+      rowBox({
+        main: el("div", "main"),
+        glyph: sided(BINDING_ICONS[binding]),
+        title: word,
+        ends: [back, set],
+      }).box,
+    );
     keyViews.set(binding, { set, back });
   }
 

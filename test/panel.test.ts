@@ -991,7 +991,8 @@ describe("a feature's view", () => {
     expect(body(".view-body")).toMatch(/overflow-y:\s*auto/);
     expect(body(".view-body")).toMatch(/min-height:\s*0/);
     expect(body(".view-body")).toMatch(/overscroll-behavior:\s*contain/);
-    expect(body(".view-head .row-label")).toMatch(/text-overflow:\s*ellipsis/);
+    // The title is cut short as any row's is: the head has no rule of its own for it.
+    expect(body(".row-label")).toMatch(/text-overflow:\s*ellipsis/);
   });
 
   test("has no surface of its own: nothing of the side pane is left", () => {
