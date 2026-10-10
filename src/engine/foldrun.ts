@@ -200,6 +200,10 @@ interface Going {
 
 let fold: Going | null = null;
 
+/** Why the page is laid over itself in layers on the copies of the half that turns: the Duo's frames are not in, or it is no fold of theirs. */
+const COPIES_WAIT = "the Duo's fold frames are not in yet, so copies of the half turn, and WebGL2 draws only under the frames";
+const COPIES_ONLY = "only the Duo in its bezels folds as frames, which WebGL2 draws under, and this fold turns copies of the half";
+
 /** What wants to know once a fold is over. */
 const watchers = new Set<() => void>();
 
@@ -284,6 +288,9 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     window: opening,
     stage,
     pictures: [],
+    shot: null,
+    widths: [],
+    why: "",
     rim,
     flat,
     veil,
@@ -453,6 +460,8 @@ function show(going: Going): void {
   parts.place.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   if ("model" in turning) pose(turning, layout, open, 1 - hand, going.still);
   else {
+    // Only the fold's frames have a screen WebGL2 draws: a copy's is always layers.
+    turning.inner.why = turning.outer.why = going.waiting ? COPIES_WAIT : COPIES_ONLY;
     stand(turning.inner, layout, frame, frame.inner, open, 1 - hand);
     stand(turning.outer, layout, frame, frame.outer, open, 1 - hand);
     turning.bend.style.opacity = String(frame.lift);

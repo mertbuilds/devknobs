@@ -239,11 +239,147 @@ describe("WebGL2", () => {
     expect(contextOf({ getContext: () => ({}) })).toBeNull();
   });
 
-  test("draws nothing where there is none, and the layers take over", () => {
+  const place = { pane: "inner" as const, across: true, stage: { width: 951, height: 669 }, part: { x: 0, y: 0, width: 475.5, height: 669 }, margin: 80, density: 2 };
+
+  /** How a faked WebGL2 fails: it makes nothing, is lost, does not link, saying `log`, throws `upload` at a picture, or tells of `error` after one. */
+  interface Fail {
+    made?: boolean;
+    lost?: boolean;
+    link?: boolean;
+    log?: string;
+    upload?: unknown;
+    error?: number;
+  }
+
+  /** A canvas whose WebGL2 fails as `fail` has it, what was told of each refusal, and the way to lose its context. */
+  function fake(fail: Fail | null) {
+    const calls: string[] = [];
+    const gl = new Proxy(new FakeGl(), {
+      get: (_target, name) => {
+        if (name === "NO_ERROR") return 0;
+        return (...args: unknown[]) => {
+          calls.push(String(name));
+          if (name === "getParameter") return 4096;
+          if (name === "createShader") return fail?.made ? null : {};
+          if (name === "isContextLost") return fail?.lost === true;
+          if (name === "getProgramParameter") return !fail?.link;
+          if (name === "getShaderInfoLog") return args[0] && fail?.log ? fail.log : "";
+          if (name === "getProgramInfoLog") return "";
+          if (name === "getError") return fail?.error ?? 0;
+          if (name === "getExtension") return null;
+          if (name === "texImage2D" && fail?.upload) throw fail.upload;
+          return {};
+        };
+      },
+    });
+    const heard: Record<string, () => void> = {};
+    let removed = 0;
+    const canvas = {
+      width: 0,
+      height: 0,
+      style: {},
+      getContext: () => (fail ? gl : null),
+      remove: () => removed++,
+      addEventListener: (name: string, listener: () => void) => {
+        heard[name] = listener;
+      },
+    };
     Object.defineProperty(globalThis, "WebGL2RenderingContext", { configurable: true, value: FakeGl });
-    const canvas = { getContext: () => null, style: {} };
     Object.defineProperty(globalThis, "document", { configurable: true, value: { createElement: () => canvas } });
-    const place = { pane: "inner" as const, across: true, stage: { width: 951, height: 669 }, part: { x: 0, y: 0, width: 475.5, height: 669 }, margin: 80, density: 2 };
-    expect(screenGl(place, () => {})).toBeNull();
+    const refused: [string, unknown][] = [];
+    const screen = screenGl(place, (why, shot) => refused.push([why, shot]));
+    return { screen, refused, calls, lose: () => heard.webglcontextlost?.(), removed: () => removed };
+  }
+
+  /** A picture as far as WebGL2 takes one up. */
+  function shotOf(width: number, height: number): HTMLCanvasElement {
+    return { width, height } as unknown as HTMLCanvasElement;
+  }
+
+  /** An error as a browser throws one, by name. */
+  function thrown(name: string): Error {
+    const error = new Error("no");
+    error.name = name;
+    return error;
+  }
+
+  test("draws nothing where there is none, and says which it has not: the browser or the canvas", () => {
+    const { screen, refused } = fake(null);
+    expect(screen).toBeNull();
+    expect(refused).toEqual([["the canvas gave no WebGL2 context", null]]);
+    Reflect.deleteProperty(globalThis, "WebGL2RenderingContext");
+    const none: string[] = [];
+    expect(screenGl(place, (why) => none.push(why))).toBeNull();
+    expect(none).toEqual(["this browser has no WebGL2"]);
+  });
+
+  test("is not made where WebGL2 makes nothing, lost or not, or where the shader fails, and says what the shader's log does", () => {
+    const nothing = fake({ made: true });
+    expect(nothing.screen).toBeNull();
+    expect(nothing.refused).toEqual([["WebGL2 made no shader, program, buffer or texture", null]]);
+    expect(nothing.removed()).toBe(1);
+    const lost = fake({ made: true, lost: true });
+    expect(lost.refused).toEqual([["the WebGL2 context was lost as it was made", null]]);
+    const shader = fake({ link: true, log: "\nERROR: 0:17: 'free' : undeclared identifier\nERROR: 0:18: more\n" });
+    expect(shader.screen).toBeNull();
+    expect(shader.refused).toEqual([["the shader did not compile or link: ERROR: 0:17: 'free' : undeclared identifier", null]]);
+    expect(shader.removed()).toBe(1);
+    expect(fake({ link: true }).refused).toEqual([["the shader did not compile or link: no reason given", null]]);
+    expect(fake({ link: true, lost: true }).refused).toEqual([["the WebGL2 context was lost as it was made", null]]);
+  });
+
+  test("takes up a picture and draws it, telling of no refusal", () => {
+    const { screen, refused, calls } = fake({});
+    const shot = shotOf(951, 669);
+    screen?.draw(screenLook(0.5, 10));
+    expect(calls).not.toContain("drawArrays");
+    screen?.paint(shot);
+    expect(refused).toEqual([]);
+    expect(calls).toContain("generateMipmap");
+    expect(calls.filter((call) => call === "drawArrays")).toHaveLength(1);
+  });
+
+  test("hands a picture it cannot take up to the layers, lets go of itself, and says why", () => {
+    const shot = shotOf(951, 669);
+    const cases: [Fail, HTMLCanvasElement, RegExp][] = [
+      [{ upload: thrown("SecurityError") }, shot, /^the picture could not be uploaded: SecurityError, the browser holds the picture as another origin's/],
+      [{ upload: thrown("TypeError") }, shot, /^the picture could not be uploaded: TypeError$/],
+      [{ upload: "broken" }, shot, /^the picture could not be uploaded: broken$/],
+      [{ error: 0x501 }, shot, /^the picture could not be uploaded: WebGL2 error 0x501$/],
+      [{}, shotOf(8000, 669), /^the picture, 8000 by 669 px, is larger than MAX_TEXTURE_SIZE, 4096$/],
+      [{}, shotOf(951, 4097), /^the picture, 951 by 4097 px, is larger than MAX_TEXTURE_SIZE, 4096$/],
+    ];
+    for (const [fail, picture, why] of cases) {
+      const { screen, refused, calls, removed } = fake(fail);
+      screen?.paint(picture);
+      expect(refused).toHaveLength(1);
+      expect(refused[0]?.[0]).toMatch(why);
+      expect(Object.is(refused[0]?.[1], picture)).toBe(true);
+      // Nothing of it is left, and nothing is drawn from a picture that did not go up.
+      expect(removed()).toBe(1);
+      expect(calls).toContain("deleteTexture");
+      expect(calls).not.toContain("generateMipmap");
+      expect(calls).not.toContain("drawArrays");
+      // Whatever comes after goes to the layers too, and it is let go of once only.
+      screen?.paint(picture);
+      expect(refused[1]).toEqual(["the WebGL2 context is gone", picture]);
+      screen?.release();
+      expect(calls.filter((call) => call === "deleteTexture")).toHaveLength(1);
+    }
+  });
+
+  test("hands the picture it holds to the layers once its context is lost, and no more than once", () => {
+    const { screen, refused, lose, removed } = fake({});
+    const shot = shotOf(951, 669);
+    screen?.paint(shot);
+    lose();
+    lose();
+    expect(refused).toEqual([["the WebGL2 context was lost", shot]]);
+    expect(removed()).toBe(1);
+    // Let go of by the fold itself, it tells of nothing.
+    const over = fake({});
+    over.screen?.release();
+    over.lose();
+    expect(over.refused).toEqual([]);
   });
 });

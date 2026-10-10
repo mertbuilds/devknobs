@@ -2,7 +2,9 @@
  * The numbers a fold's look is drawn by, in one table read each time a fold
  * is drawn, so they can be tuned by hand on a live page: a development hook
  * on `window`, under `Symbol.for("devknobs.foldtune")`. Nothing is stored:
- * the table lives in memory, and a reload puts every number back.
+ * the table lives in memory, and a reload puts every number back. It also
+ * says what drew the page on the half that turns the last time a fold was
+ * drawn, and why, as WebGL2 and the layers are tuned apart.
  */
 
 /** Every number as it ships. Tuned values that are kept go here. */
@@ -82,16 +84,27 @@ export interface TuneRow extends Range {
   default: number;
 }
 
+/** What drew the page on the half that turns, the last time a fold was drawn, and why: in one plain sentence. */
+export interface FoldInfo {
+  drawnBy: "webgl" | "layers" | "none";
+  why: string;
+}
+
 /** What is on `window` to tune a fold's look by. */
 export interface FoldTune {
   readonly spec: TuneRow[];
   get(): Record<string, number>;
   set(key: string, value: number): void;
   reset(): void;
+  /** Hear of every change to the table, and to what `info` gives. Returns the way to stop. */
   subscribe(listener: () => void): () => void;
+  info(): FoldInfo;
 }
 
 const listeners = new Set<() => void>();
+/** Those who listen on `window`, who hear of what draws the page too. The folds' own do not: a number has not changed. */
+const hearers = new Set<() => void>();
+let info: FoldInfo = { drawnBy: "none", why: "no fold has drawn yet" };
 let changes = 0;
 
 function isKey(key: string): key is TuneKey {
@@ -121,6 +134,26 @@ export function watchTune(listener: () => void): () => void {
   };
 }
 
+/** Why WebGL2 draws the page where it does. */
+export const BY_WEBGL = "the picture went up as a texture";
+
+/** Take note of what drew the page on the half that turns, and why, and tell who listens on `window` where either has changed. */
+export function drew(drawnBy: FoldInfo["drawnBy"], why: string): void {
+  if (info.drawnBy === drawnBy && info.why === why) return;
+  info = { drawnBy, why };
+  for (const hearer of Array.from(hearers)) hearer();
+}
+
+/** Hear of every change to the table and to what draws the page. Returns the way to stop. */
+function subscribe(listener: () => void): () => void {
+  const stop = watchTune(listener);
+  hearers.add(listener);
+  return () => {
+    stop();
+    hearers.delete(listener);
+  };
+}
+
 /** Set a number, held to its range. A key the table does not have, or what is not a number, changes nothing. */
 export function setTune(key: string, value: number): void {
   if (!isKey(key) || !Number.isFinite(value)) return;
@@ -145,7 +178,8 @@ export const foldTune: FoldTune = {
   get: () => ({ ...tune }),
   set: setTune,
   reset: resetTune,
-  subscribe: watchTune,
+  subscribe,
+  info: () => ({ ...info }),
 };
 
 /** Where the table is on `window`. */

@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { blurReach, blurShare, freeBand, freeDepth, freeShades, paneLook, turnBlur } from "../src/engine/fold";
 import { blurAt, screenLook } from "../src/engine/foldgl";
 import {
+  BY_WEBGL,
+  drew,
   foldTune,
   installTune,
   resetTune,
@@ -9,6 +11,7 @@ import {
   TUNE_KEY,
   tune,
   tuneChanges,
+  watchTune,
 } from "../src/engine/foldtune";
 
 afterEach(() => {
@@ -80,11 +83,14 @@ describe("the fold's numbers", () => {
     foldTune.set("blurMost", 100);
     expect(turnBlur(0.5)).toBe(100);
     expect(blurAt(screenLook(0.5, 0), 1, 1e4)).toBe(100);
-    expect(paneLook("inner", 0.5).blurs[2]?.most).toBeCloseTo(Math.log2(100 / 32) / 2, 3);
+    // Seven pictures now, the last as wide as the blur gets, all in at the free edge.
+    expect(paneLook("inner", 0.5).blurs).toHaveLength(6);
+    expect(paneLook("inner", 0.5).blurs[5]?.stops.at(-1)).toEqual([1, 1]);
     foldTune.set("blurHinge", 0.5);
     expect(blurShare(0)).toBe(0.5);
     expect(blurAt(screenLook(0.5, 0), 0, 1e4)).toBe(50);
-    expect(paneLook("inner", 0.5).blurs[0]?.least).toBe(1);
+    // The hinge's blur is past the first pictures' widths: they are all in from the hinge on.
+    expect(paneLook("inner", 0.5).blurs[0]?.stops).toEqual([[0, 1], [0, 1]]);
     foldTune.set("blurRise", 1);
     expect(blurShare(0.5)).toBe(0.75);
     expect(blurReach(0.75)).toBeCloseTo(0.5, 9);
@@ -97,7 +103,7 @@ describe("the fold's numbers", () => {
     foldTune.set("blurStand", 1);
     expect(turnBlur(5 / 6)).toBeCloseTo(50, 9);
     foldTune.set("blurMost", 0);
-    expect(paneLook("inner", 0.5).blurs).toEqual([null, null, null]);
+    expect(paneLook("inner", 0.5).blurs).toEqual([]);
     expect(blurAt(screenLook(0.5, 0), 1, 1e4)).toBe(0);
   });
 
@@ -115,6 +121,32 @@ describe("the fold's numbers", () => {
     foldTune.set("darkBand", 0.5);
     const stops = freeShades(0.5, 1).map(([at]) => at);
     expect(stops).toEqual([...stops].sort((a, b) => a - b));
+  });
+
+  test("say that no fold has drawn till one has", async () => {
+    // The table as a page first loads it, whatever the other tests have drawn.
+    const path = "../src/engine/foldtune.ts?fresh";
+    const fresh: typeof import("../src/engine/foldtune") = await import(path);
+    expect(fresh.foldTune).not.toBe(foldTune);
+    expect(fresh.foldTune.info()).toEqual({ drawnBy: "none", why: "no fold has drawn yet" });
+    let heard = 0;
+    const stop = foldTune.subscribe(() => heard++);
+    drew("layers", "this browser has no WebGL2");
+    drew("layers", "this browser has no WebGL2");
+    expect(heard).toBe(1);
+    expect(foldTune.info()).toEqual({ drawnBy: "layers", why: "this browser has no WebGL2" });
+    // The folds' own watchers hear of numbers only: what draws the page is no number of theirs.
+    let own = 0;
+    const end = watchTune(() => own++);
+    const before = tuneChanges();
+    drew("webgl", BY_WEBGL);
+    expect(heard).toBe(2);
+    expect(own).toBe(0);
+    expect(tuneChanges()).toBe(before);
+    stop();
+    end();
+    drew("layers", "the WebGL2 context was lost");
+    expect(heard).toBe(2);
   });
 
   test("go on the page's window, where it has one", () => {

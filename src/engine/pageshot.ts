@@ -1,4 +1,4 @@
-import { BLURS } from "./fold";
+import { blurWidths } from "./fold";
 import { embedFonts, forgetFonts } from "./pagefonts";
 
 /**
@@ -154,37 +154,56 @@ function keepShot(doc: Document, key: string, canvas: HTMLCanvasElement): void {
   shots.set(doc, kept);
 }
 
+/** How many px a blurred picture keeps across its blur's width. The browser stretches it the rest of the way as it shows it, as smooth. */
+const KEPT = 8;
+
+/** A blurred picture of a screen, and how long it is along the hinge with its black, in the sharp one's px. */
+export interface Blurred {
+  canvas: HTMLCanvasElement;
+  long: number;
+}
+
 /**
- * A picture of a screen `width` css px wide blurred as wide as each of the
- * fold's `BLURS` past the sharp one: halved over and over, then doubled back
- * up, so each step smooths what the last left. Drawn once, each is as cheap
- * to show as the picture. Each lies on black past the picture's ends along
- * the hinge, its top and bottom `across` and its sides otherwise, as far as
- * `blurMargin` has it, so the blur spreads those ends into the dark past
- * them, as jadon7/iphone-duo blurs the picture and black together.
+ * A picture of a screen `width` css px wide blurred as wide as each of
+ * `widths`, the fold's blurs past the sharp one: made smaller a half at a
+ * time till a px of it is as wide as the blur, then doubled back up, so each
+ * step smooths what the last left, but only till `KEPT` px cross the blur.
+ * The wide blurs are so kept small, and the lot takes fewer px than the
+ * pictures it is made of. Drawn once, each is as cheap to show as the
+ * picture. Each lies on black past the picture's ends along the hinge, its
+ * top and bottom `across` and its sides otherwise, as far as `blurMargin`
+ * has it, so the blur spreads those ends into the dark past them, as
+ * jadon7/iphone-duo blurs the picture and black together.
  */
-export function blurPictures(shot: HTMLCanvasElement, width: number, across: boolean): HTMLCanvasElement[] {
-  // How many times finer than `RES` the picture is, so how many more halvings each blur takes.
-  const finer = Math.log2(shot.width / (width * RES));
-  return BLURS.slice(1).map((wide) => {
-    const times = Math.max(0, Math.round(Math.log2(wide * RES) + finer));
-    const margin = blurMargin(times);
+export function blurPictures(
+  shot: HTMLCanvasElement,
+  width: number,
+  across: boolean,
+  widths = blurWidths().slice(1),
+): Blurred[] {
+  const length = across ? shot.height : shot.width;
+  return widths.map((wide) => {
+    // How many of the picture's px the blur is wide: a rough picture's px is a few css px already.
+    const coarse = Math.max(1, (wide * shot.width) / width);
+    const margin = blurMargin(coarse);
     const padded = canvasOf(shot.width + (across ? 0 : 2 * margin), shot.height + (across ? 2 * margin : 0));
-    if (!padded) return blurPicture(shot, times);
+    if (!padded) return { canvas: blurPicture(shot, coarse), long: length };
     padded.pen.fillStyle = "#000";
     padded.pen.fillRect(0, 0, padded.canvas.width, padded.canvas.height);
     padded.pen.drawImage(shot, across ? 0 : margin, across ? margin : 0);
-    return blurPicture(padded.canvas, times);
+    const canvas = blurPicture(padded.canvas, coarse);
+    if (canvas !== padded.canvas) spend(padded.canvas);
+    return { canvas, long: length + 2 * margin };
   });
 }
 
 /**
- * How far the black under a picture halved `times` over reaches past its
- * ends, in its px: two of the smallest picture's px, past where the blur
- * spreads it, so none of it is cut off.
+ * How far the black under a picture blurred `coarse` of its px wide reaches
+ * past its ends, in its px: two of the smallest picture's px, past where the
+ * blur spreads it, so none of it is cut off.
  */
-export function blurMargin(times: number): number {
-  return 2 ** (times + 1);
+export function blurMargin(coarse: number): number {
+  return Math.ceil(2 * coarse);
 }
 
 /**
@@ -197,24 +216,36 @@ export function marginPlace(shot: number, padded: number): { start: number; size
   return { start: exact(((shot - padded) / 2 / shot) * 100), size: exact((padded / shot) * 100) };
 }
 
-/** `shot` halved `times` over, then doubled back up to its size. */
-function blurPicture(shot: HTMLCanvasElement, times: number): HTMLCanvasElement {
-  let at: HTMLCanvasElement = shot;
-  const steps: HTMLCanvasElement[] = [];
-  for (let step = 0; step < times; step++) {
-    const half = canvasOf(at.width / 2, at.height / 2);
-    if (!half) return at;
-    half.pen.drawImage(at, 0, 0, half.canvas.width, half.canvas.height);
-    steps.push(at);
-    at = half.canvas;
-  }
-  for (const size of steps.reverse()) {
-    const up = canvasOf(size.width, size.height);
-    if (!up) return at;
-    up.pen.imageSmoothingQuality = "high";
-    up.pen.drawImage(at, 0, 0, up.canvas.width, up.canvas.height);
-    at = up.canvas;
-  }
+/** Let go of a canvas's px at once, where it was only a step on the way. */
+function spend(canvas: HTMLCanvasElement): void {
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+/**
+ * `shot` made smaller till a px of it is `coarse` of its own, a half at a
+ * time, the first step what is left over of a half, then doubled back up
+ * till `KEPT` px cross the blur, or to its size where that is fewer.
+ */
+function blurPicture(shot: HTMLCanvasElement, coarse: number): HTMLCanvasElement {
+  const halvings = Math.ceil(Math.log2(coarse) - 1e-9);
+  const { width, height } = shot;
+  const sized = (level: number) => {
+    const scale = Math.min(1, 2 ** level / coarse);
+    return canvasOf(width * scale, height * scale);
+  };
+  let at = shot;
+  const step = (level: number, smooth: boolean): boolean => {
+    const next = sized(level);
+    if (!next) return false;
+    if (smooth) next.pen.imageSmoothingQuality = "high";
+    next.pen.drawImage(at, 0, 0, next.canvas.width, next.canvas.height);
+    if (at !== shot) spend(at);
+    at = next.canvas;
+    return true;
+  };
+  for (let level = halvings - 1; level >= 0; level--) if (!step(level, false)) return at;
+  for (let level = 1; level <= Math.min(Math.log2(KEPT), halvings); level++) if (!step(level, true)) return at;
   return at;
 }
 

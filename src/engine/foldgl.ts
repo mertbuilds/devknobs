@@ -228,8 +228,8 @@ void main() {
 /** The screen's picture drawn by WebGL2, on a canvas that lies over the part that turns. */
 export interface ScreenGl {
   canvas: HTMLCanvasElement;
-  /** Take up a new picture of the page and draw it again. False where it cannot, so the layers must. */
-  paint(shot: HTMLCanvasElement): boolean;
+  /** Take up a new picture of the page and draw it again. Where it cannot, it lets go of itself and hands the picture to the layers. */
+  paint(shot: HTMLCanvasElement): void;
   /** Draw it as `look` has it. */
   draw(look: ScreenLook): void;
   /** Let go of the canvas, its context and what it holds. */
@@ -244,15 +244,34 @@ function compile(gl: WebGL2RenderingContext, kind: number, source: string): WebG
   return shader;
 }
 
+/** The first line of what WebGL2 says of a shader or a program that failed, or `otherwise` where it says nothing. */
+function firstLine(log: string | null, otherwise: string): string {
+  return log?.trim().split("\n")[0]?.trim() || otherwise;
+}
+
+/** Why a picture did not go up, from what the upload threw. */
+function uploadWhy(error: unknown): string {
+  const name = error instanceof Error ? error.name : String(error);
+  const tainted = "the browser holds the picture as another origin's, as one with a picture, video or canvas from another origin drawn in, or a drawing of the page this browser does not trust";
+  return `the picture could not be uploaded: ${name}${name === "SecurityError" ? `, ${tainted}` : ""}`;
+}
+
 /**
- * The screen of `place` drawn by WebGL2, or null where it cannot be. Should
- * the context be lost, the canvas goes, and `lost` is told the picture it
- * last took up, for the layers to show instead.
+ * The screen of `place` drawn by WebGL2, or null where it cannot be. Each
+ * time it cannot, as it is made, as it takes up a picture, or once its
+ * context is lost, `refused` is told why in a plain sentence, and the
+ * picture it holds by then, for the layers to show instead.
  */
-export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | null) => void): ScreenGl | null {
+export function screenGl(
+  place: ScreenPlace,
+  refused: (why: string, shot: HTMLCanvasElement | null) => void,
+): ScreenGl | null {
   const canvas = document.createElement("canvas");
   const gl = contextOf(canvas);
-  if (!gl) return null;
+  if (!gl) {
+    refused(typeof WebGL2RenderingContext === "undefined" ? "this browser has no WebGL2" : "the canvas gave no WebGL2 context", null);
+    return null;
+  }
   const rect = canvasRect(place);
   const most = Math.max(1, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 4096);
   const density = Math.min(place.density, most / rect.width, most / rect.height);
@@ -279,14 +298,20 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
     canvas.remove();
   };
   if (!vertex || !fragment || !program || !corners || !texture) {
+    // A lost context makes nothing: Chrome loses the oldest once a page holds too many.
+    const why = gl.isContextLost() ? "the WebGL2 context was lost as it was made" : "WebGL2 made no shader, program, buffer or texture";
     free();
+    refused(why, null);
     return null;
   }
   gl.attachShader(program, vertex);
   gl.attachShader(program, fragment);
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const log = [vertex, fragment].map((shader) => gl.getShaderInfoLog(shader)).find((said) => said?.trim()) ?? gl.getProgramInfoLog(program);
+    const lost = gl.isContextLost();
     free();
+    refused(lost ? "the WebGL2 context was lost as it was made" : `the shader did not compile or link: ${firstLine(log, "no reason given")}`, null);
     return null;
   }
   gl.useProgram(program);
@@ -310,6 +335,7 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.viewport(0, 0, canvas.width, canvas.height);
+  const widest = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 2048;
   let shot: HTMLCanvasElement | null = null;
   let look: ScreenLook | null = null;
   let gone = false;
@@ -329,22 +355,35 @@ export function screenGl(place: ScreenPlace, lost: (shot: HTMLCanvasElement | nu
     if (gone) return;
     gone = true;
     canvas.remove();
-    lost(shot);
+    refused("the WebGL2 context was lost", shot);
   });
+  /** Let go of it all, and hand `next` to the layers. */
+  const refuse = (why: string, next: HTMLCanvasElement) => {
+    if (!gone) free();
+    gone = true;
+    refused(why, next);
+  };
   return {
     canvas,
     paint(next) {
-      if (gone) return false;
+      if (gone) return refuse("the WebGL2 context is gone", next);
+      if (Math.max(next.width, next.height) > widest) {
+        return refuse(`the picture, ${next.width} by ${next.height} px, is larger than MAX_TEXTURE_SIZE, ${widest}`, next);
+      }
+      // An error left from before is not this picture's.
+      gl.getError();
       try {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, next);
-      } catch {
+      } catch (error) {
         // A picture the page will not let out, drawn from another origin, stays with the layers.
-        return false;
+        return refuse(uploadWhy(error), next);
       }
+      // What does not throw is only told when asked: once a picture, not once a frame.
+      const failed = gl.getError();
+      if (failed !== gl.NO_ERROR) return refuse(`the picture could not be uploaded: WebGL2 error 0x${failed.toString(16)}`, next);
       gl.generateMipmap(gl.TEXTURE_2D);
       shot = next;
       if (look) draw(look);
-      return true;
     },
     draw,
     release() {

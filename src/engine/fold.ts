@@ -898,14 +898,13 @@ export function screenDim(pane: Pane, open: number): number {
 const STEPS = 8;
 
 /**
- * A blurrier picture fading in, `from` to `to` of the way from the hinge to
- * the free edge, from `least` of it to `most`.
+ * A blurrier picture fading in over the ones under it, from the hinge to the
+ * free edge: how much of it shows at each of `stops`, a share of the way
+ * there. Nearer the hinge than the first it shows as much as at it, and past
+ * the last as much as at that.
  */
 export interface BlurFade {
-  from: number;
-  to: number;
-  least: number;
-  most: number;
+  stops: [at: number, share: number][];
 }
 
 /** How the half that turns is lit and blurred. */
@@ -918,12 +917,59 @@ export interface PaneLook {
   blurs: (BlurFade | null)[];
 }
 
+/** How wide a blur the sharp picture counts as, in css px: under it none is seen. */
+const SHARP = 2;
+
+/** At most this many pictures, the sharp one with them, however wide a blur a hand sets. */
+export const BLUR_LAYERS = 8;
+
+/** How many straight pieces a picture's fade is drawn in, so it bends as the blur rises. */
+const FADE_STEPS = 6;
+
 /**
- * The blurrier pictures of the page, by how wide their blur is in css px.
- * Each fades in over the one before as the blur goes from that one's to its
- * own, the sharp one's counted as `BLURS[0]`.
+ * The pictures of the page laid over each other where WebGL2 does not draw
+ * it, by how wide their blur is in css px: the sharp one first, then each
+ * twice as wide as the one under it, and the last as wide as the blur gets,
+ * `most`. Each fades in over the one under it as the blur goes from that
+ * one's width to its own, so two that differ no more than WebGL2's own
+ * mipmaps do are ever mixed. Where that takes more than `limit` pictures,
+ * they are spread evenly further apart instead.
  */
-export const BLURS = [2, 8, 32, 128] as const;
+export function blurWidths(most = tune.blurMost, limit = BLUR_LAYERS): number[] {
+  if (!(most > SHARP)) return [SHARP];
+  const doublings = Math.ceil(Math.log2(most / SHARP) - 1e-9);
+  const steps = Math.min(doublings, Math.max(1, limit - 1));
+  const between = steps < doublings ? (most / SHARP) ** (1 / steps) : 2;
+  const widths = Array.from({ length: steps }, (_, step) => SHARP * between ** step);
+  return [...widths, most];
+}
+
+/** How much of a picture blurred `width` wide shows over the one under it, blurred `low` wide, where the blur is `wide`: evenly as it doubles. */
+function blurMix(low: number, width: number, wide: number): number {
+  return wide > low ? clamp(Math.log2(wide / low) / Math.log2(width / low)) : 0;
+}
+
+/**
+ * Where the picture blurred `width` wide fades in over the one under it,
+ * blurred `low` wide, the blur `peak` wide at the turned screen's free edge,
+ * seen `free` of the way out: none of it where the blur is the lower one's,
+ * all of it where it is its own. So the one under it is all in wherever any
+ * of this one shows, and nothing under the two shows through them.
+ */
+function blurFade(low: number, width: number, peak: number, free: number): BlurFade | null {
+  if (peak <= low) return null;
+  const hinge = peak * blurShare(0);
+  const from = blurReach(Math.max(low, hinge) / peak);
+  const to = blurReach(Math.min(width, peak) / peak);
+  const steps = to > from ? FADE_STEPS : 1;
+  const stops = Array.from({ length: steps + 1 }, (_, step): [number, number] => {
+    const across = from + ((to - from) * step) / steps;
+    // The ends by their widths, so the first is none of it and the last all of it, to the last digit.
+    const wide = step === 0 ? Math.max(low, hinge) : step === steps ? Math.min(width, peak) : peak * blurShare(across);
+    return [fine(across * free), fine(blurMix(low, width, wide))];
+  });
+  return { stops };
+}
 
 /**
  * How the half that turns, of `pane`, looks with the hinge `open` of the way
@@ -939,19 +985,8 @@ export function paneLook(pane: Pane, open: number, free = 1): PaneLook {
     fine(1 - shown(blurLight(blurArea(pane, uv, amount)) * edgeLight(pane, uv, amount))),
   );
   const peak = turnBlur(open);
-  const hinge = peak * blurShare(0);
-  const blurs = BLURS.slice(1).map((width, index) => {
-    const low = BLURS[index] ?? width;
-    // How much of this picture a blur `wide` shows: none of it at the last one's width, all of it at its own.
-    const share = (wide: number) => (wide > low ? fine(clamp(Math.log2(wide / low) / Math.log2(width / low))) : 0);
-    const least = share(hinge);
-    const most = share(peak);
-    if (most <= 0) return null;
-    if (least >= most) return { from: 0, to: 0, least, most: least };
-    // From where the blur is the last picture's to where it is this one's, or as far as it gets.
-    const along = (wide: number) => fine(blurReach(wide / peak) * free);
-    return { from: along(Math.max(low, hinge)), to: along(Math.min(width, peak)), least, most };
-  });
+  const widths = blurWidths();
+  const blurs = widths.slice(1).map((width, index) => blurFade(widths[index] ?? width, width, peak, free));
   return { turned, flat, blurs };
 }
 
