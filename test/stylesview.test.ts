@@ -346,6 +346,10 @@ describe("the styles view of an element", () => {
     const [source] = node.find("css-source");
     expect(source?.textContent).toBe("app.css");
     expect(tipped).toContainEqual([source as FakeNode, "https://example.com/assets/app.css"]);
+    // The file is the end of the head's line, after the selector, so it can go under it.
+    const [head] = node.find("css-head");
+    expect(head?.children.map((child) => fake(child).className)).toEqual(["css-selector", "css-from"]);
+    expect(node.find("css-from")[0]?.find("css-source")).toEqual([source as FakeNode]);
   });
 
   test("strikes an overridden declaration through, and says important", () => {

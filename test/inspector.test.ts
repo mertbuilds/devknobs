@@ -20,6 +20,7 @@ let opens: number;
 let shown: (Element | null)[];
 let refreshes: number;
 let destroyed: number;
+let focuses: number;
 let handed: StylesContext | null;
 let filterText: string;
 let body: { nodes: unknown[]; append(node: unknown): void };
@@ -100,6 +101,9 @@ const load: LoadStyles = async () => ({
         filterText = "";
         return had;
       },
+      focus: () => {
+        focuses++;
+      },
       destroy: () => {
         destroyed++;
       },
@@ -132,6 +136,7 @@ beforeEach(() => {
   shown = [];
   refreshes = 0;
   destroyed = 0;
+  focuses = 0;
   handed = null;
   filterText = "";
   body = {
@@ -154,9 +159,11 @@ afterEach(() => {
 });
 
 describe("inspect going on", () => {
-  test("opens the styles view in the pane, with nothing picked yet", async () => {
+  test("opens the styles view in the panel, with nothing picked yet", async () => {
     inspect.set(true);
     await settle();
+    // The view takes the focus the head's back button was given.
+    expect(focuses).toBe(1);
     expect(open?.id).toBe("styles");
     expect(open?.title).toBe("styles");
     expect(body.nodes).toHaveLength(1);
@@ -213,11 +220,15 @@ describe("a pick", () => {
 });
 
 describe("escape", () => {
-  test("with the focus in the pane, clears the view's filter first, then is the pane's", async () => {
+  test("ends inspect first and stops, then clears the view's filter, then is the panel's", async () => {
     inspect.set(true);
     await settle();
     filterText = "color";
     expect(open?.escape?.()).toBe(true);
+    expect(on).toBe(false);
+    expect(filterText).toBe("color");
+    expect(open?.escape?.()).toBe(true);
+    expect(filterText).toBe("");
     expect(open?.escape?.()).toBe(false);
   });
 

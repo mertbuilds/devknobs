@@ -883,11 +883,13 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   scrollbar-color: var(--line) transparent;
 }
 
-/* The styles view in the side pane: the crumbs and the filter stay on top,
-   and the blocks scroll under them, one for each rule. The pane is 13 with 1
-   of border and 4 of padding, so a block is 8, and the filter and the marks
-   are 4 as controls are. What is css is set in mono, a size under the rows,
-   and every word about it in the panel's own face, as quiet as a label. */
+/* The styles view: the crumbs and the filter stay on top, and the blocks
+   scroll under them, one for each rule. The panel is 13 with 1 of border and
+   4 of padding, so a block is 8, and the filter is 4 as controls are. What is
+   css is set in mono, a size under the rows, and every word about it in the
+   panel's own face, as quiet as a label. The panel is as wide as its edge is
+   dragged to, so nothing here has a width of its own: a line wraps, and a
+   name that must stay on one line is cut short. */
 .styles { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .styles-bar {
   position: sticky;
@@ -923,27 +925,40 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .css-block.flash { animation: css-flash 900ms ease-out; }
 @keyframes css-flash {
-  from { box-shadow: inset 0 0 0 1px var(--faint); }
-  to { box-shadow: inset 0 0 0 1px transparent; }
+  from { background: var(--track); }
+  to { background: var(--card); }
 }
 .css-context, .css-selector, .css-decl {
   font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   overflow-wrap: anywhere;
 }
 .css-context { color: var(--faint); }
-.css-head { display: flex; align-items: baseline; gap: 8px; }
-.css-selector { flex: 1; min-width: 0; }
+/* The selector, then where the rule is from at the line's end: its mark and
+   its file. Where the panel is too narrow for both, that goes under the
+   selector, still at the end, and the file's name is cut short at the
+   block's width. */
+.css-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.css-selector { flex: 1 1 14ch; min-width: 0; }
 .css-part.off { color: var(--faint); }
-.css-source, .css-mark {
-  flex: none;
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.css-from {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   font-size: 10.5px;
   color: var(--faint);
 }
-.css-mark { padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; }
+.css-mark { flex: none; }
+.css-source {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* A declaration that wraps goes on further in than it starts. */
 .css-decl { display: block; padding-left: 24px; text-indent: -12px; text-decoration: none; }
 s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-through; }
@@ -967,6 +982,9 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
 }
 .css-group {
   justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 6px 10px 0;
   font-size: 10.5px;
   color: var(--faint);
@@ -974,7 +992,7 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   transition: color 120ms ease-out;
 }
 .css-group:hover { color: var(--fg); }
-.css-hidden { padding: 2px 10px; font-size: 10.5px; color: var(--faint); }
+.css-hidden { padding: 2px 10px; font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
 
 /* The strip that changes the panel's width, as the edge of a docked devtools
    does: it lies across the border on the panel's page side, as tall as the

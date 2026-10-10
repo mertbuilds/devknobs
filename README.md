@@ -324,15 +324,18 @@ pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
 
 press `⇧C` (`Shift C` off a Mac) to see the css of an element. it picks as
 grab does, with the same box, arrows and escape, and its label says `styles`
-before the element. a click copies nothing: the element's styles open in a
-pane beside the panel, and inspect stays on, so the next click shows another
-element. escape ends inspect and leaves the pane, and escape with the focus
-in the pane closes it. the element shown keeps a quiet box while the pane is
-open. the search finds it as `inspect`, `styles` or `css`, the footer has its
-key, and the shortcuts in the settings set another. grab and inspect are
-never on together, and while grab is on `c` is grab's copy.
+before the element. a click copies nothing: the element's styles open in the
+panel, in place of the rows, and the panel grows wider for them. drag its
+edge for another width. inspect stays on, so the next click shows another
+element. escape ends inspect and leaves the styles open, the next escape
+clears the filter if it has text, and the next goes back to the rows, as the
+back button on top does. going back ends inspect. the element shown keeps a
+quiet box while its styles show. the search finds it as `inspect`, `styles`
+or `css`, the footer has its key, and the shortcuts in the settings set
+another. grab and inspect are never on together, and while grab is on `c` is
+grab's copy.
 
-the pane shows, in the order the cascade settles them:
+the view shows, in the order the cascade settles them:
 
 - the element's `style` attribute, as `element.style`
 - every rule that reaches it, the strongest first, with the selectors of a
@@ -346,15 +349,17 @@ a color has a swatch before it. the name of a custom property says what it
 resolves to for the element when the pointer rests on it, and a click goes to
 the block that sets it. the crumbs on top are the element's ancestors, each a
 click away, and the filter keeps the declarations that have its text in
-their name or value. the pane reads the styles again when the element or an
+their name or value. the view reads the styles again when the element or an
 ancestor changes, when a stylesheet in the head does, when the window is
 resized and when a knob moves. with the width knob's frame up, inspect picks
-in the frame and the pane stays beside the panel.
+in the frame and the styles show in the panel. what a knob of devknobs
+writes on `<html>`, the root size of the text size knob and the
+`color-scheme` of the scheme knob, is left out.
 
 what it cannot show:
 
 - the rules of a stylesheet from another origin. the page may not read them,
-  so the pane says `rules hidden` with the file's name and guesses nothing
+  so the view says `rules hidden` with the file's name and guesses nothing
 - the browser's own default styles
 - a forced state such as `:hover`: a rule shows while it applies
 - a rule in a `@container` it could not confirm is marked `container`, and

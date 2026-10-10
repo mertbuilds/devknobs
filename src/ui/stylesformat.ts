@@ -10,7 +10,7 @@ import type {
   VariableValue,
 } from "../styles/types";
 
-/** The most characters the pane's head, a crumb and a file name show. */
+/** The most characters the view's head, a crumb and a file name show. */
 export const TITLE_MAX = 44;
 export const CRUMB_MAX = 24;
 export const FILE_MAX = 32;

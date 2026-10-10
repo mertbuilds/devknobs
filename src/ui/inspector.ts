@@ -1,8 +1,9 @@
 /**
  * Inspect, as the panel runs it: the mode going on opens the styles view in
- * the side pane, each pick shows there, and the pane closing or another view
- * taking its place ends the mode and takes the box off the element. The view
- * and the engine under it load the first time inspect turns on.
+ * the panel, each pick shows there, and going back from the view or another
+ * view taking its place ends the mode and takes the box off the element. The
+ * mode ending leaves the view open, with the last element in it. The view and
+ * the engine under it load the first time inspect turns on.
  */
 
 import * as engine from "../engine";
@@ -13,7 +14,7 @@ import { onPane, openPane, paneView, retitlePane } from "./pane";
 import type { createStylesView, StylesView } from "./stylesview";
 import type { Tips } from "./tooltip";
 
-/** The id of the styles view in the pane, and what its head says before a pick. */
+/** The id of the styles view in the panel, and what its head says before a pick. */
 export const STYLES_VIEW = "styles";
 
 /** Loads the styles view, the first time inspect turns on. */
@@ -23,7 +24,7 @@ export interface Inspector {
   destroy(): void;
 }
 
-/** What the inspector asks of the side pane, so a test can stand in for it. */
+/** What the inspector asks of the panel's view, so a test can stand in for it. */
 export interface PaneDoor {
   openPane: typeof openPane;
   paneView: typeof paneView;
@@ -64,10 +65,19 @@ export function createInspector(
           if (view === made) view = null;
         };
       },
-      // The filter's text goes first, and the pane with the next.
-      escape: () => view?.escape() ?? false,
+      // Escape ends the picking first, then the filter's text goes, and the
+      // view with the next. The mode takes its own escape before the panel
+      // hears it, and this holds the order where it does not.
+      escape: () => {
+        if (!inspect.isOn()) return view?.escape() ?? false;
+        inspect.set(false);
+        return true;
+      },
     });
-    // The pane took the focus. With the frame up the picking is the frame's, and its keys with it.
+    // The head's way back took the focus, and on a button the arrows and Enter
+    // are the button's. The view takes it, so they stay the picking's, and
+    // with the frame up the frame does, where the picking is.
+    view?.focus();
     frameWindow()?.focus();
   }
 
@@ -80,7 +90,7 @@ export function createInspector(
     else pending = element;
   });
 
-  /** The pane closed, or shows something else: nothing is inspected any more. */
+  /** The view went back to the rows, or another took its place: nothing is inspected any more. */
   const stopPane = pane.onPane((id) => {
     if (id === STYLES_VIEW) return;
     pending = null;

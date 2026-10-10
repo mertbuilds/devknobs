@@ -44,7 +44,7 @@ export interface PanelOptions {
   keys?: LiveKeys;
   /** Grab, where it is on, to show and to turn on from the search. */
   grab?: GrabControl | null;
-  /** Inspect, where it is on, to show the styles of what it picks in the side pane. */
+  /** Inspect, where it is on, to show the styles of what it picks in a view of the panel. */
   inspect?: InspectControl | null;
   /**
    * Show the handle while the panel is closed. Defaults to true. What the
@@ -330,7 +330,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     engine.reset();
   }
 
-  /** Inspect going on leaves the search as grab does, and keeps a focus that is in its pane. */
+  /** Inspect going on leaves the search as grab does, and keeps a focus that is in its view. */
   function onInspect(on: boolean): void {
     const at = root.activeElement;
     if (on && !(at && side.node.contains(at))) palette.onGrab(on);
@@ -490,7 +490,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const stopPrefs = prefs.subscribe(render);
   const stopGrab = grab?.subscribe(palette.onGrab);
   const stopInspect = inspect?.subscribe(onInspect);
-  // After the palette's, so the pane takes the focus the palette let go of.
+  // After the palette's, so the view takes the focus the palette let go of.
   const inspector = inspect ? createInspector({ inspect, tips }) : null;
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
@@ -529,7 +529,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       tips.destroy();
       settings.destroy();
       side.destroy();
-      // After the pane, whose closing takes inspect and its box with it.
+      // After the view, whose closing takes inspect and its box with it.
       inspector?.destroy();
       slide.destroy();
       knobRows.destroy();

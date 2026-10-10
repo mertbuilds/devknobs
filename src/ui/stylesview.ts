@@ -1,5 +1,5 @@
 /**
- * The styles view of the side pane: the rules that reach one element, as the
+ * The styles view of the panel: the rules that reach one element, as the
  * engine in `../styles` ranks them, read only. A line of crumbs and a filter
  * stay on top, and under them a block for each rule, the element's own first,
  * then its pseudo-elements', then what each ancestor hands down. To use it:
@@ -8,7 +8,8 @@
  *   body.append(view.node); view.show(element); view.destroy();
  *
  * The view is built once for each inspection, and the filter only hides what
- * is built. It reads the styles again when what they depend on changes: the
+ * is built, and all of it wraps or is cut short at whatever width the panel
+ * is dragged to. It reads the styles again when what they depend on changes: the
  * element or an ancestor of it, the stylesheets in the head, the window's
  * size and the knobs. The element may be one of the device frame's page.
  */
@@ -50,10 +51,10 @@ export const GONE = "the element left the page";
 export const NO_RULES = "no rule reaches this element";
 export const NO_MATCH = "no declaration matches";
 
-/** What the view needs from the pane and the panel. */
+/** What the view needs from the panel. */
 export interface StylesContext {
   tips: Tips;
-  /** Say what is shown in the pane's head. */
+  /** Say what is shown in the view's head. */
   title(text: string): void;
   /** Keep a quiet box on the element shown, or with null on none. */
   outline(element: Element | null): void;
@@ -86,7 +87,7 @@ const PAGE: StylesPage = {
 };
 
 export interface StylesView {
-  /** The view's node, which goes in the pane's body. */
+  /** The view's node, which goes in the body of the panel's view. */
   node: HTMLElement;
   /** Show an element's styles, or those of one of its pseudo-elements. Null shows the empty state. */
   show(element: Element | null, pseudo?: string): void;
@@ -94,6 +95,8 @@ export interface StylesView {
   refresh(): void;
   /** Escape clears the filter where it has text, and says whether it did. */
   escape(): boolean;
+  /** Take the focus, on no control, so the keys of the picking stay its own. */
+  focus(): void;
   destroy(): void;
 }
 
@@ -131,6 +134,8 @@ function knobsOf(state: DevknobsState): string {
 export function createStylesView(context: StylesContext, page: StylesPage = PAGE): StylesView {
   const { tips } = context;
   const node = el("div", "styles");
+  // Takes the focus from script only, and the tab key goes on to its controls.
+  node.tabIndex = -1;
   // Stays on top while the blocks scroll under it.
   const bar = el("div", "styles-bar");
   const crumbs = el("div", "crumbs");
@@ -342,17 +347,19 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
         if (index > 0) selector.append(", ");
         selector.append(el("span", part.matches ? "css-part" : "css-part off", part.text));
       });
-      head.append(selector);
+      // The mark and the file keep together, as one end of the line.
+      const from = el("span", "css-from");
       if (block.conditional && !block.conditional.confirmed) {
         const { kind } = block.conditional;
         const mark = el("span", "css-mark", kind);
         tip(mark, `could not tell whether its @${kind} holds for the element`);
-        head.append(mark);
+        from.append(mark);
       }
       const source = sourceOf(block.origin);
-      const from = el("span", "css-source", source.text);
-      tip(from, source.tip);
-      head.append(from);
+      const file = el("span", "css-source", source.text);
+      tip(file, source.tip);
+      from.append(file);
+      head.append(selector, from);
     }
     section.append(head);
     const lines = block.declarations.map((declaration) => line(declaration, found.variables));
@@ -452,7 +459,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       return;
     }
     watch(element);
-    // The pane's body scrolls, and a new element starts from its top.
+    // The view's body scrolls, and a new element starts from its top.
     if (node.parentElement) node.parentElement.scrollTop = 0;
     refresh();
   }
@@ -479,6 +486,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       applyFilter();
       return true;
     },
+    focus: () => node.focus({ preventScroll: true }),
     destroy(): void {
       clearTimeout(timer);
       clearTimeout(flashTimer);

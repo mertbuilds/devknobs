@@ -1,5 +1,6 @@
 import type { ContrastValue, MotionValue, SchemeValue, TransparencyValue } from "../types";
 import { addLayer, baseMatchMedia, removeLayer } from "./matchmedia";
+import { markInline } from "./owninline";
 import { authoredMedia } from "./text";
 
 export type MediaFeature =
@@ -418,6 +419,9 @@ function applyColorScheme(): void {
   const value = current.scheme === "system" ? colorScheme : current.scheme;
   if (value) root.style.setProperty("color-scheme", value);
   else root.style.removeProperty("color-scheme");
+  // The page's own, put back or the same as the knob's, stays the page's.
+  const own = current.scheme !== "system" && value !== colorScheme;
+  markInline(root, "color-scheme", own ? root.style.getPropertyValue("color-scheme") : null);
 }
 
 /**

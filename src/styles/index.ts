@@ -7,9 +7,10 @@
  *   invalidate();                              // after editing a stylesheet in place
  *
  * Nothing here draws or listens. It reads the page's stylesheets as they are,
- * and leaves out devknobs' own.
+ * and leaves out devknobs' own, with what its knobs write in a `style` attribute.
  */
 
+import { ownInline } from "../engine/owninline";
 import { isDevknobs } from "../grab/hit";
 import {
   byStrength,
@@ -165,11 +166,18 @@ function hasStyle(element: Element): element is Element & ElementCSSInlineStyle 
   return "style" in element;
 }
 
-/** The element's `style` attribute as a block, or null when it sets nothing. */
+/**
+ * The element's `style` attribute as a block, or null when it sets nothing.
+ * What a knob of devknobs wrote there, and is still there as written, is not
+ * the page's and is left out.
+ */
 function inlineEntry(session: Session, element: Element): Entry | null {
   if (!hasStyle(element)) return null;
   const style = element.style;
-  const declarations = declarationsOf(style, session);
+  const declarations = declarationsOf(style, session).filter((declaration) => {
+    const wrote = ownInline(element, declaration.name);
+    return wrote === null || wrote !== style.getPropertyValue(declaration.name);
+  });
   if (declarations.length === 0) return null;
   const block: InlineBlock = { kind: "inline", id: session.ids++, declarations, element };
   return {

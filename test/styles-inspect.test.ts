@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { markInline } from "../src/engine/owninline";
 import { inspect, invalidate } from "../src/styles";
 import type {
   InheritedGroup,
@@ -922,5 +923,67 @@ describe("the flattened rules", () => {
     const target = element(doc, "div", { matches: [".a"] });
     inspect(as(target));
     expect(target.asked).toEqual([".a", ".b", ".c", ".a"]);
+  });
+});
+
+describe("what a knob of devknobs wrote in a style attribute", () => {
+  /** A page whose html has the inline style, a body and a paragraph in it. */
+  function rooted(style: string) {
+    const doc = page();
+    const p = element(doc, "p");
+    const html = element(doc, "html", { style }, [element(doc, "body", {}, [p])]);
+    return { html, p };
+  }
+
+  test("the text size knob's root size is not the page's: not on html, not handed down", () => {
+    const { html, p } = rooted("font-size: 20px !important; color: red");
+    markInline(html, "font-size", "20px");
+    expect(table(own(inspect(as(html))))).toEqual({ style: { color: false } });
+    expect(inherited(inspect(as(p))).map((group) => [group.from, table(group.blocks)])).toEqual([
+      ["html", { style: { color: false } }],
+    ]);
+  });
+
+  test("the scheme knob's color-scheme is not the page's: not on html, not handed down", () => {
+    const { html, p } = rooted("color-scheme: dark; color: red");
+    markInline(html, "color-scheme", "dark");
+    expect(table(own(inspect(as(html))))).toEqual({ style: { color: false } });
+    expect(inherited(inspect(as(p))).map((group) => [group.from, table(group.blocks)])).toEqual([
+      ["html", { style: { color: false } }],
+    ]);
+  });
+
+  test("with nothing else in the attribute, html shows no style block and hands nothing down", () => {
+    const { html, p } = rooted("font-size: 20px !important; color-scheme: dark");
+    markInline(html, "font-size", "20px");
+    markInline(html, "color-scheme", "dark");
+    expect(own(inspect(as(html)))).toEqual([]);
+    expect(inherited(inspect(as(p)))).toEqual([]);
+  });
+
+  test("the page's own rule for the property is then the one in force", () => {
+    const doc = page();
+    doc.styleSheets = [sheet([rule("html", "font-size: 62.5%")])];
+    const html = element(doc, "html", { style: "font-size: 12.5px !important", matches: ["html"] });
+    markInline(html, "font-size", "12.5px");
+    expect(table(own(inspect(as(html))))).toEqual({ html: { "font-size": false } });
+  });
+
+  test("shows again once the knob is off, or the page wrote its own over it", () => {
+    const { html } = rooted("font-size: 18px; color-scheme: dark");
+    // The page wrote 18px over the knob's 20px, and the scheme knob went back to system.
+    markInline(html, "font-size", "20px");
+    markInline(html, "color-scheme", "dark");
+    markInline(html, "color-scheme", null);
+    expect(table(own(inspect(as(html))))).toEqual({
+      style: { "font-size": false, "color-scheme": false },
+    });
+  });
+
+  test("only on the element the knob wrote on", () => {
+    const { html, p } = rooted("color: red");
+    markInline(html, "font-size", "20px");
+    p.style.cssText = "font-size: 20px";
+    expect(table(own(inspect(as(p))))).toEqual({ style: { "font-size": false } });
   });
 });
