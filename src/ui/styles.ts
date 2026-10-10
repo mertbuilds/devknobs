@@ -45,6 +45,7 @@ export const CSS = `
   --raised: #ffffff;
   --lift: 0 1px 2px rgb(0 0 0 / 0.1);
   --hot: #e5484d;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --edge: 0px;
   --edge-line: transparent;
   --glide: 220ms;
@@ -744,6 +745,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+/* A binding with no key shows its word alone. */
+.hint-key:empty { display: none; }
 
 /* The settings, in place of the rows: each a row as the knob rows are, its
    grip column empty, and the way back on top of them, its chevron where a
@@ -858,6 +861,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: transform var(--glide) ease-out;
 }
 .wrap[data-open="false"][data-pane="leaving"] .handle { transition-duration: 150ms; }
+/* The closed handle on the left names the properties it eases, more exactly
+   than the rule above, so the ride back is named again here, more exactly yet. */
+.wrap[data-open="false"][data-side="left"][data-pane="leaving"] .handle { transition-property: transform; }
 .wrap[data-pane="open"] .handle { transform: translateX(calc(-1 * var(--pane-reach, 0px))); }
 .wrap[data-pane="open"][data-side="left"] .handle { transform: translateX(var(--pane-reach, 0px)); }
 /* The head stays while the body scrolls: the view's title, as quiet as a
@@ -898,6 +904,105 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* The requests view, in the side pane. A bar on one line stays over the list
+   while it scrolls: a filter, the chips that pick whose requests show, and
+   how many do. Under it a row a request, as tall as the panel's rows and 8
+   round as they are, the pane being 13 with 1 of border and 4 of padding.
+   Only the name gives way: the method, the status and the time each keep
+   their width, so the columns line up down the list, and nothing wraps.
+   New rows go in at the top, and the view moves the scroll for them itself,
+   so the browser's own scroll anchoring is off here: one of the two only. */
+.req-bar {
+  overflow-anchor: none;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 4px;
+  background: var(--bg);
+}
+.req-filter { flex: 1; min-width: 0; }
+.req-chips { flex: none; display: flex; gap: 2px; }
+.req-count {
+  flex: none;
+  min-width: 20px;
+  padding: 0 6px 0 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--faint);
+}
+.req-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; overflow-anchor: none; }
+.req-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background-color 120ms ease-out;
+}
+.req-row:hover { background: var(--card); }
+.req-method { flex: none; width: 36px; overflow: hidden; font-size: 10.5px; color: var(--faint); }
+.req-name { flex: 1; min-width: 0; display: flex; font-family: var(--mono); font-size: 11px; }
+.req-path { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.req-query { flex: none; color: var(--faint); }
+.req-status { flex: none; width: 44px; font-variant-numeric: tabular-nums; text-align: right; }
+.req-status.hot { color: var(--hot); }
+.req-time {
+  flex: none;
+  width: 40px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--faint);
+}
+/* What the page loads on its own, of which the browser tells less, is a step quieter. */
+.req-row.light { color: var(--faint); }
+
+/* One request in full: the way back, then its sections, each a row that
+   folds as the panel's rows do, with no grip column to keep. What a section
+   holds sits 4 in from the row's edges, so 4 round. Addresses, headers and
+   bodies are in mono, wrap anywhere and can be selected. */
+.req-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.req-detail .main { width: 100%; padding-left: 8px; }
+.req-detail > .note { padding: 4px 8px; }
+.req-inner {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 2px 4px 6px;
+}
+.req-kv {
+  display: grid;
+  grid-template-columns: fit-content(45%) minmax(0, 1fr);
+  gap: 2px 8px;
+  padding: 0 4px;
+}
+.req-k { overflow-wrap: anywhere; color: var(--faint); }
+.req-headers .req-k { font-family: var(--mono); font-size: 11px; }
+.req-v, .req-pre {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.req-pre {
+  max-height: 240px;
+  margin: 0;
+  padding: 4px 6px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--bg);
+  border-radius: 4px;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;

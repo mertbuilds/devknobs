@@ -44,6 +44,8 @@ export interface PaletteContext {
   editingKeys(): boolean;
   /** Stop recording a key and leave the settings, without drawing anything. */
   dropKeys(): void;
+  /** Show the requests in the side pane, or close the pane where they show. */
+  toggleRequests(): void;
 }
 
 export interface Palette {
@@ -196,6 +198,15 @@ export function createPalette(context: PaletteContext): Palette {
   function runAction(id: Action["id"]): void {
     if (id === "replay") {
       engine.replay();
+      return;
+    }
+    if (id === "requests") {
+      // The pane takes the focus, and hands it back to the button the search opened from.
+      if (browsing || searchInput.value) {
+        leaveSearch();
+        add.focus({ preventScroll: true });
+      }
+      context.toggleRequests();
       return;
     }
     grab?.set(true);

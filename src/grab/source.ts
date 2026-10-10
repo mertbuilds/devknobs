@@ -8,6 +8,7 @@ import {
   getSourceMap,
   type StackFrame,
 } from "bippy/source";
+import { quietFetch } from "../requests/quiet";
 import { displayName, isComposite } from "./fiber";
 import { locateJsx, opensAt } from "./locate";
 import { classifySourcePath, normalizeFilePath, rememberRoot, rootOf } from "./paths";
@@ -35,13 +36,14 @@ function sameOrigin(url: string): boolean {
 /**
  * The fetch bippy reads bundles and source maps with. It only reaches the
  * page's own origin, a dev server, and never anything else. One function for
- * every grab, so bippy keeps its source map cache across them.
+ * every grab, so bippy keeps its source map cache across them. The requests
+ * log leaves these out.
  */
 function sourceFetch(url: string, init?: RequestInit): Promise<Response> {
   if (!sameOrigin(url)) return Promise.resolve(new Response(null, { status: 404 }));
   const timeout = AbortSignal.timeout(TIMEOUT);
   const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-  return fetch(url, { ...init, signal });
+  return quietFetch(url, { ...init, signal });
 }
 
 /** Resolves to `fallback` once `ms` pass or `signal` aborts, whichever is first. */

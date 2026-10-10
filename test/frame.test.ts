@@ -131,7 +131,7 @@ describe("readMessage", () => {
       type: "key",
       action: "close",
     });
-    for (const action of ["replay", "reset", "search"] as const) {
+    for (const action of ["replay", "requests", "reset", "search"] as const) {
       expect(from({ source: "devknobs", type: "key", action })).toEqual({
         source: "devknobs",
         type: "key",

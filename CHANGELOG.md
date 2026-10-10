@@ -2,6 +2,10 @@
 
 ## unreleased
 
+### requests
+
+- `⇧N`, or `requests` in the search, shows what the page asks for in the pane beside the panel: `fetch` and `XMLHttpRequest` whole, and what the page loads on its own by its timing and size. a row opens its request in full, and copy puts it on the clipboard as text for an AI, with the values of secret headers left out. the key can be set in the settings like the others
+
 ### fresh mode
 
 - `?devknobs=fresh` in the page's address shows the page and the panel as a first visit sees them: `localStorage` is left alone, and every load devknobs did not ask for starts with no knobs set. the footer says so while it is on

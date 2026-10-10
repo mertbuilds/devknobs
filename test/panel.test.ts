@@ -983,6 +983,25 @@ describe("the side pane", () => {
     );
   });
 
+  test("on the left too, where the closed handle names what it eases", () => {
+    const closedLeft = '.wrap[data-open="false"][data-side="left"] .handle';
+    const leavingLeft = '.wrap[data-open="false"][data-side="left"][data-pane="leaving"] .handle';
+    // The closed handle's own list has no transform in it, and outweighs the pane's rule.
+    expect(body(closedLeft)).toMatch(/transition-property:/);
+    expect(body(closedLeft)).not.toMatch(/transform/);
+    expect(body(leavingLeft)).toMatch(/transition-property:\s*transform;/);
+    // One attribute more, so it wins wherever it stands, and it stands after.
+    const weight = (selector: string) => selector.split("[").length;
+    expect(weight(leavingLeft)).toBeGreaterThan(weight(closedLeft));
+    const outweighs = rules(CSS).filter(
+      (rule) =>
+        rule.selector.endsWith(".handle") &&
+        /transition(-property)?:/.test(rule.body) &&
+        weight(rule.selector) >= weight(leavingLeft),
+    );
+    expect(outweighs.map((rule) => rule.selector)).toEqual([leavingLeft]);
+  });
+
   test("sits beside the panel on the page's side of it, mirrored on the left", () => {
     const clip = body(".side-clip");
     expect(clip).toMatch(/position:\s*absolute/);
@@ -1060,5 +1079,21 @@ describe("the side pane", () => {
   test("stops with reduced motion, being in the wrapper", () => {
     const reduced = CSS.slice(CSS.indexOf("prefers-reduced-motion"));
     expect(reduced).toMatch(/\.wrap \*, [^{]*\{\s*transition:\s*none !important/);
+  });
+});
+
+describe("a request's row", () => {
+  test("has no line around or beside it at rest: only hover and the focus ring show", () => {
+    const lined = rules(CSS).filter(
+      (rule) =>
+        /\.req-(row|list)\b/.test(rule.selector) && /border(?!-radius)|outline|box-shadow/.test(rule.body),
+    );
+    expect(lined).toEqual([]);
+    expect(body(".req-row:hover")).toMatch(/background:\s*var\(--card\)/);
+    // Its frame is the one every button of the panel has, and none of its own.
+    expect(body("button")).toMatch(/border:\s*0/);
+    expect(body("button:focus-visible")).toMatch(/outline:\s*1px solid var\(--faint\)/);
+    // No row is marked by where its request came from.
+    expect(CSS).not.toMatch(/\.framed|\.mixed/);
   });
 });

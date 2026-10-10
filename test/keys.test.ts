@@ -264,6 +264,13 @@ describe("keyAction", () => {
     expect(keyAction(shifted({ key: "D" }), hot("d"))).toBe("toggle");
   });
 
+  test("a binding with no key does nothing, and the others still do", () => {
+    const keys = { ...hot("k"), requests: null };
+    expect(keyAction(shifted({ key: "N" }), hot("k"))).toBe("requests");
+    expect(keyAction(shifted({ key: "N" }), keys)).toBeNull();
+    expect(keyAction(shifted({ key: "R" }), keys)).toBe("replay");
+  });
+
   test("leaves the bare hotkey and the bare r alone", () => {
     expect(keyAction(key({ key: "k" }), hot("k"))).toBeNull();
     expect(keyAction(key({ key: "K" }), hot("k"))).toBeNull();

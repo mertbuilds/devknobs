@@ -25,6 +25,7 @@ import { isReset } from "./list";
 import { createPalette } from "./palette";
 import { createPane } from "./pane";
 import { createPrefs } from "./prefs";
+import { createRequests } from "./requests";
 import { createRows } from "./rows";
 import { createSettings } from "./settings";
 import { createSlide } from "./slide";
@@ -170,6 +171,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     },
     cover: coverBeside,
   });
+  const requests = createRequests({ said });
 
   panel.append(body, foot, tip);
   wrap.append(handle, side.node, panel);
@@ -193,6 +195,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       settings.stopRecording();
       settings.setEditing(false);
     },
+    toggleRequests: requests.toggle,
   });
   const drag = createDrag({ host, wrap, handle, panel, render, toggle, placed: side.place });
   const { layout } = drag;
@@ -331,6 +334,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
     if (!engine.getState().panel.open) return;
     if (action === "replay") runCommand("replay");
+    else if (action === "requests") requests.toggle();
     else if (action === "reset") runCommand("reset");
     else if (action === "search") palette.startBrowsing();
     else toggle(false);
@@ -399,8 +403,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     }
     const action = keyAction(event, keys.get());
     // A key the panel acts on does only that, not the browser's own as well:
-    // the toggle unless a drag holds it, replay and reset while the panel is
-    // open. In the search no key the panel took is typed.
+    // the toggle unless a drag holds it, replay, requests and reset while the
+    // panel is open. In the search no key the panel took is typed.
     const acts =
       action !== null &&
       action !== "close" &&

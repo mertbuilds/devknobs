@@ -168,14 +168,15 @@ results, or on the `×` at its end, leaves it too. with the focus on any of the
 panel's buttons, typing a character opens the search with it typed in.
 
 while the panel is out and the focus is in no field, `/` opens the search,
-`⇧R` replays the page's animations and shift backspace (or shift delete) resets
-every knob, from the frame too.
+`⇧R` replays the page's animations, `⇧N` shows the requests and hides them
+again, and shift backspace (or shift delete) resets every knob, from the frame
+too.
 while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
 and with `0` fit it again, from the frame too, unless the focus is in a field.
 every other key goes to the page as it would without the panel. `⇧K` toggles
 the panel everywhere except in a field of the page, where shift types a capital
-as ever. in the panel's search, which finds in lower case anyway, `⇧K`, `⇧R` and
-`⇧G` are the panel's keys and are not typed, so `⇧K` closes the panel from it,
+as ever. in the panel's search, which finds in lower case anyway, `⇧K`, `⇧R`,
+`⇧N` and `⇧G` are the panel's keys and are not typed, so `⇧K` closes the panel from it,
 and a plain `k` is just a letter. the panel's other fields, a list's filter and
 the user agent and route boxes, take every letter.
 
@@ -196,7 +197,7 @@ the origin, and wins over the `handle` option. reset all leaves it.
 
 ### shortcuts
 
-the panel, grab, replay and reset keys above are the defaults, and each can be
+the panel, grab, replay, requests and reset keys above are the defaults, and each can be
 set from the panel: the settings list them under shortcuts,
 click one and press the new key, escape to cancel. a key needs shift, alt
 (option), ctrl or meta (⌘) with it, as a key alone types, except F1 to F12,
@@ -319,6 +320,44 @@ devknobs covers it: the same grab, the same line format, the same
 clipboard type. remove the `react-grab` script or package, and mount devknobs.
 pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
 
+## requests
+
+press `⇧N` (`Shift N` off a Mac), or find `requests` in the search, to see what
+the page asks for, in the pane beside the panel: a row a request, the newest
+on top, with its method, name, status and time. a filter finds rows by address,
+method or status, and `all`, `fetch/xhr` and `other` pick whose requests show.
+a click on a row, or enter, shows it in full: the address, status, timing and
+sizes, the request and response headers and bodies, and the call that made it.
+escape goes back to the list, and then closes the pane. clear in the pane's
+head empties the log.
+
+copy in a request's head puts it on the clipboard as plain text, ready to paste
+into an AI chat. header values and address parameters that look like secrets
+are copied as `<hidden>`: `authorization`, `cookie`, `set-cookie` and
+`proxy-authorization`, and any header or parameter with `token`, `secret`,
+`key`, `password`, `auth`, `session`, `signature`, `credential` or `jwt` in its
+name. bodies are copied as they are, so check before you paste. the pane shows
+all of it as the page set it.
+
+what it records, and what it cannot:
+
+- `fetch` and `XMLHttpRequest` are seen whole: headers, bodies, status, timing
+  and the stack of the call.
+- what the page loads on its own (the document, images, stylesheets, scripts,
+  fonts) is a quieter row with timing and sizes only. the browser gives a page
+  no headers and no bodies for these, and no sizes from a server on another
+  origin that does not allow it.
+- no web sockets, and nothing a worker asks for.
+- a body is kept up to 64 KB, and only where it is text. bytes are counted, and
+  a stream the page sends is never read, nor is the body inside a `Request`
+  object or an event stream. an answer that is still coming 2 seconds after
+  its headers is kept as far as it came.
+- the last 300 requests are kept, in memory. nothing is stored, and nothing is
+  sent anywhere. a reload starts the log again.
+- it records for as long as devknobs is mounted, the pane open or not, and from
+  the page's first request with the early script below. there is no fake slow
+  or failed response, and no throttling.
+
 ## early script
 
 optional. a page that reads a media query or the time while it boots, before
@@ -395,6 +434,7 @@ screen shows the page loading as Safari does a reload. without devknobs after
 | outlines | on, off | injects one style rule that outlines every element |
 | grab color | auto, blue, green, pink, orange, purple, cyan | the color of grab's boxes and glow, wider on a p3 screen. auto is blue, and green on an element with blue behind it, so the box shows. a picked color stays whatever the page. the frame's grab follows |
 | replay animations | action, `⇧R` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
+| requests | action, `⇧N` | shows the requests the page made, in the pane beside the panel. see requests below |
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.

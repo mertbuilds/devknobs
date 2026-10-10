@@ -1,4 +1,5 @@
 import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
+import { hushOnce } from "../requests/quiet";
 import * as address from "./address";
 import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
@@ -334,12 +335,15 @@ function showZoom(place: Fit): void {
 let beside = 0;
 
 /**
- * How much of its edge an open panel covers. Its host is as wide as the panel
- * out, and its side pane reaches past that.
+ * How much of its edge an open panel covers, in a letterbox `room` px wide.
+ * Its host is as wide as the panel out, and its side pane reaches past that.
+ * `fit` puts the frame beside what covers half the room at most, so where the
+ * pane would take the two past that, the panel alone counts: the frame still
+ * keeps clear of the panel, and only the pane sits over it.
  */
-function panelWidth(): number {
+function panelWidth(room: number): number {
   const width = document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
-  return width + beside;
+  return width + beside <= room / 2 ? width + beside : width;
 }
 
 /**
@@ -438,7 +442,7 @@ function resize(): void {
   readout.hidden = !hasStrip(current);
   letterbox.setAttribute("data-mat", current.mat);
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
-  const aside = current.panel.open ? panelWidth() : 0;
+  const aside = current.panel.open ? panelWidth(size.width) : 0;
   const mock = bodyFor(current);
   const place = fit(current, size, {
     frameZoom: zoomFor(current.dpr),
@@ -585,7 +589,7 @@ function screenFor(value: ViewportValue): Rect | null {
   const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
   const place = fit(value, size, {
     frameZoom: zoomFor(value.dpr),
-    aside: value.panel.open ? panelWidth() : 0,
+    aside: value.panel.open ? panelWidth(size.width) : 0,
     side: value.panel.side,
     mock: mock?.inset,
   });
@@ -811,6 +815,8 @@ function open(veiled: number | null, first: boolean): void {
   address.follow({ page: frameDocument, locate, refresh: () => browser?.refresh() });
   scroll = { x: window.scrollX, y: window.scrollY };
   loaded = false;
+  // The frame's page lists its own load. Here it would be a second row for it.
+  hushOnce(frameUrl);
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
   reload.track({
