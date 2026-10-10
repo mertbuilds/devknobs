@@ -7,6 +7,7 @@ import {
   FRESH_RELOAD_WINDOW,
   fresh,
   freshIn,
+  loads,
   ownReload,
   webStorage,
   wiped,
@@ -104,6 +105,21 @@ afterEach(() => {
   session.clear();
   local.clear();
   Reflect.deleteProperty(globalThis, "window");
+});
+
+describe("loads", () => {
+  test("is true for another page, or another query", () => {
+    expect(loads("http://app.test/b", "http://app.test/a")).toBe(true);
+    expect(loads("http://app.test/a?x=2", "http://app.test/a?x=1")).toBe(true);
+    expect(loads("http://app.test/b#top", "http://app.test/a#top")).toBe(true);
+  });
+
+  test("is false where the hash alone differs", () => {
+    expect(loads("http://app.test/a#billing", "http://app.test/a")).toBe(false);
+    expect(loads("http://app.test/a", "http://app.test/a#billing")).toBe(false);
+    expect(loads("http://app.test/a?x=1#one", "http://app.test/a?x=1#two")).toBe(false);
+    expect(loads("http://app.test/a#", "http://app.test/a")).toBe(false);
+  });
 });
 
 describe("freshIn", () => {

@@ -161,6 +161,14 @@ function readStore(store: Store): string | null {
   }
 }
 
+/**
+ * Is this store out of reach for now, as `localStorage` is in fresh mode? What
+ * devknobs wrote there stays its own until the store answers again.
+ */
+function unreachable(store: Store): boolean {
+  return store.kind !== "cookie" && webStorage(store.kind) === null;
+}
+
 /** Write `value` into the store, or clear it with null. */
 function writeStore(store: Store, value: string | null): void {
   if (store.kind === "cookie") {
@@ -298,13 +306,18 @@ function restoreStores(owned: Owned): boolean {
   let restored = false;
   const kept: Written[] = [];
   for (const entry of owned.writes) {
+    if (unreachable(entry)) {
+      kept.push(entry);
+      continue;
+    }
     // The host wrote over it since. It is the host's now, not devknobs' to undo.
     if (readStore(entry) !== entry.value) continue;
     writeStore(entry, entry.prior);
     if (readStore(entry) === entry.prior) restored = true;
     else kept.push(entry);
   }
-  // A store that refused stays owned, so a later mount can put it back after all.
+  // A store that refused or could not be reached stays owned, so a later mount
+  // can put it back after all.
   if (kept.length === 0) clearOwned();
   else if (!writeOwned({ lang: owned.lang, writes: kept })) return false;
   return restored;
@@ -330,10 +343,15 @@ export function syncStores(lang: string | null): boolean {
   const writes: Written[] = [];
   let changed = false;
   for (const adapter of ADAPTERS) {
-    const current = readStore(adapter);
     const previous = owned?.writes.find(
       (entry) => entry.kind === adapter.kind && entry.key === adapter.key,
     );
+    if (previous !== undefined && unreachable(adapter)) {
+      // Nothing can be read or written there now. The claim waits as it is.
+      writes.push(previous);
+      continue;
+    }
+    const current = readStore(adapter);
     const ours = previous !== undefined && current === previous.value;
     if (!ours && !adapter.used(current !== null)) continue;
     if (current === lang) {

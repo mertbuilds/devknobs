@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SCREENS, turn } from "../src/engine/devices";
 import { FOLD_TIME } from "../src/engine/fold";
 import { UNFRAMED } from "../src/engine/frame";
+import { FRESH_ATTRIBUTE, FRESH_RELOAD_KEY } from "../src/engine/fresh";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
 import { holeAt, holePath, MORPH_TIME, rounded, windowRect } from "../src/engine/morph";
@@ -1103,6 +1104,122 @@ describe("the frame over the page", () => {
     apply(KNOBS);
     expect(assigned).toEqual([]);
     expect(location.href).toBe(EARLIER);
+  });
+});
+
+describe("the frame in fresh mode", () => {
+  /** Put `devknobs=fresh` in the page's address, and give it a `sessionStorage` to look into. */
+  function freshPage(): Map<string, string> {
+    const session = new Map<string, string>();
+    Object.assign(location, { search: "?devknobs=fresh" });
+    Object.assign(window, {
+      sessionStorage: {
+        length: 0,
+        key: () => null,
+        getItem: (key: string) => session.get(key) ?? null,
+        setItem: (key: string, value: string) => session.set(key, value),
+        removeItem: (key: string) => session.delete(key),
+      },
+    });
+    return session;
+  }
+
+  /** Let device changes move: frames run when `play` says, and each animation is done at once. */
+  function moving(): { play: () => Promise<void>; still: () => void } {
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+    const frames: FrameRequestCallback[] = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    const animate = FakeElement.prototype.animate;
+    FakeElement.prototype.animate = () => ({
+      finished: Promise.resolve(),
+      currentTime: 0,
+      cancel: () => {},
+    });
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+    return {
+      play: async () => {
+        for (let now = 0; now < 1600; now += 40) {
+          await Bun.sleep(0);
+          for (const frame of frames.splice(0)) frame(now);
+        }
+      },
+      still: () => {
+        FakeElement.prototype.animate = animate;
+        Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+      },
+    };
+  }
+
+  test("tells the page in the frame the mode", () => {
+    freshPage();
+    apply(VIEWPORT);
+    expect(frameElement().hasAttribute(FRESH_ATTRIBUTE)).toBe(true);
+  });
+
+  test("tells it nothing with the mode off", () => {
+    apply(VIEWPORT);
+    expect(frameElement().hasAttribute(FRESH_ATTRIBUTE)).toBe(false);
+  });
+
+  test("marks the load it asks for as the knobs go off", async () => {
+    const session = freshPage();
+    apply(VIEWPORT);
+    await load(FRAMED);
+    apply(KNOBS);
+    expect(assigned).toEqual([FRAMED]);
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(true);
+  });
+
+  test("leaves no mark where the frame only moved inside its document", async () => {
+    const session = freshPage();
+    apply(VIEWPORT);
+    await load(`${PAGE}#billing`);
+    apply(KNOBS);
+    expect(assigned).toEqual([`${PAGE}#billing`]);
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
+  });
+
+  test("leaves no mark with the mode off", async () => {
+    const session = freshPage();
+    Object.assign(location, { search: "" });
+    apply(VIEWPORT);
+    await load(FRAMED);
+    apply(KNOBS);
+    expect(assigned).toEqual([FRAMED]);
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
+  });
+
+  test("marks the load a device change ends in, and none inside the document", async () => {
+    const phone = { ...KNOBS, mock: false, device: "iphone-16-pro", width: 402, height: 874 } as const;
+    for (const [target, marked] of [
+      [FRAMED, true],
+      [`${PAGE}#billing`, false],
+    ] as const) {
+      const session = freshPage();
+      apply(KNOBS);
+      const motion = moving();
+      try {
+        apply(phone);
+        await motion.play();
+        await load(target);
+        apply(KNOBS);
+        // The device is on its way out, and the window has not left yet.
+        expect(assigned).toEqual([]);
+        await motion.play();
+        expect(assigned).toEqual([target]);
+        expect(session.has(FRESH_RELOAD_KEY)).toBe(marked);
+      } finally {
+        motion.still();
+      }
+      reset();
+      assigned = [];
+      location.href = PAGE;
+    }
   });
 });
 

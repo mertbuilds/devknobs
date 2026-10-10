@@ -5,7 +5,7 @@ import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf, formId, formOf } from "./devices";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
-import { fresh, FRESH_ATTRIBUTE, ownReload } from "./fresh";
+import { fresh, FRESH_ATTRIBUTE, loads, ownReload } from "./fresh";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -659,14 +659,22 @@ function layout(): void {
   else resize();
 }
 
+/**
+ * Send the window to where the frame went. Only a move that loads a page is
+ * marked as devknobs' own: one inside the document has no load to read the mark.
+ */
+function leave(target: string): void {
+  if (loads(target, window.location.href)) ownReload();
+  window.location.assign(target);
+}
+
 /** A device change hands the window its own page back, or leaves for where the frame went. */
 function handBack(): void {
   const target = release(true);
   if (target && target !== window.location.href) {
     halt();
     teardown();
-    ownReload();
-    window.location.assign(target);
+    leave(target);
     return;
   }
   // Under the veil, which then lifts off it.
@@ -902,10 +910,8 @@ function close(follow: boolean): void {
   const target = release(follow);
   teardown();
   // Hidden, the page had no height to keep its scroll position in.
-  if (target && target !== window.location.href) {
-    ownReload();
-    window.location.assign(target);
-  } else window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
+  if (target && target !== window.location.href) leave(target);
+  else window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
 }
 
 export function apply(value: ViewportValue): void {

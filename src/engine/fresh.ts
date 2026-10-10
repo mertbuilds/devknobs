@@ -145,6 +145,15 @@ export function webStorage(kind: "session" | "local"): Storage | null {
 }
 
 /**
+ * Does going from `from` to `target` load a page? Two addresses that differ in
+ * the hash alone are one document, and the browser loads nothing for the move.
+ */
+export function loads(target: string, from: string): boolean {
+  const bare = (address: string) => address.split("#", 1)[0];
+  return bare(target) !== bare(from);
+}
+
+/**
  * Devknobs is about to reload the page, or send it elsewhere. In fresh mode
  * the timing lets the next load tell it from one of the user's, and keep the
  * session.
