@@ -5,17 +5,19 @@
  * element's own first, then its pseudo-elements', then what each ancestor
  * hands down. That is its advanced mode. Its simple mode lists only what
  * applies to the element, with no rule around it, and what it inherits folded
- * under that. Its bar, filter, modes, fold and empty lines are the kit's, and
- * only the crumbs and the css are its own. To use it:
+ * under that. In both modes the element's box heads the styles, in a fold of
+ * its own. Its bar, filter, modes, folds and empty lines are the kit's, and
+ * only the crumbs, the box and the css are its own. To use it:
  *
- *   const view = createStylesView({ tips, title, outline, mode });
+ *   const view = createStylesView({ tips, title, outline, area, mode, box });
  *   body.append(view.node); view.show(element); view.destroy();
  *
  * The view is built once for each inspection, and the filter only hides what
  * is built, and all of it wraps or is cut short at whatever width the panel
  * is dragged to. It reads the styles again when what they depend on changes: the
  * element or an ancestor of it, the stylesheets in the head, the window's
- * size and the knobs. The element may be one of the device frame's page.
+ * size and the knobs, and the box alone when the element's size does. The
+ * element may be one of the device frame's page.
  */
 
 import * as engine from "../engine";
@@ -28,7 +30,9 @@ import type {
   StyleDeclaration,
   VariableValue,
 } from "../styles/types";
+import type { BoxRing } from "../grab/boxmodel";
 import type { DevknobsState } from "../types";
+import { type BoxReading, createBoxDiagram, readBox } from "./boxdiagram";
 import { button, el } from "./dom";
 import { emptyLine, type Fold, filterField, sectionFold, segments, toolbar } from "./kit";
 import type { StylesMode } from "./prefs";
@@ -78,6 +82,10 @@ export interface StylesContext {
    * Without it the view is the advanced one, with no control to change it.
    */
   mode?: { get(): StylesMode; set(mode: StylesMode): void };
+  /** Tint one area of the outlined element's box alone on the page, or with null all four. */
+  area?(ring: BoxRing | null): void;
+  /** Whether the box starts folded out, and where the way the user leaves it is kept. */
+  box?: { get(): boolean; set(open: boolean): void };
 }
 
 /** The modes in the order their control has them. */
@@ -91,6 +99,8 @@ export interface StylesPage {
   subscribe(listener: (state: DevknobsState) => void): () => void;
   /** The browser's word on whether a text is a color. */
   isColor(text: string): boolean;
+  /** The element's box, or null where it has none to read. */
+  box(element: Element): BoxReading | null;
 }
 
 function isColor(text: string): boolean {
@@ -107,6 +117,7 @@ const PAGE: StylesPage = {
   getState: engine.getState,
   subscribe: engine.subscribe,
   isColor,
+  box: readBox,
 };
 
 export interface StylesView {
@@ -193,9 +204,25 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     : null;
   // Stays on top while the blocks scroll under it.
   const bar = toolbar(modes ? [filter.node, modes.node] : [filter.node]);
+  const diagram = createBoxDiagram((ring) => context.area?.(ring));
+  const box = sectionFold({
+    label: "box",
+    open: context.box?.get() ?? true,
+    onToggle: (open) => context.box?.set(open),
+  });
+  box.body.append(diagram.node);
   const blocks = el("div", "css-blocks");
   const note = emptyLine(EMPTY);
-  node.append(crumbs, bar, blocks, note);
+  node.append(crumbs, bar, box.node, blocks, note);
+  /** Tells the diagram how wide it is, so it knows whether its lengths fit in it. */
+  const fitter =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver((entries) => {
+          const entry = entries[entries.length - 1];
+          if (entry) diagram.fit(entry.contentRect.width);
+        });
+  fitter?.observe(diagram.node);
 
   let target: Element | null = null;
   let pseudo: string | null = null;
@@ -213,6 +240,8 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   /** The nodes of the blocks that have a tooltip, which goes when they do. */
   let tipped: HTMLElement[] = [];
   let observer: MutationObserver | null = null;
+  /** Watches the element's size, which its box goes by, while it is shown. */
+  let sizes: ResizeObserver | null = null;
   /** The window whose size the styles shown depend on. */
   let watched: Window | null = null;
   /** A stylesheet may have changed since the last read. */
@@ -235,9 +264,18 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     later();
   }
 
+  /** Read the element's box again and show it. A pseudo-element's box cannot be read, so none shows. */
+  function drawBox(): void {
+    const reading = target && pseudo === null && target.isConnected ? page.box(target) : null;
+    box.node.hidden = reading === null;
+    diagram.show(reading);
+  }
+
   function unwatch(): void {
     observer?.disconnect();
     observer = null;
+    sizes?.disconnect();
+    sizes = null;
     watched?.removeEventListener("resize", later);
     watched = null;
   }
@@ -265,6 +303,10 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     }
     watched = element.ownerDocument.defaultView;
     watched?.addEventListener("resize", later);
+    if (typeof ResizeObserver !== "undefined") {
+      sizes = new ResizeObserver(drawBox);
+      sizes.observe(element);
+    }
   }
 
   function say(text: string | null): void {
@@ -294,6 +336,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     crumbs.replaceChildren();
     crumbs.hidden = true;
     bar.hidden = true;
+    drawBox();
     say(text);
   }
 
@@ -599,6 +642,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     bar.hidden = false;
     context.title(middle(`${found.target.label}${found.target.pseudo ?? ""}`, TITLE_MAX));
     drawCrumbs(element);
+    drawBox();
     read = { found, element };
     draw();
   }
@@ -664,6 +708,8 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       clearTimeout(flashTimer);
       unwatch();
       unsubscribe();
+      fitter?.disconnect();
+      context.area?.(null);
       crumbs.removeEventListener("keydown", onCrumbKey);
       dropTips();
       target = null;

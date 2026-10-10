@@ -217,6 +217,18 @@ describe("readMessage", () => {
     });
   });
 
+  test("reads the area of the box the frame is to tint alone, and nothing for an area it does not know", () => {
+    for (const ring of ["margin", "border", "padding", "content", null] as const) {
+      expect(from({ source: "devknobs", type: "area", ring })).toEqual({
+        source: "devknobs",
+        type: "area",
+        ring,
+      });
+    }
+    expect(from({ source: "devknobs", type: "area", ring: "outline" })).toBeNull();
+    expect(from({ source: "devknobs", type: "area" })).toBeNull();
+  });
+
   test("reads the overflow count the frame reports", () => {
     expect(from({ source: "devknobs", type: "overflow", count: 3 })).toEqual({
       source: "devknobs",

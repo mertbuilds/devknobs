@@ -69,6 +69,7 @@ const inspect: InspectControl = {
   outline: (target) => {
     outlined.push(target);
   },
+  area: () => undefined,
   destroy: () => undefined,
 };
 
@@ -118,6 +119,7 @@ const stylesPage: StylesPage = {
   getState: () => DEFAULT_STATE,
   subscribe: () => () => undefined,
   isColor: () => false,
+  box: () => null,
 };
 
 const load: LoadStyles = async () => ({

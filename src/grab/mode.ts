@@ -6,7 +6,7 @@ import { DWELL, settles, speedOf } from "./dwell";
 import { grabTargetAt, isDevknobs } from "./hit";
 import { isCLike } from "./keys";
 import { createNavigator, stepOf } from "./navigate";
-import { createOverlay, HIDE_WAIT } from "./overlay";
+import { createOverlay, HIDE_WAIT, type Overlay } from "./overlay";
 import { copiedText, flushPicks, togglePick } from "./picks";
 import type { GrabEntry } from "./types";
 
@@ -64,7 +64,7 @@ export interface Mode {
 export interface ModePage {
   componentOf: typeof componentOf;
   copyGrab: typeof copyGrab;
-  createOverlay: typeof createOverlay;
+  createOverlay: (quiet?: boolean, model?: boolean) => Overlay;
   grabEntry: typeof grabEntry;
   grabTargetAt: typeof grabTargetAt;
   quickEntry: typeof quickEntry;
@@ -103,11 +103,14 @@ function onControl(event: Event): boolean {
  * there, so a click can copy it whole in the click itself, as Safari wants.
  * The box goes to an element once the pointer settles on it, and not to those
  * it only passes over. With a `purpose` the picking is the same and what a pick
- * does is not: nothing is gathered or copied, and the mode stays on.
+ * does is not: nothing is gathered or copied, the mode stays on, and the box
+ * shows the element's margin, border, padding and content, with a card of
+ * what its text is set in by it.
  */
 export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
   const { purpose } = options;
-  const overlay = page.createOverlay();
+  // Inspect draws the box of what it is on, and says more of it than grab does.
+  const overlay = page.createOverlay(false, purpose !== undefined);
   const navigator = createNavigator();
   const ready = new WeakMap<Element, GrabEntry>();
   const warming = new WeakSet<Element>();

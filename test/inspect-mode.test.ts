@@ -17,6 +17,8 @@ let copies: number;
 let picks: Element[];
 let exits: number;
 let overlays: number;
+/** What each overlay was made with: whether it is quiet, and whether it draws the box. */
+let asked: [boolean | undefined, boolean | undefined][];
 let mode: Mode | null = null;
 
 function entryOf(element: Element): GrabEntry {
@@ -42,7 +44,8 @@ const page: ModePage = {
     copies++;
     return true;
   },
-  createOverlay: () => {
+  createOverlay: (quiet, model) => {
+    asked.push([quiet, model]);
     overlays++;
     return overlay;
   },
@@ -118,6 +121,7 @@ beforeEach(() => {
   picks = [];
   exits = 0;
   overlays = 0;
+  asked = [];
   const style = { setAttribute: () => undefined, remove: () => undefined, textContent: "" };
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -168,6 +172,11 @@ describe("the mode with inspect's purpose", () => {
     await Promise.resolve();
     expect(copies).toBe(0);
     expect(toasts).toBe(0);
+  });
+
+  test("asks its layer for the element's box and its card, which grab does not", () => {
+    inspect(50);
+    expect(asked).toEqual([[false, true]]);
   });
 
   test("stays on after a pick, so the next click picks another", () => {
@@ -257,6 +266,8 @@ describe("the mode with no purpose", () => {
     );
     expect(draws[0]?.tag).toBe("a");
     expect(draws[0]?.name).toBe("Component");
+    // Grab keeps its plain box: no areas, no card.
+    expect(asked).toEqual([[false, false]]);
     click(50);
     await Promise.resolve();
     expect(copies).toBe(1);

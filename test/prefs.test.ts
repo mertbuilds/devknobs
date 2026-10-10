@@ -9,7 +9,13 @@ import {
 } from "../src/ui/prefs";
 
 /** A mount's preferences, with the widths a panel starts with. */
-const BASE: Prefs = { handle: true, listWidth: 240, viewWidth: 340, stylesMode: "simple" };
+const BASE: Prefs = {
+  handle: true,
+  listWidth: 240,
+  viewWidth: 340,
+  stylesMode: "simple",
+  stylesBox: true,
+};
 
 describe("readPrefs", () => {
   test("keeps a handle that is a boolean", () => {
@@ -51,16 +57,17 @@ describe("readPrefs", () => {
     });
   });
 
-  test("is at version 3, and takes up one kept at version 1, which had no widths", () => {
-    expect(PREFS_VERSION).toBe(3);
+  test("is at version 4, and takes up one kept at version 1, which had no widths", () => {
+    expect(PREFS_VERSION).toBe(4);
     expect(readPrefs(JSON.stringify({ v: 1, handle: false }))).toEqual({ handle: false });
     expect(resolvePrefs(BASE, readPrefs(JSON.stringify({ v: 1, handle: false })))).toEqual({
       handle: false,
       listWidth: 240,
       viewWidth: 340,
       stylesMode: "simple",
+      stylesBox: true,
     });
-    expect(readPrefs(JSON.stringify({ v: 4, handle: false, listWidth: 300 }))).toEqual({});
+    expect(readPrefs(JSON.stringify({ v: 5, handle: false, listWidth: 300 }))).toEqual({});
   });
 
   test("takes up one kept at version 2, which had no mode: the styles view is simple", () => {
@@ -71,6 +78,7 @@ describe("readPrefs", () => {
       listWidth: 240,
       viewWidth: 500,
       stylesMode: "simple",
+      stylesBox: true,
     });
   });
 
@@ -198,6 +206,7 @@ describe("createPrefs", () => {
       listWidth: 280,
       viewWidth: 500,
       stylesMode: "simple",
+      stylesBox: true,
     });
     prefs.setWidth("view", 340);
     prefs.setWidth("list", 240);
@@ -217,6 +226,7 @@ describe("createPrefs", () => {
       listWidth: 300,
       viewWidth: 600,
       stylesMode: "simple",
+      stylesBox: true,
     });
     prefs.destroy();
   });
@@ -241,7 +251,7 @@ describe("createPrefs", () => {
     prefs.subscribe(() => heard++);
     expect(prefs.get().stylesMode).toBe("simple");
     prefs.setStylesMode("advanced");
-    expect(JSON.parse(local.get(PREFS_KEY) ?? "")).toEqual({ v: 3, stylesMode: "advanced" });
+    expect(JSON.parse(local.get(PREFS_KEY) ?? "")).toEqual({ v: 4, stylesMode: "advanced" });
     expect(prefs.get().stylesMode).toBe("advanced");
     prefs.destroy();
     const next = createPrefs();

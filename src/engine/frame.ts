@@ -1,3 +1,4 @@
+import { type BoxRing, RINGS } from "../grab/boxmodel";
 import type { DevknobsState, PanelValue, SchemeValue } from "../types";
 import { parse } from "./store";
 
@@ -43,7 +44,9 @@ export type DevknobsMessage =
   | { source: "devknobs"; type: "overflow"; count: number }
   | { source: "devknobs"; type: "grab" | "inspect"; on: boolean; scheme?: "light" | "dark" }
   /** `picked`: inspect took an element in the frame. `outline`: the frame is to box another. */
-  | { source: "devknobs"; type: "ready" | "replay" | "picked" | "outline" };
+  | { source: "devknobs"; type: "ready" | "replay" | "picked" | "outline" }
+  /** The frame is to tint one area of the box it outlines, or with null all four. */
+  | { source: "devknobs"; type: "area"; ring: BoxRing | null };
 
 /** The parts of a `MessageEvent` that decide whether devknobs reads it. */
 export interface Envelope {
@@ -209,6 +212,10 @@ export function readMessage(
     return scheme
       ? { source: "devknobs", type, on: message.on, scheme }
       : { source: "devknobs", type, on: message.on };
+  }
+  if (type === "area") {
+    const ring = RINGS.find((known) => known === message.ring) ?? null;
+    return ring === null && message.ring !== null ? null : { source: "devknobs", type, ring };
   }
   if (type === "ready" || type === "replay" || type === "picked" || type === "outline") {
     return { source: "devknobs", type };

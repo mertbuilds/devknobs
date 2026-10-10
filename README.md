@@ -388,6 +388,50 @@ or `css`, the footer has its key, and the shortcuts in the settings set
 another. grab and inspect are never on together, and while grab is on `c` is
 grab's copy.
 
+while inspect is on, the element under the pointer shows its box as the
+browsers' own tools draw it: the content in blue, the padding in green, the
+border in yellow and the margin in orange, see-through, under the box's own
+line. a negative margin makes no area on its side. an element in several
+pieces, as a link over two lines is, is drawn by its bounding box, and so is
+one a transform turns or scales, unless the browser has `getBoxQuads`, which
+gives its own corners. an element with `display: contents` or of no size has
+no box, only its label. the element whose styles show keeps its areas with
+its quiet box. grab draws none of this.
+
+the label by the box is a small card in inspect. its first line is the
+element and its size. under it, once the pointer rests, only what applies:
+
+- `color` and `background`, each with a swatch, as a hex or as `rgb()` with
+  its alpha. where the element has no background of its own, it is the one
+  that shows through from an ancestor, said quietly
+- `font`: the family, then the size over the line height, the weight, and
+  the letter spacing where it is not `normal`
+- `contrast`: the wcag ratio of the text on its background, with a check
+  where it meets level AA at the text's size and weight, or a cross
+- `margin` and `padding`, top, right, bottom, left, where any side has some
+
+the color, the font and the contrast are for an element with text of its
+own. what the `font` row can know: it is the first family of the computed
+`font-family` that `document.fonts.check` says is there, or the first
+generic one such as `sans-serif`. for a web font the answer is exact: it is
+there once it has loaded. for a family the page did not load, most browsers answer yes whether
+the system has it or not, so the row trusts the name. and no browser tells
+a page which font a glyph really fell back to, so text that mixes scripts
+may be drawn in more fonts than the one named. the background is the
+`background-color` only: an image or a gradient behind the text is not seen,
+and the contrast is then against the color under it.
+
+the styles start with the element's box, under `box`, which folds away
+and stays the way you leave it: the margin, the border, the padding and the
+content one inside the other, each with the length of its four sides in css
+px, a dash for 0, the content with its width by its height, and around them
+the offsets of a positioned element. the pointer or the focus on an area
+draws that one alone on the page. where the panel is too narrow for the
+lengths, they leave the areas, and those of the area the pointer or the
+focus is on stand in a line under them. under that are the element's
+`box-sizing` and `display`, and its `position` where it is not `static`. the
+box is read again with the styles, and when the element changes size.
+
 the view has two modes, set by the control beside the filter, and the one
 you pick is kept. `simple`, the one it starts in, lists only the styles that
 apply to the element, by what they do, with what it inherits folded under

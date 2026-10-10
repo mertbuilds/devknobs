@@ -17,6 +17,8 @@ let frame: (EventTarget & { document: object; postMessage(message: unknown): voi
 let modes: { options: ModeOptions; stopped: boolean }[];
 /** What the outline was told to box, in order. */
 let boxed: (Element | null)[];
+/** The area the outline was told to tint alone, in order. */
+let areas: (string | null)[];
 let outlines: number;
 
 const load: LoadInspect = async () => ({
@@ -35,6 +37,9 @@ const load: LoadInspect = async () => ({
     return {
       show: (element) => {
         boxed.push(element);
+      },
+      area: (ring) => {
+        areas.push(ring);
       },
       destroy: () => undefined,
     };
@@ -78,6 +83,7 @@ beforeEach(() => {
   sent = [];
   modes = [];
   boxed = [];
+  areas = [];
   outlines = 0;
   parent = { postMessage: (data) => posted.push(data) };
   frame = null;
@@ -230,6 +236,32 @@ describe("the outline", () => {
     Reflect.set(window, HELD, null);
     message({ source: "devknobs", type: "outline" }, parent);
     expect(boxed).toEqual([button, null]);
+  });
+
+  test("one area of the box goes to the outline here, and to the frame's where it is up", async () => {
+    control = above();
+    control.outline(element(document));
+    await settle();
+    sent = [];
+    control.area("padding");
+    control.area(null);
+    expect(areas).toEqual(["padding", null]);
+    expect(sent).toEqual([
+      { source: "devknobs", type: "area", ring: "padding" },
+      { source: "devknobs", type: "area", ring: null },
+    ]);
+  });
+
+  test("in the frame, the area the page above says is tinted on the outline there", async () => {
+    setWindow(FRAME_NAME);
+    control = createInspect({}, load, () => null);
+    Reflect.set(window, HELD, element(document));
+    message({ source: "devknobs", type: "outline" }, parent);
+    await settle();
+    message({ source: "devknobs", type: "area", ring: "margin" }, parent);
+    message({ source: "devknobs", type: "area", ring: "sky" }, parent);
+    message({ source: "devknobs", type: "area", ring: null }, parent);
+    expect(areas).toEqual(["margin", null]);
   });
 
   test("an element of a page that is gone is boxed nowhere", async () => {
