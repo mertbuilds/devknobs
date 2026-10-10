@@ -1,5 +1,6 @@
 import { composedParent, isDevknobs } from "../grab/hit";
 import { ensureStyle, removeStyle } from "./style";
+import { DOT_LOOK, MARK_EVENT, type Mark } from "./touchmark";
 
 /**
  * The mouse as a finger, the way the device toolbar in chrome devtools has it:
@@ -9,7 +10,9 @@ import { ensureStyle, removeStyle } from "./style";
  * the frame is up. A press on devknobs itself, a range slider, editable text,
  * a scrollbar or with a button other than the main one is left to the
  * browser, its moves and `pointerType` with it, until the button is up, and
- * grab pauses it while it picks.
+ * grab pauses it while it picks. The cursor goes up to the page above the
+ * frame, which draws it over the browser's bars too, and is drawn here only
+ * where no page above takes it.
  */
 
 /** How far a press moves before it is a drag and no longer a tap, in css px. */
@@ -24,9 +27,6 @@ const DECAY = 325;
 /** The least speed a release flings at, and the speed a fling stops at, in px per ms. */
 const MIN_FLING = 0.1;
 const STOP_FLING = 0.02;
-
-/** Half the touch cursor, in css px. */
-const RADIUS = 11;
 
 /** What a fingertip reports for its contact, in css px. */
 const CONTACT = 11.5;
@@ -100,35 +100,9 @@ const DOT_CSS = `
 }
 .dot {
   position: fixed;
-  left: 0;
-  top: 0;
-  width: ${RADIUS * 2}px;
-  height: ${RADIUS * 2}px;
-  margin: -${RADIUS}px 0 0 -${RADIUS}px;
-  pointer-events: none;
   z-index: 2147483647;
-  will-change: transform;
 }
-.dot[hidden] { display: none; }
-.dot::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  box-sizing: border-box;
-  border-radius: 50%;
-  background: rgb(0 0 0 / 0.28);
-  border: 1.5px solid rgb(255 255 255 / 0.85);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
-  transition: transform 80ms ease-out, background-color 80ms ease-out;
-}
-.dot.pressed::after {
-  transform: scale(0.82);
-  background: rgb(0 0 0 / 0.45);
-}
-@media (prefers-reduced-motion: reduce) {
-  .dot::after { transition: none; }
-}
-`;
+${DOT_LOOK}`;
 
 /** Which ways a `touch-action` lets a finger pan. */
 export interface Pan {
@@ -306,6 +280,9 @@ let paused = false;
 /** A press left to the browser is down, or just up with its click still to come. */
 let native = false;
 let nativeTimer = 0;
+/** The cursor as it is now, whoever draws it. */
+let mark: Mark = { at: null, pressed: false, held: false };
+/** The cursor's own host and dot here, only while no page above draws it. */
 let host: HTMLElement | null = null;
 let dot: HTMLElement | null = null;
 /** Sees a dialog open where the browser sends no `toggle` for it. */
@@ -348,18 +325,48 @@ function onScrollbar(element: Element, event: MouseEvent): boolean {
   return event.offsetX > element.clientWidth || event.offsetY > element.clientHeight;
 }
 
-function showDot(event: MouseEvent): void {
+/**
+ * Hand the cursor to the page above the frame, at once, as an event on the
+ * frame's own element. True where that page takes it, and so draws it.
+ */
+function handUp(next: Mark): boolean {
+  try {
+    const owner = window.frameElement;
+    if (!owner || typeof CustomEvent !== "function") return false;
+    return !owner.dispatchEvent(new CustomEvent(MARK_EVENT, { detail: next, cancelable: true }));
+  } catch {
+    // A page above on another origin: its frame element is out of reach.
+    return false;
+  }
+}
+
+/** Show the cursor as the mark has it: in the page above where it takes it, else here. */
+function render(): void {
+  if (!active || paused) return;
+  if (handUp(mark)) {
+    if (host) unmountDot();
+    return;
+  }
+  mountDot();
   if (!dot) return;
-  dot.hidden = false;
-  dot.style.transform = `translate(${event.clientX}px, ${event.clientY}px)`;
+  dot.hidden = mark.at === null;
+  if (mark.at) dot.style.transform = `translate(${mark.at.x}px, ${mark.at.y}px)`;
+  dot.classList.toggle("pressed", mark.pressed);
+}
+
+function showDot(event: MouseEvent): void {
+  mark = { ...mark, at: { x: event.clientX, y: event.clientY } };
+  render();
 }
 
 function hideDot(): void {
-  if (dot) dot.hidden = true;
+  mark = { ...mark, at: null };
+  render();
 }
 
 function pressDot(pressed: boolean): void {
-  dot?.classList.toggle("pressed", pressed);
+  mark = { ...mark, pressed };
+  render();
 }
 
 /** Can the cursor go in the top layer? Without popovers it stays a plain layer. */
@@ -897,11 +904,15 @@ function uninstall(): void {
 
 function showCursor(): void {
   ensureStyle("touch-pointer").textContent = CURSOR_CSS;
-  mountDot();
+  mark = { at: null, pressed: false, held: false };
+  render();
 }
 
+/** The mouse is a mouse again, on the bars the page above draws too. */
 function hideCursor(): void {
   removeStyle("touch-pointer");
+  mark = { at: null, pressed: false, held: true };
+  handUp(mark);
   unmountDot();
 }
 
