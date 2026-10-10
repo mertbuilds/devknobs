@@ -5,7 +5,7 @@ import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf, formId, formOf } from "./devices";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
-import { fresh, FRESH_ATTRIBUTE, loads, ownReload } from "./fresh";
+import { carried, fresh, FRESH_ATTRIBUTE, loads, ownReload } from "./fresh";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -841,7 +841,7 @@ function release(follow: boolean): string {
   // The window went back to another entry meanwhile. It stays there, and the
   // frame is not followed.
   const moved = address.moved();
-  const target = follow && !moved ? locate() : "";
+  const target = follow && !moved ? carried(locate()) : "";
   window.removeEventListener("message", onMessage);
   window.removeEventListener("resize", resize);
   window.removeEventListener("pagehide", keep);
