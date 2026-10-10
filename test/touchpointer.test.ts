@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  dialogOpened,
   flings,
   inertiaStep,
   panOf,
   passedSlop,
   pickScroller,
+  raises,
   type ScrollNode,
   SLOP,
   velocityOf,
@@ -107,5 +109,23 @@ describe("touch pointer", () => {
     const step = inertiaStep({ x: 1, y: -1 }, 0);
     expect(Math.hypot(step.move.x, step.move.y)).toBe(0);
     expect(step.velocity).toEqual({ x: 1, y: -1 });
+  });
+
+  test("goes over a popover or a dialog that opens, not over its own host or a details", () => {
+    expect(raises({ newState: "open", tag: "DIV", own: false })).toBe(true);
+    expect(raises({ newState: "open", tag: "DIALOG", own: false })).toBe(true);
+    expect(raises({ newState: "closed", tag: "DIV", own: false })).toBe(false);
+    expect(raises({ newState: "open", tag: "DIV", own: true })).toBe(false);
+    expect(raises({ newState: "open", tag: "DETAILS", own: false })).toBe(false);
+    // A toggle event from before it told its new state.
+    expect(raises({ newState: undefined, tag: "DIV", own: false })).toBe(false);
+  });
+
+  test("reads a dialog that opens from its open attribute", () => {
+    expect(dialogOpened({ tag: "DIALOG", was: null, open: true })).toBe(true);
+    expect(dialogOpened({ tag: "dialog", was: null, open: true })).toBe(true);
+    expect(dialogOpened({ tag: "DIALOG", was: "", open: true })).toBe(false);
+    expect(dialogOpened({ tag: "DIALOG", was: "", open: false })).toBe(false);
+    expect(dialogOpened({ tag: "DETAILS", was: null, open: true })).toBe(false);
   });
 });

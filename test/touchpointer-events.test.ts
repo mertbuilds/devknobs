@@ -569,3 +569,130 @@ describe("touch pointer in a page", () => {
     await task();
   });
 });
+
+/** What the fake top layer saw, in order. */
+let layer: string[] = [];
+const shown = new WeakSet<FakeElement>();
+
+class FakeMutationObserver {
+  static live: FakeMutationObserver[] = [];
+  callback: (records: unknown[]) => void;
+
+  constructor(callback: (records: unknown[]) => void) {
+    this.callback = callback;
+  }
+
+  observe(): void {
+    FakeMutationObserver.live.push(this);
+  }
+
+  disconnect(): void {
+    FakeMutationObserver.live = FakeMutationObserver.live.filter((entry) => entry !== this);
+  }
+}
+
+const POPOVER = {
+  matches(this: FakeElement, selector: string): boolean {
+    return selector === ":popover-open" && shown.has(this);
+  },
+  showPopover(this: FakeElement): void {
+    if (shown.has(this)) throw new Error("shown already");
+    shown.add(this);
+    layer.push("show");
+  },
+  hidePopover(this: FakeElement): void {
+    shown.delete(this);
+    layer.push("hide");
+  },
+};
+
+function toggle(target: FakeElement, type: string, newState: string): FakeEvent {
+  const event = Object.assign(new FakeEvent(type), { newState });
+  dispatch(target, event);
+  return event;
+}
+
+describe("touch pointer in a page with a top layer", () => {
+  beforeEach(() => {
+    layer = [];
+    FakeMutationObserver.live = [];
+    Object.assign(FakeHTMLElement.prototype, POPOVER);
+    install("MutationObserver", FakeMutationObserver);
+  });
+
+  afterEach(() => {
+    reset();
+    for (const name of Object.keys(POPOVER)) Reflect.deleteProperty(FakeHTMLElement.prototype, name);
+  });
+
+  test("puts its cursor in the top layer and leaves nothing behind when off", () => {
+    apply(true);
+    expect(dotHost()?.getAttribute("popover")).toBe("manual");
+    expect(layer).toEqual(["show"]);
+    expect(FakeMutationObserver.live.length).toBe(1);
+    apply(false);
+    expect(dotHost()).toBeUndefined();
+    expect(win.listeners).toEqual([]);
+    expect(FakeMutationObserver.live).toEqual([]);
+  });
+
+  test("goes in again after a popover that opens, and after the task of one opened from script", async () => {
+    apply(true);
+    const popover = element();
+    layer = [];
+    toggle(popover, "toggle", "open");
+    expect(layer).toEqual(["hide", "show"]);
+    layer = [];
+    toggle(popover, "toggle", "closed");
+    expect(layer).toEqual([]);
+    toggle(popover, "beforetoggle", "open");
+    expect(layer).toEqual([]);
+    await Promise.resolve();
+    expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("keeps its own way in and out to itself", () => {
+    apply(true);
+    const host = dotHost();
+    if (!host) throw new Error("no cursor");
+    const heard: string[] = [];
+    host.addEventListener("toggle", (event) => heard.push(event.type));
+    layer = [];
+    const event = toggle(host, "toggle", "open");
+    expect(layer).toEqual([]);
+    expect(event.stopped).toBe(true);
+    expect(heard).toEqual([]);
+  });
+
+  test("goes in again after a dialog whose open attribute comes on", () => {
+    apply(true);
+    const dialog = element("dialog");
+    dialog.setAttribute("open", "");
+    layer = [];
+    for (const observer of FakeMutationObserver.live) {
+      observer.callback([{ target: dialog, oldValue: null }]);
+    }
+    expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("takes its watch away while paused", () => {
+    apply(true);
+    pause(true);
+    expect(dotHost()).toBeUndefined();
+    expect(win.listeners.some((entry) => entry.type === "toggle")).toBe(false);
+    expect(FakeMutationObserver.live).toEqual([]);
+    pause(false);
+    expect(dotHost()?.getAttribute("popover")).toBe("manual");
+    expect(FakeMutationObserver.live.length).toBe(1);
+  });
+
+  test("stays a plain layer where the browser will not show the popover", () => {
+    Object.assign(FakeHTMLElement.prototype, {
+      showPopover(): void {
+        throw new Error("not in the page");
+      },
+    });
+    apply(true);
+    expect(dotHost()).toBeDefined();
+  });
+});

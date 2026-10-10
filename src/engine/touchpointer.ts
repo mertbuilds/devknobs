@@ -73,13 +73,31 @@ const EVENTS = [
   "selectstart",
 ] as const;
 
+/** The cursor's own backdrop stays out too, whatever the page gives every backdrop. */
 const CURSOR_CSS =
-  "*:not([data-devknobs]){cursor:none!important}:where([data-devknobs]){cursor:auto}";
+  '*:not([data-devknobs]){cursor:none!important}:where([data-devknobs]){cursor:auto}[data-devknobs="touch-pointer"]::backdrop{display:none!important}';
 
 const DRAG_CSS = "*{-webkit-user-select:none!important;user-select:none!important}";
 
+/**
+ * The host is a popover where the browser has them, so it sits in the top
+ * layer, over the page's modal dialogs, popovers and fullscreen element. It
+ * takes no room, no pointer and none of the look a popover comes with,
+ * whatever the page gives its own popovers, and nothing on it makes it the
+ * containing block of the dot.
+ */
 const DOT_CSS = `
-:host { all: initial; }
+:host {
+  all: initial !important;
+  display: block !important;
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+  z-index: 2147483647 !important;
+}
 .dot {
   position: fixed;
   left: 0;
@@ -224,6 +242,24 @@ export function inertiaStep(
   };
 }
 
+/**
+ * Does a `toggle` or `beforetoggle` event tell of something that joins the
+ * top layer, where the last to come in paints over the rest? A popover or a
+ * dialog that opens does. The cursor's own host and a `details` do not.
+ */
+export function raises(change: { newState: unknown; tag: string; own: boolean }): boolean {
+  return !change.own && change.newState === "open" && change.tag.toLowerCase() !== "details";
+}
+
+/** Did a change of an `open` attribute open a dialog? For browsers whose dialogs send no `toggle`. */
+export function dialogOpened(change: {
+  tag: string;
+  was: string | null;
+  open: boolean;
+}): boolean {
+  return change.tag.toLowerCase() === "dialog" && change.was === null && change.open;
+}
+
 /** A scroller a drag or a fling moves, with its scroll snapping held off until it stops. */
 interface Scroller {
   element: Element;
@@ -261,6 +297,8 @@ let native = false;
 let nativeTimer = 0;
 let host: HTMLElement | null = null;
 let dot: HTMLElement | null = null;
+/** Sees a dialog open where the browser sends no `toggle` for it. */
+let dialogs: MutationObserver | null = null;
 let gesture: Gesture | null = null;
 let nextId = 1;
 let finishTimer = 0;
@@ -311,6 +349,79 @@ function pressDot(pressed: boolean): void {
   dot?.classList.toggle("pressed", pressed);
 }
 
+/** Can the cursor go in the top layer? Without popovers it stays a plain layer. */
+function layered(): boolean {
+  return typeof HTMLElement.prototype.showPopover === "function";
+}
+
+/**
+ * Put the cursor last in the top layer, so it paints over all of it. The top
+ * layer keeps the order things came in, so the host goes out and in again. A
+ * manual popover closes no other popover and no light dismiss closes it.
+ */
+function raise(): void {
+  if (!host) return;
+  try {
+    if (host.matches(":popover-open")) host.hidePopover();
+    host.showPopover();
+  } catch {
+    // Not in the page, or the browser would not show it: the cursor stays a plain layer.
+  }
+}
+
+function onToggle(event: Event): void {
+  const target = event.composedPath()[0];
+  const own = target === host;
+  // The page hears nothing of the cursor's own way in and out.
+  if (own) event.stopImmediatePropagation();
+  if (!(target instanceof Element)) return;
+  const newState = "newState" in event ? event.newState : undefined;
+  if (!raises({ newState, tag: target.tagName, own })) return;
+  // `beforetoggle` comes before the top layer has the newcomer, `toggle` a task after.
+  if (event.type === "beforetoggle") queueMicrotask(raise);
+  else raise();
+}
+
+function onFullscreen(): void {
+  if (document.fullscreenElement) raise();
+}
+
+function onDialogs(records: MutationRecord[]): void {
+  const opened = records.some(
+    (record) =>
+      record.target instanceof Element &&
+      dialogOpened({
+        tag: record.target.tagName,
+        was: record.oldValue,
+        open: record.target.hasAttribute("open"),
+      }),
+  );
+  if (opened) raise();
+}
+
+/** Keep the cursor over whatever joins the top layer after it. */
+function watchTopLayer(): void {
+  window.addEventListener("beforetoggle", onToggle, true);
+  window.addEventListener("toggle", onToggle, true);
+  window.addEventListener("fullscreenchange", onFullscreen, true);
+  if (typeof MutationObserver !== "function") return;
+  dialogs = new MutationObserver(onDialogs);
+  dialogs.observe(document.documentElement, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["open"],
+    attributeOldValue: true,
+  });
+}
+
+function unwatchTopLayer(): void {
+  window.removeEventListener("beforetoggle", onToggle, true);
+  window.removeEventListener("toggle", onToggle, true);
+  window.removeEventListener("fullscreenchange", onFullscreen, true);
+  dialogs?.disconnect();
+  dialogs = null;
+}
+
 function mountDot(): void {
   if (host) return;
   host = document.createElement("div");
@@ -323,9 +434,14 @@ function mountDot(): void {
   dot.hidden = true;
   root.append(style, dot);
   document.documentElement.append(host);
+  if (!layered()) return;
+  host.setAttribute("popover", "manual");
+  watchTopLayer();
+  raise();
 }
 
 function unmountDot(): void {
+  unwatchTopLayer();
   host?.remove();
   host = null;
   dot = null;
