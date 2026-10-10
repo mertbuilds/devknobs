@@ -1,4 +1,4 @@
-import { webStorage } from "../engine/fresh";
+import { fresh, webStorage } from "../engine/fresh";
 import { newer, stamped } from "../engine/stored";
 import {
   type Binding,
@@ -265,6 +265,8 @@ export function createKeys(
 
   function onStorage(event: StorageEvent): void {
     if (event.key !== KEYS_KEY && event.key !== null) return;
+    // In fresh mode nothing kept is read: a key set here holds, whatever another tab keeps.
+    if (fresh()) return;
     stored = loadKeys();
     changed();
   }

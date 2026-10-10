@@ -1,4 +1,4 @@
-import { webStorage } from "../engine/fresh";
+import { fresh, webStorage } from "../engine/fresh";
 import { newer, stamped } from "../engine/stored";
 
 /**
@@ -78,6 +78,8 @@ export function createPrefs(options: { handle?: boolean } = {}): LivePrefs {
 
   function onStorage(event: StorageEvent): void {
     if (event.key !== PREFS_KEY && event.key !== null) return;
+    // In fresh mode nothing kept is read: a choice made here holds, whatever another tab keeps.
+    if (fresh()) return;
     stored = loadPrefs();
     changed();
   }

@@ -32,7 +32,7 @@ describe("resolvePrefs", () => {
   });
 });
 
-function stubWindow(): {
+function stubWindow(search = ""): {
   local: Map<string, string>;
   fire: (key: string | null) => void;
   listening: () => number;
@@ -52,6 +52,7 @@ function stubWindow(): {
     configurable: true,
     value: {
       localStorage,
+      location: { search },
       addEventListener: (type: string, listener: (event: { key: string | null }) => void) => {
         if (type === "storage") listeners.add(listener);
       },
@@ -117,6 +118,20 @@ describe("createPrefs", () => {
     expect(prefs.get().handle).toBe(false);
     prefs.destroy();
     expect(listening()).toBe(0);
+  });
+
+  test("in fresh mode, a choice made here holds through what another tab keeps", () => {
+    const { local, fire } = stubWindow("?devknobs=fresh");
+    const prefs = createPrefs();
+    let heard = 0;
+    prefs.subscribe(() => heard++);
+    prefs.setHandle(false);
+    local.set(PREFS_KEY, JSON.stringify({ handle: true }));
+    fire(PREFS_KEY);
+    fire(null);
+    expect(prefs.get().handle).toBe(false);
+    expect(heard).toBe(1);
+    prefs.destroy();
   });
 
   test("works without storage, the choice just does not stick", () => {
