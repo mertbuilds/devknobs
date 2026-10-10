@@ -23,6 +23,7 @@ import type {
 } from "../types";
 import { mergeClock } from "./clock";
 import { deviceOf, formParent, hold, POSTURES, settle } from "./devices";
+import { webStorage } from "./fresh";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
 import { newer, stamped } from "./stored";
 import { clampZoom } from "./zoom";
@@ -359,18 +360,10 @@ export function merge(state: DevknobsState, patch: DevknobsStatePatch): Devknobs
   });
 }
 
-function storage(kind: "session" | "local"): Storage | null {
-  try {
-    return kind === "session" ? window.sessionStorage : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 /** Either storage's value under a key, or null where it cannot be read. */
 function item(kind: "session" | "local", key: string): string | null {
   try {
-    return storage(kind)?.getItem(key) ?? null;
+    return webStorage(kind)?.getItem(key) ?? null;
   } catch {
     return null;
   }
@@ -382,7 +375,7 @@ export function load(): DevknobsState {
 
 export function save(state: DevknobsState): void {
   try {
-    storage("session")?.setItem(STORAGE_KEY, JSON.stringify(stamped(state, STATE_VERSION)));
+    webStorage("session")?.setItem(STORAGE_KEY, JSON.stringify(stamped(state, STATE_VERSION)));
   } catch {
     // Private mode, disabled storage: knobs still work, they just do not stick.
   }
@@ -395,7 +388,7 @@ export function save(state: DevknobsState): void {
  */
 export function keepPlace(state: DevknobsState): void {
   try {
-    storage("local")?.setItem(PLACE_KEY, placeText(state));
+    webStorage("local")?.setItem(PLACE_KEY, placeText(state));
   } catch {
     // The same: the panel just starts on the right in a new session.
   }

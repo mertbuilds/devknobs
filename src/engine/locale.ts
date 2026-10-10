@@ -1,5 +1,6 @@
 import type { LocaleValue } from "../types";
 import { realNow } from "./clock";
+import { ownReload, webStorage } from "./fresh";
 import { setDefaultLocale } from "./intl";
 import { newer, stamped } from "./stored";
 
@@ -151,14 +152,6 @@ type Store = Pick<Written, "kind" | "key">;
 
 const KINDS: StoreKind[] = ["cookie", "local", "session"];
 
-function webStorage(kind: StoreKind): Storage | null {
-  try {
-    return kind === "local" ? window.localStorage : window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
 function readStore(store: Store): string | null {
   if (store.kind === "cookie") return readCookie(document.cookie, store.key);
   try {
@@ -211,7 +204,7 @@ export function parseOwned(json: string | null): Owned | null {
 /** What devknobs wrote, across this tab's reloads. */
 function readOwned(): Owned | null {
   try {
-    return parseOwned(window.sessionStorage.getItem(OWNER_KEY));
+    return parseOwned(webStorage("session")?.getItem(OWNER_KEY) ?? null);
   } catch {
     // Private mode, disabled storage: nothing is devknobs' to put back.
     return null;
@@ -221,8 +214,9 @@ function readOwned(): Owned | null {
 /** Remember the writes. False when storage refused, so nothing can be proven. */
 function writeOwned(owned: Owned): boolean {
   try {
-    window.sessionStorage.setItem(OWNER_KEY, JSON.stringify(stamped(owned, OWNER_VERSION)));
-    return true;
+    const session = webStorage("session");
+    session?.setItem(OWNER_KEY, JSON.stringify(stamped(owned, OWNER_VERSION)));
+    return session !== null;
   } catch {
     // Same.
     return false;
@@ -231,7 +225,7 @@ function writeOwned(owned: Owned): boolean {
 
 function clearOwned(): void {
   try {
-    window.sessionStorage.removeItem(OWNER_KEY);
+    webStorage("session")?.removeItem(OWNER_KEY);
   } catch {
     // Same.
   }
@@ -265,7 +259,9 @@ export function parseReload(text: string | null): number {
  */
 function reloadWait(): number {
   try {
-    const previous = parseReload(window.sessionStorage.getItem(RELOAD_KEY));
+    const session = webStorage("session");
+    if (!session) return Infinity;
+    const previous = parseReload(session.getItem(RELOAD_KEY));
     if (!(previous > 0)) return 0;
     // A time ahead of the clock waits one window at a time, not until the clock catches up.
     return Math.min(RELOAD_THROTTLE, Math.max(0, previous + RELOAD_THROTTLE - realNow()));
@@ -284,12 +280,15 @@ function reloadBlocked(): boolean {
 function reloadOnce(): boolean {
   try {
     const record = stamped({ at: realNow() }, RELOAD_VERSION);
-    window.sessionStorage.setItem(RELOAD_KEY, JSON.stringify(record));
+    const session = webStorage("session");
+    if (!session) return false;
+    session.setItem(RELOAD_KEY, JSON.stringify(record));
   } catch {
     // Storage answered a moment ago and refuses now: nothing would time this
     // reload, so do not start it.
     return false;
   }
+  ownReload();
   window.location.reload();
   return true;
 }

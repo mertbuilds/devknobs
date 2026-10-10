@@ -1,5 +1,11 @@
 # changelog
 
+## unreleased
+
+### fresh mode
+
+- `?devknobs=fresh` in the page's address shows the page and the panel as a first visit sees them: `localStorage` is left alone, and every load devknobs did not ask for starts with no knobs set. the footer says so while it is on
+
 ## 0.1.2
 
 ### iPhone Duo

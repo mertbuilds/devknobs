@@ -1,3 +1,4 @@
+import { webStorage } from "../engine/fresh";
 import { newer, stamped } from "../engine/stored";
 
 /**
@@ -36,17 +37,9 @@ export function resolvePrefs(base: Prefs, stored: StoredPrefs): Prefs {
   return { handle: stored.handle ?? base.handle };
 }
 
-function local(): Storage | null {
-  try {
-    return typeof window === "undefined" ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 function loadPrefs(): StoredPrefs {
   try {
-    return readPrefs(local()?.getItem(PREFS_KEY));
+    return readPrefs(webStorage("local")?.getItem(PREFS_KEY));
   } catch {
     return {};
   }
@@ -54,8 +47,8 @@ function loadPrefs(): StoredPrefs {
 
 function keepPrefs(prefs: StoredPrefs): void {
   try {
-    if (Object.keys(prefs).length === 0) local()?.removeItem(PREFS_KEY);
-    else local()?.setItem(PREFS_KEY, JSON.stringify(stamped(prefs, PREFS_VERSION)));
+    if (Object.keys(prefs).length === 0) webStorage("local")?.removeItem(PREFS_KEY);
+    else webStorage("local")?.setItem(PREFS_KEY, JSON.stringify(stamped(prefs, PREFS_VERSION)));
   } catch {
     // Private mode, disabled storage: the preference holds until the page goes.
   }

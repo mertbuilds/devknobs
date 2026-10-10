@@ -212,6 +212,25 @@ the width knob's frame included at once, and win over the `hotkey` and
 the panel keeps the real color scheme and motion preference of the browser,
 whatever the knobs emulate for the page.
 
+### fresh mode
+
+to see the page and the panel as a first visit does, add `devknobs=fresh` to
+the address:
+
+```
+http://localhost:3000/?devknobs=fresh
+```
+
+while it is on, devknobs leaves `localStorage` alone: the panel's place, its
+settings and the keys read as their defaults, nothing is written, and what was
+kept there is back as soon as the parameter goes. every load of the page
+starts with no knobs set, a reload too. the knobs still hold inside a visit,
+across a reload devknobs asks for itself (the locale knob) and in the frame.
+the footer says `fresh mode: nothing is kept`. it needs no change in the code,
+and works with the script tag, the import, the react component and the early
+script. a locale kept by the page in `localStorage` does not follow the locale
+knob while it is on.
+
 ## grab
 
 press `⇧G` (`Shift G` off a Mac) to grab an element for a coding agent. hover

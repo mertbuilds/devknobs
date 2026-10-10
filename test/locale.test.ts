@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { FRESH_RELOAD_KEY } from "../src/engine/fresh";
 import { setDefaultLocale } from "../src/engine/intl";
 import {
   apply,
@@ -144,6 +145,8 @@ interface BrowserOptions {
   expiryIgnored?: boolean;
   /** A Next.js page, which reads `NEXT_LOCALE` on the server. */
   next?: boolean;
+  /** A page with `devknobs=fresh` in its address. */
+  fresh?: boolean;
 }
 
 function storageFor(map: Map<string, string>, full = false): Storage {
@@ -208,6 +211,7 @@ function stubBrowser(jar: string, options: BrowserOptions = {}): Browser {
     configurable: true,
     value: {
       location: {
+        search: options.fresh ? "?devknobs=fresh" : "",
         reload(): void {
           browser.reloads += 1;
         },
@@ -284,6 +288,32 @@ describe("readCookie", () => {
 
   test("does not match a name that only ends the same way", () => {
     expect(readCookie(`MY_${PARAGLIDE_COOKIE}=en`, PARAGLIDE_COOKIE)).toBeNull();
+  });
+});
+
+describe("syncStores in fresh mode", () => {
+  test("marks the reload it asks for, so the next load keeps the session", () => {
+    const browser = stubPage("", { fresh: true });
+    expect(syncStores("tr")).toBe(true);
+    expect(browser.reloads).toBe(1);
+    expect(browser.storage.has(FRESH_RELOAD_KEY)).toBe(true);
+    expect(owner(browser)).toBe("tr");
+  });
+
+  test("leaves a store of the page in localStorage alone", () => {
+    const browser = stubPage("", { fresh: true });
+    browser.local.set("i18nextLng", "en");
+    expect(syncStores("tr")).toBe(true);
+    expect(browser.local.get("i18nextLng")).toBe("en");
+    expect(readCookie(browser.jar, PARAGLIDE_COOKIE)).toBe("tr");
+  });
+
+  test("leaves no mark with the mode off", () => {
+    const browser = stubPage();
+    browser.local.set("i18nextLng", "en");
+    expect(syncStores("tr")).toBe(true);
+    expect(browser.local.get("i18nextLng")).toBe("tr");
+    expect(browser.storage.has(FRESH_RELOAD_KEY)).toBe(false);
   });
 });
 

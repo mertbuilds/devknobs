@@ -5,6 +5,7 @@ import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf, formId, formOf } from "./devices";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
+import { fresh, FRESH_ATTRIBUTE, ownReload } from "./fresh";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -664,6 +665,7 @@ function handBack(): void {
   if (target && target !== window.location.href) {
     halt();
     teardown();
+    ownReload();
     window.location.assign(target);
     return;
   }
@@ -761,6 +763,8 @@ function open(veiled: number | null, first: boolean): void {
   glass.className = "glass";
   frame = document.createElement("iframe");
   frame.setAttribute(FRAME_ATTRIBUTE, "");
+  // The page in the frame follows this one's mode, whatever its own address says.
+  if (fresh()) frame.setAttribute(FRESH_ATTRIBUTE, "");
   frame.name = FRAME_NAME;
   frame.title = "devknobs viewport";
   frame.setAttribute("sandbox", SANDBOX);
@@ -898,8 +902,10 @@ function close(follow: boolean): void {
   const target = release(follow);
   teardown();
   // Hidden, the page had no height to keep its scroll position in.
-  if (target && target !== window.location.href) window.location.assign(target);
-  else window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
+  if (target && target !== window.location.href) {
+    ownReload();
+    window.location.assign(target);
+  } else window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
 }
 
 export function apply(value: ViewportValue): void {

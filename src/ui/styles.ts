@@ -684,6 +684,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .badge { color: var(--faint); }
 .badge.hot { color: var(--hot); }
+/* Says fresh mode is on, as quiet as the key hints under it. */
+.fresh-note { font-size: 10px; line-height: 1.4; color: var(--faint); }
 /* The key hints, each a button for what its key does. Where they leave no
    room, the line wraps. */
 .meta {
