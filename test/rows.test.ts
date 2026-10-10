@@ -38,10 +38,17 @@ function settings(): FakeNode {
     destroy: () => {},
   };
   const prefs: LivePrefs = {
-    get: () => ({ handle: true, listWidth: 240, viewWidth: 340, stylesMode: "simple" }),
+    get: () => ({
+      handle: true,
+      listWidth: 240,
+      viewWidth: 340,
+      stylesMode: "simple",
+      stylesBox: true,
+    }),
     setHandle: () => {},
     setWidth: () => {},
     setStylesMode: () => {},
+    setStylesBox: () => {},
     subscribe: () => () => {},
     destroy: () => {},
   };

@@ -49,6 +49,7 @@ const inspect: InspectControl = {
   outline: (element) => {
     outlined.push(element);
   },
+  area: () => undefined,
   destroy: () => undefined,
 };
 
@@ -285,11 +286,18 @@ describe("the mode of the styles view", () => {
         inspect,
         tips,
         prefs: {
-          get: () => ({ handle: true, listWidth: 240, viewWidth: 340, stylesMode: mode }),
+          get: () => ({
+            handle: true,
+            listWidth: 240,
+            viewWidth: 340,
+            stylesMode: mode,
+            stylesBox: true,
+          }),
           setStylesMode: (next) => {
             mode = next;
             kept.push(next);
           },
+          setStylesBox: () => undefined,
         },
       },
       load,

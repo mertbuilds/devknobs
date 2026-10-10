@@ -1,6 +1,7 @@
 import { isDevknobsFrame, post, readMessage } from "../engine/frame";
 import { frameWindow } from "../engine/width";
 import { label } from "../styles/tree";
+import type { BoxRing } from "./boxmodel";
 import { createGrab, type GrabControl, type GrabControlOptions, type LoadMode } from "./control";
 import type { Outline } from "./outline";
 
@@ -14,6 +15,8 @@ export interface InspectControl extends GrabControl {
   onPick(listener: (element: Element) => void): () => void;
   /** Keep a quiet box on an element, in the frame's page too, or with null take it off. */
   outline(element: Element | null): void;
+  /** Tint one area of the outlined element's box alone, or with null all four again. */
+  area(ring: BoxRing | null): void;
 }
 
 /**
@@ -108,10 +111,18 @@ export function createInspect(
     box(element?.ownerDocument === document ? element : null);
   }
 
+  /** The area goes to the copy that draws the box: this one, and the frame's where it is up. */
+  function area(ring: BoxRing | null): void {
+    const view = inFrame ? null : frameOf();
+    if (view) post(view, { source: "devknobs", type: "area", ring });
+    outliner?.area(ring);
+  }
+
   function onMessage(event: MessageEvent): void {
     if (inFrame) {
       const message = readMessage(event, window.parent, window.location.origin);
       if (message?.type === "outline") box(held(window));
+      else if (message?.type === "area") outliner?.area(message.ring);
       return;
     }
     const view = frameOf();
@@ -131,6 +142,7 @@ export function createInspect(
       };
     },
     outline,
+    area,
     destroy() {
       destroyed = true;
       control.destroy();

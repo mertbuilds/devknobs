@@ -107,6 +107,7 @@ const page: StylesPage = {
     };
   },
   isColor: (text) => /^#[0-9a-f]{3,8}$/i.test(text) || text === "red",
+  box: () => null,
 };
 
 const tips: Tips = {
@@ -181,7 +182,10 @@ beforeEach(() => {
   });
   Object.defineProperty(globalThis, "document", {
     configurable: true,
-    value: { createElement: (tag: string) => new FakeNode(tag) },
+    value: {
+      createElement: (tag: string) => new FakeNode(tag),
+      createElementNS: (_namespace: string, tag: string) => new FakeNode(tag),
+    },
   });
   Object.defineProperty(globalThis, "MutationObserver", { configurable: true, value: FakeObserver });
 });

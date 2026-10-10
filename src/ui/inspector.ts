@@ -40,7 +40,7 @@ export function createInspector(
     inspect: InspectControl;
     tips: Tips;
     /** Where the view's mode is kept. Without it the view is the advanced one. */
-    prefs?: Pick<LivePrefs, "get" | "setStylesMode">;
+    prefs?: Pick<LivePrefs, "get" | "setStylesMode" | "setStylesBox">;
   },
   load: LoadStyles = () => import("./stylesview"),
   pane: PaneDoor = PANE,
@@ -61,8 +61,10 @@ export function createInspector(
           tips,
           title: (text) => pane.retitlePane(STYLES_VIEW, text),
           outline: inspect.outline,
+          area: inspect.area,
           ...(prefs && {
             mode: { get: () => prefs.get().stylesMode, set: prefs.setStylesMode },
+            box: { get: () => prefs.get().stylesBox, set: prefs.setStylesBox },
           }),
         });
         view = made;

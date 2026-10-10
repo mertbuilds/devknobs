@@ -33,6 +33,8 @@
  * goes only once it is clear: a clear border with a width still cuts the ends
  * of the lines it meets.
  */
+import { boxTint } from "../grab/colors";
+
 export const CSS = `
 .wrap {
   all: initial;
@@ -1016,6 +1018,60 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
 .css-label { font-size: 10.5px; color: var(--faint); }
 .css-comes { color: var(--faint); }
 .css-hidden { padding: 2px 10px; font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
+
+/* The element's box, in a fold of the kit's: a picture of the element, so
+   its areas are filled, each in the hue the page's own tint of it has, mixed
+   into the panel's ground. The margin is a block as the css blocks are, 8,
+   and the areas in it go down the scale, 4 and 2. An area is a grid of three
+   by three: a length on each side, the next area in the middle, its name in
+   the corner. A narrow one drops the lengths, and the line under it says
+   those of the area the pointer or the focus is on. */
+.box-model { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 2px 0 6px; }
+.bm-ring {
+  display: grid;
+  grid-template-columns: minmax(22px, auto) minmax(0, 1fr) minmax(22px, auto);
+  grid-template-rows: minmax(18px, auto) auto minmax(18px, auto);
+  align-items: center;
+  justify-items: center;
+  min-width: 0;
+}
+.bm-ring:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
+.bm-ring > .bm-ring { grid-area: 2 / 2; justify-self: stretch; }
+.bm-name { grid-area: 1 / 1 / 2 / 3; justify-self: start; padding-left: 6px; font-size: 10px; color: var(--faint); }
+.bm-v, .bm-content, .bm-values, .bm-fact {
+  font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bm-v { padding: 0 4px; }
+.bm-top { grid-area: 1 / 2; }
+.bm-left { grid-area: 2 / 1; }
+.bm-right { grid-area: 2 / 3; }
+.bm-bottom { grid-area: 3 / 2; }
+.bm-margin { background: ${boxTint("margin", 30, "var(--bg)")}; border-radius: 8px; }
+.bm-border { background: ${boxTint("border", 30, "var(--bg)")}; border-radius: 4px; }
+.bm-padding { background: ${boxTint("padding", 30, "var(--bg)")}; border-radius: 2px; }
+.bm-content {
+  display: block;
+  padding: 4px 6px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  background: ${boxTint("content", 30, "var(--bg)")};
+}
+/* The offsets of an element that has none: nothing but the box in them. */
+.bm-position.off { display: block; }
+.bm-position.off > .bm-name, .bm-position.off > .bm-v { display: none; }
+.box-model.narrow .bm-ring {
+  grid-template-columns: 8px minmax(0, 1fr) 8px;
+  grid-template-rows: minmax(16px, auto) auto 8px;
+}
+.box-model.narrow .bm-v { display: none; }
+.bm-line { display: none; align-items: baseline; gap: 8px; padding: 0 10px; }
+.box-model.narrow .bm-line { display: flex; }
+.bm-line .bm-name { padding: 0; }
+.bm-values { white-space: pre; }
+.bm-facts { display: flex; flex-wrap: wrap; gap: 0 12px; padding: 0 10px; color: var(--faint); }
 
 /* The strip that changes the panel's width, as the edge of a docked devtools
    does: it lies across the border on the panel's page side, as tall as the

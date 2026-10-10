@@ -92,6 +92,7 @@ const page: StylesPage = {
     };
   },
   isColor: (text) => /^#[0-9a-f]{3,8}$/i.test(text) || text === "red",
+  box: () => null,
 };
 
 const tips: Tips = {
@@ -160,8 +161,15 @@ function typed(node: FakeNode, text: string): void {
 }
 
 /** The row that folds what is inherited, which the kit builds. */
+/** The styles under the bar and the box, where the fold of what is inherited is. */
+function styles(node: FakeNode): FakeNode {
+  const [blocks] = node.find("css-blocks");
+  if (!blocks) throw new Error("no styles");
+  return blocks;
+}
+
 function heading(node: FakeNode): FakeNode {
-  const [head] = node.find("row").flatMap((row) => row.find("main"));
+  const [head] = styles(node).find("row").flatMap((row) => row.find("main"));
   if (!head) throw new Error("no inherited heading");
   return head;
 }
@@ -345,7 +353,7 @@ describe("the control of the two modes", () => {
     ]);
     // Nothing of the simple mode is left under the advanced one.
     expect(node.find("css-applied")).toEqual([]);
-    expect(node.find("row")).toEqual([]);
+    expect(styles(node).find("row")).toEqual([]);
     choose(node, "simple");
     expect(asked).toHaveLength(1);
     expect(node.find("css-selector")).toEqual([]);
@@ -396,12 +404,13 @@ describe("the view's chrome", () => {
     return [...new Set(node.all().flatMap((one) => one.className.split(" ")))].filter(Boolean);
   }
 
-  test("is the kit's: the crumbs, then the bar with the filter and the modes, then the blocks", () => {
+  test("is the kit's: the crumbs, then the bar with the filter and the modes, the box's fold, then the blocks", () => {
     const node = start();
     view?.show(as(save));
     expect(node.children.map((part) => (part as FakeNode).className)).toEqual([
       "crumbs",
       "toolbar",
+      "row open",
       "css-blocks",
       "empty",
     ]);
@@ -475,7 +484,7 @@ describe("the mode in the preferences", () => {
     const node = start(door(prefs));
     expect(choices(node)[0]).toEqual(["simple", "true", true]);
     choose(node, "advanced");
-    expect(JSON.parse(local.get(PREFS_KEY) ?? "")).toEqual({ v: 3, stylesMode: "advanced" });
+    expect(JSON.parse(local.get(PREFS_KEY) ?? "")).toEqual({ v: 4, stylesMode: "advanced" });
     view?.destroy();
     prefs.destroy();
     const next = createPrefs();
@@ -571,8 +580,8 @@ describe("the simple mode", () => {
     expect(head.textContent).toBe("inherited");
     expect(head.getAttribute("aria-expanded")).toBe("false");
     // The fold is the kit's: a row, its chevron in the leading slot, its body under its line.
-    const [fold] = node.find("row");
-    expect(node.find("row")).toHaveLength(1);
+    const [fold] = styles(node).find("row");
+    expect(styles(node).find("row")).toHaveLength(1);
     expect(fold?.className).toBe("row");
     expect(fold?.children.map((part) => (part as FakeNode).className)).toEqual(["line", "fold"]);
     expect(head.children.map((part) => (part as FakeNode).className)).toEqual(["lead", "row-label"]);
@@ -604,7 +613,7 @@ describe("the simple mode", () => {
     answer = () => found([rule(".primary", [declaration("color", "red")])]);
     const node = start();
     view?.show(as(save));
-    expect(node.find("row")).toEqual([]);
+    expect(styles(node).find("row")).toEqual([]);
   });
 
   test("lists no pseudo-element, and keeps its crumb, which shows its styles the same way", () => {

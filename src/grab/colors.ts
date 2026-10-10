@@ -25,3 +25,23 @@ export const GRAB_COLOR_NAMES = Object.keys(GRAB_COLORS) as GrabColor[];
 export function grabColor(value: GrabColorValue, tone: GrabTone): GrabColor {
   return value === "auto" ? tone : value;
 }
+
+/**
+ * The hue of each area of the box inspect draws on the page, the ones the
+ * browsers' own tools use: the content blue, the padding green, the border
+ * yellow, the margin orange.
+ */
+export const BOX_HUES = {
+  margin: "rgb(246, 178, 107)",
+  border: "rgb(255, 221, 128)",
+  padding: "rgb(147, 196, 125)",
+  content: "rgb(111, 168, 220)",
+} as const;
+
+/** How solid an area is over the page, in percent: the page still reads through it, light or dark. */
+export const BOX_TINT = 50;
+
+/** An area's hue at a share of solid, over whatever is under it, or mixed into `ground`. */
+export function boxTint(ring: keyof typeof BOX_HUES, percent = BOX_TINT, ground = "transparent"): string {
+  return `color-mix(in srgb, ${BOX_HUES[ring]} ${percent}%, ${ground})`;
+}

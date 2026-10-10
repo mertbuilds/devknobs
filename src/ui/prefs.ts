@@ -9,7 +9,7 @@ import { LIST_WIDTH, type Showing, VIEW_WIDTH } from "./size";
 export const PREFS_KEY = "devknobs:prefs";
 
 /** The version of the preferences `PREFS_KEY` keeps. Bump it with a new shape, see stored.ts. */
-export const PREFS_VERSION = 3;
+export const PREFS_VERSION = 4;
 
 /** How the styles view shows an element: what applies to it, or every rule in cascade order. */
 export type StylesMode = "simple" | "advanced";
@@ -17,17 +17,22 @@ export type StylesMode = "simple" | "advanced";
 /** The mode the styles view starts in. */
 export const STYLES_MODE: StylesMode = "simple";
 
+/** Whether the styles view starts with the element's box folded out. */
+export const STYLES_BOX = true;
+
 /**
  * The panel's preferences: whether the handle shows while the panel is
  * closed, how wide the panel is with the rows or the settings in it and
- * with a feature's view, in px, and the mode of the styles view. Version 1
- * kept the handle alone, and version 2 had no mode.
+ * with a feature's view, in px, the mode of the styles view, and whether the
+ * box in it is folded out. Version 1 kept the handle alone, version 2 had no
+ * mode, and version 3 had no word on the box.
  */
 export interface Prefs {
   handle: boolean;
   listWidth: number;
   viewWidth: number;
   stylesMode: StylesMode;
+  stylesBox: boolean;
 }
 
 /** The preference that keeps the width of what the panel shows. */
@@ -55,6 +60,8 @@ export function readPrefs(json: string | null | undefined): StoredPrefs {
   }
   const mode: unknown = Reflect.get(value, "stylesMode");
   if (mode === "simple" || mode === "advanced") prefs.stylesMode = mode;
+  const box: unknown = Reflect.get(value, "stylesBox");
+  if (typeof box === "boolean") prefs.stylesBox = box;
   return prefs;
 }
 
@@ -89,6 +96,8 @@ export interface LivePrefs {
   setWidth(showing: Showing, px: number): void;
   /** Keep the mode of the styles view. The one it starts in is not kept. */
   setStylesMode(mode: StylesMode): void;
+  /** Keep whether the box in the styles view is folded out. The way it starts is not kept. */
+  setStylesBox(open: boolean): void;
   /** Hear the preferences change. Returns the way to stop. */
   subscribe(listener: () => void): () => void;
   destroy(): void;
@@ -101,6 +110,7 @@ export function createPrefs(options: { handle?: boolean } = {}): LivePrefs {
     listWidth: LIST_WIDTH,
     viewWidth: VIEW_WIDTH,
     stylesMode: STYLES_MODE,
+    stylesBox: STYLES_BOX,
   };
   let stored = loadPrefs();
   let prefs = resolvePrefs(base, stored);
@@ -147,6 +157,12 @@ export function createPrefs(options: { handle?: boolean } = {}): LivePrefs {
       const next = { ...stored };
       if (mode === base.stylesMode) delete next.stylesMode;
       else next.stylesMode = mode;
+      keep(next);
+    },
+    setStylesBox(open) {
+      const next = { ...stored };
+      if (open === base.stylesBox) delete next.stylesBox;
+      else next.stylesBox = open;
       keep(next);
     },
     subscribe(listener) {
