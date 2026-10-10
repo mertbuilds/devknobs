@@ -27,6 +27,16 @@ describe("glides", () => {
     expect(glides({ ...CUE, to: RIGHT })).toBe(false);
   });
 
+  test("glides when the panel covers more or less beside itself, as its side pane comes and goes", () => {
+    expect(glides({ ...CUE, to: { ...RIGHT, beside: 339 } })).toBe(true);
+    expect(glides({ ...CUE, from: { ...RIGHT, beside: 339 }, to: RIGHT })).toBe(true);
+    expect(glides({ ...CUE, from: { ...RIGHT, beside: 339 }, to: { ...RIGHT, beside: 339 } })).toBe(
+      false,
+    );
+    expect(glides({ ...CUE, to: { ...RIGHT, beside: 0 } })).toBe(false);
+    expect(glides({ ...CUE, to: { ...RIGHT, beside: 339 }, first: true })).toBe(false);
+  });
+
   test("never on the first paint, such as a reload", () => {
     expect(glides({ ...CUE, first: true })).toBe(false);
   });

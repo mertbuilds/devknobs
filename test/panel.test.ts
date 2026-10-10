@@ -667,6 +667,13 @@ function body(selector: string): string {
   return rule.body;
 }
 
+/** The surfaces that take a pointer: the handle, a panel that is out and its side pane. */
+const TAKES_POINTER = [
+  ".handle",
+  '.wrap[data-open="true"] .panel',
+  '.wrap[data-pane="open"] .side',
+];
+
 /** The selectors that take a pointer back from the page. */
 function pointerTargets(): string[] {
   return rules(CSS)
@@ -687,8 +694,8 @@ describe("pointer events", () => {
     expect(body(".wrap")).toMatch(/pointer-events:\s*none/);
   });
 
-  test("the handle and a panel that is out are the only surfaces that take one", () => {
-    expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+  test("the handle, a panel that is out and its side pane are the only surfaces that take one", () => {
+    expect(pointerTargets()).toEqual(TAKES_POINTER);
   });
 });
 
@@ -725,7 +732,7 @@ describe("a hidden handle", () => {
 
   test("takes no pointer while closed", () => {
     expect(body(`${closed} .handle`)).toMatch(/pointer-events:\s*none/);
-    expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+    expect(pointerTargets()).toEqual(TAKES_POINTER);
   });
 
   test("shows as ever while the panel is open", () => {
@@ -780,13 +787,17 @@ describe("the left side", () => {
     expect(body('.wrap[data-side="left"][data-tab="bottom"] .panel')).toMatch(
       /border-bottom-right-radius:\s*0/,
     );
-    const radii = rules(CSS).filter((rule) => /border-(top|bottom)-right-radius:/.test(rule.body));
+    // The side pane squares corners of its own, and the panel's where they meet.
+    const radii = rules(CSS).filter(
+      (rule) =>
+        /border-(top|bottom)-right-radius:/.test(rule.body) && !rule.selector.includes("data-pane"),
+    );
     expect(radii.length).toBe(2);
     for (const rule of radii) expect(rule.selector).not.toContain("data-open");
   });
 
   test("takes a pointer nowhere the right side does not", () => {
-    expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+    expect(pointerTargets()).toEqual(TAKES_POINTER);
   });
 });
 
@@ -928,6 +939,125 @@ describe("the slide between the rows and the settings", () => {
   });
 
   test("swaps at once with reduced motion, the body and the views being in the wrapper", () => {
+    const reduced = CSS.slice(CSS.indexOf("prefers-reduced-motion"));
+    expect(reduced).toMatch(/\.wrap \*, [^{]*\{\s*transition:\s*none !important/);
+  });
+});
+
+describe("the side pane", () => {
+  const out = '.wrap:is([data-pane="open"], [data-pane="leaving"])';
+
+  test("is the panel's own object: its ground, hairline, outer radius and padding", () => {
+    const side = body(".side");
+    expect(side).toMatch(/background:\s*var\(--bg\)/);
+    expect(side).toMatch(/border:\s*1px solid var\(--line\)/);
+    expect(side).toMatch(/border-radius:\s*13px 0 0 13px/);
+    expect(side).toMatch(/padding:\s*4px/);
+    expect(body(".side-action")).toMatch(/border-radius:\s*6px/);
+    // No bold, no size of its own: the wrapper's font, as quiet as a row's label.
+    expect(body(".side-title")).toMatch(/color:\s*var\(--faint\)/);
+    const own = rules(CSS).filter((rule) => rule.selector.includes(".side"));
+    for (const rule of own) expect(rule.body).not.toMatch(/font-weight|font-size|font-family/);
+  });
+
+  test("slides out of the panel's edge by transform alone, in the glide's time", () => {
+    const side = body(".side");
+    expect(side).toMatch(/transform:\s*translateX\(100%\)/);
+    expect(side).toMatch(/transition:\s*transform var\(--glide\) ease-out;/);
+    expect(body('.wrap[data-pane="open"] .side')).toMatch(/transform:\s*translateX\(0\)/);
+    expect(body(".side-clip")).toMatch(/overflow:\s*clip/);
+    // Nothing of the pane eases but a transform, and its buttons' colors.
+    const eased = rules(CSS)
+      .filter((rule) => rule.selector.includes(".side"))
+      .flatMap((rule) => rule.body.match(/transition[^;]*;/g) ?? []);
+    expect(eased.length).toBeGreaterThan(1);
+    for (const transition of eased) {
+      expect(transition).not.toMatch(/width|height|left|right|top|margin|all/);
+    }
+  });
+
+  test("goes with the panel's own slide when the panel closes", () => {
+    expect(body('.wrap[data-open="false"] .side')).toMatch(/transition-duration:\s*150ms/);
+    expect(body('.wrap[data-open="false"][data-pane="leaving"] .handle')).toMatch(
+      /transition-duration:\s*150ms/,
+    );
+  });
+
+  test("sits beside the panel on the page's side of it, mirrored on the left", () => {
+    const clip = body(".side-clip");
+    expect(clip).toMatch(/position:\s*absolute/);
+    expect(clip).toMatch(/right:\s*var\(--pane-right, 239px\)/);
+    expect(clip).toMatch(/top:\s*var\(--pane-top, 0px\)/);
+    expect(clip).toMatch(/width:\s*var\(--pane-width, 340px\)/);
+    expect(clip).toMatch(/height:\s*var\(--pane-height, 0px\)/);
+    const left = body('.wrap[data-side="left"] .side-clip');
+    expect(left).toMatch(/right:\s*auto/);
+    expect(left).toMatch(/left:\s*var\(--pane-right, 239px\)/);
+    const side = body('.wrap[data-side="left"] .side');
+    expect(side).toMatch(/border-radius:\s*0 13px 13px 0/);
+    expect(side).toMatch(/transform:\s*translateX\(-100%\)/);
+    // Out wins on either side, as it comes after.
+    const order = rules(CSS).map((rule) => rule.selector);
+    expect(order.indexOf('.wrap[data-pane="open"] .side')).toBeGreaterThan(
+      order.indexOf('.wrap[data-side="left"] .side'),
+    );
+  });
+
+  test("shows only while it is out or on its way, and takes a pointer only while out", () => {
+    expect(body(".side-clip")).toMatch(/visibility:\s*hidden/);
+    expect(body(`${out} .side-clip`)).toMatch(/visibility:\s*visible/);
+    expect(body('.wrap[data-pane="open"] .side')).toMatch(/pointer-events:\s*auto/);
+    expect(pointerTargets()).toEqual(TAKES_POINTER);
+  });
+
+  test("squares the panel's corners where the two meet, for as long as it shows", () => {
+    const right = body(`${out}:not([data-side="left"]) .panel`);
+    expect(right).toMatch(/border-top-left-radius:\s*0/);
+    expect(right).toMatch(/border-bottom-left-radius:\s*0/);
+    const left = body(`${out}[data-side="left"] .panel`);
+    expect(left).toMatch(/border-top-right-radius:\s*0/);
+    expect(left).toMatch(/border-bottom-right-radius:\s*0/);
+  });
+
+  test("squares its own far corner under the handle, by its own tab", () => {
+    expect(body('.wrap[data-pane-tab="top"] .side')).toMatch(/border-top-left-radius:\s*0/);
+    expect(body('.wrap[data-pane-tab="bottom"] .side')).toMatch(/border-bottom-left-radius:\s*0/);
+    expect(body('.wrap[data-side="left"][data-pane-tab="top"] .side')).toMatch(
+      /border-top-right-radius:\s*0/,
+    );
+    expect(body('.wrap[data-side="left"][data-pane-tab="bottom"] .side')).toMatch(
+      /border-bottom-right-radius:\s*0/,
+    );
+    // The left side's radii come after the right side's corners, so those never square its panel side.
+    const order = rules(CSS).map((rule) => rule.selector);
+    expect(order.indexOf('.wrap[data-side="left"] .side')).toBeGreaterThan(
+      order.indexOf('.wrap[data-pane-tab="bottom"] .side'),
+    );
+  });
+
+  test("carries the handle out on its far edge and back, away from the window's edge", () => {
+    expect(body('.wrap[data-pane="open"] .handle')).toMatch(
+      /transform:\s*translateX\(calc\(-1 \* var\(--pane-reach, 0px\)\)\)/,
+    );
+    expect(body('.wrap[data-pane="open"][data-side="left"] .handle')).toMatch(
+      /transform:\s*translateX\(var\(--pane-reach, 0px\)\)/,
+    );
+    expect(body(`${out} .handle`)).toMatch(/transition:\s*transform var\(--glide\) ease-out/);
+    // A closed panel's handle is back on the edge: nothing moves it but an open pane.
+    const moved = rules(CSS).filter(
+      (rule) => rule.selector.endsWith(".handle") && /transform:/.test(rule.body),
+    );
+    for (const rule of moved) expect(rule.selector).toContain('[data-pane="open"]');
+  });
+
+  test("keeps its head while its body scrolls", () => {
+    expect(body(".side-head")).toMatch(/flex:\s*none/);
+    expect(body(".side-body")).toMatch(/overflow-y:\s*auto/);
+    expect(body(".side-body")).toMatch(/min-height:\s*0/);
+    expect(body(".side-body")).toMatch(/overscroll-behavior:\s*contain/);
+  });
+
+  test("stops with reduced motion, being in the wrapper", () => {
     const reduced = CSS.slice(CSS.indexOf("prefers-reduced-motion"));
     expect(reduced).toMatch(/\.wrap \*, [^{]*\{\s*transition:\s*none !important/);
   });

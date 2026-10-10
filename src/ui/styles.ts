@@ -795,4 +795,111 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   75% { transform: translateX(1.5px); }
   90% { transform: translateX(-0.5px); }
 }
+
+/* The side pane, a feature's view beside the panel on the page's side of it:
+   the panel's ground, hairline and radii, grown sideways. It is as tall as
+   the panel at its tallest whatever the panel holds, so it stays still while
+   rows open and close. The panel says where it goes as --pane-top, --pane-right,
+   --pane-width and --pane-height. It slides out of the panel's edge by
+   transform alone, clipped at that edge, in the glide's time, and goes with
+   the panel's own slide when the panel closes. data-pane on the wrapper says
+   open while it is out and leaving until it has slid away, so it shows and
+   the corners where the two meet stay square for as long as it does. Its
+   panel side sits a pixel over the panel's border, as the handle does, so
+   the two share one line there. */
+.side-clip {
+  position: absolute;
+  top: var(--pane-top, 0px);
+  right: var(--pane-right, 239px);
+  width: var(--pane-width, 340px);
+  height: var(--pane-height, 0px);
+  overflow: clip;
+  visibility: hidden;
+}
+.wrap[data-side="left"] .side-clip { right: auto; left: var(--pane-right, 239px); }
+.wrap:is([data-pane="open"], [data-pane="leaving"]) .side-clip { visibility: visible; }
+.side {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 13px 0 0 13px;
+  transform: translateX(100%);
+  transition: transform var(--glide) ease-out;
+}
+/* The handle covers one of the pane's far corners where it sits flush with
+   it, which data-pane-tab names, so that one is square. The left side's own
+   radii come after the right side's corners, as the panel's do. */
+.wrap[data-pane-tab="top"] .side { border-top-left-radius: 0; }
+.wrap[data-pane-tab="bottom"] .side { border-bottom-left-radius: 0; }
+.wrap[data-side="left"] .side { border-radius: 0 13px 13px 0; transform: translateX(-100%); }
+.wrap[data-side="left"][data-pane-tab="top"] .side { border-top-right-radius: 0; }
+.wrap[data-side="left"][data-pane-tab="bottom"] .side { border-bottom-right-radius: 0; }
+.wrap[data-open="false"] .side { transition-duration: 150ms; }
+/* Only a pane that is out catches anything, as with the panel. */
+.wrap[data-pane="open"] .side { pointer-events: auto; transform: translateX(0); }
+/* The pane spans the panel's whole side, so both of the panel's corners
+   there are square while it shows. */
+.wrap:is([data-pane="open"], [data-pane="leaving"]):not([data-side="left"]) .panel {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.wrap:is([data-pane="open"], [data-pane="leaving"])[data-side="left"] .panel {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+/* The handle rides out on the pane's far edge, --pane-reach from its place on
+   the panel, and back with it. For that while its move is all that eases. */
+.wrap:is([data-pane="open"], [data-pane="leaving"]) .handle {
+  transition: transform var(--glide) ease-out;
+}
+.wrap[data-open="false"][data-pane="leaving"] .handle { transition-duration: 150ms; }
+.wrap[data-pane="open"] .handle { transform: translateX(calc(-1 * var(--pane-reach, 0px))); }
+.wrap[data-pane="open"][data-side="left"] .handle { transform: translateX(var(--pane-reach, 0px)); }
+/* The head stays while the body scrolls: the view's title, as quiet as a
+   row's label, then its actions and the x, each as a row's x is. They sit 7
+   in from the pane's outer edge, so 6 round. */
+.side-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+  padding: 0 0 4px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.side-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+}
+.side-actions { flex: none; display: flex; }
+.side-action {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 2px;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  border-radius: 6px;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.side-action:hover { color: var(--fg); background: var(--card); }
+.side-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
 `;

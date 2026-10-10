@@ -330,9 +330,28 @@ function showZoom(place: Fit): void {
   picker.value = String(zoom);
 }
 
-/** How much of its edge an open panel covers. Its host is as wide as the panel out. */
+/** How much more of its edge an open panel covers than its host's width, in px. */
+let beside = 0;
+
+/**
+ * How much of its edge an open panel covers. Its host is as wide as the panel
+ * out, and its side pane reaches past that.
+ */
 function panelWidth(): number {
-  return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
+  const width = document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
+  return width + beside;
+}
+
+/**
+ * The panel's side pane came out, went away or changed its width: an open
+ * panel covers `px` more of its edge, and the frame glides to its place
+ * beside the two.
+ */
+export function coverBeside(px: number): void {
+  if (px === beside) return;
+  const from = { ...current.panel, beside };
+  beside = px;
+  glideFrame(screen, { first: false, from, to: { ...current.panel, beside } }, resize);
 }
 
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
