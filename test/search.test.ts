@@ -240,8 +240,14 @@ describe("filterOptions", () => {
 
 describe("searchActions", () => {
   test("finds grab by its name and its aliases", () => {
-    for (const query of ["grab", "gra", "inspect", "pick", "pick element"]) {
+    for (const query of ["grab", "gra", "pick", "pick element"]) {
       expect(searchActions(query).map((action) => action.id)).toEqual(["grab"]);
+    }
+  });
+
+  test("finds inspect by its name and by what it shows, and not grab with it", () => {
+    for (const query of ["inspect", "insp", "styles", "css", "cascade"]) {
+      expect(searchActions(query).map((action) => action.id)).toEqual(["inspect"]);
     }
   });
 

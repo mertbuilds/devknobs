@@ -11,6 +11,7 @@ import {
   type PaneView,
   paneBox,
   paneView,
+  retitlePane,
 } from "../src/ui/pane";
 import { GLIDE_MAX, PANEL_GAP } from "../src/ui/place";
 import type { Tips } from "../src/ui/tooltip";
@@ -375,6 +376,22 @@ describe("opening a view", () => {
     expect(page.wrap.dataset.pane).toBe("open");
     expect(fake(page.pane.node).inert).toBe(false);
     expect(paneView()).toBe("styles");
+  });
+
+  test("the open view can say something else in the head, and no other view can", () => {
+    page = build();
+    retitlePane("styles", "too early");
+    openPane(viewOf("styles").view);
+    const [title] = fake(page.pane.node).find("side-title");
+    expect(title?.textContent).toBe("styles");
+    retitlePane("styles", "button#save.primary");
+    expect(title?.textContent).toBe("button#save.primary");
+    expect(page.box.attributes.get("aria-label")).toBe("button#save.primary");
+    retitlePane("requests", "not mine");
+    expect(title?.textContent).toBe("button#save.primary");
+    // The next view starts with its own.
+    openPane(viewOf("requests").view);
+    expect(title?.textContent).toBe("requests");
   });
 
   test("does nothing for the view that is open already", () => {

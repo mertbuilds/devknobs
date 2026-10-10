@@ -36,6 +36,7 @@ export interface PaletteContext {
   results: HTMLElement;
   rows: Rows;
   grab: GrabControl | null;
+  inspect: GrabControl | null;
   /** The actions search finds. */
   actionsHere: readonly Action[];
   /** Draw the whole panel again. */
@@ -198,13 +199,13 @@ export function createPalette(context: PaletteContext): Palette {
       engine.replay();
       return;
     }
-    grab?.set(true);
+    (id === "inspect" ? context.inspect : grab)?.set(true);
   }
 
   /**
    * Grab, however it went on, takes the focus out of the panel, to the page,
    * so the arrows, Enter, `c` and escape are grab's at once. Off, it leaves
-   * the focus where it is.
+   * the focus where it is. Inspect going on does the same.
    */
   function onGrab(on: boolean): void {
     if (on) {

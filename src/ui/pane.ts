@@ -3,7 +3,7 @@
  * it, that a feature shows a view in. One view shows at a time. To use it:
  *
  *   openPane({ id: "styles", title: "styles", mount, actions, escape });
- *   closePane(); paneView(); onPane((id) => {});
+ *   closePane(); paneView(); onPane((id) => {}); retitlePane("styles", "button#save");
  *
  * `mount(body)` fills the pane's scrolling body, which comes empty, and may
  * return a cleanup that runs once when the view closes or another replaces it.
@@ -134,6 +134,8 @@ export interface Pane {
   close(): void;
   /** The id of the open view, also while the pane hides with a closed panel. */
   view(): string | null;
+  /** Say something else in the head, while the view `id` is the open one. */
+  retitle(id: string, title: string): void;
   /** The panel is open or closed: a closed one hides the pane and keeps its view. */
   render(open: boolean): void;
   /** The panel was put at a place: the pane goes beside it. */
@@ -170,6 +172,14 @@ export function closePane(): void {
 /** The id of the open view, or null with the pane closed. */
 export function paneView(): string | null {
   return shell?.view() ?? null;
+}
+
+/**
+ * Change what the head says for the view `id`, as a view that shows one thing
+ * after another does. Nothing happens while another view, or none, is open.
+ */
+export function retitlePane(id: string, title: string): void {
+  shell?.retitle(id, title);
 }
 
 /**
@@ -342,6 +352,11 @@ export function createPane(context: PaneContext): Pane {
     open,
     close,
     view: () => shown?.id ?? null,
+    retitle(id: string, text: string): void {
+      if (shown?.id !== id) return;
+      title.textContent = text;
+      box.setAttribute("aria-label", text);
+    },
     render(isOpen: boolean): void {
       panelOpen = isOpen;
       draw();

@@ -26,7 +26,7 @@ export interface Combo {
 }
 
 /** The shortcuts the panel can be told to use, and by whom. */
-export type Binding = "panel" | "grab" | "replay" | "reset";
+export type Binding = "panel" | "grab" | "inspect" | "replay" | "reset";
 
 /** Each binding's key. */
 export type Keys = Record<Binding, Combo>;
@@ -114,11 +114,23 @@ export function comboSpoken(combo: Combo): string {
   return comboText(combo).replaceAll("+", " ");
 }
 
-/** The panel's keys with none set: shift and the hotkey, shift g, shift r and shift backspace. */
+/** The letters inspect's key is, the first that the panel's and grab's keys leave free. */
+const INSPECT_KEYS = ["c", "i", "y"];
+
+/**
+ * The panel's keys with none set: shift and the hotkey, shift g, shift c,
+ * shift r and shift backspace. Where the mount gave the panel or grab shift
+ * and c, inspect takes the next letter of its own.
+ */
 export function defaultKeys(options: { hotkey?: string; grabKey?: string } = {}): Keys {
+  const panel = withShift(hotkeyOf(options.hotkey));
+  const grab = parseCombo(options.grabKey) ?? withShift("g");
+  const taken = [panel, grab].map(comboText);
+  const free = INSPECT_KEYS.find((key) => !taken.includes(comboText(withShift(key))));
   return {
-    panel: withShift(hotkeyOf(options.hotkey)),
-    grab: parseCombo(options.grabKey) ?? withShift("g"),
+    panel,
+    grab,
+    inspect: withShift(free ?? "c"),
     replay: withShift(REPLAY_KEY),
     reset: withShift("backspace"),
   };

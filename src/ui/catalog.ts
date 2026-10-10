@@ -339,7 +339,7 @@ export function resetPatch(row: Row): DevknobsStatePatch {
 
 /** Something the panel does rather than a knob it sets. */
 export interface Action {
-  id: "grab" | "replay";
+  id: "grab" | "inspect" | "replay";
   label: string;
   /** What a search result says after the name. */
   long: string;
@@ -352,7 +352,13 @@ export const ACTIONS: readonly Action[] = [
     id: "grab",
     label: "grab",
     long: "pick an element to copy",
-    aliases: ["inspect", "pick", "element", "component", "select", "agent"],
+    aliases: ["pick", "element", "component", "select", "agent"],
+  },
+  {
+    id: "inspect",
+    label: "inspect",
+    long: "pick an element to see its styles",
+    aliases: ["styles", "css", "rules", "cascade", "stylesheet"],
   },
   {
     id: "replay",

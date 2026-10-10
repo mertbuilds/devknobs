@@ -33,8 +33,9 @@ export type DevknobsMessage =
   | { source: "devknobs"; type: "state"; state: DevknobsState }
   | { source: "devknobs"; type: "key"; action: KeyAction }
   | { source: "devknobs"; type: "overflow"; count: number }
-  | { source: "devknobs"; type: "grab"; on: boolean; scheme?: "light" | "dark" }
-  | { source: "devknobs"; type: "ready" | "replay" };
+  | { source: "devknobs"; type: "grab" | "inspect"; on: boolean; scheme?: "light" | "dark" }
+  /** `picked`: inspect took an element in the frame. `outline`: the frame is to box another. */
+  | { source: "devknobs"; type: "ready" | "replay" | "picked" | "outline" };
 
 /** The parts of a `MessageEvent` that decide whether devknobs reads it. */
 export interface Envelope {
@@ -169,7 +170,7 @@ export function readMessage(
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return null;
     return { source: "devknobs", type, count };
   }
-  if (type === "grab") {
+  if (type === "grab" || type === "inspect") {
     if (typeof message.on !== "boolean") return null;
     const scheme =
       message.scheme === "light" || message.scheme === "dark" ? message.scheme : undefined;
@@ -177,7 +178,9 @@ export function readMessage(
       ? { source: "devknobs", type, on: message.on, scheme }
       : { source: "devknobs", type, on: message.on };
   }
-  if (type === "ready" || type === "replay") return { source: "devknobs", type };
+  if (type === "ready" || type === "replay" || type === "picked" || type === "outline") {
+    return { source: "devknobs", type };
+  }
   return null;
 }
 
