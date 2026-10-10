@@ -35,8 +35,7 @@ export interface Panel {
   /** The way from the hinge to the free edge, as a gradient goes, and where the two are on the stage, in percent. */
   toward: string;
   span: [number, number];
-  /** The screen's css px across the hinge, and its width. */
-  extent: number;
+  /** The screen's width, in css px. */
   width: number;
   /** Does the hinge run down the screen, so its ends along it are its top and bottom. */
   across: boolean;
@@ -253,11 +252,11 @@ function edging(toward: string, stops: [at: number, dark: number][]): string {
  * Light and blur the page on a screen of the half that turns as the hinge
  * `open` of the way open has it, and darken it toward the turned screen's
  * free edge, seen `free` of the way from the hinge, or not where WebGL2
- * does, null. Its blur is as Apple's camera sees it, the turned screen seen
- * `out` of the way from the hinge to the picture's free edge.
+ * does, null. Its blur is least at the hinge and most at the turned screen's
+ * free edge, seen `out` of the way from the hinge to the picture's.
  */
 export function light(panel: Panel, open: number, free: number | null, out: number): void {
-  const look = paneLook(panel.pane, open, panel.extent, out);
+  const look = paneLook(panel.pane, open, out);
   panel.shade.style.background = shading(panel.toward, look.turned);
   panel.flat.style.background = shading(panel.toward, look.flat);
   panel.edge.style.background = free === null ? "" : edging(panel.toward, freeShades(open, free));
@@ -335,7 +334,6 @@ export function gluedOf(
     edge,
     toward: turning.toward,
     span: turning.span,
-    extent: across ? side.size.width : side.size.height,
     width: side.size.width,
     across,
     gl: null,

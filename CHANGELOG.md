@@ -1,5 +1,16 @@
 # changelog
 
+## unreleased
+
+### iPhone Duo
+
+- the half that turns shows the page at the text size knob's size: its lines meet the other half's at the hinge. a page that sets its own root font size folds right too
+- the half that turns stays all but sharp next to the hinge through the whole fold, and blurs gently toward its free edge: 48 px at most, where it was 128
+
+### internal
+
+- the numbers of the fold's look are in one table, on `window` under `Symbol.for("devknobs.foldtune")`, to tune by hand on a live page. nothing is stored
+
 ## 0.1.2
 
 ### iPhone Duo

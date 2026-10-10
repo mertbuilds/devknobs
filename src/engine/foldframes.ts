@@ -32,6 +32,7 @@ import {
   screenOf,
   turningOf,
 } from "./foldpage";
+import { tuneChanges } from "./foldtune";
 import type { Rect } from "./mock";
 import type { Corners } from "./morph";
 
@@ -183,8 +184,8 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
   const fade = (value: number) => (value >= 1 ? "" : String(Math.round(Math.max(0, value) * 1000) / 1000));
   model.style.opacity = fade(shown);
   turning.still.canvas.style.opacity = fade(still);
-  // The screens change only with the frame, or with what draws them.
-  const by = [turning.inner.gl, turning.inner.pictures, turning.outer.gl, turning.outer.pictures];
+  // The screens change only with the frame, with what draws them, or with a number of their look set by hand.
+  const by = [turning.inner.gl, turning.inner.pictures, turning.outer.gl, turning.outer.pictures, tuneChanges()];
   const { lit } = turning;
   if (lit && lit.shot === shot && lit.by.every((one, index) => one === by[index])) return;
   turning.lit = shot && { shot, by };
@@ -208,7 +209,7 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     light(glued, open, glued.gl ? null : free, free);
     const span = layout.across ? glued.size.height : glued.size.width;
     const wedge = wedgeOf(opening, glued.pane, picture, span);
-    glued.gl?.draw(screenLook(glued.pane, open, glued.extent, wedge, free));
+    glued.gl?.draw(screenLook(open, wedge, free));
   }
 }
 

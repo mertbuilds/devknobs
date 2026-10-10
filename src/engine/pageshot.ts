@@ -254,6 +254,18 @@ export function svgUrl(svg: string): string {
 }
 
 /**
+ * The root font size of the page in `doc` as it computes now, as css for both
+ * roots of a drawing of its copy. A drawing's root is its `svg`, not the
+ * copy's `html`: every rem is taken against the `svg`, which knows nothing of
+ * the page's root size, set by the page or by the text size knob, and a root
+ * size in % or em would be taken against it too. So both get the size in px.
+ */
+export function rootSize(doc: Document, view: Window): string {
+  const size = view.getComputedStyle(doc.documentElement).fontSize;
+  return size ? `font-size:${size} !important` : "";
+}
+
+/**
  * A picture of the page in `frame` as the browser draws it, from `copy`, laid
  * out and scrolled as the frame is now, on a canvas of the screen `glass`
  * shows it on, `size` css px, on `color`. Its pictures, videos and drawings
@@ -288,10 +300,11 @@ export async function paintPage(
   const root = copy.cloneNode(true) as Element;
   // Scrolled as the frame is, what is pinned to the screen staying put.
   const scrolled = `position:relative;left:${-scrollX}px;top:${-scrollY}px`;
-  root.setAttribute("style", `${root.getAttribute("style") ?? ""};${scrolled}`);
+  const sized = rootSize(doc, view);
+  root.setAttribute("style", `${root.getAttribute("style") ?? ""};${sized};${scrolled}`);
   const markup = new XMLSerializer().serializeToString(root);
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" style="${sized}">` +
     `<foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
   const image = new Image();
   // As data, not a blob: Chrome marks a drawing from a blob as foreign, and its canvas could not go to the GPU.

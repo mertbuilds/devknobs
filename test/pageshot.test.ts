@@ -9,6 +9,8 @@ import {
   shootPage,
   svgUrl,
 } from "../src/engine/pageshot";
+import * as outlines from "../src/engine/outlines";
+import * as spacing from "../src/engine/spacing";
 
 /** An element as far as a copy of the page reads one, which counts what it sets off. */
 class FakeNode {
@@ -30,7 +32,11 @@ class FakeNode {
   remove(): void {
     this.removed = true;
   }
-  set textContent(_text: string) {}
+  /** What was written into it: a style's rules. */
+  text = "";
+  set textContent(text: string) {
+    this.text = text;
+  }
 }
 
 /** A document: the frame's, whose copies would load, or one of its own that loads nothing. */
@@ -38,7 +44,7 @@ class FakeDocument {
   /** What copies made in it would have set off: a picture loaded again, a handler or a constructor run. */
   static setOff = 0;
   readonly documentElement: FakeNode;
-  readonly styleSheets: { cssRules: { cssText: string }[] }[] = [{ cssRules: [{ cssText: "p { color: red }" }] }];
+  styleSheets: { cssRules: { cssText: string }[] }[] = [{ cssRules: [{ cssText: "p { color: red }" }] }];
   readonly implementation = { createHTMLDocument: () => new FakeDocument(false) };
   constructor(readonly live: boolean) {
     this.documentElement = new FakeNode("html", this);
@@ -82,6 +88,46 @@ describe("copyPage", () => {
     // Its styles come along inline, made in the copy's own document too.
     const style = copy?.querySelector("head")?.children.find((child) => child.tag === "style");
     expect(style?.owner).toBe(copy?.owner);
+  });
+
+  test("takes the rules the knobs wrote into the page along: text spacing's and outlines', as the knobs write them", () => {
+    /** What each knob writes into the style it adds to the page, by the style's name. */
+    const written = new Map<string, string>();
+    const before = Reflect.get(globalThis, "document");
+    Reflect.set(globalThis, "document", {
+      head: { appendChild() {} },
+      querySelector: () => null,
+      createElement: () => {
+        let name = "";
+        return {
+          setAttribute: (_attribute: string, value: string) => {
+            name = value;
+          },
+          set textContent(text: string) {
+            written.set(name, text);
+          },
+        };
+      },
+    });
+    try {
+      spacing.apply(true);
+      outlines.apply(true);
+    } finally {
+      Reflect.set(globalThis, "document", before);
+    }
+    const knobs = [written.get("spacing") ?? "", written.get("outlines") ?? ""];
+    expect(knobs[0]).toContain("letter-spacing:.12em");
+    expect(knobs[1]).toContain("outline:");
+    const page = new FakeDocument(true);
+    // Each knob's style is a sheet of the page like any other, and a media query a knob rewrote is the rule's own text.
+    const rewritten = "@media (min-width: 800px) { p { color: blue } }";
+    page.styleSheets = [
+      { cssRules: [{ cssText: "p { color: red }" }, { cssText: rewritten }] },
+      ...knobs.map((cssText) => ({ cssRules: [{ cssText }] })),
+    ];
+    const copy = copyPage(frameOf(page)) as unknown as FakeNode | null;
+    const style = copy?.querySelector("head")?.children.find((child) => child.tag === "style");
+    expect(style?.text.split("\n")).toEqual(["p { color: red }", rewritten, ...knobs]);
   });
 
   test("has nothing to copy without a page", () => {
@@ -217,8 +263,8 @@ describe("svgUrl", () => {
 describe("paintPage", () => {
   test("paints a page with half an emoji in it, and does not reject", async () => {
     const rect = { left: 0, top: 0, width: 100, height: 200, right: 100, bottom: 200 };
-    const doc = { querySelectorAll: () => [] };
-    const view = { innerWidth: 100, innerHeight: 200, scrollX: 0, scrollY: 0 };
+    const doc = { querySelectorAll: () => [], documentElement: {} };
+    const view = { innerWidth: 100, innerHeight: 200, scrollX: 0, scrollY: 0, getComputedStyle: () => ({ fontSize: "16px" }) };
     const frame = { contentDocument: doc, contentWindow: view, getBoundingClientRect: () => rect };
     const glass = { getBoundingClientRect: () => rect };
     const root = { getAttribute: () => null, setAttribute() {} };
@@ -255,5 +301,82 @@ describe("paintPage", () => {
     } finally {
       for (const [index, name] of ["document", "Image", "XMLSerializer"].entries()) Reflect.set(globalThis, name, before[index]);
     }
+  });
+
+  /** Paint a page whose root computes `fontSize`, its copy's root styled `inline`: the drawing's markup, and the style its root got. */
+  async function drawn(fontSize: string, inline: string | null): Promise<{ svg: string; style: string }> {
+    const rect = { left: 0, top: 0, width: 100, height: 200, right: 100, bottom: 200 };
+    const html = {};
+    const doc = { querySelectorAll: () => [], documentElement: html };
+    const asked: unknown[] = [];
+    const view = {
+      innerWidth: 100,
+      innerHeight: 200,
+      scrollX: 0,
+      scrollY: 30,
+      getComputedStyle: (node: unknown) => {
+        asked.push(node);
+        return { fontSize };
+      },
+    };
+    const frame = { contentDocument: doc, contentWindow: view, getBoundingClientRect: () => rect };
+    const glass = { getBoundingClientRect: () => rect };
+    let style = inline;
+    const root = {
+      getAttribute: () => style,
+      setAttribute: (_name: string, value: string) => {
+        style = value;
+      },
+    };
+    const pen = { fillStyle: "", fillRect() {}, setTransform() {}, drawImage() {} };
+    const sources: string[] = [];
+    class FakeImage {
+      set src(url: string) {
+        sources.push(url);
+      }
+      decode(): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+    const names = ["document", "Image", "XMLSerializer"];
+    const before = names.map((name) => Reflect.get(globalThis, name));
+    Reflect.set(globalThis, "document", { createElement: () => ({ width: 0, height: 0, getContext: () => pen }) });
+    Reflect.set(globalThis, "Image", FakeImage);
+    Reflect.set(globalThis, "XMLSerializer", class {
+      serializeToString(): string {
+        return `<html style="${style ?? ""}"></html>`;
+      }
+    });
+    try {
+      await paintPage(
+        frame as unknown as HTMLIFrameElement,
+        glass as unknown as HTMLElement,
+        { width: 100, height: 200 },
+        "#fff",
+        { cloneNode: () => root } as unknown as Element,
+      );
+    } finally {
+      for (const [index, name] of names.entries()) Reflect.set(globalThis, name, before[index]);
+    }
+    // The size is the live page's root's, as it computes.
+    expect(asked).toEqual([html]);
+    const url = sources[0] ?? "";
+    return { svg: decodeURIComponent(url.slice(url.indexOf(",") + 1)), style: style ?? "" };
+  }
+
+  test("sizes the drawing's root as the text size knob has the page's, so every rem in it is the page's", async () => {
+    // The knob writes the root's size inline, as it is here: 20px for a setting of 20.
+    const { svg, style } = await drawn("20px", "font-size: 20px !important;");
+    expect(svg).toStartWith('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="200" style="font-size:20px !important">');
+    // The copy's own root keeps the knob's size, and is scrolled as the frame is after it.
+    expect(style).toBe("font-size: 20px !important;;font-size:20px !important;position:relative;left:0px;top:-30px");
+    expect(svg).toContain(`<foreignObject width="100%" height="100%"><html style="${style}">`);
+  });
+
+  test("sizes both roots in px where the page sizes its own in a rule, a share of what is above it", async () => {
+    // `html { font-size: 62.5% }` computes 10px on the page: taken against the drawing's root again, it would be 6.25px.
+    const { svg, style } = await drawn("10px", null);
+    expect(svg).toContain('height="200" style="font-size:10px !important">');
+    expect(style).toBe(";font-size:10px !important;position:relative;left:0px;top:-30px");
   });
 });

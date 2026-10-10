@@ -44,6 +44,7 @@ import {
   type Turning,
   turningOf,
 } from "./foldpage";
+import { installTune, watchTune } from "./foldtune";
 import type { Mock, Rect } from "./mock";
 import { drawMock, UNDER } from "./mockdraw";
 import { type Corners, lerp } from "./morph";
@@ -205,6 +206,14 @@ const watchers = new Set<() => void>();
 /** What wants to know where the hinge is drawn each time it is, and whether a hand sent it there. */
 const hinges = new Set<(open: number, hand: boolean) => void>();
 
+// A number of the fold's look set by hand shows at once, on a hinge that rests between its ends too.
+installTune();
+watchTune(() => {
+  if (!fold) return;
+  fold.drawn = "";
+  show(fold);
+});
+
 /** Is a foldable folding? */
 export function folding(): boolean {
   return fold !== null;
@@ -285,7 +294,6 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     rect,
     radii: turning.radii,
     pivot: turning.pivot,
-    extent: across ? size.width : size.height,
     width: size.width,
     across,
   };

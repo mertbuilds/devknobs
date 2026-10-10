@@ -240,12 +240,15 @@ describe("the light on the screen that turns", () => {
     expect(edge).toEndWith(" 40%)");
   });
 
-  test("shows a blurrier picture all over from the hinge on near a right angle", async () => {
+  test("shows none of a blurrier picture at the hinge near a right angle, and all of it further out", async () => {
     fakeDocument(false);
     const { glued, done } = glue(true);
     await done();
     light(glued, 0.53, 1, 1);
     const [, blurred] = glued.pictures;
-    expect(blurred?.style.maskImage).toStartWith("linear-gradient(to right, rgba(0, 0, 0, 1) ");
+    const stops = /^linear-gradient\(to right, rgba\(0, 0, 0, 0\) ([\d.]+)%, rgba\(0, 0, 0, 1\) ([\d.]+)%\)$/.exec(blurred?.style.maskImage ?? "");
+    expect(Number(stops?.[1])).toBeGreaterThan(0);
+    expect(Number(stops?.[2])).toBeGreaterThan(Number(stops?.[1]));
+    expect(Number(stops?.[2])).toBeLessThan(50);
   });
 });
