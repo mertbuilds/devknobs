@@ -1,3 +1,5 @@
+import { quietFetch } from "../requests/quiet";
+
 /**
  * The fonts of the page in the frame, for the picture of it the browser draws
  * while a foldable folds. A drawing of a copy of the page loads nothing, so a
@@ -80,7 +82,7 @@ function base64(bytes: Uint8Array): string {
 /** Fetch the font at `url` into `fonts`, once: one that will not come stays null, and is not asked for again. */
 function fetchFont(url: string, fonts: Map<string, string | null>): void {
   fonts.set(url, null);
-  void fetch(url)
+  void quietFetch(url)
     .then(async (response) => {
       if (!response.ok) return;
       const type = /^[\w.+-]+\/[\w.+-]+/.exec(response.headers.get("content-type") ?? "")?.[0];

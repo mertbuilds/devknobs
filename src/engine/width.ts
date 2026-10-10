@@ -1,4 +1,5 @@
 import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
+import { hushOnce } from "../requests/quiet";
 import * as address from "./address";
 import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
@@ -799,6 +800,8 @@ function open(veiled: number | null, first: boolean): void {
   address.follow({ page: frameDocument, locate, refresh: () => browser?.refresh() });
   scroll = { x: window.scrollX, y: window.scrollY };
   loaded = false;
+  // The frame's page lists its own load. Here it would be a second row for it.
+  hushOnce(frameUrl);
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
   reload.track({

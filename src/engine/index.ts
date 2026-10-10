@@ -1,4 +1,5 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
+import * as requests from "../requests";
 import { hasTouch } from "./devices";
 import {
   framed,
@@ -137,6 +138,8 @@ export function start(options: EngineOptions = {}): void {
   // state. It reads it, so the first paint is right, but a save would clobber it.
   persist = stored && !inFrame;
   if (inFrame) window.addEventListener("message", onMessage);
+  // Before any knob, so a patch a knob puts on `fetch` wraps the log's and comes off first.
+  requests.start();
   // A page that will not load in the frame offers this way out.
   width.onExit(() => setState(UNFRAMED));
   // The letterbox zooms the frame from its own control, the wheel and the keys.
@@ -175,6 +178,7 @@ export function stop(): void {
   width.reset();
   overflow.reset();
   outlines.reset();
+  requests.stop();
   state = { ...DEFAULT_STATE };
 }
 

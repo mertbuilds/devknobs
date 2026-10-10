@@ -6,13 +6,15 @@ import { showEarly } from "./engine/placeholder";
 import { load } from "./engine/store";
 import { apply as earlyUa } from "./engine/ua";
 import { installHook } from "./grab/hook";
+import { start as recordRequests } from "./requests";
 
 /**
  * The optional early script. As the first script in `<head>` it applies the
  * stored scheme, motion, contrast and transparency, a device's pointer and
  * hover in its frame, the clock and the user agent, before any page script
  * runs, with no panel. The full script takes these patches over when it mounts.
- * It also puts a React devtools hook in place, for grab, when there is none.
+ * It also puts a React devtools hook in place, for grab, when there is none,
+ * and starts the requests log, so the page's first requests are in it.
  * Where the stored knobs put the page in a frame, it hides the page under the
  * frame's drawing from the first paint, so a reload never shows it full width.
  */
@@ -24,6 +26,7 @@ const { motion, contrast, transparency } = stored;
 early({ scheme, motion, contrast, transparency, touch: inFrame && hasTouch(stored.device) });
 earlyClock(stored.clock);
 earlyUa(stored.ua);
+recordRequests();
 installHook();
 // The page in the frame is the frame's own, and never hides.
 if (!inFrame) showEarly(stored);
