@@ -319,7 +319,7 @@ export function zoomAction(event: KeyLike): ZoomAction | null {
  * What escape takes back: the search, a list filter, the shortcuts, the open
  * editor or the panel.
  */
-export type EscapeStep = "search" | "filter" | "keys" | "editor" | "panel";
+export type EscapeStep = "search" | "filter" | "keys" | "view" | "editor" | "panel";
 
 /** Where things stand when escape comes. */
 export interface EscapeScene {
@@ -329,19 +329,23 @@ export interface EscapeScene {
   filter: boolean;
   /** The shortcuts show in place of the rows. */
   keys?: boolean;
+  /** A feature's view shows in place of the rows. */
+  view?: boolean;
   /** An editor is open and the focus is in the panel. */
   editor: boolean;
 }
 
 /**
  * Escape takes one step back at a time: it leaves the search, query and all,
- * clears a list filter, leaves the shortcuts, closes the open editor, and only
- * then the panel.
+ * clears a list filter, leaves the shortcuts, which may show over a feature's
+ * view, hands the key to that view, which takes it or is left for the rows,
+ * closes the open editor, and only then the panel.
  */
 export function escapeStep(scene: EscapeScene): EscapeStep {
   if (scene.search) return "search";
   if (scene.filter) return "filter";
   if (scene.keys) return "keys";
+  if (scene.view) return "view";
   if (scene.editor) return "editor";
   return "panel";
 }

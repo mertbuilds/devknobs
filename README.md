@@ -102,7 +102,8 @@ open after a reload leaves the focus on the page.
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
 panel. with the panel closed, a drag moves the handle, and the panel opens
-beside it where it left it.
+beside it where it left it. drag the panel's edge on the page's side to change
+its width, which is kept in `localStorage` under `devknobs:prefs`.
 
 the handle follows the pointer sideways too. let go past the middle of the
 window, or fling it toward the other edge, and the panel moves to the left or

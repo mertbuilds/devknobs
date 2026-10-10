@@ -176,6 +176,9 @@ export function keepDrawing({ letterbox, zoom, key, css, look }: Kept): void {
   const copy = letterbox.cloneNode(true);
   if (!(copy instanceof HTMLElement)) return;
   copy.querySelector("iframe")?.remove();
+  // The touch cursor is the live frame's, and the stand-in keeps the mouse's.
+  copy.querySelector(".touchdot")?.remove();
+  copy.querySelector(".glass")?.removeAttribute("data-touch");
   for (const line of Array.from(copy.querySelectorAll<HTMLElement>(".progress"))) line.hidden = true;
   const blank = copy.querySelector<HTMLElement>(".screenblank");
   if (blank) {

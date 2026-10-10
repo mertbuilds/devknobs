@@ -3,7 +3,7 @@ import * as address from "./address";
 import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
-import { deviceOf, formId, formOf } from "./devices";
+import { deviceOf, formId, formOf, hasTouch } from "./devices";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
 import { carried, fresh, FRESH_ATTRIBUTE, loads, ownReload } from "./fresh";
 import {
@@ -56,6 +56,7 @@ import {
 import { warmFonts } from "./pagefonts";
 import * as reload from "./reload";
 import { ensureStyle, removeStyle } from "./style";
+import { createTouchDot, type TouchDot } from "./touchdot";
 import {
   finishTurn,
   forgetTurn,
@@ -138,6 +139,8 @@ let glass: HTMLElement | null = null;
 let pageBox: HTMLElement | null = null;
 /** A phone's browser bars around the frame. */
 let browser: BrowserLayer | null = null;
+/** The touch cursor over the page and the bars, while the device has a touch screen. */
+let touchDot: TouchDot | null = null;
 /** Covers the screen in the page's color while a device that turns lays it out the other way. */
 let turnCover: HTMLElement | null = null;
 /** The device's body drawn around the frame, while it has one. */
@@ -204,9 +207,15 @@ function share(): void {
   if (latest) post(frameWindow(), { source: "devknobs", type: "state", state: latest });
 }
 
+/** Does the frame's screen take the mouse as a finger? Not once the window has its own page back. */
+function touching(): boolean {
+  return latest !== null && !released && hasTouch(latest.device) && latest.touchPointer;
+}
+
 /** Keep the knobs and hand them to the frame, which applies them to its own page. */
 export function sync(state: DevknobsState): void {
   latest = state;
+  touchDot?.apply(touching());
   share();
   reload.knobs(state);
 }
@@ -321,28 +330,24 @@ function showZoom(place: Fit): void {
   picker.value = String(zoom);
 }
 
-/** How much more of its edge an open panel covers than its host's width, in px. */
-let beside = 0;
-
 /**
  * How much of its edge an open panel covers. Its host is as wide as the panel
- * out, and its side pane reaches past that.
+ * out, and takes a new width at once where the panel glides to it.
  */
 function panelWidth(): number {
-  const width = document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
-  return width + beside;
+  return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
 }
 
 /**
- * The panel's side pane came out, went away or changed its width: an open
- * panel covers `px` more of its edge, and the frame glides to its place
- * beside the two.
+ * The panel changed its width: the frame is fitted beside it again, and with
+ * `glide` it glides to its place as the panel does to its width.
  */
-export function coverBeside(px: number): void {
-  if (px === beside) return;
-  const from = { ...current.panel, beside };
-  beside = px;
-  glideFrame(screen, { first: false, from, to: { ...current.panel, beside } }, resize);
+export function panelSized(glide: boolean): void {
+  if (!glide) {
+    resize();
+    return;
+  }
+  glideFrame(screen, { first: false, from: current.panel, to: current.panel, sized: true }, resize);
 }
 
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
@@ -454,6 +459,7 @@ function resize(): void {
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
   showBrowser(bars, page, place, auto);
+  touchDot?.fit(place, place.zoom);
   drawing.style.width = `${place.box.width}px`;
   drawing.style.height = `${place.box.height}px`;
   // The wrapper starts at the mock's corner, and the frame sits in it by as much.
@@ -615,6 +621,7 @@ function turnScene(): TurnScene | null {
  * case and page as one, and draw it that way once it is there.
  */
 function turnDevice(value: ViewportValue): void {
+  touchDot?.rest();
   const angle = turnOf(shapeOf(current), shapeOf(value));
   turnIn(value, angle, angle === 0 ? null : screenFor(value), turnScene(), draw);
 }
@@ -635,6 +642,7 @@ function foldScene(): FoldScene | null {
 /** Fold the device to the posture `value` has, in view, and draw it that way once it is there, or, `held`, as a hand moves it. */
 export function foldDevice(value: ViewportValue, held = false): boolean {
   landGlide();
+  touchDot?.rest();
   return foldIn(current, value, foldScene(), draw, held);
 }
 
@@ -814,6 +822,13 @@ function open(veiled: number | null, first: boolean): void {
   glass.append(pageBox);
   // The page's scroll minimizing or bringing back the bars resizes the frame.
   browser = createBrowser(glass, frame, resize, onReloading, painted);
+  touchDot = createTouchDot({
+    glass,
+    frame,
+    origin: () => browser?.page() ?? { x: 0, y: 0 },
+    moving: () => turning() || folding(),
+  });
+  touchDot.apply(touching());
   turnCover = document.createElement("div");
   turnCover.className = "screenblank";
   turnCover.hidden = true;
@@ -865,6 +880,7 @@ function release(follow: boolean): string {
   window.removeEventListener("resize", resize);
   window.removeEventListener("pagehide", keep);
   frame?.removeEventListener("load", onLoad);
+  touchDot?.apply(false);
   address.unwatch();
   reload.untrack();
   browser?.stopLoading();
@@ -890,6 +906,8 @@ function teardown(): void {
   pageBox = null;
   browser?.remove();
   browser = null;
+  touchDot?.remove();
+  touchDot = null;
   turnCover = null;
   mockDrawing = null;
   mockKey = "";
