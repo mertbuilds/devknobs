@@ -201,6 +201,15 @@ let observer: MutationObserver | null = null;
 let frame = 0;
 let colorScheme: string | null = null;
 
+/**
+ * A rule's media text as the page wrote it, whatever the prefers knobs or text
+ * size made of it since. The rewritten text is what the browser matches, and
+ * this is what the styles pane shows.
+ */
+export function authoredQuery(rule: MediaBearingRule): string {
+  return originals.get(rule) ?? authoredMedia(rule) ?? rule.media.mediaText;
+}
+
 function walkRules(
   rules: CSSRuleList,
   visit: (rule: MediaBearingRule) => void,
