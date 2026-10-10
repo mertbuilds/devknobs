@@ -1,5 +1,5 @@
 import { type BarsKnobs, copyBars, type Drawn, withBars } from "./barshot";
-import { type BlurFade, blurWidths, type FoldLayout, type FoldSide, freeShades, type Pane, paneLook, type Point } from "./fold";
+import { type BlurFade, blurWidths, type FoldLayout, type FoldSide, freeShades, type Pane, paneBlurs, paneShades, type Point, screenDim, type Shades } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners } from "./mockdraw";
 import { type ScreenGl, screenGl } from "./foldgl";
@@ -228,13 +228,6 @@ export interface Pictures {
   closed: Picture;
 }
 
-/** A gradient from the hinge to the free edge through the shares of dark `shades`, evenly spaced. */
-function shading(toward: string, shades: number[]): string {
-  const last = Math.max(1, shades.length - 1);
-  const stops = shades.map((dark, index) => `rgba(0, 0, 0, ${dark}) ${Math.round((index / last) * 1000) / 10}%`);
-  return `linear-gradient(${toward}, ${stops.join(", ")})`;
-}
-
 /** Where a share `t` of the way from the hinge to the free edge is on a leaf's stage, in percent. */
 function onStage(leaf: Panel, t: number): number {
   const [hinge, free] = leaf.span;
@@ -251,11 +244,23 @@ function blurTo(leaf: Panel, picture: HTMLElement, fade: BlurFade | null): void 
   picture.style.setProperty("-webkit-mask-image", mask);
 }
 
-/** A gradient from the hinge to the free edge through `stops`, each where it is as a share of the way, and how dark. */
-function edging(toward: string, stops: [at: number, dark: number][]): string {
-  if (stops.length === 0) return "";
-  const list = stops.map(([at, dark]) => `rgba(0, 0, 0, ${dark}) ${Math.round(at * 1000) / 10}%`);
+/**
+ * A shade as a background: a gradient from the hinge to the free edge
+ * through `stops`, each where it is as a share of the way, and how dark, one
+ * dark where it has one stop, and none where it darkens nothing.
+ */
+function shading(toward: string, stops: Shades): string {
+  if (stops.every(([, dark]) => dark <= 0)) return "";
+  const [[, only] = [0, 0]] = stops;
+  if (stops.length === 1) return `rgba(0, 0, 0, ${only})`;
+  const list = stops.map(([at, dark]) => `rgba(0, 0, 0, ${dark}) ${Math.round(at * 1e5) / 1e3}%`);
   return `linear-gradient(${toward}, ${list.join(", ")})`;
+}
+
+/** Draw a shade as `background` has it, or take its box off the screen where it has none, so nothing is laid out or painted for it. */
+function shadeTo(node: HTMLElement, background: string): void {
+  node.style.background = background;
+  node.style.display = background ? "" : "none";
 }
 
 /**
@@ -263,20 +268,35 @@ function edging(toward: string, stops: [at: number, dark: number][]): string {
  * `open` of the way open has it, and darken it toward the turned screen's
  * free edge, seen `free` of the way from the hinge, or not where WebGL2
  * does, null. Its blur is least at the hinge and most at the turned screen's
- * free edge, seen `out` of the way from the hinge to the picture's. Which
+ * free edge, seen `out` of the way from the hinge to the picture's. Where
+ * WebGL2 shades the screen itself, `lit`, no shade is worked out here but
+ * the screen's own light, one dark all over. Which
  * of the two draws the page, and why, is noted for the tuning hook to tell.
  */
-export function light(panel: Panel, open: number, free: number | null, out: number): void {
+export function light(panel: Panel, open: number, free: number | null, out: number, lit = false): void {
   drew(free === null ? "webgl" : "layers", free === null ? BY_WEBGL : panel.why);
   // A hand has set how wide the blur gets since its pictures were made: they are made again, as wide as it asks.
   const widths = blurWidths();
   const same = widths.length === panel.widths.length && widths.every((width, index) => width === panel.widths[index]);
   if (panel.shot && !same) paintLeaf(panel, panel.shot);
-  const look = paneLook(panel.pane, open, out);
-  panel.shade.style.background = shading(panel.toward, look.turned);
-  panel.flat.style.background = shading(panel.toward, look.flat);
-  panel.edge.style.background = free === null ? "" : edging(panel.toward, freeShades(open, free));
-  panel.pictures.slice(1).forEach((picture, index) => blurTo(panel, picture, look.blurs[index] ?? null));
+  const shades = lit ? null : paneShades(panel.pane, open, out);
+  // The screen's own light stays a dark over it, as over the half that stays, so the two meet in the same shade to the last bit.
+  shadeTo(panel.shade, shading(panel.toward, shades ? shades.turned : [[0, screenDim(panel.pane, open)]]));
+  shadeTo(panel.flat, shades ? shading(panel.toward, shades.flat) : "");
+  shadeTo(panel.edge, free === null ? "" : shading(panel.toward, freeShades(open, free)));
+  if (panel.pictures.length < 2) return;
+  const blurs = paneBlurs(open, out);
+  panel.pictures.slice(1).forEach((picture, index) => blurTo(panel, picture, blurs[index] ?? null));
+}
+
+/**
+ * Does WebGL2 shade a glued screen itself: where it draws the page and
+ * nothing lies on the stage over its canvas. The copy of the browser's bars
+ * does till they are in the picture, and gradients shade it with the page
+ * till then.
+ */
+export function litByGl(glued: Glued): boolean {
+  return glued.gl !== null && glued.stage.lastElementChild === glued.gl.canvas;
 }
 
 /** A screen of a frame's half that turns, a window onto the page lying flat behind it. */

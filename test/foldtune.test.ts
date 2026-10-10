@@ -29,6 +29,8 @@ describe("the fold's numbers", () => {
     expect(TUNE_DEFAULTS.blurHinge).toBe(0.04);
     expect(TUNE_DEFAULTS.blurRise).toBe(2);
     expect(TUNE_DEFAULTS.blurAngle).toBe(90);
+    // No shade over the half that turns: each is a hand's to bring back.
+    expect([TUNE_DEFAULTS.wipeShade, TUNE_DEFAULTS.darkMost, TUNE_DEFAULTS.farShade]).toEqual([0, 0, 0]);
   });
 
   test("lists every number once, as it ships and as it is, in a range that holds both", () => {
@@ -41,7 +43,10 @@ describe("the fold's numbers", () => {
       expect(row.default).toBeGreaterThanOrEqual(row.min);
       expect(row.default).toBeLessThanOrEqual(row.max);
       expect(row.step).toBeGreaterThan(0);
-      expect(row.step).toBeLessThanOrEqual((row.max - row.min) / 10);
+      // A switch is on or off: every other number has ten steps or more.
+      const switched = row.key === "shadeOn" || row.key === "blurOn";
+      expect(row.step).toBeLessThanOrEqual(switched ? 1 : (row.max - row.min) / 10);
+      if (switched) expect([row.min, row.max, row.default, row.label]).toEqual([0, 1, 1, row.key === "shadeOn" ? "shades on" : "blur on"]);
       expect(row.label).toMatch(/^[a-z]+( [a-z]+){1,3}$/);
       expect(row.hint.length).toBeGreaterThan(10);
     }
@@ -121,6 +126,26 @@ describe("the fold's numbers", () => {
     foldTune.set("darkBand", 0.5);
     const stops = freeShades(0.5, 1).map(([at]) => at);
     expect(stops).toEqual([...stops].sort((a, b) => a - b));
+  });
+
+  test("switch the shades and the blur off apart, for finding what draws a line, in WebGL2 and in the layers", () => {
+    for (const [key, value] of [["wipeShade", 1.5], ["darkMost", 0.7], ["farShade", 1]] as const) foldTune.set(key, value);
+    const lit = screenLook(0.75, 30, 0.9, "inner");
+    expect(lit.dark).toBeGreaterThan(0);
+    expect(lit.lit.every((part) => part > 0)).toBe(true);
+    foldTune.set("shadeOn", 0);
+    const plain = screenLook(0.75, 30, 0.9, "inner");
+    expect(plain).toEqual({ ...lit, dark: 0, lit: [0, 0, 0] });
+    expect(freeShades(0.6, 0.5)).toEqual([]);
+    expect(paneLook("inner", 0.6, 0.5).flat).toEqual([[0, 0]]);
+    foldTune.set("blurOn", 0);
+    expect(screenLook(0.75, 30, 0.9, "inner")).toEqual({ ...plain, peak: 0, edge: [0, 0] });
+    expect(paneLook("inner", 0.6).blurs.every((blur) => blur === null)).toBe(true);
+    foldTune.set("shadeOn", 1);
+    expect(screenLook(0.75, 30, 0.9, "inner")).toEqual({ ...lit, peak: 0, edge: [0, 0] });
+    // On is whatever is nearer 1.
+    foldTune.set("blurOn", 0.6);
+    expect(screenLook(0.75, 30, 0.9, "inner")).toEqual(lit);
   });
 
   test("say that no fold has drawn till one has", async () => {

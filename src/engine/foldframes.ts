@@ -27,6 +27,7 @@ import {
   type Glued,
   gluedOf,
   light,
+  litByGl,
   type Pictures,
   placeAt,
   screenOf,
@@ -185,7 +186,9 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
   model.style.opacity = fade(shown);
   turning.still.canvas.style.opacity = fade(still);
   // The screens change only with the frame, with what draws them, or with a number of their look set by hand.
-  const by = [turning.inner.gl, turning.inner.pictures, turning.outer.gl, turning.outer.pictures, tuneChanges()];
+  // And with what lies over them: WebGL2 shades a screen itself once the bars' copy is off it.
+  const over = [turning.inner.stage.lastElementChild, turning.outer.stage.lastElementChild];
+  const by = [turning.inner.gl, turning.inner.pictures, turning.outer.gl, turning.outer.pictures, tuneChanges(), ...over];
   const { lit } = turning;
   if (lit && lit.shot === shot && lit.by.every((one, index) => one === by[index])) return;
   turning.lit = shot && { shot, by };
@@ -205,11 +208,12 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     const { x, y } = plane.corner;
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     const free = freeOf(opening, glued.pane, picture);
-    // The free edge's dark is WebGL2's where it draws the page, else a gradient's.
-    light(glued, open, glued.gl ? null : free, free);
+    // The free edge's dark is WebGL2's where it draws the page, else a gradient's, and so are the screen's shades.
+    const own = litByGl(glued);
+    light(glued, open, glued.gl ? null : free, free, own);
     const span = layout.across ? glued.size.height : glued.size.width;
     const wedge = wedgeOf(opening, glued.pane, picture, span);
-    glued.gl?.draw(screenLook(open, wedge, free));
+    glued.gl?.draw(screenLook(open, wedge, free, own ? glued.pane : null));
   }
 }
 

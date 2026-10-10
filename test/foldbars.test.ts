@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { type BarsKnobs, barsFor, glassOf } from "../src/engine/barshot";
-import { blurWidths } from "../src/engine/fold";
-import { type Glued, gluedOf, light, type Picture } from "../src/engine/foldpage";
+import { blurWidths, screenDim } from "../src/engine/fold";
+import { type Glued, gluedOf, light, litByGl, type Picture } from "../src/engine/foldpage";
 import { foldTune, resetTune } from "../src/engine/foldtune";
 
 const DUO: Omit<BarsKnobs, "posture" | "orientation" | "browser"> = { device: "iphone-duo", edgeToEdge: false };
@@ -87,6 +87,9 @@ class FakeNode {
   };
   get isConnected(): boolean {
     return true;
+  }
+  get lastElementChild(): FakeNode | null {
+    return this.children.at(-1) ?? null;
   }
   append(...nodes: FakeNode[]): void {
     for (const node of nodes) {
@@ -259,13 +262,62 @@ describe("the light on the screen that turns", () => {
     expect(glued.edge.style.background).toBe("");
   });
 
-  test("darkens the free edge where WebGL2 is not, out to as much of the screen as is seen", () => {
+  test("darkens the free edge where WebGL2 is not and a hand turns that dark on, out to as much of the screen as is seen", () => {
     fakeDocument(false);
     const { glued } = glue(false);
+    foldTune.set("darkMost", 0.7);
     light(glued, 0.55, 0.4, 0.4);
     const edge = glued.edge.style.background;
     expect(edge).toStartWith("linear-gradient(");
     expect(edge).toEndWith(" 40%)");
+    expect(glued.edge.style.display).toBe("");
+  });
+
+  test("as it ships, draws no shade over the screen, and keeps no box for one", () => {
+    fakeDocument(false);
+    const { glued } = glue(false);
+    for (const open of [0.05, 0.2, 0.35, 0.45]) {
+      light(glued, open, 0.4, 0.4);
+      for (const shade of [glued.shade, glued.flat, glued.edge]) {
+        expect(shade.style.background).toBe("");
+        expect(shade.style.display).toBe("none");
+      }
+    }
+  });
+
+  test("shades the screen through many stops where a hand turns the wipe on, and through none where WebGL2 lights it itself", () => {
+    fakeDocument(false);
+    const { glued } = glue(false);
+    foldTune.set("wipeShade", 1.5);
+    light(glued, 0.4, 0.4, 0.4);
+    const shade = glued.shade.style.background;
+    expect(shade).toStartWith("linear-gradient(to right, rgba(0, 0, 0, 0) 0%, ");
+    expect(shade).toEndWith(" 100%)");
+    expect(shade.split("rgba(").length - 1).toBeGreaterThanOrEqual(17);
+    expect(shade.length).toBeLessThan(2200);
+    expect(glued.shade.style.display).toBe("");
+    light(glued, 0.4, null, 0.4, true);
+    for (const one of [glued.shade, glued.flat, glued.edge]) expect([one.style.background, one.style.display]).toEqual(["", "none"]);
+    // The open screen's own light stays one dark over the canvas, the same as over the half that stays.
+    const inner: Glued = { ...glued, pane: "inner" };
+    light(inner, 0.7, null, 0.7, true);
+    expect(glued.shade.style.background).toBe(`rgba(0, 0, 0, ${screenDim("inner", 0.7)})`);
+    expect(glued.shade.style.display).toBe("");
+    expect(glued.flat.style.display).toBe("none");
+    // With the shades off, none either way.
+    foldTune.set("shadeOn", 0);
+    light(glued, 0.4, 0.4, 0.4);
+    expect(glued.shade.style.display).toBe("none");
+  });
+
+  test("is WebGL2's own once the bars' copy is off its canvas, and the gradients' till then", async () => {
+    fakeDocument(true);
+    const { glued, done } = glue(true);
+    expect(litByGl(glued)).toBe(false);
+    await done();
+    expect(litByGl(glued)).toBe(true);
+    fakeDocument(false);
+    expect(litByGl(glue(false).glued)).toBe(false);
   });
 
   test("shows none of a blurrier picture at the hinge near a right angle, and all of it further out", async () => {

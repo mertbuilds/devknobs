@@ -1,15 +1,20 @@
 import {
+  blurOn,
   blurShare,
   darkAt,
   type FoldShots,
   freeDepth,
   type Pane,
   type Quad,
+  shadeOf,
+  shadesOn,
   shotPane,
   shotPicture,
   shotQuad,
   shotWindow,
   turnBlur,
+  uvOf,
+  WIPE,
 } from "./fold";
 import { tune } from "./foldtune";
 import type { Rect } from "./mock";
@@ -23,6 +28,7 @@ import type { Rect } from "./mock";
  * dark and the line between them never shows, and so at the turned screen's
  * free edge, where the page is cut off as it is seen. The blur is the picture's
  * mipmaps, sampled 25 times about each point as far apart as it is wide.
+ * Its shades are worked out there too, at every px.
  * The picture goes up once as the fold starts, and each frame sets only a
  * few numbers and draws one quad. Where WebGL2 is not, the page's blurrier
  * pictures are laid over each other instead.
@@ -38,15 +44,51 @@ export interface ScreenLook {
   free: number;
   /** How deep the dark at the turned screen's free edge is, as `freeDepth` has it. */
   dark: number;
+  /** What shades the screen, as `shadeOf` has it, but the screen's own light, which lies over the canvas as it does over the other half: nothing where gradients over the canvas shade it. */
+  lit: [wipe: number, area: number, far: number];
 }
 
 /**
  * How the turned screen is blurred with the hinge `open` of the way open,
  * reaching `wedge` css px past the picture's ends at its free edge, and its
- * free edge seen `free` of the way from the hinge to the picture's.
+ * free edge seen `free` of the way from the hinge to the picture's. It is
+ * shaded as the screen of `shaded` is, or not at all, null, where gradients
+ * over the canvas shade it.
  */
-export function screenLook(open: number, wedge: number, free = 1): ScreenLook {
-  return { peak: turnBlur(open), edge: [tune.edgeHinge * wedge, tune.edgeFree * wedge], free, dark: freeDepth(open) };
+export function screenLook(open: number, wedge: number, free = 1, shaded: Pane | null = null): ScreenLook {
+  const blurred = blurOn();
+  const [, wipe, area, far] = shaded ? shadeOf(shaded, open, free) : [1, 0, 0, 0];
+  return {
+    peak: blurred ? turnBlur(open) : 0,
+    edge: blurred ? [tune.edgeHinge * wedge, tune.edgeFree * wedge] : [0, 0],
+    free,
+    dark: shadesOn() ? freeDepth(open) : 0,
+    lit: [wipe, area, far],
+  };
+}
+
+/**
+ * How much of its light the screen of `pane` keeps `t` of the way from the
+ * hinge to the picture's free edge, shaded as `look` has it, as shown: the
+ * wipe, the dark of Apple's blurs and the far side's shadow, worked out only
+ * where one is on. Past where the turned screen is cut, as much as there, as
+ * a gradient's last stop goes on.
+ */
+export function shadeAt(pane: Pane, look: ScreenLook, across: number): number {
+  const t = Math.min(across, look.free);
+  const [wipe, area, far] = look.lit;
+  if (wipe + area + far <= 0) return 1;
+  const { at, shade, blur } = WIPE[pane];
+  const uv = uvOf(pane, t);
+  const off = Math.abs(uv - at);
+  const wiped = 1 - clamp(smoothstep(shade[0], shade[1], off) * wipe);
+  const soft = 1 - smoothstep(0.9, 1.3, Math.min(4 / 3, Math.max(0, ((off - blur[0]) / (blur[1] - blur[0])) * area)));
+  const shadowed = 1 + (smoothstep(0.05, 0.5, uv) - 1) * far;
+  return clamp(wiped * soft * soft * shadowed) ** (1 / 2.2);
+}
+
+function clamp(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
 /**
@@ -166,8 +208,11 @@ void main() {
  * `blurAt` and `coverage`, the same, then the picture and the
  * black past it blurred together: past its ends along the hinge, and past
  * where the turned screen's free edge cuts it, and darkened toward that edge
- * as `freeDark` has it. What `tune` has comes in as uniforms, so a number
- * changed by hand shows at the next draw.
+ * as `freeDark` has it, and shaded as `shadeAt` has it: each at every px, so
+ * no shade has stops to bend at. A shade that is off costs a compare. What
+ * varies gets a little noise, under a step of the screen's 256, so a dark,
+ * slow shade shows no bands. What `tune` has comes in as uniforms, so a
+ * number changed by hand shows at the next draw.
  */
 export const FRAGMENT = `#version 300 es
 precision highp float;
@@ -182,6 +227,11 @@ uniform float dark;
 uniform vec2 shape;
 uniform vec2 rimmed;
 uniform vec3 band;
+uniform vec3 lit;
+uniform vec2 run;
+uniform vec3 wiped;
+uniform vec2 soften;
+uniform float grain;
 uniform float px;
 in vec2 pos;
 out vec4 color;
@@ -190,9 +240,26 @@ float cover(float at, float span, float soft) {
   return smoothstep(-soft, soft, at) * (1.0 - smoothstep(span - soft, span + soft, at));
 }
 float shadow(float t) {
+  if (dark <= 0.0) return 1.0;
   float across = t / max(free, 0.001);
   float deep = band.z * smoothstep(band.x, 1.0, across) + (1.0 - band.z) * smoothstep(1.0 - band.y, 1.0, across);
   return 1.0 - dark * deep;
+}
+float shade(float t) {
+  if (lit.x + lit.y + lit.z <= 0.0) return 1.0;
+  float uv = run.x + run.y * t;
+  float off = abs(uv - wiped.x);
+  float wipe = 1.0 - clamp(smoothstep(wiped.y, wiped.z, off) * lit.x, 0.0, 1.0);
+  float soft = 1.0 - smoothstep(0.9, 1.3, clamp((off - soften.x) / (soften.y - soften.x) * lit.y, 0.0, 4.0 / 3.0));
+  float away = mix(1.0, smoothstep(0.05, 0.5, uv), lit.z);
+  return pow(clamp(wipe * soft * soft * away, 0.0, 1.0), 1.0 / 2.2);
+}
+vec4 shaded(vec3 rgb, float t) {
+  float speck = 0.0;
+  if (grain > 0.0 && dark + lit.x + lit.y + lit.z > 0.0) {
+    speck = (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5) * grain / 255.0;
+  }
+  return vec4(rgb * shadow(t) * shade(min(t, free)) + speck, 1.0);
 }
 float seen(vec2 at, float soft) {
   float reach = soft * length(line.xy);
@@ -210,7 +277,7 @@ void main() {
   vec2 texels = vec2(textureSize(page, 0)) / stage;
   float soft = max(0.5 * px, 0.75 * gap);
   if (gap < 0.5 * px) {
-    color = vec4(texture(page, pos / stage).rgb * seen(pos, soft) * shadow(t), 1.0);
+    color = shaded(texture(page, pos / stage).rgb * seen(pos, soft), t);
     return;
   }
   float lod = log2(max(1.0, gap * max(texels.x, texels.y)));
@@ -222,7 +289,7 @@ void main() {
       sum += textureLod(page, tap / stage, lod).rgb * seen(tap, soft) * weight;
     }
   }
-  color = vec4(sum * shadow(t), 1.0);
+  color = shaded(sum, t);
 }`;
 
 /** The screen's picture drawn by WebGL2, on a canvas that lies over the part that turns. */
@@ -328,7 +395,12 @@ export function screenGl(
   gl.uniform3f(at("line"), ...hingeLine(place.pane, place.across, place.part));
   gl.uniform1f(at("px"), canvas.width > 0 ? rect.width / canvas.width : 1);
   gl.uniform1i(at("page"), 0);
-  const uniforms = { peak: at("peak"), edge: at("edge"), free: at("free"), dark: at("dark"), shape: at("shape"), rimmed: at("rimmed"), band: at("band") };
+  // Where a point of the half is across its screen's texture, and where the wipe and Apple's blurs run on it.
+  const wipe = WIPE[place.pane];
+  gl.uniform2f(at("run"), uvOf(place.pane, 0), uvOf(place.pane, 1) - uvOf(place.pane, 0));
+  gl.uniform3f(at("wiped"), wipe.at, wipe.shade[0], wipe.shade[1]);
+  gl.uniform2f(at("soften"), wipe.blur[0], wipe.blur[1]);
+  const uniforms = { peak: at("peak"), edge: at("edge"), free: at("free"), dark: at("dark"), shape: at("shape"), rimmed: at("rimmed"), band: at("band"), lit: at("lit"), grain: at("grain") };
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -349,6 +421,8 @@ export function screenGl(
     gl.uniform2f(uniforms.shape, tune.blurHinge, tune.blurRise);
     gl.uniform2f(uniforms.rimmed, tune.edgeReach, tune.blurSpread);
     gl.uniform3f(uniforms.band, tune.darkFrom, tune.darkBand, tune.darkBroad);
+    gl.uniform3f(uniforms.lit, ...next.lit);
+    gl.uniform1f(uniforms.grain, tune.grain);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   };
   canvas.addEventListener("webglcontextlost", () => {

@@ -27,8 +27,8 @@ export const TUNE_DEFAULTS = {
   edgeReach: 1.5,
   /** How far apart WebGL2's taps are, as a share of the blur's width: more is softer, till the taps show. */
   blurSpread: 0.5,
-  /** How dark the turned screen's free edge gets, 0 to 1, the half standing at a right angle. */
-  darkMost: 0.7,
+  /** How dark the turned screen's free edge gets, 0 to 1, the half standing at a right angle. None as it ships, so the four numbers under it do nothing till a hand raises it: 0.7 is as measured from Apple's. */
+  darkMost: 0,
   /** How that dark falls off away from a right angle: more keeps it to fewer degrees about it. */
   darkPower: 3,
   /** Where that dark starts, as a share of the way from the hinge to the free edge. */
@@ -37,10 +37,16 @@ export const TUNE_DEFAULTS = {
   darkBand: 0.05,
   /** How much of that dark comes on evenly from where it starts: the rest is the strip's. */
   darkBroad: 0.5,
-  /** How strongly the half that turns is shaded toward its free edge as it turns. */
-  wipeShade: 1.5,
-  /** How deep the shadow over the outer half of the open screen's half gets, 0 to 1. */
-  farShade: 1,
+  /** How strongly the half that turns is shaded toward its free edge as it turns. Not at all as it ships: Apple's is 1.5. */
+  wipeShade: 0,
+  /** How deep the shadow over the outer half of the open screen's half gets, 0 to 1. None as it ships: Apple's is 1. */
+  farShade: 0,
+  /** How much noise WebGL2 adds to a shade it draws, in steps of a screen's 256, so a dark, slow one shows no bands. */
+  grain: 1,
+  /** For finding what draws a line: 0 leaves every shade over the half that turns out, but the screen's own light. */
+  shadeOn: 1,
+  /** The same for its blur: 0 leaves it sharp. */
+  blurOn: 1,
 } satisfies Record<string, number>;
 
 export type TuneKey = keyof typeof TUNE_DEFAULTS;
@@ -75,6 +81,9 @@ const RANGES: Record<TuneKey, Range> = {
   darkBroad: { label: "edge dark spread", min: 0, max: 1, step: 0.01, hint: "How much of the dark comes on evenly from its start: the rest sits in the strip at the edge." },
   wipeShade: { label: "turning half shade", min: 0, max: 3, step: 0.05, hint: "How much the turning half darkens toward its free edge as it turns." },
   farShade: { label: "far side shadow", min: 0, max: 1, step: 0.01, hint: "How deep the shadow on the outer half of the open screen's turning half gets." },
+  grain: { label: "shade grain", min: 0, max: 2, step: 0.05, hint: "Fine noise WebGL adds to a shade it draws, so a dark, slow one shows no bands: 1 is one step of the screen's 256." },
+  shadeOn: { label: "shades on", min: 0, max: 1, step: 1, hint: "For finding what draws a line: 0 leaves out every shade over the turning half." },
+  blurOn: { label: "blur on", min: 0, max: 1, step: 1, hint: "For finding what draws a line: 0 leaves the turning half sharp." },
 };
 
 /** A number of the table as a control shows it. */
