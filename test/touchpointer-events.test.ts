@@ -660,6 +660,26 @@ describe("touch pointer in a frame", () => {
     expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: false });
     expect(dotHost()).toBeUndefined();
   });
+
+  test("turned on while grab picks, tells the page above the mouse is a mouse", () => {
+    const owner = frameOwner(true);
+    pause(true);
+    apply(true);
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: true });
+    expect(dotHost()).toBeUndefined();
+  });
+
+  test("says the pointer left as its page goes away, and no more once it is off", () => {
+    const owner = frameOwner(true);
+    apply(true);
+    move(element(), 20, 30, 0);
+    win.dispatchEvent(new FakeEvent("pagehide"));
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: false });
+    apply(false);
+    const told = owner.marks.length;
+    win.dispatchEvent(new FakeEvent("pagehide"));
+    expect(owner.marks.length).toBe(told);
+  });
 });
 
 /** What the fake top layer saw, in order. */
