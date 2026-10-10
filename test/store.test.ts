@@ -5,6 +5,7 @@ import {
   keepPlace,
   load,
   merge,
+  PANEL_START,
   PLACE_KEY,
   PLACE_VERSION,
   parse,
@@ -450,7 +451,8 @@ describe("the place kept across sessions", () => {
   });
 
   test("a place from before edges keeps its handle off the fresh panel's corner", () => {
-    expect(DEFAULT_STATE.panel.tab).toBe("top");
+    expect(PANEL_START).toBe(128);
+    expect(DEFAULT_STATE.panel).toMatchObject({ y: PANEL_START, top: PANEL_START, tab: "top" });
     for (const stored of [{ y: 300, top: 240 }, { y: 300 }, { top: 240 }]) {
       const json = JSON.stringify(stored);
       expect(parse(null, json).panel).toMatchObject({ edge: "none", tab: "none" });
@@ -463,6 +465,20 @@ describe("the place kept across sessions", () => {
     expect(parse(null, JSON.stringify({ side: "left" })).panel).toEqual({
       ...DEFAULT_STATE.panel,
       side: "left",
+    });
+    const stuck = JSON.stringify({ side: "left", y: 500, top: 492, edge: "bottom", tab: "bottom" });
+    expect(parse(JSON.stringify({ panel: { y: 300, top: 240 } }), stuck).panel).toMatchObject({
+      y: 300,
+      top: 240,
+      edge: "none",
+      tab: "none",
+    });
+    // With no heights of its own, a session takes the kept place, edges and all.
+    expect(parse(JSON.stringify({ panel: { open: true } }), stuck).panel).toMatchObject({
+      y: 500,
+      top: 492,
+      edge: "bottom",
+      tab: "bottom",
     });
   });
 });

@@ -11,6 +11,7 @@ import {
   ownReload,
   webStorage,
   wiped,
+  withFresh,
 } from "../src/engine/fresh";
 import { OWNER_KEY, RELOAD_KEY } from "../src/engine/locale";
 import { SNAPSHOT_KEY } from "../src/engine/placeholder";
@@ -119,6 +120,65 @@ describe("loads", () => {
     expect(loads("http://app.test/a", "http://app.test/a#billing")).toBe(false);
     expect(loads("http://app.test/a?x=1#one", "http://app.test/a?x=1#two")).toBe(false);
     expect(loads("http://app.test/a#", "http://app.test/a")).toBe(false);
+  });
+});
+
+describe("withFresh", () => {
+  const ORIGIN = "http://app.test";
+
+  test("adds the switch to an address with no query", () => {
+    expect(withFresh("http://app.test/a", ORIGIN)).toBe("http://app.test/a?devknobs=fresh");
+    expect(withFresh("http://app.test/", ORIGIN)).toBe("http://app.test/?devknobs=fresh");
+    expect(withFresh("http://app.test/a?", ORIGIN)).toBe("http://app.test/a?devknobs=fresh");
+  });
+
+  test("adds it after the query that is there", () => {
+    expect(withFresh("http://app.test/a?x=1&y=2", ORIGIN)).toBe(
+      "http://app.test/a?x=1&y=2&devknobs=fresh",
+    );
+    expect(withFresh("http://app.test/a?devknobs=other", ORIGIN)).toBe(
+      "http://app.test/a?devknobs=other&devknobs=fresh",
+    );
+  });
+
+  test("leaves an address that has it", () => {
+    for (const target of [
+      "http://app.test/a?devknobs=fresh",
+      "http://app.test/a?x=1&devknobs=fresh&y=2#top",
+    ]) {
+      expect(withFresh(target, ORIGIN)).toBe(target);
+    }
+  });
+
+  test("keeps the hash, after the query", () => {
+    expect(withFresh("http://app.test/a#billing", ORIGIN)).toBe(
+      "http://app.test/a?devknobs=fresh#billing",
+    );
+    expect(withFresh("http://app.test/a?x=1#a?b=2", ORIGIN)).toBe(
+      "http://app.test/a?x=1&devknobs=fresh#a?b=2",
+    );
+    // A switch in the hash is not one in the query.
+    expect(withFresh("http://app.test/a#?devknobs=fresh", ORIGIN)).toBe(
+      "http://app.test/a?devknobs=fresh#?devknobs=fresh",
+    );
+  });
+
+  test("leaves encoded parameters as they are written", () => {
+    expect(withFresh("http://app.test/a?q=a%20b+c&next=%2Fhome%3Fx%3D1&u=%C3%BC", ORIGIN)).toBe(
+      "http://app.test/a?q=a%20b+c&next=%2Fhome%3Fx%3D1&u=%C3%BC&devknobs=fresh",
+    );
+  });
+
+  test("turns the address it gives fresh mode on", () => {
+    for (const target of ["http://app.test/a", "http://app.test/a?x=1#top"]) {
+      expect(freshIn(new URL(withFresh(target, ORIGIN)).search)).toBe(true);
+    }
+  });
+
+  test("leaves another origin's address, and one that does not read", () => {
+    for (const target of ["http://other.test/a", "https://app.test/a", "about:blank", "/a", ""]) {
+      expect(withFresh(target, ORIGIN)).toBe(target);
+    }
   });
 });
 
@@ -241,6 +301,19 @@ describe("fresh mode and sessionStorage", () => {
     }
   });
 
+  test("a mark a load with the mode off did not use is gone by the next fresh visit", () => {
+    open({ search: FRESH });
+    save(merge(load(), { scheme: "dark" }));
+    ownReload();
+    // The page went on without the switch, and the mark is not this load's to use.
+    open();
+    expect(load().scheme).toBe("dark");
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
+    // The visit after it, inside the mark's time, is the user's.
+    open({ search: FRESH });
+    expect(load()).toEqual(DEFAULT_STATE);
+  });
+
   test("the early script and the full script wipe once between them", async () => {
     session.set(STORAGE_KEY, DARK);
     open({ search: FRESH });
@@ -307,12 +380,14 @@ describe("with fresh mode off", () => {
   test("both storages read and write as ever", () => {
     session.set(STORAGE_KEY, DARK);
     session.set(SNAPSHOT_KEY, "{}");
-    session.set(FRESH_RELOAD_KEY, asked(FRESH_RELOAD_WINDOW * 2));
+    session.set("i18nextLng", "tr");
     local.set(PLACE_KEY, LEFT);
     local.set(PREFS_KEY, JSON.stringify({ v: 1, handle: false }));
     local.set(KEYS_KEY, JSON.stringify({ v: 1, panel: "alt+shift+p" }));
     const kept = new Map(session);
     for (const search of ["", "?devknobs=stale", "?fresh"]) {
+      // A mark a page in fresh mode left is all such a load drops.
+      session.set(FRESH_RELOAD_KEY, asked(0));
       open({ search });
       expect(fresh()).toBe(false);
       expect(webStorage("local")).toBe(window.localStorage);
@@ -321,13 +396,13 @@ describe("with fresh mode off", () => {
       const state = load();
       expect(state.scheme).toBe("dark");
       expect(state.panel.side).toBe("left");
-      // One read of each storage, and nothing looked through or dropped.
-      expect(sessionCalls()).toBe(1);
+      // One read of each storage, the stale mark dropped unread, and nothing looked through.
+      expect(sessionCalls()).toBe(2);
       expect(localCalls()).toBe(1);
       expect(session).toEqual(kept);
 
       ownReload();
-      expect(sessionCalls()).toBe(1);
+      expect(sessionCalls()).toBe(2);
 
       const prefs = createPrefs();
       expect(prefs.get().handle).toBe(false);

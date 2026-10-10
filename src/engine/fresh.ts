@@ -91,6 +91,19 @@ function begin(): void {
   }
 }
 
+/**
+ * The start of a page with fresh mode off. A mark left by a page in fresh mode
+ * that this load did not use goes, so a fresh visit moments later does not take
+ * it for its own reload. One call, and nothing is read.
+ */
+function settle(): void {
+  try {
+    window.sessionStorage.removeItem(FRESH_RELOAD_KEY);
+  } catch {
+    // Private mode, disabled storage: no mark is kept there.
+  }
+}
+
 /** Whether the page above this frame is in fresh mode, which it wrote on the frame. */
 function framedFresh(): boolean {
   try {
@@ -118,6 +131,7 @@ export function fresh(): boolean {
     else {
       on = freshIn(window.location?.search ?? "");
       if (on) begin();
+      else settle();
     }
   } catch {
     on = false;
@@ -151,6 +165,34 @@ export function webStorage(kind: "session" | "local"): Storage | null {
 export function loads(target: string, from: string): boolean {
   const bare = (address: string) => address.split("#", 1)[0];
   return bare(target) !== bare(from);
+}
+
+/**
+ * `target` with the switch of fresh mode in its query, so the page there is in
+ * fresh mode too. The rest of the address stays as it is written. An address
+ * on another origin, or one that does not read, comes back as it is.
+ */
+export function withFresh(target: string, origin: string): string {
+  try {
+    const url = new URL(target);
+    if (url.origin !== origin || freshIn(url.search)) return target;
+  } catch {
+    return target;
+  }
+  const cut = target.indexOf("#");
+  const bare = cut < 0 ? target : target.slice(0, cut);
+  const hash = cut < 0 ? "" : target.slice(cut);
+  const join = !bare.includes("?") ? "?" : bare.endsWith("?") || bare.endsWith("&") ? "" : "&";
+  return `${bare}${join}${FRESH_PARAM}=${FRESH_VALUE}${hash}`;
+}
+
+/**
+ * Where the frame is, as the page takes it for its own address. In fresh mode
+ * it carries the switch, so a reload there, or the page's move there, stays in
+ * fresh mode.
+ */
+export function carried(target: string): string {
+  return fresh() ? withFresh(target, window.location.origin) : target;
 }
 
 /**

@@ -1109,10 +1109,13 @@ describe("the frame over the page", () => {
 });
 
 describe("the frame in fresh mode", () => {
+  const SWITCH = "?devknobs=fresh";
+  const FRESH_PAGE = `${PAGE}${SWITCH}`;
+
   /** Put `devknobs=fresh` in the page's address, and give it a `sessionStorage` to look into. */
   function freshPage(): Map<string, string> {
     const session = new Map<string, string>();
-    Object.assign(location, { search: "?devknobs=fresh" });
+    Object.assign(location, { href: FRESH_PAGE, search: SWITCH });
     Object.assign(window, {
       sessionStorage: {
         length: 0,
@@ -1172,7 +1175,8 @@ describe("the frame in fresh mode", () => {
     apply(VIEWPORT);
     await load(FRAMED);
     apply(KNOBS);
-    expect(assigned).toEqual([FRAMED]);
+    // The page the window goes to is in fresh mode too.
+    expect(assigned).toEqual([`${FRAMED}${SWITCH}`]);
     expect(session.has(FRESH_RELOAD_KEY)).toBe(true);
   });
 
@@ -1181,15 +1185,37 @@ describe("the frame in fresh mode", () => {
     apply(VIEWPORT);
     await load(`${PAGE}#billing`);
     apply(KNOBS);
-    expect(assigned).toEqual([`${PAGE}#billing`]);
+    expect(assigned).toEqual([`${FRESH_PAGE}#billing`]);
     expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
   });
 
-  test("leaves no mark with the mode off", async () => {
+  test("stays on its page where the frame only lost the switch", async () => {
     const session = freshPage();
-    Object.assign(location, { search: "" });
+    apply(VIEWPORT);
+    await load(PAGE);
+    apply(KNOBS);
+    expect(assigned).toEqual([]);
+    expect(location.href).toBe(FRESH_PAGE);
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
+  });
+
+  test("keeps the switch in the window's address as it follows the frame", async () => {
+    freshPage();
     apply(VIEWPORT);
     await load(FRAMED);
+    expect(location.href).toBe(`${FRAMED}${SWITCH}`);
+    await load(`${FRAMED}?tab=cards#top`);
+    expect(location.href).toBe(`${FRAMED}?tab=cards&devknobs=fresh#top`);
+    reset();
+    expect(location.href).toBe(FRESH_PAGE);
+  });
+
+  test("leaves no mark and adds no switch with the mode off", async () => {
+    const session = freshPage();
+    Object.assign(location, { href: PAGE, search: "" });
+    apply(VIEWPORT);
+    await load(FRAMED);
+    expect(location.href).toBe(FRAMED);
     apply(KNOBS);
     expect(assigned).toEqual([FRAMED]);
     expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
@@ -1197,9 +1223,9 @@ describe("the frame in fresh mode", () => {
 
   test("marks the load a device change ends in, and none inside the document", async () => {
     const phone = { ...KNOBS, mock: false, device: "iphone-16-pro", width: 402, height: 874 } as const;
-    for (const [target, marked] of [
-      [FRAMED, true],
-      [`${PAGE}#billing`, false],
+    for (const [target, landed, marked] of [
+      [FRAMED, `${FRAMED}${SWITCH}`, true],
+      [`${PAGE}#billing`, `${FRESH_PAGE}#billing`, false],
     ] as const) {
       const session = freshPage();
       apply(KNOBS);
@@ -1212,7 +1238,7 @@ describe("the frame in fresh mode", () => {
         // The device is on its way out, and the window has not left yet.
         expect(assigned).toEqual([]);
         await motion.play();
-        expect(assigned).toEqual([target]);
+        expect(assigned).toEqual([landed]);
         expect(session.has(FRESH_RELOAD_KEY)).toBe(marked);
       } finally {
         motion.still();
