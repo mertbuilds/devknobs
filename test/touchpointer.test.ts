@@ -9,6 +9,7 @@ import {
   raises,
   type ScrollNode,
   SLOP,
+  topLayerOf,
   velocityOf,
 } from "../src/engine/touchpointer";
 
@@ -127,5 +128,13 @@ describe("touch pointer", () => {
     expect(dialogOpened({ tag: "DIALOG", was: "", open: true })).toBe(false);
     expect(dialogOpened({ tag: "DIALOG", was: "", open: false })).toBe(false);
     expect(dialogOpened({ tag: "DETAILS", was: null, open: true })).toBe(false);
+  });
+
+  test("picks the first thing on a path that is in the top layer", () => {
+    const isUpper = (node: unknown): node is string =>
+      typeof node === "string" && node === node.toUpperCase();
+    expect(topLayerOf(["a", "B", "c", "D"], isUpper)).toBe("B");
+    expect(topLayerOf(["a", 1, null], isUpper)).toBeNull();
+    expect(topLayerOf([], isUpper)).toBeNull();
   });
 });

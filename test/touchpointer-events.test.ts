@@ -577,12 +577,16 @@ const shown = new WeakSet<FakeElement>();
 class FakeMutationObserver {
   static live: FakeMutationObserver[] = [];
   callback: (records: unknown[]) => void;
+  target: unknown = null;
+  options: unknown = null;
 
   constructor(callback: (records: unknown[]) => void) {
     this.callback = callback;
   }
 
-  observe(): void {
+  observe(target: unknown, options: unknown): void {
+    this.target = target;
+    this.options = options;
     FakeMutationObserver.live.push(this);
   }
 
@@ -630,6 +634,13 @@ describe("touch pointer in a page with a top layer", () => {
     expect(dotHost()?.getAttribute("popover")).toBe("manual");
     expect(layer).toEqual(["show"]);
     expect(FakeMutationObserver.live.length).toBe(1);
+    expect(FakeMutationObserver.live[0]?.target).toBe(doc.documentElement);
+    expect(FakeMutationObserver.live[0]?.options).toEqual({
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["open"],
+      attributeOldValue: true,
+    });
     apply(false);
     expect(dotHost()).toBeUndefined();
     expect(win.listeners).toEqual([]);
@@ -672,6 +683,38 @@ describe("touch pointer in a page with a top layer", () => {
     for (const observer of FakeMutationObserver.live) {
       observer.callback([{ target: dialog, oldValue: null }]);
     }
+    expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("goes in again when the page goes fullscreen, not when it comes out", () => {
+    apply(true);
+    layer = [];
+    Object.assign(doc, { fullscreenElement: element() });
+    dispatch(win, new FakeEvent("fullscreenchange"));
+    expect(layer).toEqual(["hide", "show"]);
+    layer = [];
+    Object.assign(doc, { fullscreenElement: null });
+    dispatch(win, new FakeEvent("fullscreenchange"));
+    expect(layer).toEqual([]);
+  });
+
+  test("goes in again once when the pointer comes onto a modal dialog no toggle told of", () => {
+    apply(true);
+    const dialog = element("dialog");
+    Object.assign(dialog, { matches: (selector: string) => selector === ":modal" });
+    const inside = new FakeHTMLElement("button");
+    dialog.append(inside);
+    layer = [];
+    fire(inside, "pointerover");
+    expect(layer).toEqual(["hide", "show"]);
+    layer = [];
+    fire(inside, "pointerover");
+    fire(dialog, "pointerover");
+    expect(layer).toEqual([]);
+    // Off the dialog and on it again, it may have come in anew.
+    fire(doc.body, "pointerover");
+    expect(layer).toEqual([]);
+    fire(inside, "pointerover");
     expect(layer).toEqual(["hide", "show"]);
   });
 

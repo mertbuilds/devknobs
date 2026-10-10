@@ -260,6 +260,17 @@ export function dialogOpened(change: {
   return change.tag.toLowerCase() === "dialog" && change.was === null && change.open;
 }
 
+/**
+ * The first thing on an event's path, from the target out, that is in the top
+ * layer. The path goes through shadow roots, where no `toggle` comes out of.
+ */
+export function topLayerOf<T>(
+  path: readonly unknown[],
+  inTopLayer: (node: unknown) => node is T,
+): T | null {
+  return path.find(inTopLayer) ?? null;
+}
+
 /** A scroller a drag or a fling moves, with its scroll snapping held off until it stops. */
 interface Scroller {
   element: Element;
@@ -299,6 +310,8 @@ let host: HTMLElement | null = null;
 let dot: HTMLElement | null = null;
 /** Sees a dialog open where the browser sends no `toggle` for it. */
 let dialogs: MutationObserver | null = null;
+/** What the pointer is over in the top layer, as of its last way in or press. */
+let over: Element | null = null;
 let gesture: Gesture | null = null;
 let nextId = 1;
 let finishTimer = 0;
@@ -367,6 +380,34 @@ function raise(): void {
   } catch {
     // Not in the page, or the browser would not show it: the cursor stays a plain layer.
   }
+}
+
+/** How an element tells it is in the top layer: an open popover, a modal dialog, the fullscreen element. */
+const TOP_LAYER = [":popover-open", ":modal", ":fullscreen"];
+
+function inTopLayer(node: unknown): node is Element {
+  if (!(node instanceof Element)) return false;
+  return TOP_LAYER.some((selector) => {
+    try {
+      return node.matches(selector);
+    } catch {
+      // A browser from before this selector has nothing of its kind in the top layer.
+      return false;
+    }
+  });
+}
+
+/**
+ * Go over what the pointer came onto in the top layer, where it is not what
+ * it was on before. This sees a dialog or a popover in a shadow root, whose
+ * `toggle` and `open` attribute the watch on the page does not.
+ */
+function raiseOver(event: Event): void {
+  if (!host || !layered()) return;
+  const found = topLayerOf(event.composedPath(), inTopLayer);
+  if (found === over) return;
+  over = found;
+  if (found) raise();
 }
 
 function onToggle(event: Event): void {
@@ -445,6 +486,7 @@ function unmountDot(): void {
   host?.remove();
   host = null;
   dot = null;
+  over = null;
 }
 
 /** Send a touch event to the gesture's target. True where a listener called `preventDefault`. */
@@ -781,6 +823,7 @@ function onEvent(event: Event): void {
     }
     if (type === "pointerout" && event.relatedTarget === null) hideDot();
     else if (type !== "pointerleave" && type !== "pointerout") showDot(event);
+    if (type === "pointerover" || type === "pointerdown") raiseOver(event);
     if (type === "pointerdown") pressDot(true);
     else if (type === "pointerup" || type === "pointercancel") pressDot(false);
     if (type === "pointerdown") onPointerDown(event);
