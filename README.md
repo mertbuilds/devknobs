@@ -177,12 +177,12 @@ and with `0` fit it again, from the frame too, unless the focus is in a field.
 every other key goes to the page as it would without the panel. `⇧K` toggles
 the panel everywhere except in a field of the page, where shift types a capital
 as ever. in the panel's search, which finds in lower case anyway, `⇧K`, `⇧R`,
-`⇧N` and `⇧G` are the panel's keys and are not typed, so `⇧K` closes the panel from it,
+`⇧N`, `⇧G` and `⇧C` are the panel's keys and are not typed, so `⇧K` closes the panel from it,
 and a plain `k` is just a letter. the panel's other fields, a list's filter and
 the user agent and route boxes, take every letter.
 
 the footer lists the keys, most used first: `⇧K` for the panel, `/` for search,
-the grab key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
+the grab key, the inspect key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
 `Shift R` and `Shift Backspace` off a Mac. each one is a button too, so a click does what its key does. with
 the overflow knob on, the count of overflowing boxes sits above them.
 
@@ -198,7 +198,7 @@ the origin, and wins over the `handle` option. reset all leaves it.
 
 ### shortcuts
 
-the panel, grab, replay, requests and reset keys above are the defaults, and each can be
+the panel, grab, inspect, replay, requests and reset keys above are the defaults, and each can be
 set from the panel: the settings list them under shortcuts,
 click one and press the new key, escape to cancel. a key needs shift, alt
 (option), ctrl or meta (⌘) with it, as a key alone types, except F1 to F12,
@@ -261,7 +261,7 @@ shortcut is still a copy. the hold is 500ms while a field has
 the focus and 700ms while text is selected, and a key that copied something
 waits for the key to repeat, or to be let go after 200ms. grab then stays on
 until a copy or escape. the search finds it too:
-`grab`, `inspect` or `pick`. grab is an action, not a row: it is never
+`grab` or `pick`. grab is an action, not a row: it is never
 listed, and never kept, so a reload starts with it off.
 
 while it is on:
@@ -320,6 +320,59 @@ both by Aiden Bai and MIT, see
 devknobs covers it: the same grab, the same line format, the same
 clipboard type. remove the `react-grab` script or package, and mount devknobs.
 pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
+
+## inspect
+
+press `⇧C` (`Shift C` off a Mac) to see the css of an element. it picks as
+grab does, with the same box, arrows and escape, and its label says `styles`
+before the element. a click copies nothing: the element's styles open in the
+panel, in place of the rows, and the panel grows wider for them. drag its
+edge for another width. inspect stays on, so the next click shows another
+element. escape ends inspect and leaves the styles open, the next escape
+clears the filter if it has text, and the next goes back to the rows, as the
+back button on top does. going back ends inspect. the element shown keeps a
+quiet box while its styles show. the search finds it as `inspect`, `styles`
+or `css`, the footer has its key, and the shortcuts in the settings set
+another. grab and inspect are never on together, and while grab is on `c` is
+grab's copy.
+
+the view has two modes, set by the control beside the filter, and the one
+you pick is kept. `simple`, the one it starts in, lists only the styles that
+apply to the element, by what they do, with what it inherits folded under
+them, and after a value that reads a custom property what it comes to.
+`advanced` shows, in the order the cascade settles them:
+
+- the element's `style` attribute, as `element.style`
+- every rule that reaches it, the strongest first, with the selectors of a
+  list that do not match muted, the `@layer`, `@media`, `@supports` and
+  `@container` it sits in above it, and the stylesheet's file after it
+- declarations another one overrides, struck through
+- the rules of its `::before` and `::after`
+- what each ancestor hands down, under `inherited from` and its name
+
+a color has a swatch before it. the name of a custom property says what it
+resolves to for the element when the pointer rests on it, and a click goes to
+the block that sets it. the crumbs on top are the element's ancestors, each a
+click away, and the filter keeps the declarations that have its text in
+their name or value. the view reads the styles again when the element or an
+ancestor changes, when a stylesheet in the head does, when the window is
+resized and when a knob moves. with the width knob's frame up, inspect picks
+in the frame and the styles show in the panel. what a knob of devknobs
+writes on `<html>`, the root size of the text size knob and the
+`color-scheme` of the scheme knob, is left out.
+
+what it cannot show:
+
+- the rules of a stylesheet from another origin. the page may not read them,
+  so the view says `rules hidden` with the file's name and guesses nothing
+- the browser's own default styles
+- a forced state such as `:hover`: a rule shows while it applies
+- a rule in a `@container` it could not confirm is marked `container`, and
+  may not apply
+- an edit made through the CSSOM alone, or to a stylesheet outside the head,
+  may show late
+
+it is read only for now, with no line numbers.
 
 ## requests
 

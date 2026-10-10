@@ -36,6 +36,7 @@ export interface SettingsContext {
   keys: LiveKeys;
   prefs: LivePrefs;
   grab: GrabControl | null;
+  inspect: GrabControl | null;
   mac: boolean;
   /** The bindings the shortcuts list. */
   bindingsHere: readonly Binding[];
@@ -160,8 +161,10 @@ export function createSettings(context: SettingsContext): Settings {
   function startRecording(binding: Binding): void {
     recording = binding;
     keys.recording = true;
-    // Grab's mode reads the keys ahead of the panel, escape and the arrows too.
+    // Grab's mode reads the keys ahead of the panel, escape and the arrows too,
+    // and inspect's is the same mode.
     grab?.set(false);
+    context.inspect?.set(false);
     renderKeys();
     keyViews.get(binding)?.set.focus({ preventScroll: true });
   }

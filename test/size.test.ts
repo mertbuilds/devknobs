@@ -234,12 +234,19 @@ function rig(start: Partial<Rig["state"]> = {}, stored: Partial<Prefs> = {}): Ri
     if (name !== "--panel-width") return;
     widths.push(panel.style.transitionProperty === "none" ? `${value} still` : value);
   };
-  const prefs: Prefs = { handle: true, listWidth: 240, viewWidth: 340, ...stored };
+  const prefs: Prefs = {
+    handle: true,
+    listWidth: 240,
+    viewWidth: 340,
+    stylesMode: "simple",
+    ...stored,
+  };
   const kept: [Showing, number][] = [];
   const sized: Rig["sized"] = [];
   const live: LivePrefs = {
     get: () => prefs,
     setHandle: () => {},
+    setStylesMode: () => {},
     setWidth: (showing, px) => {
       kept.push([showing, px]);
       if (showing === "view") prefs.viewWidth = px;

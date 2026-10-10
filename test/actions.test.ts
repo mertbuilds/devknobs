@@ -86,6 +86,7 @@ function pinned(...ids: string[]): DevknobsState {
 
 afterEach(() => {
   stage.grab = null;
+  stage.inspect = null;
 });
 
 describe("an action's row", () => {
@@ -233,8 +234,96 @@ describe("running an action", () => {
     const stored = parse(JSON.stringify({ panel: { pinned: ["text", "requests", "replay", 3] } }));
     expect(stored.panel.pinned).toEqual(["text", "requests", "replay"]);
     expect(listedOrder(stored)).toEqual(["text", "replay"]);
-    const kept = merge(DEFAULT_STATE, { panel: { pinned: [...DEFAULTS, "inspect"] } });
+    const kept = merge(DEFAULT_STATE, { panel: { pinned: [...DEFAULTS, "console"] } });
     expect(isReset(kept)).toBe(true);
+  });
+});
+
+describe("inspect's row", () => {
+  test("has a place only where there is an inspect, apart from grab's", () => {
+    expect(ACTIONS.map((entry) => entry.id)).toEqual(["grab", "inspect", "replay", "requests"]);
+    expect(action("inspect").state?.()).toBeNull();
+    expect(isListed(row("inspect"), pinned("inspect"))).toBe(false);
+    stage.grab = fakeGrab();
+    expect(availableActions().map((entry) => entry.id)).toEqual(["grab", "replay"]);
+    stage.grab = null;
+    stage.inspect = fakeGrab();
+    expect(availableActions().map((entry) => entry.id)).toEqual(["inspect", "replay"]);
+    expect(isListed(row("inspect"), pinned("inspect"))).toBe(true);
+    // A fresh panel does not list it.
+    expect(listedOrder(DEFAULT_STATE)).toEqual(DEFAULTS);
+  });
+
+  test("is listed once it is run from the panel, and says on while the mode is on", () => {
+    stage.grab = fakeGrab();
+    stage.inspect = fakeGrab();
+    const store = fakeStore();
+    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("off");
+    runAction(action("inspect"), store);
+    expect(store.getState().panel.pinned).toEqual([...DEFAULTS, "inspect"]);
+    expect(listedOrder(store.getState())).toEqual([...DEFAULTS, "inspect"]);
+    expect(stage.inspect.isOn()).toBe(true);
+    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("on");
+    expect(isActive(row("inspect"), store.getState())).toBe(true);
+    // Grab's row and its mode are no part of it.
+    expect(stage.grab.isOn()).toBe(false);
+    expect(rowText(row("grab"), store.getState(), LIVE)).toBe("off");
+    expect(isListed(row("grab"), store.getState())).toBe(false);
+  });
+
+  test("stays listed, off, once the mode ends, as when its view is left", () => {
+    stage.inspect = fakeGrab();
+    const store = fakeStore();
+    runAction(action("inspect"), store);
+    stage.inspect.set(false);
+    expect(listedOrder(store.getState())).toEqual([...DEFAULTS, "inspect"]);
+    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("off");
+    expect(isActive(row("inspect"), store.getState())).toBe(false);
+    // Its line runs it again, with one pin.
+    runAction(action("inspect"), store);
+    expect(stage.inspect.isOn()).toBe(true);
+    expect(store.sets).toBe(1);
+    runAction(action("inspect"), store);
+    expect(stage.inspect.isOn()).toBe(false);
+  });
+
+  test("its × unpins it and ends the mode", () => {
+    stage.inspect = fakeGrab();
+    const heard: boolean[] = [];
+    stage.inspect.subscribe((on) => heard.push(on));
+    const store = fakeStore();
+    runAction(action("inspect"), store);
+    stopAction(action("inspect"));
+    store.setState(removePatch(store.getState(), row("inspect")));
+    expect(heard).toEqual([true, false]);
+    expect(stage.inspect.isOn()).toBe(false);
+    expect(store.getState().panel.pinned).toEqual([...DEFAULTS]);
+    expect(listedOrder(store.getState())).toEqual([...DEFAULTS]);
+    expect(isReset(store.getState())).toBe(true);
+    // With the mode off already, the × only unpins.
+    runAction(action("inspect"), store);
+    stage.inspect.set(false);
+    stopAction(action("inspect"));
+    expect(heard).toEqual([true, false, true, false]);
+  });
+
+  test("on by its key alone, is listed while the mode is on and tells its row", () => {
+    stage.inspect = fakeGrab();
+    const heard: string[] = [];
+    const stop = action("inspect").watch?.(() => heard.push("changed"));
+    stage.inspect.set(true);
+    expect(heard).toEqual(["changed"]);
+    expect(listedOrder(DEFAULT_STATE)).toEqual([...DEFAULTS, "inspect"]);
+    stage.inspect.set(false);
+    expect(listedOrder(DEFAULT_STATE)).toEqual([...DEFAULTS]);
+    stop?.();
+    stage.inspect.set(true);
+    expect(heard).toEqual(["changed", "changed"]);
+  });
+
+  test("shows the inspect key, as the user set it", () => {
+    expect(action("inspect").binding).toBe("inspect");
+    expect(actionKey(action("inspect"), defaultKeys(), false)).toBe("Shift C");
   });
 });
 

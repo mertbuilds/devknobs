@@ -7,8 +7,8 @@ import { type Combo, comboLabel, type Keys } from "./keys";
 
 /**
  * The panel's footer: the overflow badge, the fresh mode note, the keys the
- * panel answers to, each a control that does what its key does, and the way
- * into the settings.
+ * panel answers to, grab's and inspect's with them, each a control that does
+ * what its key does, and the way into the settings.
  */
 
 /** What the footer says while fresh mode is on, so a panel back at its defaults is no surprise. */
@@ -23,7 +23,7 @@ export function overflowBadge(on: boolean, count: number | null): string {
 }
 
 /** What a footer hint does when it is clicked or its key is pressed. */
-export type Command = "panel" | "search" | "grab" | "replay" | "reset";
+export type Command = "panel" | "search" | "grab" | "inspect" | "replay" | "reset";
 
 /** A key in the footer and the words for what it does. */
 export interface KeyChip {
@@ -39,16 +39,20 @@ function keyLabel(combo: Combo | null, mac: boolean): string {
 
 /**
  * The keys the footer names, most used first: the panel's, the search key,
- * the grab key where there is a grab, replay's, and reset last, each as
- * `comboLabel` shows it.
+ * the grab key where there is a grab, inspect's where there is an inspect,
+ * replay's, and reset last, each as `comboLabel` shows it.
  */
-export function keyChips(keys: Keys, grab: boolean, mac: boolean): KeyChip[] {
+export function keyChips(keys: Keys, grab: boolean, mac: boolean, inspect = false): KeyChip[] {
   const chips: KeyChip[] = [
     { command: "panel", key: comboLabel(keys.panel, mac), word: BINDING_WORDS.panel },
     { command: "search", key: "/", word: "search" },
   ];
   if (grab) {
     chips.push({ command: "grab", key: keyLabel(keys.grab, mac), word: BINDING_WORDS.grab });
+  }
+  if (inspect) {
+    const key = keyLabel(keys.inspect, mac);
+    chips.push({ command: "inspect", key, word: BINDING_WORDS.inspect });
   }
   chips.push(
     { command: "replay", key: keyLabel(keys.replay, mac), word: BINDING_WORDS.replay },
@@ -67,14 +71,19 @@ export interface Footer {
   drawKeys(now: Keys): void;
 }
 
-export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: boolean): Footer {
+export function createFooter(
+  keys: LiveKeys,
+  grab: GrabControl | null,
+  mac: boolean,
+  inspect: GrabControl | null = null,
+): Footer {
   const foot = el("div", "foot");
   const badge = el("span", "badge");
   // The legend of the keys, and the controls they press.
   const meta = el("div", "meta");
   const hints = new Map<Command, HTMLButtonElement>();
   const hintKeys = new Map<Command, HTMLElement>();
-  for (const chip of keyChips(keys.get(), grab !== null, mac)) {
+  for (const chip of keyChips(keys.get(), grab !== null, mac, inspect !== null)) {
     const node = button("hint", "");
     node.dataset.command = chip.command;
     const key = el("kbd", "hint-key", chip.key);
@@ -98,7 +107,7 @@ export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: bool
     hints,
     keysToggle,
     drawKeys(now: Keys): void {
-      for (const chip of keyChips(now, grab !== null, mac)) {
+      for (const chip of keyChips(now, grab !== null, mac, inspect !== null)) {
         const key = hintKeys.get(chip.command);
         if (key) key.textContent = chip.key;
       }

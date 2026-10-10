@@ -398,8 +398,11 @@ function place(node: HTMLElement, shape: readonly number[], ratio: number): void
   write(node, "border-radius", `${shape[4] ?? 0}px`);
 }
 
-/** The layer grab draws on, in a shadow root of its own on this document. */
-export function createOverlay(): Overlay {
+/**
+ * The layer grab draws on, in a shadow root of its own on this document. A
+ * `quiet` one has no glow around the window, for a box that stays with no mode on.
+ */
+export function createOverlay(quiet = false): Overlay {
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "grab");
   host.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:${Z_INDEX}`;
@@ -710,7 +713,7 @@ export function createOverlay(): Overlay {
   const ticker = window.setInterval(sync, SYNC_EVERY);
   // The styles are worked out once with the glow off, so that it fades in.
   void getComputedStyle(glow).opacity;
-  glow.classList.add("on");
+  if (!quiet) glow.classList.add("on");
 
   return {
     draw(current, next, gathered) {

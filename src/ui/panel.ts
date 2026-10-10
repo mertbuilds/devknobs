@@ -5,6 +5,7 @@ import { onCount, overflowCount } from "../engine/overflow";
 import { isMac } from "../engine/ua";
 import { frameWindow, panelSized, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
+import type { InspectControl } from "../grab/inspect";
 import type { DevknobsState } from "../types";
 import { runAction, stopAction } from "./actions";
 import { type Action, availableActions, type Live } from "./catalog";
@@ -13,6 +14,7 @@ import { button, el } from "./dom";
 import { createDrag } from "./drag";
 import { type Command, createFooter, overflowBadge } from "./footer";
 import { icon } from "./icons";
+import { createInspector } from "./inspector";
 import {
   comboSpoken,
   escapeStep,
@@ -45,6 +47,8 @@ export interface PanelOptions {
   keys?: LiveKeys;
   /** Grab, where it is on, to show and to turn on from the search. */
   grab?: GrabControl | null;
+  /** Inspect, where it is on, to show the styles of what it picks in a view of the panel. */
+  inspect?: InspectControl | null;
   /**
    * Show the handle while the panel is closed. Defaults to true. What the
    * user sets in the panel wins over it.
@@ -82,9 +86,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const keys = options.keys ?? createKeys();
   const prefs = createPrefs({ handle: options.handle });
   const grab = options.grab ?? null;
+  const inspect = options.inspect ?? null;
   const mac = isMac();
   // What the actions act on, before anything asks which of them the page has.
   stage.grab = grab;
+  stage.inspect = inspect;
   // The requests as the actions drive them. Run from the search, the view
   // hands the focus back to the button the search opened from.
   const requestsHere: Requests = {
@@ -99,10 +105,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
     close: () => requests.close(),
   };
   stage.requests = requestsHere;
-  /** The actions the page has: grab only where there is one. */
+  /** The actions the page has: grab and inspect only where there is one. */
   const actionsHere = availableActions();
-  /** The keys the shortcuts list: grab's only where there is one. */
-  const bindingsHere = BINDINGS.filter((binding) => binding !== "grab" || grab !== null);
+  /** The keys the shortcuts list: grab's and inspect's only where there is one. */
+  const bindingsHere = BINDINGS.filter(
+    (binding) =>
+      (binding !== "grab" || grab !== null) && (binding !== "inspect" || inspect !== null),
+  );
 
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "panel");
@@ -154,7 +163,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const home = el("div", "home pane");
   home.append(rows, empty, add, head, results);
 
-  const footer = createFooter(keys, grab, mac);
+  const footer = createFooter(keys, grab, mac, inspect);
   const { foot, badge, hints, keysToggle } = footer;
   // The tooltip the icon-only controls share. Their aria-label already says
   // the same, so assistive tech is not told twice.
@@ -166,6 +175,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     keys,
     prefs,
     grab,
+    inspect,
     mac,
     bindingsHere,
     keysToggle,
@@ -342,6 +352,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     engine.reset();
   }
 
+  /** Inspect going on leaves the search as grab does, and keeps a focus that is in its view. */
+  function onInspect(on: boolean): void {
+    const at = root.activeElement;
+    if (on && !(at && side.node.contains(at))) palette.onGrab(on);
+  }
+
   function actionOf(id: Action["id"]): Action | undefined {
     return actionsHere.find((action) => action.id === id);
   }
@@ -503,8 +519,11 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const stopKeys = keys.subscribe(renderKeys);
   const stopPrefs = prefs.subscribe(render);
   const stopGrab = grab?.subscribe(palette.onGrab);
+  const stopInspect = inspect?.subscribe(onInspect);
   // A mode that goes on or off, by its key too, shows on its row.
   const stopModes = actionsHere.flatMap((action) => action.watch?.(render) ?? []);
+  // After the palette's, so the view takes the focus the palette let go of.
+  const inspector = inspect ? createInspector({ inspect, tips, prefs }) : null;
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("pointerdown", onPointerDown, true);
@@ -536,14 +555,18 @@ export function createPanel(options: PanelOptions = {}): Panel {
       stopPrefs();
       prefs.destroy();
       stopGrab?.();
+      stopInspect?.();
       for (const stop of stopModes) stop();
       if (stage.grab === grab) stage.grab = null;
+      if (stage.inspect === inspect) stage.inspect = null;
       if (stage.requests === requestsHere) stage.requests = null;
       stopCount();
       clearInterval(ticker);
       tips.destroy();
       settings.destroy();
       side.destroy();
+      // After the view, whose closing takes inspect and its box with it.
+      inspector?.destroy();
       slide.destroy();
       knobRows.destroy();
       window.removeEventListener("keydown", onKeydown, true);

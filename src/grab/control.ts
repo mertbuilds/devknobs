@@ -16,7 +16,7 @@ import {
   pressTurnsOn,
   releasesGrabKey,
 } from "./keys";
-import type { Mode, ModeOptions } from "./mode";
+import type { Mode, ModeOptions, Purpose } from "./mode";
 import { type GrabPlace, grabStep } from "./place";
 
 export interface GrabControlOptions {
@@ -26,6 +26,11 @@ export interface GrabControlOptions {
    * Defaults to shift and g.
    */
   key?: () => GrabKey | null;
+  /**
+   * Another use of the picking, as inspect is: what a pick does in place of
+   * grab's copy, and the name the page and its frame say it on and off by.
+   */
+  purpose?: Purpose & { channel: "inspect" };
 }
 
 /** Loads grab's mode, the overlay and the context, the first time grab turns on. */
@@ -96,6 +101,8 @@ export function createGrab(
   loadMode: LoadMode = () => import("./index"),
 ): GrabControl {
   const keyNow = options.key ?? defaultGrabKey;
+  const { purpose } = options;
+  const channel = purpose?.channel ?? "grab";
   const inFrame = isDevknobsFrame();
   const listeners = new Set<(on: boolean) => void>();
   /** Where grab runs. Only `move` changes it. */
@@ -120,6 +127,7 @@ export function createGrab(
       mode = startMode({
         pointer,
         scheme,
+        purpose,
         heldKey: (event) => {
           const key = keyNow();
           return key !== null && keyMatches(event, key.key);
@@ -150,7 +158,7 @@ export function createGrab(
     if (to === "here") startLocal();
     const on = to !== "off";
     if (on === was) return;
-    if (inFrame) post(window.parent, { source: "devknobs", type: "grab", on });
+    if (inFrame) post(window.parent, { source: "devknobs", type: channel, on });
     for (const listener of Array.from(listeners)) listener(on);
   }
 
@@ -158,7 +166,7 @@ export function createGrab(
     const target = frame();
     const to = grabStep(place, { type: "ask", on: next, frame: target !== null });
     if (target && (to === "frame" || place === "frame")) {
-      post(target, { source: "devknobs", type: "grab", on: next, scheme: systemScheme() });
+      post(target, { source: "devknobs", type: channel, on: next, scheme: systemScheme() });
       if (next) target.focus();
     }
     move(to);
@@ -233,13 +241,13 @@ export function createGrab(
   function onMessage(event: MessageEvent): void {
     if (inFrame) {
       const message = readMessage(event, window.parent, window.location.origin);
-      if (message?.type !== "grab") return;
+      if (message?.type !== channel) return;
       scheme = message.scheme;
       set(message.on);
       return;
     }
     const message = readMessage(event, frameWindow(), window.location.origin);
-    if (message?.type === "grab") move(grabStep(place, { type: "frame", on: message.on }));
+    if (message?.type === channel) move(grabStep(place, { type: "frame", on: message.on }));
     // The frame loaded again, and grab with it is gone.
     else if (message?.type === "ready") move(grabStep(place, { type: "frame", on: false }));
   }

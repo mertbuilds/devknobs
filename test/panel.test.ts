@@ -30,7 +30,7 @@ import {
   velocity,
 } from "../src/ui/place";
 import { handleHint } from "../src/ui/settings";
-import { LIST_MIN, VIEW_WIDTH, WIDTH_MAX } from "../src/ui/size";
+import { HANDLE_REACH, LIST_MIN, VIEW_WIDTH, WIDTH_MAX, widthIn } from "../src/ui/size";
 import { SLIDE } from "../src/ui/slide";
 import { CSS } from "../src/ui/styles";
 import { TIP_GAP, TIP_MARGIN, tipAt } from "../src/ui/tooltip";
@@ -1000,6 +1000,99 @@ describe("a feature's view", () => {
     expect(CSS).not.toMatch(/\.side\b|data-pane|--pane-/);
     const own = rules(CSS).filter((rule) => rule.selector.includes(".view"));
     for (const rule of own) expect(rule.body).not.toMatch(/font-weight|font-size|font-family/);
+  });
+});
+
+describe("the styles view at any width", () => {
+  /** The rules of the styles view: its bar, its crumbs and its blocks. */
+  function own(): Rule[] {
+    return rules(CSS).filter((rule) => /\.(styles|crumb|css-)/.test(rule.selector));
+  }
+
+  /** The panel's border and padding, then a block's own padding, on both sides, in px. */
+  const PANEL_EDGES = 10;
+  const BLOCK_EDGES = 20;
+
+  test("is shown from 240 in a small window, at 340 until dragged, and up to 720", () => {
+    const small = 240 + HANDLE_REACH + PANEL_GAP;
+    expect(widthIn("view", 340, small)).toBe(240);
+    expect(widthIn("view", 340, 1440)).toBe(340);
+    expect(widthIn("view", 720, 1440)).toBe(720);
+    expect(widthIn("view", 2000, 1440)).toBe(720);
+  });
+
+  test("has no width of its own to outgrow the narrowest: only the swatch is sized, in px", () => {
+    const narrowest = 240 - PANEL_EDGES - BLOCK_EDGES;
+    for (const width of [240, 340, 720]) {
+      const room = width - PANEL_EDGES - BLOCK_EDGES;
+      for (const rule of own()) {
+        const sizes = [...rule.body.matchAll(/(?:^|[\s;])(?:min-)?width:\s*([\d.]+)px/g)];
+        for (const [, px] of sizes) {
+          expect(rule.selector).toBe(".css-swatch");
+          expect(Number(px)).toBeLessThan(room);
+        }
+        expect(rule.body).not.toMatch(/min-width:\s*[1-9]/);
+      }
+    }
+    // The selector asks for 14 characters of 11px mono before the file goes under it.
+    expect(body(".css-selector")).toMatch(/flex:\s*1 1 14ch/);
+    expect(14 * 11 * 0.61).toBeLessThan(narrowest);
+  });
+
+  test("fits its columns to the panel, whatever a line in them is worth", () => {
+    for (const selector of [".styles", ".css-blocks"]) {
+      expect(body(selector)).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    }
+  });
+
+  test("has rules for its content alone: its bar, filter, modes and fold are the kit's", () => {
+    const selectors = rules(CSS).map((rule) => rule.selector);
+    for (const selector of selectors) {
+      expect(selector).not.toMatch(/\.styles-|\.css-fold\b/);
+      if (/\.(styles|crumb|css-)/.test(selector)) {
+        expect(selector).not.toMatch(/\.(toolbar|filter|seg|seg-item|row|main|lead|turn|fold|empty)\b/);
+      }
+    }
+    expect(selectors).toContain(".styles");
+  });
+
+  test("wraps a declaration, a selector and what a rule sits in, anywhere in a long word", () => {
+    expect(body(".css-context, .css-selector, .css-decl")).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(body(".css-selector")).toMatch(/min-width:\s*0/);
+    expect(body(".css-var")).toMatch(/white-space:\s*normal/);
+    expect(body(".css-hidden")).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  test("puts the file under the selector where both do not fit, and cuts its name short", () => {
+    expect(body(".css-head")).toMatch(/flex-wrap:\s*wrap/);
+    const from = body(".css-from");
+    expect(from).toMatch(/max-width:\s*100%/);
+    expect(from).toMatch(/min-width:\s*0/);
+    expect(from).toMatch(/margin-left:\s*auto/);
+    const source = body(".css-source");
+    expect(source).toMatch(/min-width:\s*0/);
+    expect(source).toMatch(/text-overflow:\s*ellipsis/);
+    expect(source).toMatch(/white-space:\s*nowrap/);
+    expect(body(".css-mark")).toMatch(/flex:\s*none/);
+  });
+
+  test("keeps the crumbs on one line that scrolls, and cuts a heading short", () => {
+    expect(body(".crumbs")).toMatch(/overflow-x:\s*auto/);
+    expect(body(".crumbs")).not.toMatch(/flex-wrap/);
+    expect(body(".crumb")).toMatch(/flex:\s*none/);
+    const group = body(".css-group");
+    expect(group).toMatch(/max-width:\s*100%/);
+    expect(group).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  test("marks no state with a line: no border, no inset shadow and no bold", () => {
+    for (const rule of own()) {
+      if (rule.selector === ".css-swatch") continue;
+      expect(rule.body).not.toMatch(/[\s;]border(-(?!radius)[\w-]+)?:|box-shadow|outline:|font-weight/);
+    }
+    // The block a custom property is set in lights up by its fill.
+    const flash = rules(CSS).filter((rule) => rule.selector === "from" || rule.selector === "to");
+    expect(flash.some((rule) => /background:\s*var\(--track\)/.test(rule.body))).toBe(true);
   });
 });
 

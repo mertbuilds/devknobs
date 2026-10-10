@@ -229,7 +229,7 @@ export type Row = KnobRow | ActionRow;
 
 /** Something the panel does rather than a knob it sets. Its row comes from what is said here. */
 export interface Action {
-  id: "grab" | "replay" | "requests";
+  id: "grab" | "inspect" | "replay" | "requests";
   label: string;
   /** What a search result says after the name. */
   long: string;
@@ -261,7 +261,7 @@ export const ACTIONS: readonly Action[] = [
     id: "grab",
     label: "grab",
     long: "pick an element to copy",
-    aliases: ["inspect", "pick", "element", "component", "select", "agent"],
+    aliases: ["pick", "element", "component", "select", "agent"],
     icon: "square-dashed-mouse-pointer",
     binding: "grab",
     run: () => stage.grab?.set(!stage.grab.isOn()),
@@ -269,6 +269,19 @@ export const ACTIONS: readonly Action[] = [
     off: () => stage.grab?.set(false),
     watch: (listener) => stage.grab?.subscribe(() => listener()) ?? (() => {}),
     available: () => stage.grab !== null,
+  },
+  {
+    id: "inspect",
+    label: "inspect",
+    long: "pick an element to see its styles",
+    aliases: ["styles", "css", "rules", "cascade", "stylesheet"],
+    icon: "braces",
+    binding: "inspect",
+    run: () => stage.inspect?.set(!stage.inspect.isOn()),
+    state: () => (stage.inspect ? (stage.inspect.isOn() ? "on" : "off") : null),
+    off: () => stage.inspect?.set(false),
+    watch: (listener) => stage.inspect?.subscribe(() => listener()) ?? (() => {}),
+    available: () => stage.inspect !== null,
   },
   {
     id: "replay",

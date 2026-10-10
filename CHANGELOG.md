@@ -10,6 +10,11 @@
 
 - `?devknobs=fresh` in the page's address shows the page and the panel as a first visit sees them: `localStorage` is left alone, and every load devknobs did not ask for starts with no knobs set. the footer says so while it is on
 
+### inspect
+
+- `⇧C` (`Shift C` off a Mac), the inspect action in the search or its key in the footer picks an element as grab does and shows its css in the panel, in place of the rows, read only: its `style` attribute, the rules that reach it in cascade order with overridden declarations struck through, each rule's `@layer`, `@media`, `@supports` and `@container` and its stylesheet's file, its `::before` and `::after`, what each ancestor hands down, color swatches and what a custom property resolves to. a click copies nothing and inspect stays on. a stylesheet from another origin shows as `rules hidden`. the key is set in the settings like the others, and `inspect` in the search no longer finds grab. the styles have two modes, set beside the filter and kept: `simple`, the default, lists only the declarations that apply to the element, grouped by what they do, with what it inherits folded under them, and `advanced` is the cascade view above
+- inspect has a row as grab and replay animations do: run from the search, the add knob list, the footer or its row, its row stays in the list, says `on` while it picks, and its x takes it off and ends the picking. its key in the footer and its row now turn it off where it is on
+
 ### panel
 
 - a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept

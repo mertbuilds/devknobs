@@ -38,9 +38,10 @@ function settings(): FakeNode {
     destroy: () => {},
   };
   const prefs: LivePrefs = {
-    get: () => ({ handle: true, listWidth: 240, viewWidth: 340 }),
+    get: () => ({ handle: true, listWidth: 240, viewWidth: 340, stylesMode: "simple" }),
     setHandle: () => {},
     setWidth: () => {},
+    setStylesMode: () => {},
     subscribe: () => () => {},
     destroy: () => {},
   };
@@ -56,6 +57,7 @@ function settings(): FakeNode {
     keys,
     prefs,
     grab: null,
+    inspect: null,
     mac: true,
     bindingsHere: BINDINGS,
     keysToggle: document.createElement("button"),
@@ -165,6 +167,18 @@ describe("a row's line", () => {
     expect(parts(line.main)).toEqual(["glyph", "row-label", "row-value", "hint-key row-key"]);
     expect(fake(line.main).children[1]?.textContent).toBe("grab");
     expect(fake(line.clear).attributes.get("aria-label")).toBe("remove grab");
+  });
+
+  test("inspect's row is that line too: its icon, its name, its key, and an x that removes it", () => {
+    const grab = rowLine(row("grab"));
+    const line = rowLine(row("inspect"));
+    expect(line.box.dataset.row).toBe("inspect");
+    expect(line.box.className).toBe(grab.box.className);
+    expect(parts(fake(line.box).children[0])).toEqual(["lead grip", "main", "row-button clear"]);
+    expect(parts(line.main)).toEqual(["glyph", "row-label", "row-value", "hint-key row-key"]);
+    expect(fake(line.main).children[1]?.textContent).toBe("inspect");
+    expect(fake(line.clear).attributes.get("aria-label")).toBe("remove inspect");
+    expect(fake(line.grip).attributes.get("aria-label")).toBe("move inspect");
   });
 
   test("the requests' row is that line too: its icon, its name, off or on, its key, and an x that removes it", () => {

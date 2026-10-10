@@ -1,5 +1,6 @@
 import type { ContrastValue, MotionValue, SchemeValue, TransparencyValue } from "../types";
 import { addLayer, baseMatchMedia, removeLayer } from "./matchmedia";
+import { markInline } from "./owninline";
 import { authoredMedia } from "./text";
 
 export type MediaFeature =
@@ -200,6 +201,15 @@ let forward: ((event: Event) => void) | null = null;
 let observer: MutationObserver | null = null;
 let frame = 0;
 let colorScheme: string | null = null;
+
+/**
+ * A rule's media text as the page wrote it, whatever the prefers knobs or text
+ * size made of it since. The rewritten text is what the browser matches, and
+ * this is what the styles pane shows.
+ */
+export function authoredQuery(rule: MediaBearingRule): string {
+  return originals.get(rule) ?? authoredMedia(rule) ?? rule.media.mediaText;
+}
 
 function walkRules(
   rules: CSSRuleList,
@@ -409,6 +419,9 @@ function applyColorScheme(): void {
   const value = current.scheme === "system" ? colorScheme : current.scheme;
   if (value) root.style.setProperty("color-scheme", value);
   else root.style.removeProperty("color-scheme");
+  // The page's own, put back or the same as the knob's, stays the page's.
+  const own = current.scheme !== "system" && value !== colorScheme;
+  markInline(root, "color-scheme", own ? root.style.getPropertyValue("color-scheme") : null);
 }
 
 /**

@@ -148,6 +148,30 @@ describe("readMessage", () => {
     });
   });
 
+  test("reads inspect going on and off as it reads grab, and a pick and an outline with nothing in them", () => {
+    expect(from({ source: "devknobs", type: "inspect", on: true, scheme: "dark" })).toEqual({
+      source: "devknobs",
+      type: "inspect",
+      on: true,
+      scheme: "dark",
+    });
+    expect(from({ source: "devknobs", type: "inspect", on: false })).toEqual({
+      source: "devknobs",
+      type: "inspect",
+      on: false,
+    });
+    expect(from({ source: "devknobs", type: "inspect" })).toBeNull();
+    // An element cannot ride a message: whatever else is sent along is dropped.
+    expect(from({ source: "devknobs", type: "picked", element: "button" })).toEqual({
+      source: "devknobs",
+      type: "picked",
+    });
+    expect(from({ source: "devknobs", type: "outline" })).toEqual({
+      source: "devknobs",
+      type: "outline",
+    });
+  });
+
   test("reads the overflow count the frame reports", () => {
     expect(from({ source: "devknobs", type: "overflow", count: 3 })).toEqual({
       source: "devknobs",

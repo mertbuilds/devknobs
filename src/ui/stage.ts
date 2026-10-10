@@ -9,8 +9,10 @@ import type { Requests } from "./requests";
 export interface Stage {
   /** Grab, where there is one. */
   grab: GrabControl | null;
+  /** Inspect's switch, where there is one. */
+  inspect: GrabControl | null;
   /** The requests view, where a panel shows one. */
   requests: Requests | null;
 }
 
-export const stage: Stage = { grab: null, requests: null };
+export const stage: Stage = { grab: null, inspect: null, requests: null };

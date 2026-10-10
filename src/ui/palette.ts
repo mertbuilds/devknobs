@@ -219,7 +219,7 @@ export function createPalette(context: PaletteContext): Palette {
   /**
    * Grab, however it went on, takes the focus out of the panel, to the page,
    * so the arrows, Enter, `c` and escape are grab's at once. Off, it leaves
-   * the focus where it is.
+   * the focus where it is. Inspect going on does the same.
    */
   function onGrab(on: boolean): void {
     if (on) {

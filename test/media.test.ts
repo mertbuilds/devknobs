@@ -8,6 +8,7 @@ import {
   splitQueryList,
   SYSTEM_MEDIA,
 } from "../src/engine/media";
+import { ownInline } from "../src/engine/owninline";
 
 const SCHEME = "prefers-color-scheme";
 const MOTION = "prefers-reduced-motion";
@@ -258,6 +259,31 @@ describe("the prefers knobs across an unmount", () => {
     apply({ ...SYSTEM_MEDIA, scheme: "dark" });
     expect(list.matches).toBe(true);
     expect(heard).toEqual([true]);
+  });
+
+  test("note the color-scheme they wrote on the root as their own, for the styles view to leave out", () => {
+    const root = document.documentElement;
+    apply(SYSTEM_MEDIA);
+    expect(ownInline(root, "color-scheme")).toBeNull();
+    apply({ ...SYSTEM_MEDIA, scheme: "dark" });
+    expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
+    expect(ownInline(root, "color-scheme")).toBe("dark");
+    apply({ ...SYSTEM_MEDIA, scheme: "light" });
+    expect(ownInline(root, "color-scheme")).toBe("light");
+    apply(SYSTEM_MEDIA);
+    expect(ownInline(root, "color-scheme")).toBeNull();
+  });
+
+  test("a color-scheme the page set itself stays the page's, the same as the knob's or put back", () => {
+    const root = document.documentElement;
+    root.style.setProperty("color-scheme", "dark");
+    apply({ ...SYSTEM_MEDIA, scheme: "dark" });
+    expect(ownInline(root, "color-scheme")).toBeNull();
+    apply({ ...SYSTEM_MEDIA, scheme: "light" });
+    expect(ownInline(root, "color-scheme")).toBe("light");
+    apply(SYSTEM_MEDIA);
+    expect(root.style.getPropertyValue("color-scheme")).toBe("dark");
+    expect(ownInline(root, "color-scheme")).toBeNull();
   });
 
   test("a list reads the touch screen and hears it come and go", () => {

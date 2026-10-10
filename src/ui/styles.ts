@@ -931,6 +931,117 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .row.open > .line .turn .glyph { transform: rotate(270deg); }
 .fold-body { min-height: 0; }
 
+/* The styles view: its bar, its filter, the control of its two modes, the
+   fold of what is inherited and its empty lines are the kit's, and what is
+   here is its own content. The crumbs head it, the bar stays on top, and the
+   blocks scroll under it, one for each rule. The panel is 13 with 1 of border
+   and 4 of padding, so a block is 8. What is css is set in mono, a size under
+   the rows, and every word about it in the panel's own face, as quiet as a
+   label. The panel is as wide as its edge is dragged to, so nothing here has
+   a width of its own: a line wraps, and a name that must stay on one line is
+   cut short. */
+.styles { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+/* One line, which scrolls sideways with no bar, and shows its end. */
+.crumbs {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  font-size: 11px;
+  color: var(--faint);
+}
+.crumb { flex: none; border-radius: 4px; transition: color 120ms ease-out; }
+.crumb:hover, .crumb[aria-current] { color: var(--fg); }
+.crumb-sep { flex: none; opacity: 0.6; }
+.css-blocks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+/* Clear of the bar that stays on top, when a block is scrolled to. */
+.css-block {
+  padding: 6px 10px;
+  background: var(--card);
+  border-radius: 8px;
+  scroll-margin-top: 32px;
+}
+.css-block.flash { animation: css-flash 900ms ease-out; }
+@keyframes css-flash {
+  from { background: var(--track); }
+  to { background: var(--card); }
+}
+.css-context, .css-selector, .css-decl {
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.css-context { color: var(--faint); }
+/* The selector, then where the rule is from at the line's end: its mark and
+   its file. Where the panel is too narrow for both, that goes under the
+   selector, still at the end, and the file's name is cut short at the
+   block's width. */
+.css-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.css-selector { flex: 1 1 14ch; min-width: 0; }
+.css-part.off { color: var(--faint); }
+.css-from {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.css-mark { flex: none; }
+.css-source {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A declaration that wraps goes on further in than it starts. */
+.css-decl { display: block; padding-left: 24px; text-indent: -12px; text-decoration: none; }
+s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-through; }
+.css-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+/* A custom property's name, which says what it resolves to and goes to where it is set. */
+.css-var {
+  display: inline;
+  white-space: normal;
+  text-indent: 0;
+  text-decoration: underline dotted var(--faint);
+  text-underline-offset: 2px;
+  border-radius: 2px;
+}
+.css-group {
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 6px 10px 0;
+  font-size: 10.5px;
+  color: var(--faint);
+  border-radius: 4px;
+  transition: color 120ms ease-out;
+}
+.css-group:hover { color: var(--fg); }
+/* The simple mode: what applies as one list, with no selector to stand
+   under, so a line starts at the box's edge and wraps further in. A group's
+   name is a label of the panel's, and what a custom property comes to is as
+   quiet. */
+.css-applied { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.css-applied .css-decl { padding-left: 12px; }
+.css-label { font-size: 10.5px; color: var(--faint); }
+.css-comes { color: var(--faint); }
+.css-hidden { padding: 2px 10px; font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
+
 /* The strip that changes the panel's width, as the edge of a docked devtools
    does: it lies across the border on the panel's page side, as tall as the
    panel, and shows a hairline on that border under the pointer, the keys'
