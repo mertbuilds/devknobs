@@ -23,9 +23,6 @@ export const HIDDEN = "<hidden>";
 /** How much of a query a row shows, in characters, the `?` included. */
 export const QUERY_MAX = 16;
 
-/** A body past this many characters starts folded away. */
-export const LONG_BODY = 2000;
-
 /** How near its start a list counts as scrolled to it, in px. */
 export const STICK_SLACK = 4;
 
@@ -390,35 +387,6 @@ export function statusLine(entry: RequestEntry): string {
   }
   if (entry.status === 0) return "opaque";
   return `${entry.status} ${entry.statusText}`.trim();
-}
-
-function kindWords(entry: RequestEntry): string {
-  if (entry.kind === "fetch") return "fetch";
-  if (entry.kind === "xhr") return "XMLHttpRequest";
-  if (entry.kind === "navigation") return "the document";
-  const by = entry.initiatorType ? `, loaded by ${entry.initiatorType}` : "";
-  return `${kindLabel(entry)}${by}`;
-}
-
-/**
- * The general part of a request's detail, a label and a value a line. Lines
- * with nothing to say are left out. `started` is the time of day it began.
- */
-export function generalLines(entry: RequestEntry, started: string): [label: string, value: string][] {
-  const lines: [string, string][] = [["url", entry.url]];
-  if (entry.finalUrl && entry.finalUrl !== entry.url) lines.push(["answered from", entry.finalUrl]);
-  if (entry.method) lines.push(["method", entry.method]);
-  lines.push(["status", statusLine(entry)], ["state", entry.state], ["kind", kindWords(entry)]);
-  if (entry.contentType) lines.push(["type", entry.contentType]);
-  lines.push(["started at", started]);
-  lines.push(["duration", durationLabel(entry.timing.duration) || "still going"]);
-  if (entry.timing.response !== null) {
-    lines.push(["time to response", durationLabel(entry.timing.response)]);
-  }
-  if (entry.sizes) lines.push(["size", sizeLabel(entry.sizes)]);
-  if (entry.protocol) lines.push(["protocol", entry.protocol]);
-  if (entry.source === "frame") lines.push(["from", "the device frame"]);
-  return lines;
 }
 
 const SECRET_NAMES = new Set(["authorization", "cookie", "set-cookie", "proxy-authorization"]);

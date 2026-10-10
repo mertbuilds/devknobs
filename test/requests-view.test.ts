@@ -10,9 +10,10 @@ import { isListed, listedOrder, removePatch, rowText } from "../src/ui/list";
 import { stage } from "../src/ui/stage";
 import { CSS } from "../src/ui/styles";
 import { comboText, defaultKeys, keyAction, type KeyLike, parseCombo } from "../src/ui/keys";
-import { GONE_NOTE, HIDES_NOTE } from "../src/ui/requestdetail";
+import { GONE_NOTE, HIDES_NOTE, NO_HEADER } from "../src/ui/requestdetail";
 import { BRANDS } from "../src/ui/icons";
-import { clockTime, copyText, LIGHT_WHY, LONG_BODY } from "../src/ui/requestformat";
+import { clockTime, copyText, LIGHT_WHY } from "../src/ui/requestformat";
+import { BODY_LINES, LIGHT_BODIES } from "../src/ui/requestparts";
 import {
   COPIED_SHOWS,
   createRequests,
@@ -122,19 +123,54 @@ function chip(at: Scene, label: string): FakeNode {
   return node;
 }
 
-/** The detail's sections: title, whether open, and the text inside. */
-function sections(at: Scene): { title: string; open: boolean; text: string }[] {
-  return at.pane.body.one("req-detail").find("row").map((box) => ({
-    title: box.one("row-label").textContent,
-    open: box.one("main").getAttribute("aria-expanded") === "true",
-    text: box.one("req-inner").textContent,
-  }));
+/** The detail's segments: the ones that show, and the one that is on. */
+function segs(at: Scene): { shown: string[]; on: string[] } {
+  const items = at.pane.body.one("req-detail").one("seg").nodes().filter((item) => !item.hidden);
+  return {
+    shown: items.map((item) => item.textContent),
+    on: items.filter((item) => item.getAttribute("aria-checked") === "true").map((item) => item.textContent),
+  };
 }
 
-function section(at: Scene, title: string): FakeNode {
-  const box = at.pane.body.one("req-detail").find("row").find((each) => each.one("row-label").textContent === title);
-  if (!box) throw new Error(`no section ${title}`);
+/** Press a segment of the detail. */
+function pick(at: Scene, label: string): void {
+  const item = at.pane.body.one("req-detail").one("seg").nodes().find((each) => each.textContent === label);
+  if (!item || item.hidden) throw new Error(`no segment ${label}`);
+  item.click();
+}
+
+/** What shows under the detail's segments. */
+function region(at: Scene): FakeNode {
+  return at.pane.body.one("req-body");
+}
+
+/** The labels of the groups that show, in order. */
+function groups(at: Scene): string[] {
+  return region(at).find("group").filter((box) => !box.hidden).map((box) => box.one("group-label").textContent);
+}
+
+function groupOf(at: Scene, label: string): FakeNode {
+  const box = region(at).find("group").find((each) => each.one("group-label").textContent === label);
+  if (!box) throw new Error(`no group ${label}`);
   return box;
+}
+
+/** A list's pairs that show, a name and its value each. */
+function listed(list: FakeNode): string[][] {
+  const cells = list.nodes().filter((cell) => !cell.hidden).map((cell) => cell.textContent);
+  return cells.flatMap((cell, at) => (at % 2 === 0 ? [[cell, cells[at + 1] ?? ""]] : []));
+}
+
+/** The summary's cells, by what they are. */
+function top(at: Scene): Record<"verb" | "path" | "status" | "took" | "host", FakeNode> {
+  const box = at.pane.body.one("req-sum");
+  return {
+    verb: box.one("req-verb"),
+    path: box.one("req-url"),
+    status: box.one("req-stat"),
+    took: box.one("req-took"),
+    host: box.one("req-host"),
+  };
 }
 
 /** The classes of a node's element children, in order. */
@@ -311,20 +347,33 @@ describe("what the view is built from", () => {
     }
   });
 
-  test("a section of the detail is the kit's fold: its chevron in the leading slot, its label, then what it says", () => {
+  test("a request in full is built from the kit: its bar, its segments, its groups, its lists and its code", () => {
     const at = scene();
-    at.add(10);
+    at.add(10, { url: "http://app.test/api/users?page=2" });
     at.requests.toggle();
     at.rows()[0]?.click();
-    const box = section(at, "initiator");
-    expect(box.className).toBe("row");
-    expect(parts(box)).toEqual(["line", "fold"]);
-    expect(parts(box.one("main"))).toEqual(["lead", "row-label", "row-value idle"]);
-    expect(parts(box.one("lead"))).toEqual(["turn"]);
-    expect(parts(box.one("fold"))).toEqual(["fold-body"]);
-    expect(parts(box.one("fold-body"))).toEqual(["req-inner"]);
-    expect(section(at, "general").className).toBe("row open");
-    expect(at.pane.body.find("req-section")).toEqual([]);
+    const detail = at.pane.body.one("req-detail");
+    expect(parts(detail)).toEqual(["toolbar", "note", "note", "req-body"]);
+    // The summary and the segments are in the one bar, which stays, with the headers' filter after them.
+    expect(parts(detail.one("toolbar"))).toEqual(["req-sum", "seg", "field filter"]);
+    expect(detail.one("seg").getAttribute("role")).toBe("radiogroup");
+    expect(detail.one("seg").nodes().map((item) => item.className)).toEqual(["seg-item on", "seg-item", "seg-item"]);
+    expect(parts(region(at))).toEqual(["group", "group"]);
+    expect(parts(groupOf(at, "request"))).toEqual(["group-head", "pairs", "code"]);
+    expect(parts(groupOf(at, "request").one("group-head"))).toEqual(["group-label", "row-button req-copy"]);
+    expect(parts(groupOf(at, "response"))).toEqual(["group-head", "code"]);
+    // Nothing folds, and no section is drawn by the view for itself.
+    expect(detail.find("fold")).toEqual([]);
+    expect(detail.find("row")).toEqual([]);
+    // What the view styles for itself is cells only: no bar, no segment, no group, list or code of its own.
+    const own = [...CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((match) => ({ selector: (match[1] ?? "").trim(), body: match[2] ?? "" }))
+      .filter((rule) => /\.req-/.test(rule.selector));
+    for (const rule of own) {
+      expect(rule.selector).not.toMatch(/\.(toolbar|seg|seg-item|group|group-head|pairs|pair-\w+|code|code-text|split|chip|row-button|main)\b/);
+      expect([rule.selector, /font-weight/.test(rule.body)]).toEqual([rule.selector, false]);
+    }
+    expect(own.map((rule) => rule.selector).filter((each) => /req-(kv|pre|inner|general|section)\b/.test(each))).toEqual([]);
   });
 });
 
@@ -913,111 +962,275 @@ describe("the keys in the list", () => {
 });
 
 describe("the detail", () => {
-  test("a click on a row shows its request in the same pane, in sections", () => {
+  /** A request with a body of `count` lines to send. */
+  const lines = (count: number) => Array.from({ length: count }, (_, index) => `line ${index}`).join("\n");
+
+  test("a click on a row shows its request in the same pane: a summary, and its bodies first", () => {
     const at = scene();
-    const entry = at.add(10);
+    at.add(10, { url: "http://app.test/api/users?page=2" });
     at.requests.toggle();
     at.rows()[0]?.click();
     expect(at.pane.view()).toBe(REQUEST_VIEW);
     expect(at.pane.body.find("req-row")).toEqual([]);
-    expect(sections(at).map((each) => [each.title, each.open])).toEqual([
-      ["general", true],
-      ["request headers", true],
-      ["request body", true],
-      ["response headers", true],
-      ["response body", true],
-      ["initiator", false],
-    ]);
-    const general = section(at, "general").find("req-v").map((node) => node.textContent);
-    expect(general).toContain("http://app.test/api/item-10");
-    expect(general).toContain("201 Created");
-    expect(general).toContain(clockTime(new Date(entry.timing.start)));
-    expect(section(at, "request headers").one("req-inner").textContent).toBe(
-      "content-typeapplication/jsonAuthorizationBearer abcX-Api-Keyk1",
-    );
+    const said = top(at);
+    // What is read most leads: the method and the path, then how it went.
+    expect(parts(at.pane.body.one("req-sum"))).toEqual(["req-first", "req-second"]);
+    expect(parts(at.pane.body.one("req-first"))).toEqual(["req-verb req-post", "req-url"]);
+    expect(parts(at.pane.body.one("req-second"))).toEqual(["req-stat ok", "req-took", "req-host"]);
+    expect(said.verb.textContent).toBe("POST");
+    expect(said.path.textContent).toBe("/api/users?page=2");
+    expect(said.path.title).toBe("http://app.test/api/users?page=2");
+    expect(said.status.textContent).toBe("201 Created");
+    expect(said.took.textContent).toBe("20ms");
+    expect(said.host.textContent).toBe("app.test");
+    expect(segs(at)).toEqual({ shown: ["body", "headers", "more"], on: ["body"] });
+    expect(region(at).getAttribute("role")).toBe("region");
+    expect(region(at).getAttribute("aria-label")).toBe("body");
+    expect(groups(at)).toEqual(["request", "response"]);
   });
 
-  test("the general part is colored as the row is: the status, and the method or the kind's mark", () => {
+  test("a path too long for its two lines is cut in its middle, and its tooltip has all of it", () => {
+    const at = scene();
+    const url = `http://app.test/api/${"a".repeat(60)}/${"b".repeat(60)}/end?x=1`;
+    at.add(10, { url });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    const shown = top(at).path.textContent;
+    expect(shown.length).toBeLessThan(url.length - 40);
+    expect(shown.startsWith("/api/aaaa")).toBe(true);
+    expect(shown.endsWith("/end?x=1")).toBe(true);
+    expect(shown).toContain("…");
+    expect(top(at).path.title).toBe(url);
+  });
+
+  test("the summary is colored as the row is: the status, and the method or the kind's mark", () => {
     const at = scene();
     at.store.put(image());
     at.add(100, { method: "PATCH", state: "failed", status: 500, statusText: "" });
     at.requests.toggle();
-    /** The general lines by their label, as the nodes that show their values. */
-    const general = () => {
-      const [grid] = section(at, "general").find("req-general");
-      const cells = grid?.nodes() ?? [];
-      return new Map(cells.flatMap((cell, at) => (at % 2 === 0 ? [[cell.textContent, cells[at + 1]] as const] : [])));
-    };
     for (const [index, light] of [false, true].entries()) {
       const row = at.rows()[index];
       const tone = row?.one("req-status").className.replace("req-status ", "") ?? "";
       const lead = row?.one("req-method");
       row?.click();
-      const lines = general();
+      const said = top(at);
       // The same tone on the status, in the list and here.
-      expect(lines.get("status")?.className).toBe(`req-v ${tone}`);
+      expect(said.status.className).toBe(`req-stat ${tone}`);
       if (light) {
         expect(tone).toBe("ok");
-        expect(lines.has("method")).toBe(false);
-        const mark = lines.get("kind")?.one("req-mark");
-        expect(mark?.className).toBe("req-mark req-image");
+        expect(said.verb.className).toBe("req-verb mark req-image");
+        expect(said.verb.getAttribute("aria-label")).toBe("img");
         const shapes = (node: FakeNode | undefined) =>
           node?.one("glyph").nodes().map((shape) => [shape.tag, [...shape.attributes]]);
-        expect(shapes(mark)).toEqual(shapes(lead) ?? []);
-        expect(shapes(mark)?.length).toBe(3);
-        expect(lines.get("kind")?.textContent).toBe("img, loaded by img");
+        expect(shapes(said.verb)).toEqual(shapes(lead) ?? []);
+        expect(shapes(said.verb)?.length).toBe(3);
+        expect(said.path.textContent).toBe("/img/logo.png");
+        expect(said.host.textContent).toBe("cdn.test");
       } else {
         expect(tone).toBe("hot");
-        expect(lines.get("method")?.className).toBe("req-v req-patch");
-        expect(lines.get("method")?.textContent).toBe("PATCH");
+        expect(said.verb.className).toBe("req-verb req-patch");
+        expect(said.verb.textContent).toBe("PATCH");
         expect(lead?.className).toBe("req-method req-patch");
-        expect(lines.get("kind")?.find("req-mark")).toEqual([]);
+        expect(said.status.textContent).toBe("500");
       }
       at.pane.escape();
     }
   });
 
-  test("a section folded away is not filled until it opens", () => {
+  test("one segment shows at a time, and the arrows move between them", () => {
+    const at = scene();
+    const entry = at.add(10);
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    expect(groups(at)).toEqual(["request", "response"]);
+    pick(at, "headers");
+    expect(segs(at).on).toEqual(["headers"]);
+    expect(region(at).getAttribute("aria-label")).toBe("headers");
+    expect(groups(at)).toEqual(["response", "request"]);
+    expect(region(at).find("code")).toEqual([]);
+    expect(listed(groupOf(at, "response").one("pairs"))).toEqual([
+      ["content-type", "application/json"],
+      ["set-cookie", "sid=1"],
+    ]);
+    expect(listed(groupOf(at, "request").one("pairs"))).toEqual([
+      ["content-type", "application/json"],
+      ["Authorization", "Bearer abc"],
+      ["X-Api-Key", "k1"],
+    ]);
+    const seg = at.pane.body.one("req-detail").one("seg");
+    const right = seg.nodes()[1]?.fire("keydown", { key: "ArrowRight" });
+    expect(right?.prevented).toBe(true);
+    expect(segs(at).on).toEqual(["more"]);
+    expect(focused()).toBe(seg.nodes()[2] ?? null);
+    expect(groups(at)).toEqual(["request", "timing", "initiator"]);
+    expect(region(at).textContent).not.toContain("Bearer abc");
+    expect(listed(groupOf(at, "request").one("pairs"))).toEqual([
+      ["url", "http://app.test/api/item-10"],
+      ["type", "application/json"],
+      ["size", "1.5 KB over the wire, 21 bytes of body"],
+      ["protocol", "h2"],
+      ["state", "ok"],
+      ["kind", "fetch"],
+    ]);
+    expect(listed(groupOf(at, "timing").one("pairs"))).toEqual([
+      ["started at", clockTime(new Date(entry.timing.start))],
+      ["waiting", "5ms"],
+      ["download", "15ms"],
+      ["total", "20ms"],
+    ]);
+    // The one bar: waiting, then download, each as wide as its share.
+    const bar = groupOf(at, "timing").one("split");
+    expect(bar.getAttribute("aria-label")).toBe("waiting 5ms, download 15ms");
+    expect(bar.nodes().map((part) => part.style.flexGrow)).toEqual(["0.25", "0.75"]);
+    seg.nodes()[2]?.fire("keydown", { key: "ArrowRight" });
+    expect(segs(at).on).toEqual(["body"]);
+  });
+
+  test("every request opens on its bodies: a choice is for the request it was made on", () => {
+    const at = scene();
+    at.add(10);
+    at.add(20);
+    at.add(30, { method: "GET", requestBody: null, responseBody: null });
+    at.requests.toggle();
+    at.rows()[2]?.click();
+    pick(at, "more");
+    expect(segs(at).on).toEqual(["more"]);
+    at.pane.escape();
+    at.rows()[1]?.click();
+    expect(segs(at).on).toEqual(["body"]);
+    at.pane.escape();
+    // With no body there is nothing to lead with, and the headers do.
+    at.rows()[0]?.click();
+    expect(segs(at)).toEqual({ shown: ["body", "headers", "more"], on: ["headers"] });
+  });
+
+  test("picking a segment starts it at its top", () => {
     const at = scene();
     at.add(10);
     at.requests.toggle();
     at.rows()[0]?.click();
-    const initiator = section(at, "initiator");
-    expect(initiator.one("req-inner").children).toEqual([]);
-    expect(initiator.one("fold").inert).toBe(true);
-    initiator.one("main").click();
-    expect(initiator.one("main").getAttribute("aria-expanded")).toBe("true");
-    expect(initiator.one("fold").inert).toBe(false);
-    expect(initiator.one("req-pre").textContent).toBe(
-      "at save (http://app.test/app.js:10:5)\nat onClick (http://app.test/app.js:22:3)",
-    );
-    initiator.one("main").click();
-    expect(initiator.classList.contains("open")).toBe(false);
+    at.pane.body.scrollHeight = 500;
+    at.pane.body.scrollTop = 80;
+    pick(at, "headers");
+    expect(at.pane.body.scrollTop).toBe(0);
+    // The one that is on already moves nothing.
+    at.pane.body.scrollTop = 40;
+    pick(at, "headers");
+    expect(at.pane.body.scrollTop).toBe(40);
   });
 
-  test("json that is all there is laid out, and json that was cut is shown as kept", () => {
+  test("the bodies: the query and what was sent, then the answer, json laid out", () => {
+    const at = scene();
+    at.add(10, { url: "http://app.test/api/users?page=2&q=a%20b" });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    const request = groupOf(at, "request");
+    expect(listed(request.one("pairs"))).toEqual([
+      ["page", "2"],
+      ["q", "a b"],
+    ]);
+    expect(request.one("code-text").textContent).toBe('{\n  "name": "Ada"\n}');
+    expect(groupOf(at, "response").one("code-text").textContent).toBe('{\n  "id": 7,\n  "name": "Ada"\n}');
+  });
+
+  test("a request with only a query shows that, and one with neither has no request part", () => {
+    const at = scene();
+    at.add(10, { method: "GET", requestBody: null });
+    at.add(20, { method: "GET", requestBody: null, url: "http://app.test/api/users?page=2" });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    expect(groups(at)).toEqual(["request", "response"]);
+    expect(parts(groupOf(at, "request"))).toEqual(["group-head", "pairs"]);
+    expect(parts(groupOf(at, "request").one("group-head"))).toEqual(["group-label"]);
+    at.pane.escape();
+    at.rows()[1]?.click();
+    expect(groups(at)).toEqual(["response"]);
+  });
+
+  test("a long body to send shows its first lines, with the way to all of it, and the answer is never folded", () => {
+    const at = scene();
+    const long = lines(BODY_LINES + 8);
+    at.add(10, {
+      requestBody: { kind: "text", text: long, size: long.length, truncated: false, type: "text/plain" },
+      responseBody: { kind: "text", text: long, size: long.length, truncated: false, type: "text/plain" },
+    });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    const request = groupOf(at, "request");
+    expect(request.one("code-text").textContent).toBe(lines(BODY_LINES));
+    expect(groupOf(at, "response").one("code-text").textContent).toBe(long);
+    expect(groupOf(at, "response").find("code-all")).toEqual([]);
+    request.one("code-all").click();
+    expect(request.one("code-text").textContent).toBe(long);
+    expect(request.find("code-all")).toEqual([]);
+  });
+
+  test("a body of exactly the lines that show is not folded", () => {
+    const at = scene();
+    const whole = lines(BODY_LINES);
+    at.add(10, { requestBody: { kind: "text", text: whole, size: whole.length, truncated: false, type: "text/plain" } });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    expect(groupOf(at, "request").find("code-all")).toEqual([]);
+  });
+
+  test("each body has its own copy, which copies just that body as it was kept", async () => {
     const at = scene();
     at.add(10);
-    at.add(20, {
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    const copy = (label: string) => groupOf(at, label).one("req-copy");
+    expect(copy("request").getAttribute("aria-label")).toBe("copy the request body");
+    expect(copy("response").getAttribute("aria-label")).toBe("copy the response body");
+    copy("response").click();
+    await Promise.resolve();
+    expect(at.copies).toEqual(['{"id":7,"name":"Ada"}']);
+    expect(at.pane.title()).toBe("copied");
+    expect(at.said.textContent).toBe("copied");
+    copy("request").click();
+    await Promise.resolve();
+    expect(at.copies[1]).toBe('{"name":"Ada"}');
+    // Only the whole request's copy leaves anything out, so only that says so.
+    expect(at.pane.body.find("note").find((node) => node.textContent === HIDES_NOTE)?.hidden).toBe(true);
+    at.pane.close();
+  });
+
+  test("a press on the path copies the address in full", async () => {
+    const at = scene();
+    at.add(10, { url: "http://app.test/api/users?token=abc" });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    top(at).path.click();
+    await Promise.resolve();
+    expect(at.copies).toEqual(["http://app.test/api/users?token=abc"]);
+    expect(at.pane.title()).toBe("copied");
+    at.pane.close();
+  });
+
+  test("a body that was cut says so in a line over its text, and is shown as kept", () => {
+    const at = scene();
+    at.add(10, {
       responseBody: { kind: "text", text: '{"id":7,"na', size: null, truncated: true, type: "application/json" },
+    });
+    at.add(20, {
+      responseBody: { kind: "text", text: "half", size: null, truncated: true, timedOut: true, type: "text/plain" },
     });
     at.requests.toggle();
     at.rows()[1]?.click();
-    expect(section(at, "response body").one("req-pre").textContent).toBe('{\n  "id": 7,\n  "name": "Ada"\n}');
-    expect(section(at, "response body").one("row-value").textContent).toBe("application/json, 21 bytes");
+    const cut = groupOf(at, "response");
+    expect(parts(cut)).toEqual(["group-head", "note", "code"]);
+    expect(cut.one("note").textContent).toBe("first 64 KB");
+    expect(cut.one("code-text").textContent).toBe('{"id":7,"na');
     at.pane.escape();
     at.rows()[0]?.click();
-    const cut = section(at, "response body");
-    expect(cut.one("req-pre").textContent).toBe('{"id":7,"na');
-    expect(cut.one("note").textContent).toBe("truncated at 64 KB");
+    expect(groupOf(at, "response").one("note").textContent).toBe("cut after 2 seconds");
   });
 
-  test("a long body starts folded, and bodies with no text say what they are", () => {
+  test("a body with nothing to show says so in one line, with no empty block and no copy", () => {
     const at = scene();
-    const long = "x".repeat(LONG_BODY + 1);
     at.add(10, {
       requestBody: { kind: "stream", text: "", size: null, truncated: false, type: "" },
-      responseBody: { kind: "text", text: long, size: long.length, truncated: false, type: "text/plain" },
+      responseBody: null,
     });
     at.add(20, {
       requestBody: null,
@@ -1025,24 +1238,120 @@ describe("the detail", () => {
     });
     at.requests.toggle();
     at.rows()[1]?.click();
-    expect(sections(at).find((each) => each.title === "response body")?.open).toBe(false);
-    expect(section(at, "response body").one("req-inner").children).toEqual([]);
-    expect(section(at, "request body").one("req-inner").textContent).toBe("stream, not read");
+    expect(parts(groupOf(at, "request"))).toEqual(["group-head", "note"]);
+    expect(groupOf(at, "request").one("note").textContent).toBe("not read: a stream");
+    expect(groupOf(at, "response").one("note").textContent).toBe("no response body");
+    expect(region(at).find("code")).toEqual([]);
+    expect(region(at).find("req-copy")).toEqual([]);
     at.pane.escape();
     at.rows()[0]?.click();
-    expect(section(at, "request body").one("req-inner").textContent).toBe("none");
-    expect(section(at, "response body").one("req-inner").textContent).toBe("binary, 2 KB");
+    expect(groups(at)).toEqual(["response"]);
+    expect(groupOf(at, "response").one("note").textContent).toBe("binary, 2 KB, image/png");
   });
 
-  test("a light row says what the browser does not give, with no empty sections", () => {
+  test("a body with a long line gets the choice not to wrap, on its group's first line", () => {
+    const at = scene();
+    const wide = "x".repeat(200);
+    at.add(10, { responseBody: { kind: "text", text: wide, size: 200, truncated: false, type: "text/plain" } });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    expect(parts(groupOf(at, "request").one("group-head"))).toEqual(["group-label", "row-button req-copy"]);
+    const head = groupOf(at, "response").one("group-head");
+    expect(parts(head)).toEqual(["group-label", "chip code-wrap on", "row-button req-copy"]);
+    head.one("code-wrap").click();
+    expect(groupOf(at, "response").one("code-text").className).toBe("code-text nowrap");
+  });
+
+  test("a light row says the browser gives no bodies, has no headers, and opens on the rest", () => {
     const at = scene();
     at.store.put(image());
     at.requests.toggle();
     at.rows()[0]?.click();
-    expect(sections(at).map((each) => each.title)).toEqual(["general"]);
-    const notes = at.pane.body.find("note").filter((node) => !node.hidden);
-    expect(notes.map((node) => node.textContent)).toEqual([`${LIGHT_WHY}: no headers and no bodies`]);
-    expect(section(at, "general").one("req-inner").textContent).toContain("hidden by the server");
+    expect(segs(at)).toEqual({ shown: ["body", "more"], on: ["more"] });
+    expect(groups(at)).toEqual(["request", "timing"]);
+    expect(region(at).nodes()[0]?.textContent).toBe(LIGHT_WHY);
+    expect(groupOf(at, "request").textContent).toContain("hidden by the server");
+    expect(listed(groupOf(at, "timing").one("pairs")).map(([label]) => label)).toEqual([
+      "started at",
+      "waiting",
+      "download",
+      "total",
+    ]);
+    pick(at, "body");
+    expect(parts(region(at))).toEqual(["note"]);
+    expect(region(at).textContent).toBe(LIGHT_BODIES);
+  });
+
+  test("the headers get a filter only above twelve, and it keeps the ones it finds in both groups", () => {
+    const at = scene();
+    const many = (count: number, name: string) =>
+      Array.from({ length: count }, (_, index): [string, string] => [`${name}-${index}`, `v${index}`]);
+    at.add(10);
+    at.add(20, { requestHeaders: many(6, "x-req"), responseHeaders: [...many(6, "x-res"), ["etag", "abc"]] });
+    at.requests.toggle();
+    at.rows()[1]?.click();
+    const filter = () => at.pane.body.one("req-detail").one("filter");
+    expect(filter().hidden).toBe(true);
+    pick(at, "headers");
+    expect(filter().hidden).toBe(true);
+    at.pane.escape();
+    at.rows()[0]?.click();
+    // The filter is the headers', so it shows with them alone.
+    expect(filter().hidden).toBe(true);
+    pick(at, "headers");
+    expect(filter().hidden).toBe(false);
+    expect(filter().getAttribute("aria-label")).toBe("filter headers");
+    filter().value = "X-RES-1";
+    filter().fire("input");
+    expect(groups(at)).toEqual(["response"]);
+    expect(listed(groupOf(at, "response").one("pairs"))).toEqual([["x-res-1", "v1"]]);
+    filter().value = "v2";
+    filter().fire("input");
+    expect(groups(at)).toEqual(["response", "request"]);
+    filter().value = "nothing";
+    filter().fire("input");
+    expect(groups(at)).toEqual([]);
+    const none = region(at).one("empty");
+    expect([none.textContent, none.hidden]).toEqual([NO_HEADER, false]);
+    // Escape empties the filter first, as the list's does, and then goes back.
+    at.pane.escape();
+    expect(at.pane.view()).toBe(REQUEST_VIEW);
+    expect(filter().value).toBe("");
+    expect(none.hidden).toBe(true);
+    expect(groups(at)).toEqual(["response", "request"]);
+    at.pane.escape();
+    expect(at.pane.view()).toBe(REQUESTS_VIEW);
+  });
+
+  test("the initiator is a frame a line, the frames that are not the page's own as one line that opens", async () => {
+    const at = scene();
+    at.add(10, {
+      initiator: [
+        "at save (http://app.test/src/app.js:10:5)",
+        "at dispatch (http://app.test/node_modules/redux/redux.js:200:11)",
+        "at next (http://app.test/node_modules/redux/redux.js:300:1)",
+        "at onClick (http://app.test/src/app.js:22:3)",
+      ].join("\n"),
+    });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    pick(at, "more");
+    const stack = groupOf(at, "initiator").one("req-stack");
+    const frames = () => stack.nodes().map((row) => row.nodes().map((cell) => cell.textContent));
+    expect(frames()).toEqual([["save", "app.js:10:5"], ["2 more"], ["onClick", "app.js:22:3"]]);
+    const where = stack.find("req-where")[0];
+    expect(where?.title).toBe("http://app.test/src/app.js:10:5");
+    where?.click();
+    await Promise.resolve();
+    expect(at.copies).toEqual(["http://app.test/src/app.js:10:5"]);
+    stack.one("req-skipped").click();
+    expect(frames()).toEqual([
+      ["save", "app.js:10:5"],
+      ["dispatch", "redux.js:200:11"],
+      ["next", "redux.js:300:1"],
+      ["onClick", "app.js:22:3"],
+    ]);
+    at.pane.close();
   });
 
   test("escape goes back to the list first, to the row it came from, and then closes", () => {
@@ -1092,37 +1401,133 @@ describe("the detail", () => {
     expect(at.pane.body.scrollTop).toBe(120 + 2 * ROW_PITCH);
   });
 
-  test("follows its request as it changes, and keeps what the user opened", () => {
+  test("follows its request while it is pending, in place: the segment, the scroll and what was opened stay", () => {
     const at = scene();
+    const long = Array.from({ length: BODY_LINES + 3 }, (_, index) => `line ${index}`).join("\n");
     const entry = at.add(10, {
       state: "pending",
       status: null,
       statusText: "",
+      requestBody: { kind: "text", text: long, size: long.length, truncated: false, type: "text/plain" },
       responseHeaders: [],
       responseBody: null,
+      timing: { start: LOADED + 10, at: 10, response: null, end: null, duration: null },
     });
     at.requests.toggle();
     at.rows()[0]?.click();
-    const requestHeaders = section(at, "request headers").one("req-inner").children;
-    section(at, "initiator").one("main").click();
-    section(at, "request body").one("main").click();
-    expect(section(at, "general").one("req-inner").textContent).toContain("pending");
-    expect(section(at, "response headers").one("row-value").textContent).toBe("none");
+    expect(top(at).status.textContent).toBe("pending");
+    expect(top(at).status.className).toBe("req-stat idle");
+    expect(top(at).took.textContent).toBe("");
+    expect(groupOf(at, "response").one("note").textContent).toBe("waiting for the response");
+    const request = groupOf(at, "request");
+    request.one("code-all").click();
+    at.pane.body.scrollHeight = 500;
+    at.pane.body.scrollTop = 60;
+    const scrolls = at.pane.body.scrolls;
     at.store.update(entry.id, {
       state: "ok",
       status: 200,
       statusText: "OK",
       responseHeaders: [["content-type", "application/json"]],
       responseBody: { kind: "text", text: "[1]", size: 3, truncated: false, type: "application/json" },
+      timing: { start: LOADED + 10, at: 10, response: 30, end: LOADED + 50, duration: 40 },
     });
     at.timer.run();
-    expect(section(at, "general").one("req-inner").textContent).toContain("200 OK");
-    expect(section(at, "response headers").one("row-value").textContent).toBe("1");
-    expect(section(at, "response body").one("req-pre").textContent).toBe("[\n  1\n]");
-    // What did not change is not drawn again.
-    expect(section(at, "request headers").one("req-inner").children).toBe(requestHeaders);
-    expect(sections(at).find((each) => each.title === "initiator")?.open).toBe(true);
-    expect(sections(at).find((each) => each.title === "request body")?.open).toBe(false);
+    expect(top(at).status.textContent).toBe("200 OK");
+    expect(top(at).status.className).toBe("req-stat ok");
+    expect(top(at).took.textContent).toBe("40ms");
+    expect(segs(at).on).toEqual(["body"]);
+    expect(groupOf(at, "response").one("code-text").textContent).toBe("[\n  1\n]");
+    // What did not change is not built again, so what the user opened in it stays open.
+    expect(groupOf(at, "request")).toBe(request);
+    expect(request.one("code-text").textContent).toBe(long);
+    // The view never moved the scroll.
+    expect(at.pane.body.scrollTop).toBe(60);
+    expect(at.pane.body.scrolls).toBe(scrolls);
+  });
+
+  test("the segment the user picked stays through a change, and the others fill in under it", () => {
+    const at = scene();
+    const entry = at.add(10, {
+      method: "GET",
+      state: "pending",
+      status: null,
+      statusText: "",
+      requestBody: null,
+      responseHeaders: [],
+      responseBody: null,
+    });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    expect(segs(at).on).toEqual(["headers"]);
+    pick(at, "more");
+    const timing = groupOf(at, "timing");
+    at.pane.body.scrollHeight = 500;
+    at.pane.body.scrollTop = 30;
+    const scrolls = at.pane.body.scrolls;
+    at.store.update(entry.id, {
+      state: "ok",
+      status: 200,
+      statusText: "OK",
+      responseHeaders: [["etag", "abc"]],
+      responseBody: { kind: "text", text: "[1]", size: 3, truncated: false, type: "application/json" },
+    });
+    at.timer.run();
+    expect(segs(at).on).toEqual(["more"]);
+    expect(region(at).getAttribute("aria-label")).toBe("more");
+    expect(listed(groupOf(at, "request").one("pairs"))).toContainEqual(["state", "ok"]);
+    // Its timing is the same, so that part is the node it was.
+    expect(groupOf(at, "timing")).toBe(timing);
+    expect([at.pane.body.scrollTop, at.pane.body.scrolls]).toEqual([30, scrolls]);
+    pick(at, "headers");
+    expect(groups(at)).toEqual(["response", "request"]);
+    pick(at, "body");
+    expect(groupOf(at, "response").one("code-text").textContent).toBe("[\n  1\n]");
+  });
+
+  test("a request with no body yet, left as it opened, goes to its bodies once the answer has one", () => {
+    const at = scene();
+    const entry = at.add(10, {
+      method: "GET",
+      state: "pending",
+      status: null,
+      statusText: "",
+      requestBody: null,
+      responseHeaders: [],
+      responseBody: null,
+    });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    expect(segs(at).on).toEqual(["headers"]);
+    at.store.update(entry.id, {
+      state: "ok",
+      status: 200,
+      statusText: "OK",
+      responseBody: { kind: "text", text: "[1]", size: 3, truncated: false, type: "application/json" },
+    });
+    at.timer.run();
+    expect(segs(at).on).toEqual(["body"]);
+    expect(groups(at)).toEqual(["response"]);
+  });
+
+  test("a segment appears when its data arrives", () => {
+    const at = scene();
+    const entry = at.add(10, {
+      method: "GET",
+      state: "pending",
+      status: null,
+      statusText: "",
+      requestHeaders: [],
+      requestBody: null,
+      responseHeaders: [],
+      responseBody: null,
+    });
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    expect(segs(at)).toEqual({ shown: ["body", "more"], on: ["more"] });
+    at.store.update(entry.id, { responseHeaders: [["etag", "abc"]] });
+    at.timer.run();
+    expect(segs(at)).toEqual({ shown: ["body", "headers", "more"], on: ["headers"] });
   });
 });
 
@@ -1141,7 +1546,7 @@ describe("a request the log lets go while it shows", () => {
     at.store.clear();
     at.timer.run();
     expect(note(at)?.hidden).toBe(false);
-    expect(section(at, "general").one("req-inner").textContent).toContain("item-10");
+    expect(top(at).path.textContent).toBe("/api/item-10");
     at.pane.close();
   });
 
@@ -1174,7 +1579,8 @@ describe("copy", () => {
     expect(at.said.textContent).toBe("copied");
     expect(note()?.hidden).toBe(false);
     // The view shows the headers as the page set them.
-    expect(section(at, "request headers").one("req-inner").textContent).toContain("Bearer abc");
+    pick(at, "headers");
+    expect(groupOf(at, "request").textContent).toContain("Bearer abc");
     at.pane.escape();
     at.rows()[0]?.click();
     at.pane.act("copy as text for AI");
@@ -1312,10 +1718,8 @@ describe("the way back", () => {
     at.rows()[0]?.click();
     expect(at.pane.ways().map((way) => way.getAttribute("aria-label"))).toEqual(["back from request"]);
     expect(at.pane.title()).toBe(REQUEST_TITLE);
-    // The detail has no way back of its own: every button in it folds a section.
-    const inBody = at.pane.body.find("main");
-    expect(inBody.length).toBe(6);
-    for (const each of inBody) expect(each.getAttribute("aria-expanded")).not.toBeNull();
+    // The detail has no way back of its own, and no row at all.
+    expect(at.pane.body.find("main")).toEqual([]);
     at.pane.back();
     expect(at.pane.ways().map((way) => way.getAttribute("aria-label"))).toEqual(["back from requests"]);
   });
@@ -1371,7 +1775,9 @@ describe("the way back", () => {
     expect([at.pane.mounts, at.pane.cleanups]).toEqual([1, 0]);
     at.rows()[0]?.click();
     expect([at.pane.mounts, at.pane.cleanups]).toEqual([2, 1]);
-    expect(at.pane.body.find("toolbar")).toEqual([]);
+    // The list's bar left with it: the one that shows is the request's.
+    expect(at.pane.body.find("req-list")).toEqual([]);
+    expect(at.pane.body.find("toolbar").map((bar) => bar.parent?.className)).toEqual(["req-detail"]);
     at.pane.back();
     expect([at.pane.mounts, at.pane.cleanups]).toEqual([3, 2]);
     expect(at.pane.body.find("req-detail")).toEqual([]);

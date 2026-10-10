@@ -889,7 +889,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    head is padded, edged or rounded: it differs from a row only by what is in
    its slots. Its body under that scrolls on its own. The view asks for the panel's tallest and the panel's
    own limit shrinks it to what the window has, so the panel is as tall as it
-   gets whatever the view holds. */
+   gets whatever the view holds. The body is a container, so what a view
+   holds can lay itself out by how wide the view is. */
 .view {
   flex: 0 1 auto;
   min-height: 0;
@@ -904,6 +905,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  container: view / inline-size;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -929,13 +931,91 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   background: var(--bg);
 }
 .toolbar > .filter { flex: 1 1 96px; min-width: 0; }
-.toolbar > .seg { flex: none; }
+.toolbar > .seg { flex: none; max-width: 100%; }
 /* A section of a view that folds, a row as the rows are: its chevron in the
    leading slot, to the side while folded and down while out. */
 .turn { display: grid; }
 .turn .glyph { transform: rotate(180deg); transition: transform 120ms ease-out; }
 .row.open > .line .turn .glyph { transform: rotate(270deg); }
 .fold-body { min-height: 0; }
+/* A group of a view's content under a small quiet label, with no fold. Its
+   first line is the label, 8 in as all of a view's text is, and the small
+   controls for what it holds at its far end. */
+.group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.group-head { display: flex; align-items: center; gap: 4px; min-height: 22px; }
+.group-label {
+  flex: 1;
+  min-width: 0;
+  margin: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--faint);
+}
+.group-head > .row-button { margin: 0; }
+.group > .note { padding: 0 8px; }
+/* Names and their values in two columns, in mono, the names quiet. Both wrap
+   anywhere and can be selected. Where the view is under 290 wide, a panel of
+   300, a name stands over its value. */
+.pairs {
+  display: grid;
+  grid-template-columns: fit-content(45%) minmax(0, 1fr);
+  gap: 2px 12px;
+  margin: 0;
+  padding: 0 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.pair-name { color: var(--faint); }
+.pair-value { margin: 0; }
+@container view (max-width: 290px) {
+  .pairs { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .pair-value { margin-bottom: 4px; }
+}
+/* A block of text as it was written, in mono on the rows' ground. It wraps,
+   and with wrapping off it scrolls in itself, so its view never scrolls
+   sideways. A row wide, so 8 round and 8 in. */
+.code { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 4px; }
+.code-text {
+  justify-self: stretch;
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+  background: var(--card);
+  border-radius: 8px;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.code-text.nowrap {
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+/* A tiny bar in parts, each as wide as its share: the track is the ground and
+   the parts are in the text's color. */
+.split {
+  display: flex;
+  gap: 2px;
+  height: 4px;
+  margin: 4px 8px;
+  overflow: hidden;
+  background: var(--track);
+  border-radius: 2px;
+}
+.split-part { flex: 0 0 0; min-width: 1px; background: var(--fg); }
 
 /* The strip that changes the panel's width, as the edge of a docked devtools
    does: it lies across the border on the panel's page side, as tall as the
@@ -1080,7 +1160,7 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
 .css-comes { color: var(--faint); }
 .css-hidden { padding: 2px 10px; font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
 
-/* The requests view, in the panel. Its bar, its rows, its folds and its
+/* The requests view, in the panel. Its bar, its rows and its
    empty line are the kit's, and what is here is only what stands in them: the
    count at the bar's far end, and the cells of a row. A row a request, built
    as the panel's rows are: the method, or the kind's mark, where a row's icon
@@ -1130,10 +1210,6 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   color: var(--faint);
 }
 .req-status { flex: none; width: 44px; font-variant-numeric: tabular-nums; text-align: right; }
-.req-status.ok, .req-v.ok { color: var(--ok); }
-.req-status.moved, .req-v.moved { color: var(--req-moved); }
-.req-status.hot, .req-v.hot { color: var(--hot); }
-.req-status.idle, .req-v.idle { color: var(--faint); }
 .req-time {
   flex: none;
   width: 40px;
@@ -1144,48 +1220,53 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
 /* What the page loads on its own, of which the browser tells less, is a step quieter. */
 .req-row.light { color: var(--faint); }
 
-/* One request in full, under the head that is its way back: its sections,
-   each the kit's fold, a row as the panel's rows are. What a section holds
-   sits 4 in from the row's edges, so 4 round. Addresses, headers and bodies
-   are in mono, wrap anywhere and can be selected. */
-.req-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+/* One request in full, under the head that is its way back. Its summary and
+   its segments are in the kit's bar, so they stay while the rest scrolls, and
+   its groups, lists, code and bar are the kit's. What is here is only the
+   cells of the summary and of a stack's frames. Everything starts 8 in, as
+   the kit's lists do. The path is the main thing: it has the room, breaks
+   anywhere and keeps to two lines, cut in its middle by the view. */
+.req-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .req-detail > .note { padding: 4px 8px; }
-.req-inner {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-  padding: 2px 4px 6px;
-}
-.req-kv {
-  display: grid;
-  grid-template-columns: fit-content(45%) minmax(0, 1fr);
-  gap: 2px 8px;
-  padding: 0 4px;
-}
-.req-k { overflow-wrap: anywhere; color: var(--faint); }
-.req-headers .req-k { font-family: var(--mono); font-size: 11px; }
-.req-v, .req-pre {
+.req-sum { flex: 1 1 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 2px 8px; }
+.req-first, .req-second { display: flex; align-items: baseline; gap: 8px; }
+.req-verb { flex: none; font-size: 10.5px; }
+.req-verb.mark { display: flex; align-self: flex-start; align-items: center; height: 18px; }
+.req-url {
+  flex: 1;
+  min-width: 0;
+  max-height: 36px;
+  overflow: hidden;
   font-family: var(--mono);
   font-size: 11px;
-  overflow-wrap: anywhere;
-  user-select: text;
-  -webkit-user-select: text;
-  cursor: text;
+  line-height: 18px;
+  white-space: normal;
+  word-break: break-all;
 }
-/* A kind's mark before its words, mid line. */
-.req-mark { display: inline-flex; margin-right: 6px; vertical-align: -2px; }
-.req-pre {
-  max-height: 240px;
-  margin: 0;
-  padding: 4px 6px;
-  overflow: auto;
-  white-space: pre-wrap;
-  background: var(--bg);
-  border-radius: 4px;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+.req-stat { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.req-status.ok, .req-stat.ok { color: var(--ok); }
+.req-status.moved, .req-stat.moved { color: var(--req-moved); }
+.req-status.hot, .req-stat.hot { color: var(--hot); }
+.req-status.idle, .req-stat.idle { color: var(--faint); }
+.req-took { flex: none; font-variant-numeric: tabular-nums; color: var(--faint); }
+.req-host {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  color: var(--faint);
 }
+.req-body, .req-headers { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.req-body > .note { padding: 0 8px; }
+/* A frame a line: the function in the text's color, then where it is, quiet, which a press copies. */
+.req-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 0 8px; font-family: var(--mono); font-size: 11px; }
+.req-frame { display: flex; align-items: baseline; gap: 8px; }
+.req-fn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.req-where { flex: 0 1 auto; min-width: 32px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); }
 
 /* The pinned panel: a column the window's height, flush with its edge and
    square, the one hairline it keeps on the page's side. The top and bottom

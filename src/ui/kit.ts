@@ -8,9 +8,10 @@
  *
  *   toolbar([filterField({ ... }).node, segments({ ... }).node]);
  *   rowBox({ main, glyph, title, ends, after }); sectionFold({ ... }); emptyLine("no requests");
+ *   group({ label, ends }); pairs(lines); codeBlock({ text, lines }); splitBar(shares, label);
  */
 
-import { button, el, field, rowBox } from "./dom";
+import { button, el, field, mark, rowBox } from "./dom";
 import { icon } from "./icons";
 
 export { type RowBox, type RowParts, rowBox, rowButton } from "./dom";
@@ -111,4 +112,125 @@ export function sectionFold(options: FoldOptions): Fold {
   });
   set(options.open);
   return { node: box, body, set };
+}
+
+/** What a labelled group is built from. */
+export interface GroupOptions {
+  label: string;
+  /** What its first line ends with, in order: small controls for what the group holds. */
+  ends?: readonly HTMLElement[];
+}
+
+/**
+ * A group of a view's content under a small quiet label, with no fold: its
+ * first line is the label and what it ends with, and what it holds is
+ * appended to the node after that.
+ */
+export function group(options: GroupOptions): HTMLElement {
+  const node = el("div", "group");
+  node.setAttribute("role", "group");
+  node.setAttribute("aria-label", options.label);
+  const head = el("div", "group-head");
+  head.append(el("span", "group-label", options.label), ...(options.ends ?? []));
+  node.append(head);
+  return node;
+}
+
+export interface Pairs {
+  node: HTMLElement;
+  /** Show only the pairs `match` keeps, and say how many those are. */
+  keep(match: (name: string, value: string) => boolean): number;
+}
+
+/**
+ * A list of names and their values in two columns, the names quiet and the
+ * values in the text's color, both in mono and wrapping anywhere. Where the
+ * view is narrow a name stands over its value.
+ */
+export function pairs(lines: readonly (readonly [name: string, value: string])[]): Pairs {
+  const node = el("dl", "pairs");
+  const rows = lines.map(([name, value]) => {
+    const cells = [el("dt", "pair-name", name), el("dd", "pair-value", value)];
+    node.append(...cells);
+    return { name, value, cells };
+  });
+  return {
+    node,
+    keep(match): number {
+      let kept = 0;
+      for (const row of rows) {
+        const shows = match(row.name, row.value);
+        if (shows) kept++;
+        for (const cell of row.cells) cell.hidden = !shows;
+      }
+      return kept;
+    },
+  };
+}
+
+/** A line of a code block past this many characters is a long one, which gets the choice not to wrap. */
+export const LONG_LINE = 80;
+
+/** What a code block is built from. */
+export interface CodeOptions {
+  text: string;
+  /** Show only this many lines of a longer text at first, with the way to show all of it. */
+  lines?: number;
+}
+
+export interface Code {
+  node: HTMLElement;
+  /** Turns wrapping off and on. Only there where the text has a long line. */
+  wrap: HTMLButtonElement | null;
+}
+
+/**
+ * A block of text in mono, as it was written. It wraps, so it never makes
+ * its view scroll sideways: with wrapping off, the block scrolls in itself.
+ * The caller says where the wrap control goes.
+ */
+export function codeBlock(options: CodeOptions): Code {
+  const node = el("div", "code");
+  const all = options.text.split("\n");
+  const folded = options.lines !== undefined && all.length > options.lines;
+  const text = el("pre", "code-text", folded ? all.slice(0, options.lines).join("\n") : options.text);
+  node.append(text);
+  if (folded) {
+    const more = button("chip code-all", "show all");
+    more.addEventListener("click", () => {
+      text.textContent = options.text;
+      more.remove();
+    });
+    node.append(more);
+  }
+  let wrap: HTMLButtonElement | null = null;
+  if (all.some((line) => line.length > LONG_LINE)) {
+    const toggle = button("chip code-wrap", "wrap");
+    let wrapped = true;
+    mark(toggle, wrapped);
+    toggle.addEventListener("click", () => {
+      wrapped = !wrapped;
+      mark(toggle, wrapped);
+      text.classList.toggle("nowrap", !wrapped);
+    });
+    wrap = toggle;
+  }
+  return { node, wrap };
+}
+
+/**
+ * A tiny bar split into parts, each as wide as its share of the whole: the
+ * track is the ground and the parts are in the text's color. `label` says
+ * what it shows, for assistive tech.
+ */
+export function splitBar(shares: readonly number[], label: string): HTMLElement {
+  const node = el("div", "split");
+  node.setAttribute("role", "img");
+  node.setAttribute("aria-label", label);
+  for (const share of shares) {
+    const part = el("span", "split-part");
+    part.style.flexGrow = String(share);
+    node.append(part);
+  }
+  return node;
 }

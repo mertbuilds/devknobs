@@ -10,7 +10,6 @@ import {
   copyText,
   durationLabel,
   firstInView,
-  generalLines,
   hides,
   keptScroll,
   kindLabel,
@@ -406,58 +405,6 @@ describe("bodies", () => {
     expect(bodyNote(text("", { kind: "binary", size: null }))).toBe("binary");
     expect(bodyNote(text("", { kind: "stream", size: null }))).toBe("stream, not read");
     expect(bodyNote(text("", { kind: "opaque", size: null }))).toBe("opaque");
-  });
-});
-
-describe("generalLines", () => {
-  test("a fetch says all that is known of it", () => {
-    expect(generalLines(fetched(), "14:03:07.120")).toEqual([
-      ["url", "http://app.test/api/users?page=2"],
-      ["method", "POST"],
-      ["status", "201 Created"],
-      ["state", "ok"],
-      ["kind", "fetch"],
-      ["type", "application/json"],
-      ["started at", "14:03:07.120"],
-      ["duration", "123ms"],
-      ["time to response", "80ms"],
-      ["size", "1.5 KB over the wire, 21 bytes of body"],
-      ["protocol", "h2"],
-    ]);
-  });
-
-  test("a light row has no method, and says its size is hidden", () => {
-    expect(generalLines(image(), "09:00:00.000")).toEqual([
-      ["url", "http://cdn.test/img/logo.png"],
-      ["status", "200"],
-      ["state", "ok"],
-      ["kind", "img, loaded by img"],
-      ["started at", "09:00:00.000"],
-      ["duration", "45ms"],
-      ["time to response", "30ms"],
-      ["size", "hidden by the server"],
-      ["protocol", "h2"],
-    ]);
-  });
-
-  test("says where a redirect ended, that it still runs, and that it is the frame's", () => {
-    const lines = generalLines(
-      fetched({
-        finalUrl: "http://app.test/v2/users",
-        source: "frame",
-        state: "pending",
-        status: null,
-        sizes: null,
-        protocol: "",
-        timing: { start: 0, at: 0, response: null, end: null, duration: null },
-      }),
-      "now",
-    );
-    expect(lines).toContainEqual(["answered from", "http://app.test/v2/users"]);
-    expect(lines).toContainEqual(["duration", "still going"]);
-    expect(lines).toContainEqual(["from", "the device frame"]);
-    expect(lines.map(([label]) => label)).not.toContain("size");
-    expect(lines.map(([label]) => label)).not.toContain("time to response");
   });
 });
 
