@@ -362,6 +362,7 @@ describe("the place kept across sessions", () => {
         side: "left",
         y: 300,
         top: 240,
+        tab: "none",
       });
     }
     expect(parse(JSON.stringify({ scheme: "dark" }), kept).scheme).toBe("dark");
@@ -375,6 +376,7 @@ describe("the place kept across sessions", () => {
       side: "right",
       y: 40,
       top: 24,
+      tab: "none",
       pinned: [],
     });
     // A session from before sides has a place, but takes the side kept.
@@ -418,7 +420,15 @@ describe("the place kept across sessions", () => {
   test("writes the place alone, the way it reads back", () => {
     const state = merge(DEFAULT_STATE, {
       scheme: "dark",
-      panel: { open: true, side: "left", y: 120, top: 80, edge: "bottom", pinned: ["scheme"] },
+      panel: {
+        open: true,
+        side: "left",
+        y: 120,
+        top: 80,
+        edge: "bottom",
+        tab: "none",
+        pinned: ["scheme"],
+      },
     });
     const text = placeText(state);
     expect(JSON.parse(text)).toEqual({
@@ -435,6 +445,24 @@ describe("the place kept across sessions", () => {
       y: 120,
       top: 80,
       edge: "bottom",
+      tab: "none",
+    });
+  });
+
+  test("a place from before edges keeps its handle off the fresh panel's corner", () => {
+    expect(DEFAULT_STATE.panel.tab).toBe("top");
+    for (const stored of [{ y: 300, top: 240 }, { y: 300 }, { top: 240 }]) {
+      const json = JSON.stringify(stored);
+      expect(parse(null, json).panel).toMatchObject({ edge: "none", tab: "none" });
+      expect(parse(JSON.stringify({ panel: stored })).panel).toMatchObject({
+        edge: "none",
+        tab: "none",
+      });
+    }
+    // With no heights of its own, a place is the fresh one, edges and all.
+    expect(parse(null, JSON.stringify({ side: "left" })).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      side: "left",
     });
   });
 });

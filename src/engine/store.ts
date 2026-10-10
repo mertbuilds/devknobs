@@ -52,6 +52,12 @@ export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">
 export const DEFAULT_PINNED: readonly string[] = ["device", "scheme", "text", "locale"];
 
 /**
+ * How far below the top of the viewport a fresh panel's handle sits, in px,
+ * and the panel's top with it.
+ */
+export const PANEL_START = 128;
+
+/**
  * Rows an older version had, by the row their knobs live in now. The old
  * viewport row keeps its id: its width, dpr, zoom and frame are the viewport
  * row still, and its device shows in the device row while one is set.
@@ -106,14 +112,16 @@ export const DEFAULT_STATE: DevknobsState = {
   overflow: false,
   outlines: false,
   grabColor: "auto",
-  // Closed, the handle alone, until the user opens it.
+  // Closed, the handle alone, until the user opens it. It sits where a drag
+  // of the closed handle to `PANEL_START` leaves it: flush with the panel's
+  // top corner, the panel flush with no edge of the window.
   panel: {
     open: false,
     side: "right",
-    y: 16,
-    top: 16,
+    y: PANEL_START,
+    top: PANEL_START,
     edge: "none",
-    tab: "none",
+    tab: "top",
     pinned: [...DEFAULT_PINNED],
   },
 };
@@ -218,14 +226,17 @@ function read(json: string | null | undefined, version: number): unknown {
  */
 function placeOf(value: unknown, fallback: PanelPlace): PanelPlace {
   const panel = record(value);
+  // The edges say how `y` and `top` sit, so a place with heights of its own
+  // never takes them from `fallback`. One stored before the panel stuck to
+  // edges sticks to none, until the panel next lays itself out and finds the
+  // edges it sits flush with.
+  const own = Number.isFinite(num(panel.y, num(panel.top, Number.NaN)));
   return {
     side: oneOf(panel.side, SIDES, fallback.side),
     y: num(panel.y, fallback.y),
     top: num(panel.top, num(panel.y, fallback.top)),
-    // One stored before the panel stuck to edges sticks to none, until the
-    // panel next lays itself out and finds the edges it sits flush with.
-    edge: oneOf(panel.edge, EDGES, fallback.edge),
-    tab: oneOf(panel.tab, EDGES, fallback.tab),
+    edge: oneOf(panel.edge, EDGES, own ? "none" : fallback.edge),
+    tab: oneOf(panel.tab, EDGES, own ? "none" : fallback.tab),
   };
 }
 

@@ -90,7 +90,9 @@ setState({ ua: { preset: "iphone-safari" } });
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 
-the panel starts closed, as a handle on the right edge of the window. click it
+the panel starts closed, as a handle on the right edge of the window, 128px
+below its top, and opens from that height. a window too short for that has the
+panel rise until it fits. click it
 or press shift and the hotkey (`⇧K`) to open it, and it stays open across
 reloads. opening it puts the focus on its add knob button, where typing a
 knob's name opens the search with it, so `⇧K` then `dark` works in one go, and

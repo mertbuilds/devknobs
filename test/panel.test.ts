@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { DEFAULT_STATE, PANEL_START } from "../src/engine/store";
 import { apply, reset } from "../src/engine/time";
 import { resolveKeys } from "../src/ui/bindings";
 import { keyChips, overflowBadge } from "../src/ui/footer";
 import { defaultKeys } from "../src/ui/keys";
 import { HOST_STYLE, wallInput } from "../src/ui/panel";
 import {
+  type Anchor,
   cornerAt,
   dragTarget,
   dragTo,
@@ -234,6 +236,44 @@ describe("a closed panel's drag", () => {
     expect(dragTo("handle", false, bottom - 10, from, ROOM)).toEqual(
       at(bottom, LAST, "bottom", "bottom"),
     );
+  });
+});
+
+describe("a fresh panel's place", () => {
+  const { y, top, edge, tab } = DEFAULT_STATE.panel;
+  const fresh = { y, top, edge, tab };
+  /** A window 1000 tall with the panel at its tallest, 672. */
+  const tall: Room = { view: 1000, panel: 672, handle: 64 };
+
+  test("is where a drag of the closed handle down from the window's top leaves it", () => {
+    expect(fresh).toEqual(at(PANEL_START, PANEL_START, "none", "top"));
+    expect(dragTo("handle", false, PANEL_START, at(8, 8, "top", "top"), tall)).toEqual(fresh);
+    expect(dragTo("handle", false, PANEL_START, at(16, 16), tall)).toEqual(fresh);
+  });
+
+  test("stays put on a tall window, however the panel is held", () => {
+    expect(settle(fresh, tall)).toEqual(fresh);
+    expect(settle(fresh, tall, "top")).toEqual(fresh);
+    expect(settle(fresh, ROOM, "top")).toEqual(fresh);
+  });
+
+  test("on a window too short for it, rises to keep the panel and the handle in view", () => {
+    // The panel at its tallest in a window with 28 to spare, and one it fills.
+    const short: Room = { view: 700, panel: 672, handle: 64 };
+    const filled: Room = { view: 400, panel: 384, handle: 64 };
+    const anchors: Anchor[] = ["top", "edge"];
+    for (const room of [short, { ...short, view: 820 }, filled]) {
+      for (const anchor of anchors) {
+        const laid = settle(fresh, room, anchor);
+        expect(laid.top).toBeGreaterThanOrEqual(PANEL_GAP);
+        expect(laid.top + room.panel).toBeLessThanOrEqual(room.view - PANEL_GAP);
+        expect(laid.y).toBe(laid.top);
+        expect(laid.tab).toBe("top");
+        expect(settle(laid, room, anchor)).toEqual(laid);
+      }
+    }
+    expect(settle(fresh, short, "top")).toEqual(at(20, 20, "bottom", "top"));
+    expect(settle(fresh, filled, "top").top).toBe(PANEL_GAP);
   });
 });
 
