@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SCREENS, turn } from "../src/engine/devices";
-import { DOCK_WIDTH, setDockWidth } from "../src/engine/dock";
+import { type ColumnEdge, DOCK_WIDTH, setDockWidth, watchColumn } from "../src/engine/dock";
 import { FOLD_TIME } from "../src/engine/fold";
 import { UNFRAMED } from "../src/engine/frame";
 import { FRESH_ATTRIBUTE, FRESH_RELOAD_KEY } from "../src/engine/fresh";
@@ -12,13 +12,13 @@ import { DEFAULT_STATE, merge } from "../src/engine/store";
 import { type Mark, MARK_EVENT } from "../src/engine/touchmark";
 import {
   apply,
-  DOCK_SETTLE,
   fit,
   label,
   onZoom,
   origin,
   panelSized,
   reset,
+  RIDE_SLOW,
   STRIP,
   sync,
   zoomKey,
@@ -2038,8 +2038,14 @@ describe("a panel pinned to its side", () => {
   let nextWait = 1;
   const realClearTimeout = globalThis.clearTimeout;
   /** The animation frames asked for and not dropped. */
-  let asked: Map<number, () => void>;
+  let asked: Map<number, (time: number) => void>;
   let nextFrame = 1;
+  /** When the last animation frame came, in ms. */
+  let clock = 0;
+  /** The panel's column as it shows, which the frame reads as it follows it, and how often it did. */
+  let column: ColumnEdge | null;
+  let reads = 0;
+  let stopColumn = () => {};
 
   const PINNED = { open: true, side: "right", docked: true } as const;
   const PLAIN = { ...KNOBS, panel: PINNED } as const;
@@ -2064,11 +2070,26 @@ describe("a panel pinned to its side", () => {
     for (const element of everything()) element.clientWidth = width;
     fire("resize");
   };
-  /** The next animation frame comes. */
-  const paint = () => {
+  /** The next animation frame comes, `gap` ms after the last. */
+  const paint = (gap = 16) => {
+    clock += gap;
     const due = [...asked.values()];
     asked.clear();
-    for (const run of due) run();
+    for (const run of due) run(clock);
+  };
+  /** The frames something else in the frame keeps asking for, as it waits for its page. */
+  let idle = 0;
+  /** The first frame of a frame that came up passes, and what waits from here is its own. */
+  const rest = () => {
+    paint();
+    idle = asked.size;
+  };
+  /** The frames asked for since, which are the column's. */
+  const waiting = () => asked.size - idle;
+  /** The column covers `cover` px of its side by the next frame, on its way still or at rest. */
+  const slide = (cover: number, moving = true, gap = 16) => {
+    column = { cover, moving };
+    paint(gap);
   };
   /** The panel is `px` wide, and a frame has passed. */
   const widen = (px: number) => {
@@ -2101,12 +2122,18 @@ describe("a panel pinned to its side", () => {
     heard = new Map();
     waits = [];
     asked = new Map();
+    column = null;
+    reads = 0;
+    stopColumn = watchColumn(() => {
+      reads++;
+      return column;
+    });
     Reflect.set(document, "createElement", (tag: string) => {
       const element = new FakeElement(tag.toUpperCase());
       Object.assign(element, { clientWidth: view.width, clientHeight: view.height });
       return element;
     });
-    Reflect.set(window, "requestAnimationFrame", (run: () => void) => {
+    Reflect.set(window, "requestAnimationFrame", (run: (time: number) => void) => {
       asked.set(nextFrame, run);
       return nextFrame++;
     });
@@ -2137,6 +2164,7 @@ describe("a panel pinned to its side", () => {
 
   afterEach(() => {
     setDockWidth(DOCK_WIDTH);
+    stopColumn();
     define("clearTimeout", realClearTimeout);
   });
 
@@ -2379,7 +2407,10 @@ describe("a panel pinned to its side", () => {
       expect(room()).toEqual(["240px", ""]);
       expect(frameWidth()).toBe("1360px");
       expect(own.hasAttribute("inert")).toBe(true);
-      expect(waits.filter((wait) => wait.ms === DOCK_SETTLE)).toEqual([]);
+      // No column is followed: the frame is up at its size.
+      paint();
+      expect(reads).toBe(0);
+      expect(frameWidth()).toBe("1360px");
     });
 
     test("keeps no drawing for the next page: it has none but the page", () => {
@@ -2395,34 +2426,285 @@ describe("a panel pinned to its side", () => {
     });
 
     describe("where things move", () => {
-      const settle = () => {
-        const due = waits.filter((wait) => wait.ms === DOCK_SETTLE);
-        waits = waits.filter((wait) => wait.ms !== DOCK_SETTLE);
-        for (const wait of due) wait.run();
-        return due.length;
+      const CLOSED = { ...PLAIN, panel: { ...PINNED, open: false } } as const;
+      const LEFT = { ...PLAIN, panel: { ...PINNED, side: "left" } } as const;
+      /** A closed panel's frame, its first frame past, and how often its page is resized from here. */
+      const closed = () => {
+        letMove();
+        apply(CLOSED);
+        rest();
+        return countWidths();
+      };
+      /** An open panel's frame, come up with no motion, as on a reload. */
+      const opened = (knobs: typeof PLAIN | typeof LEFT = PLAIN) => {
+        letMove();
+        apply(knobs);
+        rest();
+        return countWidths();
       };
 
-      test("narrows the page once the column has slid in over it, and widens it at once", () => {
-        letMove();
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
-        expect(frameWidth()).toBe("1600px");
+      test("shrinks the page with the column as it slides in, frame by frame, and lands on its width", () => {
+        const widths = closed();
         apply(PLAIN);
-        // The column is on its way: the page is as wide as it was.
+        // The column has not moved yet: the page is as wide as it was, and one frame is asked for.
+        expect(widths()).toBe(0);
         expect(room()).toEqual(["", ""]);
         expect(frameWidth()).toBe("1600px");
-        expect(settle()).toBe(1);
+        expect(waiting()).toBe(1);
+        // A closed column leaves its last px on the edge, which is where it sets off from.
+        slide(1);
+        expect(room()).toEqual(["", "1px"]);
+        slide(96.4);
+        expect(room()).toEqual(["", "96px"]);
+        expect(frameWidth()).toBe("1504px");
+        slide(201.7);
+        expect(room()).toEqual(["", "202px"]);
+        expect(frameWidth()).toBe("1398px");
+        expect(widths()).toBe(3);
+        expect(waiting()).toBe(1);
+        // At rest: the page lands on the column's width, and the loop is over.
+        slide(240, false);
         expect(room()).toEqual(["", "240px"]);
         expect(frameWidth()).toBe("1360px");
-        // Closing takes the room back under the column as it leaves.
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
-        expect(room()).toEqual(["", ""]);
-        expect(frameWidth()).toBe("1600px");
-        expect(settle()).toBe(0);
+        expect(widths()).toBe(4);
+        expect(waiting()).toBe(0);
+        paint();
+        expect(widths()).toBe(4);
+        expect(reloads).toBe(0);
       });
 
-      test("follows the panel's edge frame by frame as it is dragged wider, with no wait", () => {
+      test("grows the page with the column as it slides away, and gives it the whole window", () => {
+        const widths = opened();
+        apply(CLOSED);
+        expect(widths()).toBe(0);
+        expect(room()).toEqual(["", "240px"]);
+        slide(240);
+        expect(widths()).toBe(0);
+        slide(150);
+        expect(room()).toEqual(["", "150px"]);
+        expect(frameWidth()).toBe("1450px");
+        slide(20);
+        expect(frameWidth()).toBe("1580px");
+        // The handle's px is not the page's: at rest the page has the window.
+        slide(1, false);
+        expect(room()).toEqual(["", ""]);
+        expect(frameWidth()).toBe("1600px");
+        expect(widths()).toBe(3);
+        expect(waiting()).toBe(0);
+      });
+
+      test("keeps the page's edge to a column on the left, which the page starts after", () => {
+        letMove();
+        apply({ ...CLOSED, panel: { ...CLOSED.panel, side: "left" } });
+        rest();
+        apply(LEFT);
+        slide(130);
+        expect(room()).toEqual(["130px", ""]);
+        expect(frameWidth()).toBe("1470px");
+        slide(240, false);
+        expect(room()).toEqual(["240px", ""]);
+        expect(frameWidth()).toBe("1360px");
+      });
+
+      test("never takes the page past the column's width, whatever the column is read at", () => {
+        closed();
+        apply(PLAIN);
+        slide(-21);
+        expect(room()).toEqual(["", ""]);
+        slide(260);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+      });
+
+      test("follows a column that glides wider, as a view opens, with no wait", () => {
+        const widths = opened();
+        // The panel says the width it glides to, and that it glides.
+        setDockWidth(340);
+        panelSized(true);
+        expect(widths()).toBe(0);
+        expect(waiting()).toBe(1);
+        slide(262.4);
+        expect(room()).toEqual(["", "262px"]);
+        expect(frameWidth()).toBe("1338px");
+        slide(318);
+        expect(frameWidth()).toBe("1282px");
+        slide(340, false);
+        expect(room()).toEqual(["", "340px"]);
+        expect(frameWidth()).toBe("1260px");
+        expect(widths()).toBe(3);
+        expect(waiting()).toBe(0);
+        expect(reloads).toBe(0);
+      });
+
+      test("follows a column that glides narrower, as the view closes", () => {
+        letMove();
+        setDockWidth(340);
+        apply(PLAIN);
+        rest();
+        const widths = countWidths();
+        setDockWidth(240);
+        panelSized(true);
+        // Not at once: the column is as wide as it was.
+        expect(widths()).toBe(0);
+        expect(frameWidth()).toBe("1260px");
+        slide(300);
+        expect(frameWidth()).toBe("1300px");
+        slide(240, false);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+        expect(waiting()).toBe(0);
+      });
+
+      test("slides the page across as the column crosses over it, as wide as it was", () => {
+        const widths = opened();
+        const frame = frameElement();
+        apply(LEFT);
+        expect(room()).toEqual(["", "240px"]);
+        // On the left the column covers the window as far as its right edge: all of it as it sets off.
+        slide(1600);
+        expect(room()).toEqual(["", "240px"]);
+        // Halfway there the page is halfway across.
+        slide(920);
+        expect(room()).toEqual(["120px", "120px"]);
+        slide(580);
+        expect(room()).toEqual(["180px", "60px"]);
+        slide(240, false);
+        expect(room()).toEqual(["240px", ""]);
+        // The page was never laid out at another width.
+        expect(widths()).toBe(0);
+        expect(frameWidth()).toBe("1360px");
+        expect(frameElement()).toBe(frame);
+        expect(waiting()).toBe(0);
+      });
+
+      test("turns back with a column that is closed again before it was out", () => {
+        closed();
+        apply(PLAIN);
+        slide(1);
+        slide(140);
+        expect(frameWidth()).toBe("1460px");
+        apply(CLOSED);
+        // One loop still, from where the page is.
+        expect(waiting()).toBe(1);
+        expect(frameWidth()).toBe("1460px");
+        slide(150);
+        expect(frameWidth()).toBe("1460px");
+        slide(60);
+        expect(frameWidth()).toBe("1540px");
+        slide(1, false);
+        expect(frameWidth()).toBe("1600px");
+        expect(waiting()).toBe(0);
+      });
+
+      test("resizes the page no more than once a frame, whatever comes between two", () => {
+        const widths = closed();
+        apply(PLAIN);
+        slide(1);
+        const before = widths();
+        column = { cover: 80, moving: true };
+        // A view opens as the panel does, and the knobs are applied again.
+        setDockWidth(340);
+        panelSized(true);
+        apply(PLAIN);
+        expect(widths()).toBe(before);
+        expect(waiting()).toBe(1);
+        paint();
+        expect(widths()).toBe(before + 1);
+        expect(frameWidth()).toBe("1520px");
+        slide(340, false);
+        expect(frameWidth()).toBe("1260px");
+        expect(widths()).toBe(before + 2);
+      });
+
+      test("asks for no frame where the column takes no room, closed or over the page", () => {
+        closed();
+        // A closed column's handle goes to the other side.
+        apply({ ...CLOSED, panel: { ...CLOSED.panel, side: "left" } });
+        expect(waiting()).toBe(0);
+        // In a window too narrow, the panel opens over the page.
+        resizeTo(500);
+        apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+        expect(waiting()).toBe(0);
+        expect(room()).toEqual(["", ""]);
+        expect(reads).toBe(0);
+      });
+
+      test("lands on the column's width at once when it is found at rest, or there is no panel to read", () => {
+        const widths = closed();
+        apply(PLAIN);
+        slide(240, false);
+        expect(frameWidth()).toBe("1360px");
+        expect(widths()).toBe(1);
+        expect(waiting()).toBe(0);
+        apply(CLOSED);
+        column = null;
+        paint();
+        expect(frameWidth()).toBe("1600px");
+        expect(widths()).toBe(2);
+        expect(waiting()).toBe(0);
+      });
+
+      test("gives a page too slow to keep up its final width at once", () => {
+        const widths = closed();
+        apply(PLAIN);
+        slide(1);
+        // Two frames in a row come late: the page is not laid out a third time on the way.
+        slide(60, true, RIDE_SLOW + 10);
+        expect(frameWidth()).toBe("1540px");
+        slide(120, true, RIDE_SLOW + 10);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+        expect(waiting()).toBe(0);
+        expect(widths()).toBe(3);
+      });
+
+      test("follows on past one late frame, and a frame as long as the limit", () => {
+        closed();
+        apply(PLAIN);
+        slide(1);
+        slide(60, true, RIDE_SLOW + 10);
+        slide(100, true, RIDE_SLOW);
+        slide(140, true, RIDE_SLOW + 10);
+        expect(frameWidth()).toBe("1460px");
+        expect(waiting()).toBe(1);
+      });
+
+      test("resizes the page once, at once, where less motion is asked for", () => {
+        const widths = closed();
+        Reflect.set(window, "matchMedia", (query: string) => ({ matches: true, media: query }));
+        apply(PLAIN);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+        expect(widths()).toBe(1);
+        setDockWidth(340);
+        panelSized(true);
+        expect(frameWidth()).toBe("1260px");
+        apply(LEFT);
+        expect(room()).toEqual(["340px", ""]);
+        apply(CLOSED);
+        expect(frameWidth()).toBe("1600px");
+        expect(widths()).toBe(3);
+        expect(waiting()).toBe(0);
+        expect(reads).toBe(0);
+      });
+
+      test("drops the frame it follows in when the frame goes", () => {
+        closed();
+        const own = nextFrame;
+        apply(PLAIN);
+        expect(asked.has(own)).toBe(true);
+        reset();
+        expect(asked.has(own)).toBe(false);
+        // A frame that was let through finds nothing to follow.
+        column = { cover: 120, moving: true };
+        paint();
+        expect(reads).toBe(0);
+      });
+
+      test("follows the panel's edge frame by frame as it is dragged wider, as ever", () => {
         letMove();
         apply(PLAIN);
+        rest();
         for (const px of [260, 300, 340]) {
           // The strip says so with each move, which is no glide.
           setDockWidth(px);
@@ -2432,101 +2714,30 @@ describe("a panel pinned to its side", () => {
           expect(room()).toEqual(["", `${px}px`]);
           expect(frameWidth()).toBe(`${1600 - px}px`);
         }
-        expect(settle()).toBe(0);
-        // A window that resizes while the column is still on its way waits on.
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
-        apply(PLAIN);
-        fire("resize");
-        expect(frameWidth()).toBe("1600px");
-        expect(settle()).toBe(1);
-        expect(frameWidth()).toBe("1260px");
+        // The strip's width is the panel's own, not one read off the column.
+        expect(reads).toBe(0);
+        expect(waiting()).toBe(0);
       });
 
-      test("narrows the page once, when a column that glides wider has grown over it", () => {
-        letMove();
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
-        apply(PLAIN);
-        settle();
-        paint();
-        const frame = frameElement();
-        const widths = countWidths();
-        // A view opens: the panel says the width it glides to, and that it glides.
+      test("lets a drag take over a glide on its way", () => {
+        opened();
         setDockWidth(340);
         panelSized(true);
-        // No frame of the glide resizes the page.
-        paint();
-        paint();
-        expect(widths()).toBe(0);
-        expect(room()).toEqual(["", "240px"]);
-        expect(frameWidth()).toBe("1360px");
-        expect(settle()).toBe(1);
-        expect(widths()).toBe(1);
-        expect(room()).toEqual(["", "340px"]);
-        expect(frameWidth()).toBe("1260px");
-        expect(frameElement()).toBe(frame);
-        expect(reloads).toBe(0);
-      });
-
-      test("widens the page at once, under a column that glides narrower", () => {
-        letMove();
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
-        setDockWidth(340);
-        apply(PLAIN);
-        settle();
-        paint();
-        const glided: unknown[] = [];
-        const screen = named("screen");
-        let at = 0;
-        // The screen is somewhere else each time it is measured, so a glide would have a way to go.
-        Reflect.set(screen, "getBoundingClientRect", () => ({ left: at++, top: 0, width: 800, height: 600 }));
-        Reflect.set(screen, "animate", (keyframes: unknown) => {
-          glided.push(keyframes);
-          return { finished: new Promise(() => {}), cancel: () => {} };
-        });
-        const widths = countWidths();
-        // The view closes, and the panel glides back to the rows' width.
-        setDockWidth(240);
-        panelSized(true);
-        expect(widths()).toBe(1);
-        expect(room()).toEqual(["", "240px"]);
-        expect(frameWidth()).toBe("1360px");
-        // Nothing is left for the next frame or for later, and the page is not stretched on its way.
-        paint();
-        expect(widths()).toBe(1);
-        expect(settle()).toBe(0);
-        expect(glided).toEqual([]);
-      });
-
-      test("lets a drag take over a glide that still waits", () => {
-        letMove();
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
-        apply(PLAIN);
-        settle();
-        setDockWidth(340);
-        panelSized(true);
+        slide(280);
+        expect(frameWidth()).toBe("1320px");
         setDockWidth(360);
         panelSized(false);
-        expect(frameWidth()).toBe("1360px");
+        // One frame is asked for, the strip's, and it takes the panel's width as it is.
+        expect(waiting()).toBe(1);
+        column = { cover: 290, moving: true };
         paint();
         expect(frameWidth()).toBe("1240px");
-        expect(settle()).toBe(0);
+        expect(waiting()).toBe(0);
       });
 
-      test("drops the wait when the panel closes before the page narrowed", () => {
-        letMove();
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
-        apply(PLAIN);
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
-        apply(PLAIN);
-        expect(frameWidth()).toBe("1600px");
-        expect(settle()).toBe(1);
-        expect(frameWidth()).toBe("1360px");
-      });
-
-      test("changes size in place, with no glide to stretch the page", () => {
-        letMove();
+      test("never glides the page's box: the column's edge is all that moves it", () => {
         const glided: unknown[] = [];
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        closed();
         const screen = named("screen");
         let at = 0;
         // The screen is somewhere else each time it is measured, so a glide would have a way to go.
@@ -2536,12 +2747,15 @@ describe("a panel pinned to its side", () => {
           return { finished: new Promise(() => {}), cancel: () => {} };
         });
         apply(PLAIN);
-        settle();
-        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        slide(240, false);
+        apply(LEFT);
+        slide(240, false);
+        setDockWidth(340);
+        panelSized(true);
+        slide(340, false);
+        apply({ ...CLOSED, panel: { ...CLOSED.panel, side: "left" } });
+        slide(0, false);
         expect(glided).toEqual([]);
-        // To the other side it glides, as the column does.
-        apply({ ...PLAIN, panel: { ...PINNED, open: false, side: "left" } });
-        expect(glided).toHaveLength(1);
       });
     });
   });
@@ -2605,9 +2819,10 @@ describe("a panel pinned to its side", () => {
       expect(drawn()).toBe(scaleOf(view, 0));
     });
 
-    test("glides the frame to its place in the stage, with no wait", () => {
+    test("glides the frame to its place as the panel is pinned or let go, the room there at once", () => {
       letMove();
       apply(WIDE);
+      rest();
       const glided: unknown[] = [];
       const screen = named("screen");
       let at = 0;
@@ -2617,16 +2832,36 @@ describe("a panel pinned to its side", () => {
         glided.push(keyframes);
         return { finished: new Promise(() => {}), cancel: () => {} };
       });
+      // The column stands where the panel floated: there is no way of it to follow.
       apply({ ...WIDE, panel: PINNED });
       expect(room()).toEqual(["", "240px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1360, height: 900 }, 0));
       expect(glided).toHaveLength(1);
-      expect(waits.filter((wait) => wait.ms === DOCK_SETTLE)).toEqual([]);
+      expect(waiting()).toBe(0);
+      apply(WIDE);
+      expect(room()).toEqual(["", ""]);
+      expect(drawn()).toBe(scaleOf(view, PANEL));
+      expect(glided).toHaveLength(2);
+      expect(waiting()).toBe(0);
+      expect(reads).toBe(0);
     });
 
-    test("glides the device to its place as the column glides to a new width, the room there at once", () => {
+    test("lets go of a column it follows when the panel is let go on its way", () => {
       letMove();
+      apply({ ...WIDE, panel: { ...PINNED, open: false } });
+      rest();
       apply({ ...WIDE, panel: PINNED });
-      paint();
+      slide(120);
+      expect(room()).toEqual(["", "120px"]);
+      apply(WIDE);
+      expect(room()).toEqual(["", ""]);
+      expect(waiting()).toBe(0);
+    });
+
+    test("fits the device in the room the column leaves each frame, with no glide of its own", () => {
+      letMove();
+      apply({ ...WIDE, panel: { ...PINNED, open: false } });
+      rest();
       const glided: unknown[] = [];
       const screen = named("screen");
       let at = 0;
@@ -2635,21 +2870,77 @@ describe("a panel pinned to its side", () => {
         glided.push(keyframes);
         return { finished: new Promise(() => {}), cancel: () => {} };
       });
+      const frame = frameElement();
+      // The column slides in: the device is fitted beside it where it shows.
+      apply({ ...WIDE, panel: PINNED });
+      expect(drawn()).toBe(scaleOf(view, 0));
+      slide(100);
+      expect(room()).toEqual(["", "100px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1500, height: 900 }, 0));
+      slide(240, false);
+      expect(drawn()).toBe(scaleOf({ width: 1360, height: 900 }, 0));
+      // It glides to a view's width.
       setDockWidth(340);
       panelSized(true);
-      expect(room()).toEqual(["", "340px"]);
+      expect(room()).toEqual(["", "240px"]);
+      slide(300);
+      expect(drawn()).toBe(scaleOf({ width: 1300, height: 900 }, 0));
+      slide(340, false);
       expect(drawn()).toBe(scaleOf({ width: 1260, height: 900 }, 0));
-      expect(glided).toHaveLength(1);
-      paint();
-      expect(glided).toHaveLength(1);
-      expect(waits.filter((wait) => wait.ms === DOCK_SETTLE)).toEqual([]);
-      // Under the strip it follows with no glide, a frame on.
+      // It crosses to the other side, and the stage with it.
+      apply({ ...WIDE, panel: { ...PINNED, side: "left" } });
+      slide(1600);
+      slide(1285);
+      expect(room()).toEqual(["85px", "255px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1260, height: 900 }, 0));
+      slide(340, false);
+      expect(room()).toEqual(["340px", ""]);
+      // And slides away.
+      apply({ ...WIDE, panel: { ...PINNED, side: "left", open: false } });
+      slide(170);
+      expect(room()).toEqual(["170px", ""]);
+      slide(1, false);
+      expect(drawn()).toBe(scaleOf(view, 0));
+      // The frame's own width is the knob's all along, and nothing but the column moved it.
+      expect(frameWidth()).toBe("1500px");
+      expect(frameElement()).toBe(frame);
+      expect(glided).toEqual([]);
+      expect(waiting()).toBe(0);
+      expect(reloads).toBe(0);
+      // Under the strip it follows the panel's width, a frame on, as ever.
+      apply({ ...WIDE, panel: PINNED });
+      slide(340, false);
       setDockWidth(300);
       panelSized(false);
       expect(room()).toEqual(["", "340px"]);
       paint();
       expect(room()).toEqual(["", "300px"]);
-      expect(glided).toHaveLength(1);
+    });
+
+    test("never follows a floating panel: its frame glides beside it, as ever", () => {
+      letMove();
+      apply({ ...WIDE, panel: { ...WIDE.panel, open: false } });
+      rest();
+      const glided: unknown[] = [];
+      const screen = named("screen");
+      let at = 0;
+      Reflect.set(screen, "getBoundingClientRect", () => ({ left: at++ * 50, top: 0, width: 800, height: 600 }));
+      Reflect.set(screen, "animate", (keyframes: unknown) => {
+        glided.push(keyframes);
+        return { finished: new Promise(() => {}), cancel: () => {} };
+      });
+      apply(WIDE);
+      setDockWidth(340);
+      panelSized(true);
+      apply({ ...WIDE, panel: { ...WIDE.panel, side: "left" } });
+      apply({ ...WIDE, panel: { ...WIDE.panel, open: false } });
+      // Each is a glide of the frame's own: out, to the new width, across, and away.
+      expect(glided).toHaveLength(4);
+      expect(waiting()).toBe(0);
+      column = { cover: 120, moving: true };
+      paint();
+      expect(reads).toBe(0);
+      expect(room()).toEqual(["", ""]);
     });
 
     test("counts the mat's rulers from the stage's edge, its grid on under the column", () => {

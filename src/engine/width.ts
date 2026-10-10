@@ -5,7 +5,7 @@ import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf, formId, formOf, hasTouch } from "./devices";
-import { type Docked, dockEdges, dockWidth, onDockWidth } from "./dock";
+import { columnEdge, type Docked, dockEdges, dockWidth, onDockWidth } from "./dock";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
 import { carried, fresh, FRESH_ATTRIBUTE, loads, ownReload } from "./fresh";
 import {
@@ -96,10 +96,11 @@ export type ViewportValue = FrameKnobs &
   };
 
 /**
- * How long the page waits before it gives a pinned panel's column its room,
- * in ms: the panel's glide, so it slides in over the page before it narrows.
+ * How long a frame of a pinned column's glide may take, in ms, before the page
+ * is too slow to follow it: two such frames in a row, and the page takes its
+ * final width at once.
  */
-export const DOCK_SETTLE = 220;
+export const RIDE_SLOW = 50;
 
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
@@ -358,62 +359,130 @@ function asideOf(panel: Docked): number {
 
 /** The px a pinned panel's column takes from the page on each side, as the frame is drawn. */
 let room: Record<SideValue, number> = { left: 0, right: 0 };
-/** The wait before the page gives the column more room, and whether it is over. */
-let making = 0;
-let made = false;
-/** The frame in which the stage takes the column's new width. */
+/** The frame in which the stage takes the width of a column under the strip. */
 let following = 0;
+
+/** The page following a pinned column that slides or glides, frame by frame. */
+interface Ride {
+  /** The room the page had as the column set off. */
+  from: Record<SideValue, number>;
+  /** What the column covered as it set off across the window, null until it is read. */
+  start: number | null;
+  /** The next frame it follows in. */
+  frame: number;
+  /** When the last frame came, null before the first, and how many in a row came late. */
+  seen: number | null;
+  slow: number;
+}
+
+let ride: Ride | null = null;
+
+/** Stop following the column. The room is the one it ends at from the next draw. */
+function endRide(): void {
+  if (ride?.frame) window.cancelAnimationFrame(ride.frame);
+  ride = null;
+}
 
 /**
  * Keep the stage clear of a pinned panel's column, as wide as `dockWidth`
- * says the panel is. The mat still lies under it, so no edge of it shows as
- * it slides. A frame up for the panel alone is the page: it gives up more
- * room only once the column has slid in or grown over it, so the page lays
- * out once and no gap shows beside it, and takes room back at once, under the
- * column as it leaves or narrows. The notice keeps to the stage as well.
+ * says the panel is, or as far as the column has got while it is followed.
+ * The mat still lies under it, so no edge of it shows as it slides. The
+ * notice keeps to the stage as well.
  */
 function makeRoom(): void {
   if (!letterbox) return;
   // The letterbox is as wide as the window, the room the column takes included.
-  const next = dockEdges(current.panel, letterbox.clientWidth, dockWidth());
-  const more = next.left + next.right > room.left + room.right;
-  if (more && !made && drawn && plainFrame(current) && !still()) {
-    making ||= window.setTimeout(() => {
-      making = 0;
-      roomNow();
-    }, DOCK_SETTLE);
-    return;
-  }
-  clearTimeout(making);
-  making = 0;
-  room = next;
+  if (!ride) room = dockEdges(current.panel, letterbox.clientWidth, dockWidth());
   for (const box of [letterbox, notice]) {
     if (!box) continue;
-    box.style.paddingLeft = next.left ? `${next.left}px` : "";
-    box.style.paddingRight = next.right ? `${next.right}px` : "";
+    box.style.paddingLeft = room.left ? `${room.left}px` : "";
+    box.style.paddingRight = room.right ? `${room.right}px` : "";
   }
 }
 
-/** Give the column the room it takes now, with no wait. */
-function roomNow(): void {
-  made = true;
+/**
+ * The room for a column on `side` that covers `cover` px of the window on its
+ * way to `to`, in whole px. On the side it was on, the page's edge is the
+ * column's. From the other side the column crosses over the page, which
+ * slides across as far as the column has come, as wide as it was.
+ */
+function rideRoom(now: Ride, side: SideValue, to: number, cover: number): Record<SideValue, number> {
+  const other = side === "left" ? "right" : "left";
+  const from = now.from[side];
+  let mine = Math.min(Math.max(cover, Math.min(from, to)), Math.max(from, to));
+  let theirs = 0;
+  if (now.from[other] > 0) {
+    now.start ??= cover;
+    const way = now.start - to;
+    const share = way === 0 ? 1 : Math.min(Math.max((now.start - cover) / way, 0), 1);
+    mine = from + (to - from) * share;
+    theirs = now.from[other] * (1 - share);
+  }
+  mine = Math.round(mine);
+  theirs = Math.round(theirs);
+  return side === "left" ? { left: mine, right: theirs } : { left: theirs, right: mine };
+}
+
+/**
+ * A frame of the column's way: the page takes the room the column leaves
+ * where it shows now, once. The column at rest, or gone, ends it, and so does
+ * a page too slow to keep up, and the page takes the room it ends at.
+ */
+function step(time: number): void {
+  const now = ride;
+  if (!now) return;
+  now.frame = 0;
+  now.slow = now.seen !== null && time - now.seen > RIDE_SLOW ? now.slow + 1 : 0;
+  now.seen = time;
+  const side = current.panel.side;
+  const edge = letterbox && !released && now.slow < 2 ? columnEdge(side) : null;
+  if (!letterbox || !edge?.moving) {
+    endRide();
+    resize();
+    return;
+  }
+  const to = dockEdges(current.panel, letterbox.clientWidth, dockWidth())[side];
+  room = rideRoom(now, side, to, edge.cover);
   resize();
-  made = false;
+  now.frame = window.requestAnimationFrame(step);
+}
+
+/**
+ * The room a pinned column takes changes as `draw` draws it, and the column
+ * slides or glides there: opening, closing, crossing to the other side, or
+ * gliding to a new width. The page keeps its room for now and follows the
+ * column's edge from the next frame, so it is laid out as the column moves,
+ * as under the strip. With less motion the column jumps, and the page is
+ * resized once. Nothing waits where the room stays as it is.
+ */
+function follow(draw: () => void): void {
+  if (still() || !letterbox) {
+    endRide();
+    draw();
+    return;
+  }
+  ride = { from: { ...room }, start: null, frame: ride?.frame ?? 0, seen: null, slow: 0 };
+  draw();
+  const to = dockEdges(current.panel, letterbox.clientWidth, dockWidth());
+  if (to.left === room.left && to.right === room.right) endRide();
+  else ride.frame ||= window.requestAnimationFrame(step);
 }
 
 /**
  * The panel got wider or narrower. A pinned one's column takes that room in
- * the next frame, with no wait, and once a frame however often its width
- * changes, so the page follows its edge as it is dragged and is laid out no
- * more than it is painted.
+ * the next frame, and once a frame however often its width changes, so the
+ * page follows its edge as it is dragged and is laid out no more than it is
+ * painted.
  */
-onDockWidth(() => {
+function followSoon(): void {
   if (!host || !current.panel.docked) return;
   following ||= window.requestAnimationFrame(() => {
     following = 0;
-    roomNow();
+    resize();
   });
-});
+}
+
+onDockWidth(followSoon);
 
 /** The room the frame is fitted to: the letterbox less what the column takes. */
 function stageSize(): { width: number; height: number } {
@@ -424,19 +493,24 @@ function stageSize(): { width: number; height: number } {
 /**
  * The panel changed its width, and with `glide` it glides to it. A floating
  * panel's frame is fitted beside it again, and glides to its place as the
- * panel does. A pinned panel's column is followed as `onDockWidth` says,
- * unless it glides: then the stage takes the width the column ends at, once.
- * A device glides to its place in it, and the page changes size in place,
- * under a column that narrows, or once a wider one has grown over it.
+ * panel does. A pinned panel's column is followed either way: under the
+ * strip as `followSoon` says, which a glide still on its way gives way to,
+ * and as it glides, by its edge, frame by frame. A device is fitted in the
+ * room each frame, with no glide of its own.
  */
 export function panelSized(glide: boolean): void {
+  const pinned = current.panel.docked;
   if (!glide) {
-    if (!current.panel.docked) resize();
+    if (!pinned) resize();
+    else if (ride) {
+      endRide();
+      followSoon();
+    }
     return;
   }
   if (following) window.cancelAnimationFrame(following);
   following = 0;
-  if (plainFrame(current)) resize();
+  if (pinned) follow(resize);
   else glideFrame(screen, { first: false, from: current.panel, to: current.panel, sized: true }, resize);
 }
 
@@ -1025,10 +1099,9 @@ function teardown(): void {
   drawn = null;
   clearTimeout(settling);
   held = null;
-  clearTimeout(making);
-  making = 0;
   if (following) window.cancelAnimationFrame(following);
   following = 0;
+  endRide();
   room = { left: 0, right: 0 };
   pending = null;
   forgetTurn();
@@ -1143,10 +1216,18 @@ export function apply(value: ViewportValue): void {
     change("open");
     return;
   }
-  // The page in a pinned panel's frame changes size in place, under the
-  // column that slides over it, and glides only to the other side.
-  if (plainFrame(value) && current.panel.side === value.panel.side) draw(value);
-  else glideFrame(screen, { first, from: current.panel, to: value.panel }, () => draw(value));
+  // A pinned panel's page, or the device in its stage, follows the column as
+  // it opens, closes or crosses to the other side, and has no glide of its own.
+  const at = current.panel;
+  if (at.docked && value.panel.docked) {
+    if (at.open !== value.panel.open || at.side !== value.panel.side) follow(() => draw(value));
+    else draw(value);
+    return;
+  }
+  // Pinned or let go, the column is where it was: the room comes or goes at once.
+  endRide();
+  if (plainFrame(value) && at.side === value.panel.side) draw(value);
+  else glideFrame(screen, { first, from: at, to: value.panel }, () => draw(value));
 }
 
 /** Take the frame away and leave the window where it is. */

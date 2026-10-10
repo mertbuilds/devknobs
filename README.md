@@ -221,9 +221,14 @@ move panel across action in the search does too, and one closes the panel.
 
 it is one column, as wide as the panel is: the rows' width, or a view's while
 one shows. the page's frame follows that width with no load. under a drag it
-follows the edge, once a frame. when the panel glides to a new width, as a
-view opens or closes, the page is resized once: at the start under a column
-that narrows, at the end under one that grew over it.
+follows the edge, once a frame. it follows the column the same way whenever
+the column moves on its own: as the panel opens and closes, and as it glides
+to a new width when a view opens or closes, the page's edge is the column's
+edge in every frame, so the page lays out as it shrinks and grows. taken to
+the other side, the column crosses over the page while the page slides
+across, as wide as it was. a page too slow to keep up (two frames in a row
+over 50ms) takes its final width at once, and so does every page when the
+system asks for reduced motion.
 
 the page never gets narrower than 320px, so the edge stops there. in a window
 too narrow to leave it that beside the panel (under 560px for a panel 240px

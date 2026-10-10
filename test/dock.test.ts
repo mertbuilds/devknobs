@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  columnEdge,
   DOCK_WIDTH,
   dockEdges,
   dockInset,
@@ -8,6 +9,7 @@ import {
   onDockWidth,
   PAGE_MIN,
   setDockWidth,
+  watchColumn,
 } from "../src/engine/dock";
 
 const OPEN = { open: true, side: "right", docked: true } as const;
@@ -45,6 +47,31 @@ describe("dockWidth", () => {
     expect(dockWidth()).toBe(240);
     expect(heard).toBe(0);
     stop();
+  });
+});
+
+describe("columnEdge", () => {
+  test("is what the panel reads of its column on the side asked for, and nothing with no panel", () => {
+    expect(columnEdge("right")).toBeNull();
+    const asked: string[] = [];
+    const stop = watchColumn((side) => {
+      asked.push(side);
+      return { cover: side === "left" ? 120 : 96, moving: true };
+    });
+    expect(columnEdge("right")).toEqual({ cover: 96, moving: true });
+    expect(columnEdge("left")).toEqual({ cover: 120, moving: true });
+    expect(asked).toEqual(["right", "left"]);
+    stop();
+    expect(columnEdge("right")).toBeNull();
+  });
+
+  test("keeps a later panel's way to read when an earlier one stops", () => {
+    const stopFirst = watchColumn(() => ({ cover: 1, moving: false }));
+    const stopSecond = watchColumn(() => ({ cover: 2, moving: false }));
+    stopFirst();
+    expect(columnEdge("left")?.cover).toBe(2);
+    stopSecond();
+    expect(columnEdge("left")).toBeNull();
   });
 });
 

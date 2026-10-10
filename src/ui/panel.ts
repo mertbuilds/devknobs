@@ -3,13 +3,14 @@ import { now, realNow } from "../engine/clock";
 import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { isMac } from "../engine/ua";
-import { setDockWidth } from "../engine/dock";
+import { setDockWidth, watchColumn } from "../engine/dock";
 import { frameWindow, panelSized, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
 import type { InspectControl } from "../grab/inspect";
 import type { DevknobsState } from "../types";
 import { runAction, stopAction } from "./actions";
 import { type Action, availableActions, type Live } from "./catalog";
+import { readColumn } from "./column";
 import { BINDINGS, createKeys, type LiveKeys } from "./bindings";
 import { button, el } from "./dom";
 import { createDrag } from "./drag";
@@ -241,6 +242,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
     sized: panelSized,
   });
   const requests = createRequests({ said });
+  // The frame follows a pinned panel's column where it shows, as it slides and glides.
+  const stopColumn = watchColumn((at) =>
+    readColumn(wrap, panel, at, document.documentElement.clientWidth || window.innerWidth),
+  );
 
   // The strip comes last, so the tab key reaches it after all the panel holds.
   // The tooltip sits in the wrapper it is placed in, as the panel places the strip.
@@ -603,6 +608,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("blur", onBlur);
       resizes.disconnect();
+      stopColumn();
       document.removeEventListener("DOMContentLoaded", attach);
       host.remove();
     },
