@@ -44,8 +44,8 @@ export interface Tips {
   hideAfter(delay: number): void;
   /** Whether the tooltip shows, or is about to, for a control. */
   isFor(node: HTMLElement): boolean;
-  /** Give an icon-only control a tooltip. */
-  tooltip(node: HTMLElement, text: string): void;
+  /** Give an icon-only control a tooltip, its words asked for each time where they change. */
+  tooltip(node: HTMLElement, text: string | (() => string)): void;
   destroy(): void;
 }
 
@@ -86,13 +86,14 @@ export function createTips(tip: HTMLElement, wrap: HTMLElement): Tips {
    * once when the keys bring the focus to it. A press, leaving or escape
    * hides it, and a pressed control keeps it hidden until the pointer leaves.
    */
-  function tooltip(node: HTMLElement, text: string): void {
+  function tooltip(node: HTMLElement, text: string | (() => string)): void {
+    const words = () => (typeof text === "string" ? text : text());
     let pressed = false;
     node.addEventListener("pointerenter", () => {
       if (pressed || tipFor === node) return;
       clearTimeout(tipTimer);
       tipFor = node;
-      tipTimer = window.setTimeout(() => showTip(node, text), TIP_DELAY);
+      tipTimer = window.setTimeout(() => showTip(node, words()), TIP_DELAY);
     });
     node.addEventListener("pointerleave", () => {
       pressed = false;
@@ -103,7 +104,7 @@ export function createTips(tip: HTMLElement, wrap: HTMLElement): Tips {
       hideTip();
     });
     node.addEventListener("focus", () => {
-      if (node.matches(":focus-visible")) showTip(node, text);
+      if (node.matches(":focus-visible")) showTip(node, words());
     });
     node.addEventListener("blur", () => {
       if (tipFor === node) hideTip();

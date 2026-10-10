@@ -3,6 +3,7 @@ import { now, realNow } from "../engine/clock";
 import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { isMac } from "../engine/ua";
+import { setDockWidth } from "../engine/dock";
 import { frameWindow, panelSized, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
 import type { InspectControl } from "../grab/inspect";
@@ -16,6 +17,7 @@ import { type Command, createFooter, overflowBadge } from "./footer";
 import { icon } from "./icons";
 import { createInspector } from "./inspector";
 import {
+  comboLabel,
   comboSpoken,
   escapeStep,
   isSearchKey,
@@ -27,6 +29,7 @@ import {
 import { isReset } from "./list";
 import { createPalette } from "./palette";
 import { createPane } from "./pane";
+import { collapseTip, pinTip, SIDE_WORD, togglePin } from "./pin";
 import { createPrefs } from "./prefs";
 import { createRequests, type Requests } from "./requests";
 import { createRows } from "./rows";
@@ -75,6 +78,12 @@ export const HOST_STYLE = "position:fixed;top:0;z-index:2147483646;pointer-event
  * host carries an open shadow root, so the page cannot style the panel and the
  * panel cannot style the page.
  *
+ * The pin in the footer docks the panel to its side as a column the window's
+ * height, as wide as the panel is, and the engine puts the page in a frame
+ * beside it. Open, the column has no handle: its edge changes its width as a
+ * floating panel's does, and two controls by the pin take it to the other
+ * side and close it.
+ *
  * The panel lists the knobs that are off their default or were set from it,
  * one row each, in the order they were added or dragged to, and a row opens
  * into an editor. An action run from the panel has a row among them, which
@@ -105,6 +114,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     close: () => requests.close(),
   };
   stage.requests = requestsHere;
+  const flip = (): void => drag.flip();
+  stage.flip = flip;
   /** The actions the page has: grab and inspect only where there is one. */
   const actionsHere = availableActions();
   /** The keys the shortcuts list: grab's and inspect's only where there is one. */
@@ -164,12 +175,23 @@ export function createPanel(options: PanelOptions = {}): Panel {
   home.append(rows, empty, add, head, results);
 
   const footer = createFooter(keys, grab, mac, inspect);
-  const { foot, badge, hints, keysToggle } = footer;
+  const { foot, badge, hints, keysToggle, pin, collapse } = footer;
   // The tooltip the icon-only controls share. Their aria-label already says
   // the same, so assistive tech is not told twice.
   const tip = el("div", "tip");
   tip.setAttribute("aria-hidden", "true");
   const tips = createTips(tip, wrap);
+  pin.addEventListener("click", togglePin);
+  tips.tooltip(pin, () =>
+    pinTip(
+      engine.getState().panel.docked,
+      document.documentElement.clientWidth || window.innerWidth,
+    ),
+  );
+  footer.flip.addEventListener("click", flip);
+  tips.tooltip(footer.flip, SIDE_WORD);
+  collapse.addEventListener("click", () => toggle(false));
+  tips.tooltip(collapse, () => collapseTip(comboLabel(keys.get().panel, mac)));
 
   const settings = createSettings({
     keys,
@@ -214,6 +236,8 @@ export function createPanel(options: PanelOptions = {}): Panel {
     prefs,
     showing: () => (viewing() ? "view" : "list"),
     place: () => engine.getState().panel,
+    // The frame gives a pinned panel's column the width the panel has or glides to.
+    wide: setDockWidth,
     sized: panelSized,
   });
   const requests = createRequests({ said });
@@ -265,6 +289,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     settings.drawHandle(handleShown);
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
+    footer.drawPin(state.panel.docked);
     const live = liveOf(state);
     const anyShown = knobRows.renderRows(state, live);
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
@@ -560,6 +585,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       if (stage.grab === grab) stage.grab = null;
       if (stage.inspect === inspect) stage.inspect = null;
       if (stage.requests === requestsHere) stage.requests = null;
+      if (stage.flip === flip) stage.flip = null;
       stopCount();
       clearInterval(ticker);
       tips.destroy();

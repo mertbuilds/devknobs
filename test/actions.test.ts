@@ -119,13 +119,13 @@ describe("an action's row", () => {
   });
 
   test("has no place where the page has nothing for it, pinned or not", () => {
-    expect(availableActions().map((entry) => entry.id)).toEqual(["replay"]);
+    expect(availableActions().map((entry) => entry.id)).toEqual(["replay", "pin", "side"]);
     const state = pinned("grab");
     expect(isListed(row("grab"), state)).toBe(false);
     expect(listedOrder(state)).toEqual([...DEFAULTS]);
     expect(isReset(state)).toBe(true);
     stage.grab = fakeGrab();
-    expect(availableActions().map((entry) => entry.id)).toEqual(["grab", "replay"]);
+    expect(availableActions().map((entry) => entry.id)).toEqual(["grab", "replay", "pin", "side"]);
     expect(isListed(row("grab"), state)).toBe(true);
     expect(isReset(state)).toBe(false);
   });
@@ -241,14 +241,14 @@ describe("running an action", () => {
 
 describe("inspect's row", () => {
   test("has a place only where there is an inspect, apart from grab's", () => {
-    expect(ACTIONS.map((entry) => entry.id)).toEqual(["grab", "inspect", "replay", "requests"]);
+    expect(ACTIONS.map((entry) => entry.id)).toEqual(["grab", "inspect", "replay", "requests", "pin", "side"]);
     expect(action("inspect").state?.()).toBeNull();
     expect(isListed(row("inspect"), pinned("inspect"))).toBe(false);
     stage.grab = fakeGrab();
-    expect(availableActions().map((entry) => entry.id)).toEqual(["grab", "replay"]);
+    expect(availableActions().map((entry) => entry.id)).toEqual(["grab", "replay", "pin", "side"]);
     stage.grab = null;
     stage.inspect = fakeGrab();
-    expect(availableActions().map((entry) => entry.id)).toEqual(["inspect", "replay"]);
+    expect(availableActions().map((entry) => entry.id)).toEqual(["inspect", "replay", "pin", "side"]);
     expect(isListed(row("inspect"), pinned("inspect"))).toBe(true);
     // A fresh panel does not list it.
     expect(listedOrder(DEFAULT_STATE)).toEqual(DEFAULTS);

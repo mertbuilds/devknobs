@@ -8,6 +8,7 @@ import {
   LIST_MIN,
   LIST_WIDTH,
   PAGE_ROOM,
+  pageRoom,
   type Showing,
   type Sizer,
   VIEW_MIN,
@@ -18,6 +19,7 @@ import {
   widthIn,
   widthLimits,
 } from "../src/ui/size";
+import { PAGE_MIN } from "../src/engine/dock";
 import type { SideValue } from "../src/types";
 
 describe("the panel's two widths", () => {
@@ -38,6 +40,31 @@ describe("the panel's two widths", () => {
   test("in a window with no room to spare, only the least", () => {
     expect(widthLimits("list", 300)).toEqual({ min: 240, max: 240 });
     expect(widthLimits("view", 320)).toEqual({ min: 280, max: 280 });
+  });
+});
+
+describe("a pinned panel's widths", () => {
+  test("leave the page its least, 320, where a floating panel leaves it 96", () => {
+    expect([pageRoom(true), pageRoom(false)]).toEqual([PAGE_MIN, PAGE_ROOM]);
+    expect(PAGE_MIN).toBe(320);
+  });
+
+  test("go up to what leaves the page that, or 720", () => {
+    const page = pageRoom(true);
+    expect(widthLimits("list", 1440, page)).toEqual({ min: 240, max: 720 });
+    expect(widthLimits("view", 1040, page)).toEqual({ min: 280, max: 720 });
+    expect(widthLimits("view", 1039, page)).toEqual({ min: 280, max: 719 });
+    expect(widthLimits("view", 900, page)).toEqual({ min: 280, max: 580 });
+    expect(widthIn("view", 700, 900, page)).toBe(580);
+    expect(widthIn("list", 5000, 800, page)).toBe(480);
+  });
+
+  test("in a window with no room for the page beside it, only the least, and the panel lies over the page", () => {
+    const page = pageRoom(true);
+    expect(widthLimits("list", 559, page)).toEqual({ min: 240, max: 240 });
+    expect(widthLimits("view", 599, page)).toEqual({ min: 280, max: 280 });
+    expect(widthIn("view", 340, 599, page)).toBe(280);
+    expect(widthIn("list", 400, 500, page)).toBe(240);
   });
 });
 
@@ -206,15 +233,24 @@ interface Rig {
   width(): string | undefined;
   /** What the frame was told, with how wide the host was by then. */
   sized: { glide: boolean; host: string }[];
+  /** Each width the panel said it has, or glides to. */
+  wide: number[];
   /** What the preferences were asked to keep. */
   kept: [Showing, number][];
-  state: { showing: Showing; open: boolean; side: SideValue; view: number };
+  state: { showing: Showing; open: boolean; side: SideValue; docked: boolean; view: number };
   prefs: Prefs;
   dataset: Record<string, string>;
 }
 
 function rig(start: Partial<Rig["state"]> = {}, stored: Partial<Prefs> = {}): Rig {
-  const state: Rig["state"] = { showing: "list", open: true, side: "right", view: 1440, ...start };
+  const state: Rig["state"] = {
+    showing: "list",
+    open: true,
+    side: "right",
+    docked: false,
+    view: 1440,
+    ...start,
+  };
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
@@ -243,6 +279,7 @@ function rig(start: Partial<Rig["state"]> = {}, stored: Partial<Prefs> = {}): Ri
   };
   const kept: [Showing, number][] = [];
   const sized: Rig["sized"] = [];
+  const wide: number[] = [];
   const live: LivePrefs = {
     get: () => prefs,
     setHandle: () => {},
@@ -263,7 +300,8 @@ function rig(start: Partial<Rig["state"]> = {}, stored: Partial<Prefs> = {}): Ri
     panel,
     prefs: live,
     showing: () => state.showing,
-    place: () => ({ open: state.open, side: state.side }),
+    place: () => ({ open: state.open, side: state.side, docked: state.docked }),
+    wide: (px) => wide.push(px),
     sized: (glide) => sized.push({ glide, host: host.style.width }),
   });
   sizer.size();
@@ -274,6 +312,7 @@ function rig(start: Partial<Rig["state"]> = {}, stored: Partial<Prefs> = {}): Ri
     widths,
     width: () => widths.at(-1),
     sized,
+    wide,
     kept,
     state,
     prefs,
@@ -384,6 +423,102 @@ describe("a narrow window", () => {
   test("keeps a view inside a window too narrow for its least", () => {
     const { width } = rig({ showing: "view", view: 300 });
     expect(width()).toBe("271px");
+  });
+});
+
+describe("the width the panel says it has", () => {
+  test("is its first one too, which the frame is not told of", () => {
+    const { wide, sized } = rig({}, { listWidth: 300 });
+    expect(wide).toEqual([300]);
+    expect(sized).toEqual([]);
+  });
+
+  test("is the one it glides to, said before the frame hears that it glides", () => {
+    const order: string[] = [];
+    const { sizer, state, wide, sized } = rig();
+    wide.push = (px) => order.push(`wide ${px}`);
+    sized.push = (told) => order.push(`sized ${told.glide}`);
+    state.showing = "view";
+    sizer.size();
+    state.showing = "list";
+    sizer.size();
+    expect(order).toEqual(["wide 340", "sized true", "wide 240", "sized true"]);
+  });
+
+  test("follows the strip: each move of a drag, a double click, the keys, and the window", () => {
+    const { strip, sizer, state, wide } = rig({ showing: "view" });
+    wide.length = 0;
+    strip.fire("pointerdown", { clientX: 1000 });
+    strip.fire("pointermove", { clientX: 940 });
+    strip.fire("pointermove", { clientX: 900 });
+    strip.fire("pointerup", { clientX: 900 });
+    expect(wide).toEqual([400, 440]);
+    strip.fire("dblclick");
+    expect(wide).toEqual([400, 440, 340]);
+    strip.fire("keydown", { key: "ArrowLeft" });
+    expect(wide).toEqual([400, 440, 340, 340 + WIDTH_STEP]);
+    state.view = 400;
+    sizer.fit();
+    expect(wide.at(-1)).toBe(widthIn("view", 340 + WIDTH_STEP, 400));
+  });
+
+  test("is not said again where the width stays, or while the panel is closed", () => {
+    const { sizer, state, wide } = rig();
+    sizer.size();
+    expect(wide).toEqual([240]);
+    state.open = false;
+    state.showing = "view";
+    sizer.size();
+    expect(wide).toEqual([240]);
+    state.open = true;
+    sizer.size();
+    expect(wide).toEqual([240, 340]);
+  });
+});
+
+describe("the strip of a pinned panel", () => {
+  test("stops where the page is left its least, under the pointer and the keys", () => {
+    const { strip, width, kept, state } = rig({ showing: "view", docked: true, view: 1000 });
+    expect(strip.attributes.get("aria-valuemax")).toBe("680");
+    strip.fire("pointerdown", { clientX: 600 });
+    strip.fire("pointermove", { clientX: 100 });
+    expect(width()).toBe("680px");
+    strip.fire("pointerup", { clientX: 100 });
+    expect(kept).toEqual([["view", 680]]);
+    strip.fire("keydown", { key: "ArrowLeft" });
+    expect(width()).toBe("680px");
+    strip.fire("keydown", { key: "End" });
+    expect(kept.at(-1)).toEqual(["view", 680]);
+    // Floating, the same window lets it go on to 720.
+    state.docked = false;
+    strip.fire("keydown", { key: "End" });
+    expect(kept.at(-1)).toEqual(["view", 720]);
+  });
+
+  test("gives way as the panel is pinned: a width kept wider shows at what the page leaves", () => {
+    const { sizer, state, width, wide, prefs, strip } = rig({ view: 1000 }, { listWidth: 700 });
+    expect(width()).toBe("700px");
+    state.docked = true;
+    sizer.size();
+    expect(width()).toBe("680px");
+    expect(wide).toEqual([700, 680]);
+    expect(strip.attributes.get("aria-valuemax")).toBe("680");
+    // What is kept stays, for when the panel floats again.
+    expect(prefs.listWidth).toBe(700);
+    state.docked = false;
+    sizer.size();
+    expect(width()).toBe("700px");
+  });
+
+  test("narrows with the window down to its least, where the panel lies over the page", () => {
+    const { sizer, state, width } = rig({ docked: true, view: 1000 }, { listWidth: 600 });
+    expect(width()).toBe("600px");
+    state.view = 800;
+    sizer.fit();
+    expect(width()).toBe("480px");
+    state.view = 500;
+    sizer.fit();
+    expect(width()).toBe("240px");
   });
 });
 

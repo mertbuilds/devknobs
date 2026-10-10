@@ -452,7 +452,8 @@ export function createRows(context: RowsContext): Rows {
           view.main.setAttribute("aria-expanded", expanded ? "true" : "false");
         }
         view.value.textContent = rowText(view.row, state, live);
-        view.value.classList.toggle("idle", !isActive(view.row, state));
+        // A toggle that is on says so as a mode does, though it keeps no row listed.
+        view.value.classList.toggle("idle", mode ? mode !== "on" : !isActive(view.row, state));
         view.clear.hidden = !listed;
         view.grip.hidden = !listed;
         if (expanded) for (const update of view.updates) update(state);

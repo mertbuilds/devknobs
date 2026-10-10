@@ -44,6 +44,7 @@ import {
   TIME_ZONE,
   TRANSPARENCY,
 } from "./knobs";
+import { togglePin } from "./pin";
 import { stage } from "./stage";
 
 export { hasMock } from "./deviceknobs";
@@ -229,7 +230,7 @@ export type Row = KnobRow | ActionRow;
 
 /** Something the panel does rather than a knob it sets. Its row comes from what is said here. */
 export interface Action {
-  id: "grab" | "inspect" | "replay" | "requests";
+  id: "grab" | "inspect" | "replay" | "requests" | "pin" | "side";
   label: string;
   /** What a search result says after the name. */
   long: string;
@@ -303,6 +304,24 @@ export const ACTIONS: readonly Action[] = [
     state: () => (stage.requests ? (stage.requests.shows() ? "on" : "off") : null),
     off: () => stage.requests?.close(),
     available: () => stage.requests !== null,
+  },
+  {
+    id: "pin",
+    label: "pin panel",
+    long: "dock the panel to its side, the page beside it",
+    aliases: ["unpin", "dock", "undock", "sidebar", "column", "devtools"],
+    icon: "pin",
+    run: togglePin,
+    // No way off: the pin is place, so its row's `×` and reset all leave it be.
+    state: () => (engine.getState().panel.docked ? "on" : "off"),
+  },
+  {
+    id: "side",
+    label: "move panel across",
+    long: "take the panel to the other side of the window",
+    aliases: ["side", "left", "right", "other", "flip", "switch"],
+    icon: "panel-left",
+    run: () => stage.flip?.(),
   },
 ];
 
@@ -424,9 +443,13 @@ export function rowHere(row: Row): boolean {
   return row.action?.available?.() ?? true;
 }
 
-/** Does any knob of the row differ from its default, or is its action's mode on? */
+/**
+ * Does any knob of the row differ from its default, or is its action's mode
+ * on? A toggle with no way off is on as place is, not as a mode: it lists no
+ * row and reset all has nothing of it to put back.
+ */
 export function isActive(row: Row, state: DevknobsState): boolean {
-  if (row.action) return row.action.state?.() === "on";
+  if (row.action) return row.action.off !== undefined && row.action.state?.() === "on";
   return knobsOf(row).some((knob) => offDefault(knob, state));
 }
 

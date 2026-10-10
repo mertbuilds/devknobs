@@ -31,7 +31,7 @@ import { clampZoom } from "./zoom";
 export const STORAGE_KEY = "devknobs";
 
 /** The version of the state `STORAGE_KEY` keeps. Bump it with a change of shape, see stored.ts. */
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 
 /**
  * Where the panel's place is kept beside the session, in `localStorage`, so
@@ -40,10 +40,10 @@ export const STATE_VERSION = 1;
 export const PLACE_KEY = "devknobs:place";
 
 /** The version of the place `PLACE_KEY` keeps. Bump it with a change of shape, see stored.ts. */
-export const PLACE_VERSION = 1;
+export const PLACE_VERSION = 2;
 
-/** What of the panel outlives the session: its side and where it sits on it. */
-export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">;
+/** What of the panel outlives the session: its side, where it sits on it, and whether it is pinned there. */
+export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab" | "docked">;
 
 /**
  * The rows a fresh panel lists, in the order they stand: the device, the
@@ -122,6 +122,7 @@ export const DEFAULT_STATE: DevknobsState = {
     top: PANEL_START,
     edge: "none",
     tab: "top",
+    docked: false,
     pinned: [...DEFAULT_PINNED],
   },
 };
@@ -222,7 +223,7 @@ function read(json: string | null | undefined, version: number): unknown {
  * The place fields of a stored panel, each one that is not valid taken from
  * `fallback`. One stored before the panel had a top of its own only has `y`,
  * and one stored before it had sides lives on the right, unless `fallback`
- * says otherwise.
+ * says otherwise. One stored before the panel could be pinned floats.
  */
 function placeOf(value: unknown, fallback: PanelPlace): PanelPlace {
   const panel = record(value);
@@ -237,13 +238,14 @@ function placeOf(value: unknown, fallback: PanelPlace): PanelPlace {
     top: num(panel.top, num(panel.y, fallback.top)),
     edge: oneOf(panel.edge, EDGES, own ? "none" : fallback.edge),
     tab: oneOf(panel.tab, EDGES, own ? "none" : fallback.tab),
+    docked: bool(panel.docked, fallback.docked),
   };
 }
 
 /** The place of a state's panel, as `PLACE_KEY` keeps it. */
 export function placeText(state: DevknobsState): string {
-  const { side, y, top, edge, tab } = state.panel;
-  return JSON.stringify(stamped({ side, y, top, edge, tab }, PLACE_VERSION));
+  const { side, y, top, edge, tab, docked } = state.panel;
+  return JSON.stringify(stamped({ side, y, top, edge, tab, docked }, PLACE_VERSION));
 }
 
 /**
@@ -346,7 +348,7 @@ export function parse(json: string | null | undefined, place?: string | null): D
 
 /**
  * What reset all leaves: every knob at its default and the default rows
- * listed, with the panel where it is.
+ * listed, with the panel where it is, pinned or not.
  */
 export function resetState(state: DevknobsState): DevknobsState {
   return { ...DEFAULT_STATE, panel: { ...state.panel, pinned: [...DEFAULT_PINNED] } };

@@ -144,14 +144,18 @@ export function along(from: Point, angle: number, radius: number, off = 0): Poin
  * mark where the spans cross, rulers along the top and left edges numbered
  * from the top left, and angle guides from a span crossing on the left edge
  * to the far edges. Its tile is set off by half a span, so each mark sits
- * whole in it.
+ * whole in it. `bleed` is how far the grid alone runs on past the left and
+ * the right of that, under what lies over the mat there, so the rulers count
+ * from the edge of what shows.
  */
 export function drawMat(
   size: { width: number; height: number },
   hair: number,
   avoid?: { from: number; to: number },
+  bleed: { left: number; right: number } = { left: 0, right: 0 },
 ): SVGSVGElement {
   const svg = svgNode("svg", { class: "mat", "aria-hidden": "true" });
+  const sheet = svgNode("g", { transform: `translate(${bleed.left} 0)` });
   const half = SPAN / 2;
   const minor: number[] = [];
   for (let at = CELL; at < SPAN; at += CELL) if (at !== half) minor.push(at);
@@ -182,11 +186,16 @@ export function drawMat(
   const left = ticks(size.height)
     .map((tick) => `M0 ${tick.at}h${tick.size}v${hair}h${-tick.size}Z`)
     .join("");
-  svg.append(
-    defs,
-    svgNode("rect", { width: "100%", height: "100%", fill: "url(#mat-grid)" }),
+  sheet.append(
+    svgNode("rect", {
+      x: -bleed.left,
+      width: bleed.left + size.width + bleed.right,
+      height: "100%",
+      fill: "url(#mat-grid)",
+    }),
     svgNode("path", { class: "tick", d: top + left }),
   );
+  svg.append(defs, sheet);
   const origin = vertex(size.height);
   if (origin) {
     const base = along(origin, 0, ARC);
@@ -197,7 +206,7 @@ export function drawMat(
       "stroke-width": hair,
     });
     arc.style.opacity = String(GUIDE.line);
-    svg.append(arc);
+    sheet.append(arc);
     for (const angle of ANGLES) {
       const start = along(origin, angle, ARC);
       const end = exit(origin, angle, size);
@@ -207,7 +216,7 @@ export function drawMat(
         "stroke-width": hair,
       });
       line.style.opacity = String(angle === 45 ? GUIDE.half : GUIDE.line);
-      svg.append(line);
+      sheet.append(line);
       const reach = Math.hypot(end.x - origin.x, end.y - origin.y);
       const at = along(origin, angle, LABEL.radius, LABEL.off);
       if (reach < LABEL.radius + LABEL.room || at.y < LABEL.top) continue;
@@ -217,18 +226,18 @@ export function drawMat(
         transform: `rotate(${-angle} ${at.x} ${at.y})`,
       });
       text.textContent = `${angle}°`;
-      svg.append(text);
+      sheet.append(text);
     }
   }
   for (const at of numbers(size.width, avoid)) {
     const text = svgNode("text", { x: at + 3, y: TICK.span + 1 });
     text.textContent = String(at);
-    svg.append(text);
+    sheet.append(text);
   }
   for (const at of numbers(size.height)) {
     const text = svgNode("text", { x: TICK.span + 2, y: at, "dominant-baseline": "middle" });
     text.textContent = String(at);
-    svg.append(text);
+    sheet.append(text);
   }
   return svg;
 }

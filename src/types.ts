@@ -167,6 +167,11 @@ export interface PanelValue {
   /** The corner of the panel the handle sits flush with. */
   tab: EdgeValue;
   /**
+   * Pinned to its side as a column the window's height, with the page in a
+   * frame beside it. `pinned` below is the rows, so this has a name of its own.
+   */
+  docked: boolean;
+  /**
    * Ids of the rows set from the panel. Each stays in the list, back at its
    * default too, until its `×` takes it off. Reset all lists the default rows
    * again.

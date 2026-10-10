@@ -32,6 +32,10 @@
  * one size whatever shows. It eases back flush with the glide, and the border
  * goes only once it is clear: a clear border with a width still cuts the ends
  * of the lines it meets.
+ *
+ * Pinned, `data-dock="true"`, the panel is a column from the window's top to
+ * its bottom, square, with one hairline on the page's side, as wide as the
+ * panel is. Its rules come last, over the floating ones.
  */
 export const CSS = `
 .wrap {
@@ -787,9 +791,11 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .hint:focus-visible { outline-offset: 2px; }
 .hint:disabled { cursor: default; opacity: 0.5; }
 .hint:disabled:hover { color: inherit; }
-/* Opens the settings, at the end of the last line. */
-.keys-toggle { margin-left: auto; }
-.keys-toggle[aria-pressed="true"] { color: var(--fg); }
+/* The pin and the way into the settings, at the end of the last line, and
+   before them the two controls of a pinned panel. */
+.pin-toggle, .flip-toggle { margin-left: auto; }
+.flip-toggle:not([hidden]) ~ .pin-toggle { margin-left: 0; }
+.keys-toggle[aria-pressed="true"], .pin-toggle[aria-pressed="true"] { color: var(--fg); }
 /* The tooltip of an icon-only control, set over it by the panel. */
 .tip {
   position: absolute;
@@ -931,6 +937,38 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .row.open > .line .turn .glyph { transform: rotate(270deg); }
 .fold-body { min-height: 0; }
 
+/* The strip that changes the panel's width, as the edge of a docked devtools
+   does: it lies across the border on the panel's page side, as tall as the
+   panel, and shows a hairline on that border under the pointer, the keys'
+   focus or a drag, clear of the round corners. The handle rides above it
+   where the two meet. */
+.sizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 7px;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.wrap[data-side="left"] .sizer { right: -4px; left: auto; }
+.sizer::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  bottom: 13px;
+  left: 3px;
+  width: 1px;
+  background: var(--faint);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.sizer:hover::after,
+.sizer:focus-visible::after,
+.wrap[data-sizing="true"] .sizer::after { opacity: 1; }
+
 /* The styles view: its bar, its filter, the control of its two modes, the
    fold of what is inherited and its empty lines are the kit's, and what is
    here is its own content. The crumbs head it, the bar stays on top, and the
@@ -1042,38 +1080,6 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
 .css-comes { color: var(--faint); }
 .css-hidden { padding: 2px 10px; font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
 
-/* The strip that changes the panel's width, as the edge of a docked devtools
-   does: it lies across the border on the panel's page side, as tall as the
-   panel, and shows a hairline on that border under the pointer, the keys'
-   focus or a drag, clear of the round corners. The handle rides above it
-   where the two meet. */
-.sizer {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -4px;
-  width: 7px;
-  cursor: ew-resize;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-.wrap[data-side="left"] .sizer { right: -4px; left: auto; }
-.sizer::after {
-  content: "";
-  position: absolute;
-  top: 13px;
-  bottom: 13px;
-  left: 3px;
-  width: 1px;
-  background: var(--faint);
-  opacity: 0;
-  transition: opacity 120ms ease-out;
-}
-.sizer:hover::after,
-.sizer:focus-visible::after,
-.wrap[data-sizing="true"] .sizer::after { opacity: 1; }
-
 /* The requests view, in the panel. Its bar, its rows, its folds and its
    empty line are the kit's, and what is here is only what stands in them: the
    count at the bar's far end, and the cells of a row. A row a request, built
@@ -1179,5 +1185,58 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
+}
+
+/* The pinned panel: a column the window's height, flush with its edge and
+   square, the one hairline it keeps on the page's side. The top and bottom
+   borders go, and the padding there pays for them, so nothing in it moves
+   across. What it shows takes all the height there is, the rows, the
+   settings or a feature's view, and scrolls in it, with the footer at the
+   bottom. The window sets its height, so a slide between the views eases
+   none. Dragged off its edge it is still a column, square all round. */
+.wrap[data-dock="true"] .panel {
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  border-top-width: 0;
+  border-bottom-width: 0;
+  border-radius: 0;
+}
+.wrap[data-dock="true"] .body,
+.wrap[data-dock="true"] .home,
+.wrap[data-dock="true"] .view,
+.wrap[data-dock="true"] .keys { flex: 1 1 auto; }
+.wrap[data-dock="true"] .body[data-slide] { transition: none; }
+.wrap[data-dock="true"] .view { height: auto; }
+.wrap[data-dock="true"] .keys {
+  min-height: 0;
+  align-content: start;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.wrap[data-dock="true"]:is([data-mode="results"], [data-mode="browse"]) .rows {
+  max-height: 40vh;
+  max-height: 40dvh;
+}
+/* Open, the pinned panel shows no handle: its edge on the page's side is the
+   strip that changes its width, and the controls by the pin close it and
+   take it across. Closed, the handle is as ever, at the window's edge. */
+.wrap[data-dock="true"][data-open="true"] .handle { display: none; }
+/* Down a pinned panel the hairline runs the window's height, as its border does. */
+.wrap[data-dock="true"] .sizer::after { top: 0; bottom: 0; }
+/* While it is dragged the strip covers the window, so every move of the drag
+   comes to it, over the page and a frame in it, whatever the capture does. */
+.wrap[data-sizing="true"] .sizer::before {
+  content: "";
+  position: absolute;
+  top: -100vh;
+  right: -100vw;
+  bottom: -100vh;
+  left: -100vw;
 }
 `;

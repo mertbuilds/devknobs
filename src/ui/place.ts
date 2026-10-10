@@ -62,6 +62,11 @@ export interface Room {
   handle: number;
 }
 
+/** The side of the window across from one. */
+export function otherSide(side: SideValue): SideValue {
+  return side === "right" ? "left" : "right";
+}
+
 /** A value kept between two bounds. With no room between them, the lower one. */
 export function between(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -166,6 +171,27 @@ export function dragTo(
   return settle({ y, top: y - offset, edge: "none", tab: "none" }, room);
 }
 
+/**
+ * Where a drag of a pinned panel's handle lands, the panel closed. Pinned,
+ * the panel is a column the window's height, so only the handle moves, along
+ * the window's edge and flush with its ends within `SNAP`. The panel's own top
+ * goes along by as much, for when it floats again, and is held to the window
+ * then, as it has no height to be held by here.
+ */
+export function dragDocked(to: number, from: Place, room: Pick<Room, "view" | "handle">): Place {
+  const y = snap(to, PANEL_GAP, room.view - PANEL_GAP - room.handle);
+  return { y, top: y - (from.y - from.top), edge: "none", tab: from.tab };
+}
+
+/**
+ * Where a pinned panel's handle shows while the panel is closed: where it
+ * was put, kept inside the window. Nothing of it is stored, so the place the
+ * panel floats at is there when it is let go.
+ */
+export function dockedHandle(y: number, room: Pick<Room, "view" | "handle">): number {
+  return between(y, PANEL_GAP, room.view - PANEL_GAP - room.handle);
+}
+
 /** Where the pointer was at a moment of a drag, in px and ms. */
 export interface Sample {
   t: number;
@@ -227,7 +253,7 @@ export function landSide(
   vx: number,
   vy: number,
 ): SideValue {
-  const other = side === "right" ? "left" : "right";
+  const other = otherSide(side);
   // Speed toward the other side, less than zero toward home.
   const toward = side === "right" ? -vx : vx;
   const across = Math.abs(vx) >= FLING && Math.abs(vx) > FLING_LEAN * Math.abs(vy);

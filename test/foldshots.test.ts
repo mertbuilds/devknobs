@@ -275,7 +275,7 @@ afterAll(() => {
   });
 });
 
-const BASE = { ...DEFAULT_STATE, device: "iphone-duo", mock: true, panel: { open: false, side: "right" } } as const;
+const BASE = { ...DEFAULT_STATE, device: "iphone-duo", mock: true, panel: { open: false, side: "right", docked: false } } as const;
 const SHUT: ViewportValue = { ...BASE, posture: "closed", orientation: "portrait", width: 466, height: 678 };
 const OPEN: ViewportValue = { ...BASE, posture: "open", orientation: "landscape", width: 951, height: 669 };
 const SHUT_ACROSS: ViewportValue = { ...SHUT, orientation: "landscape", width: 678, height: 466 };

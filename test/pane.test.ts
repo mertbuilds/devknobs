@@ -154,7 +154,7 @@ function build(options: { open?: boolean } = {}): Page {
     hideAfter: () => {},
     isFor: () => false,
     tooltip: (node, text) => {
-      tipped.push([fake(node), text]);
+      tipped.push([fake(node), typeof text === "string" ? text : text()]);
     },
     destroy: () => {},
   };

@@ -140,8 +140,8 @@ export function start(options: EngineOptions = {}): void {
   if (inFrame) window.addEventListener("message", onMessage);
   // Before any knob, so a patch a knob puts on `fetch` wraps the log's and comes off first.
   requests.start();
-  // A page that will not load in the frame offers this way out.
-  width.onExit(() => setState(UNFRAMED));
+  // A page that will not load in the frame offers this way out, of a pinned panel's frame too.
+  width.onExit(() => setState({ ...UNFRAMED, panel: { docked: false } }));
   // The letterbox zooms the frame from its own control, the wheel and the keys.
   width.onZoom((zoom) => setState({ zoom }));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));

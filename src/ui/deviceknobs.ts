@@ -1,6 +1,6 @@
 import { layoutOf, layoutOptions, platformOf } from "../engine/browserui";
 import { DEVICES, deviceOf, formId, formOf, hasTouch, POSTURES } from "../engine/devices";
-import { frameForced, needsFrame } from "../engine/frame";
+import { frameForced, knobFrame } from "../engine/frame";
 import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../engine/matcolors";
 import { mockOf } from "../engine/mock";
 import { DEFAULT_STATE } from "../engine/store";
@@ -285,11 +285,11 @@ export const ZOOM: Knob = {
   read: (state) => String(state.zoom),
   write: (value) => ({ zoom: value === "fit" ? "fit" : Number(value) }),
   reset: { zoom: DEFAULT_STATE.zoom },
-  // Only a frame is zoomed. The value waits for one.
-  brief: (state) => (needsFrame(state) ? percent(Number(state.zoom)) : ""),
+  // Only a frame a knob brought up is zoomed, not a pinned panel's. The value waits for one.
+  brief: (state) => (knobFrame(state) ? percent(Number(state.zoom)) : ""),
   name: (value) => percent(Number(value)),
   parse: parseZoom,
-  shown: needsFrame,
+  shown: knobFrame,
 };
 
 export const FRAME: Knob = {
@@ -328,9 +328,9 @@ export const MAT: Knob = {
   read: (state) => state.mat,
   write: (value) => ({ mat: MAT_COLOR_NAMES.find((name) => name === value) ?? DEFAULT_STATE.mat }),
   reset: { mat: DEFAULT_STATE.mat },
-  // The mat lies around a frame. The value waits for one.
-  brief: (state) => (needsFrame(state) ? state.mat : ""),
-  shown: needsFrame,
+  // The mat lies around a frame a knob brought up. The value waits for one.
+  brief: (state) => (knobFrame(state) ? state.mat : ""),
+  shown: knobFrame,
 };
 
 export const VISION: Knob = {

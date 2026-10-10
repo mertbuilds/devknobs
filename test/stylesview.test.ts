@@ -115,7 +115,7 @@ const tips: Tips = {
   hideAfter: () => undefined,
   isFor: () => false,
   tooltip: (node, text) => {
-    tipped.push([fake(node), text]);
+    tipped.push([fake(node), typeof text === "string" ? text : text()]);
   },
   destroy: () => undefined,
 };

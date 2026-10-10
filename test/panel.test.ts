@@ -8,6 +8,9 @@ import { HOST_STYLE, wallInput } from "../src/ui/panel";
 import {
   type Anchor,
   cornerAt,
+  dockedHandle,
+  otherSide,
+  dragDocked,
   dragTarget,
   dragTo,
   FLING,
@@ -237,6 +240,140 @@ describe("a closed panel's drag", () => {
     expect(dragTo("handle", false, bottom - 10, from, ROOM)).toEqual(
       at(bottom, LAST, "bottom", "bottom"),
     );
+  });
+});
+
+describe("a pinned panel's handle", () => {
+  const room = { view: 800, handle: 64 };
+  const from: Place = { y: 300, top: 200, edge: "none", tab: "none" };
+
+  test("moves alone along the window's edge while the panel is closed", () => {
+    expect(dragDocked(420, from, room)).toEqual({ y: 420, top: 320, edge: "none", tab: "none" });
+  });
+
+  test("snaps flush with the window's top and bottom within SNAP, and stays inside", () => {
+    expect(dragDocked(PANEL_GAP + SNAP, from, room).y).toBe(PANEL_GAP);
+    expect(dragDocked(-500, from, room).y).toBe(PANEL_GAP);
+    const low = 800 - PANEL_GAP - 64;
+    expect(dragDocked(low - SNAP, from, room).y).toBe(low);
+    expect(dragDocked(5000, from, room).y).toBe(low);
+  });
+
+  test("carries the panel's own top along by as much, for when it floats again", () => {
+    const flush: Place = { y: 128, top: 128, edge: "none", tab: "top" };
+    expect(dragDocked(400, flush, room)).toEqual({ y: 400, top: 400, edge: "none", tab: "top" });
+    // The floating panel settles from there, inside the window.
+    const landed = dragDocked(5000, from, room);
+    const floated = settle(landed, { view: 800, panel: 300, handle: 64 }, "top");
+    expect(floated.top).toBe(800 - PANEL_GAP - 300);
+    expect(floated.y).toBeGreaterThanOrEqual(floated.top);
+    expect(floated.y).toBeLessThanOrEqual(floated.top + 300 - 64);
+  });
+
+  test("shows where it was put, kept inside a window that got shorter", () => {
+    expect(dockedHandle(300, room)).toBe(300);
+    expect(dockedHandle(900, room)).toBe(800 - PANEL_GAP - 64);
+    expect(dockedHandle(-20, room)).toBe(PANEL_GAP);
+    expect(dockedHandle(300, { view: 200, handle: 64 })).toBe(200 - PANEL_GAP - 64);
+  });
+});
+
+describe("the pinned panel's styles", () => {
+  const rule = (selector: string) => {
+    const at = CSS.indexOf(`${selector} {`);
+    if (at < 0) throw new Error(`no rule for ${selector}`);
+    return CSS.slice(at, CSS.indexOf("}", at));
+  };
+
+  test("make it a square column the window's height, with no cap on the rows", () => {
+    const panel = rule('.wrap[data-dock="true"] .panel');
+    expect(panel).toContain("height: 100dvh");
+    expect(panel).toContain("max-height: none");
+    expect(panel).toContain("border-radius: 0");
+    expect(panel).toContain("border-top-width: 0");
+    expect(panel).toContain("border-bottom-width: 0");
+    expect(CSS).toContain('.wrap[data-dock="true"] .home,');
+  });
+
+  test("give what the column shows all its height: the rows, a feature's view and the settings", () => {
+    const fill = CSS.slice(CSS.indexOf('.wrap[data-dock="true"] .body,'));
+    expect(fill).toStartWith(
+      [
+        '.wrap[data-dock="true"] .body,',
+        '.wrap[data-dock="true"] .home,',
+        '.wrap[data-dock="true"] .view,',
+        '.wrap[data-dock="true"] .keys { flex: 1 1 auto; }',
+      ].join("\n"),
+    );
+    // A view asks for the floating panel's tallest, which the column is not held to.
+    expect(rule("\n.view")).toContain("height: 672px");
+    expect(CSS).toContain('.wrap[data-dock="true"] .view { height: auto; }');
+    // The settings scroll in the column, and the footer stays under them.
+    const keys = fill.slice(fill.indexOf('.wrap[data-dock="true"] .keys {\n'), fill.indexOf("overscroll"));
+    expect(keys).toContain("min-height: 0");
+    expect(keys).toContain("overflow-y: auto");
+    expect(rule(".foot")).toContain("flex: none");
+  });
+
+  test("ease no height as the views slide: the window sets the column's", () => {
+    expect(rule(".body[data-slide]")).toContain("transition: height");
+    expect(CSS).toContain('.wrap[data-dock="true"] .body[data-slide] { transition: none; }');
+    // The panes still slide across, by the rule every panel has.
+    expect(rule(".body[data-slide] > .pane")).toContain("transition: transform");
+    expect(CSS.indexOf('.wrap[data-dock="true"] .body[data-slide]')).toBeGreaterThan(
+      CSS.indexOf(".body[data-slide] {"),
+    );
+  });
+
+  test("come after the floating panel's, which they override", () => {
+    expect(CSS.indexOf('.wrap[data-dock="true"] .panel {')).toBeGreaterThan(
+      CSS.lastIndexOf('.wrap[data-side="left"] .panel {'),
+    );
+  });
+
+  test("show no handle on the open column: its edge is the strip that changes its width", () => {
+    expect(CSS).toContain('.wrap[data-dock="true"][data-open="true"] .handle { display: none; }');
+    // Nothing of the edge that closed the panel on a click is left.
+    expect(CSS.match(/\[data-dock="true"\]\[data-open="true"\][^{]*\.handle/g)).toHaveLength(1);
+    // Closed, no rule of the pinned panel touches the handle: it is the handle as ever.
+    expect(CSS).not.toContain('.wrap[data-dock="true"] .handle');
+    // The strip is the one every panel has, its hairline the column's height.
+    expect(rule(".sizer")).toContain("cursor: ew-resize");
+    expect(CSS).toContain('.wrap[data-dock="true"] .sizer::after { top: 0; bottom: 0; }');
+  });
+
+  test("leave the panel's width alone, which is the strip's to set", () => {
+    const panel = rule('.wrap[data-dock="true"] .panel');
+    expect(panel).not.toMatch(/[^-]width:/);
+    expect(rule(".panel")).toContain("width: var(--panel-width)");
+  });
+
+  test("mark no state with a stripe, an inset line or a bold word", () => {
+    const docked = CSS.slice(CSS.indexOf('.wrap[data-dock="true"] .panel {'));
+    expect(docked).not.toMatch(/box-shadow|outline|font-weight|border-(left|right)/);
+  });
+});
+
+describe("the strip while it is dragged", () => {
+  test("covers the window, so no move of the drag goes to the page or a frame in it", () => {
+    const at = CSS.indexOf('.wrap[data-sizing="true"] .sizer::before {');
+    expect(at).toBeGreaterThan(0);
+    const cover = CSS.slice(at, CSS.indexOf("}", at));
+    expect(cover).toContain('content: ""');
+    expect(cover).toContain("position: absolute");
+    for (const edge of ["top: -100vh", "right: -100vw", "bottom: -100vh", "left: -100vw"]) {
+      expect(cover).toContain(edge);
+    }
+    // It paints nothing, and is there only for the drag.
+    expect(cover).not.toMatch(/background|opacity/);
+    expect(CSS).not.toMatch(/^\.sizer::before/m);
+  });
+});
+
+describe("the side across", () => {
+  test("is the other one", () => {
+    expect(otherSide("right")).toBe("left");
+    expect(otherSide("left")).toBe("right");
   });
 });
 

@@ -13,6 +13,8 @@ export interface Stage {
   inspect: GrabControl | null;
   /** The requests view, where a panel shows one. */
   requests: Requests | null;
+  /** Takes the panel to the other side of the window, while there is a panel. */
+  flip: (() => void) | null;
 }
 
-export const stage: Stage = { grab: null, inspect: null, requests: null };
+export const stage: Stage = { grab: null, inspect: null, requests: null, flip: null };

@@ -1,10 +1,11 @@
-import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
+import type { DevknobsState, DprValue, SideValue, ZoomValue } from "../types";
 import { hushOnce } from "../requests/quiet";
 import * as address from "./address";
 import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf, formId, formOf, hasTouch } from "./devices";
+import { type Docked, dockEdges, dockWidth, onDockWidth } from "./dock";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
 import { carried, fresh, FRESH_ATTRIBUTE, loads, ownReload } from "./fresh";
 import {
@@ -13,6 +14,7 @@ import {
   type FrameKnobs,
   handsSchemeDown,
   needsFrame,
+  plainFrame,
   post,
   readMessage,
   UNFRAMED,
@@ -90,8 +92,14 @@ export type ViewportValue = FrameKnobs &
     | "zoom"
     | "mat"
   > & {
-    panel: Pick<PanelValue, "open" | "side">;
+    panel: Docked;
   };
+
+/**
+ * How long the page waits before it gives a pinned panel's column its room,
+ * in ms: the panel's glide, so it slides in over the page before it narrows.
+ */
+export const DOCK_SETTLE = 220;
 
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
@@ -179,7 +187,7 @@ let current: ViewportValue = {
   edgeToEdge: true,
   zoom: "fit",
   mat: "blue",
-  panel: { open: false, side: "right" },
+  panel: { open: false, side: "right", docked: false },
 };
 /** The frame's page has loaded, so what it reports can be trusted. */
 let loaded = false;
@@ -340,15 +348,96 @@ function panelWidth(): number {
 }
 
 /**
- * The panel changed its width: the frame is fitted beside it again, and with
- * `glide` it glides to its place as the panel does to its width.
+ * How much of the mat an open panel lies over, which a frame of a set width
+ * is fitted beside. A pinned one lies over none of it: the room it takes is
+ * not the frame's to begin with.
+ */
+function asideOf(panel: Docked): number {
+  return panel.open && !panel.docked ? panelWidth() : 0;
+}
+
+/** The px a pinned panel's column takes from the page on each side, as the frame is drawn. */
+let room: Record<SideValue, number> = { left: 0, right: 0 };
+/** The wait before the page gives the column more room, and whether it is over. */
+let making = 0;
+let made = false;
+/** The frame in which the stage takes the column's new width. */
+let following = 0;
+
+/**
+ * Keep the stage clear of a pinned panel's column, as wide as `dockWidth`
+ * says the panel is. The mat still lies under it, so no edge of it shows as
+ * it slides. A frame up for the panel alone is the page: it gives up more
+ * room only once the column has slid in or grown over it, so the page lays
+ * out once and no gap shows beside it, and takes room back at once, under the
+ * column as it leaves or narrows. The notice keeps to the stage as well.
+ */
+function makeRoom(): void {
+  if (!letterbox) return;
+  // The letterbox is as wide as the window, the room the column takes included.
+  const next = dockEdges(current.panel, letterbox.clientWidth, dockWidth());
+  const more = next.left + next.right > room.left + room.right;
+  if (more && !made && drawn && plainFrame(current) && !still()) {
+    making ||= window.setTimeout(() => {
+      making = 0;
+      roomNow();
+    }, DOCK_SETTLE);
+    return;
+  }
+  clearTimeout(making);
+  making = 0;
+  room = next;
+  for (const box of [letterbox, notice]) {
+    if (!box) continue;
+    box.style.paddingLeft = next.left ? `${next.left}px` : "";
+    box.style.paddingRight = next.right ? `${next.right}px` : "";
+  }
+}
+
+/** Give the column the room it takes now, with no wait. */
+function roomNow(): void {
+  made = true;
+  resize();
+  made = false;
+}
+
+/**
+ * The panel got wider or narrower. A pinned one's column takes that room in
+ * the next frame, with no wait, and once a frame however often its width
+ * changes, so the page follows its edge as it is dragged and is laid out no
+ * more than it is painted.
+ */
+onDockWidth(() => {
+  if (!host || !current.panel.docked) return;
+  following ||= window.requestAnimationFrame(() => {
+    following = 0;
+    roomNow();
+  });
+});
+
+/** The room the frame is fitted to: the letterbox less what the column takes. */
+function stageSize(): { width: number; height: number } {
+  const width = (letterbox?.clientWidth ?? 0) - room.left - room.right;
+  return { width: Math.max(0, width), height: letterbox?.clientHeight ?? 0 };
+}
+
+/**
+ * The panel changed its width, and with `glide` it glides to it. A floating
+ * panel's frame is fitted beside it again, and glides to its place as the
+ * panel does. A pinned panel's column is followed as `onDockWidth` says,
+ * unless it glides: then the stage takes the width the column ends at, once.
+ * A device glides to its place in it, and the page changes size in place,
+ * under a column that narrows, or once a wider one has grown over it.
  */
 export function panelSized(glide: boolean): void {
   if (!glide) {
-    resize();
+    if (!current.panel.docked) resize();
     return;
   }
-  glideFrame(screen, { first: false, from: current.panel, to: current.panel, sized: true }, resize);
+  if (following) window.cancelAnimationFrame(following);
+  following = 0;
+  if (plainFrame(current)) resize();
+  else glideFrame(screen, { first: false, from: current.panel, to: current.panel, sized: true }, resize);
 }
 
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
@@ -404,8 +493,9 @@ function showBrowser(
 }
 
 /**
- * Draw the mat for the letterbox's size, its lines one device pixel thin, and
- * its top ruler unnumbered under the readout.
+ * Draw the mat for the stage's size, its lines one device pixel thin, and
+ * its top ruler unnumbered under the readout. Its grid runs on under a
+ * pinned panel's column, and its rulers count from the stage's edge.
  */
 function showMat(size: { width: number; height: number }): void {
   if (!letterbox || !readout || !caption || !picker) return;
@@ -413,10 +503,10 @@ function showMat(size: { width: number; height: number }): void {
   const avoid = readout.hidden
     ? undefined
     : { from: caption.offsetLeft - 8, to: picker.offsetLeft + picker.offsetWidth + 8 };
-  const key = `${size.width}|${size.height}|${hair}|${avoid?.from}|${avoid?.to}`;
+  const key = `${size.width}|${size.height}|${hair}|${avoid?.from}|${avoid?.to}|${room.left}|${room.right}`;
   if (key === matKey) return;
   matKey = key;
-  const next = drawMat(size, hair, avoid);
+  const next = drawMat(size, hair, avoid, room);
   if (mat) mat.replaceWith(next);
   else back?.append(next);
   mat = next;
@@ -434,8 +524,9 @@ function resize(): void {
   if (released || turning() || folding()) return;
   readout.hidden = !hasStrip(current);
   letterbox.setAttribute("data-mat", current.mat);
-  const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
-  const aside = current.panel.open ? panelWidth() : 0;
+  makeRoom();
+  const size = stageSize();
+  const aside = asideOf(current.panel);
   const mock = bodyFor(current);
   const place = fit(current, size, {
     frameZoom: zoomFor(current.dpr),
@@ -511,7 +602,8 @@ function setZoom(zoom: ZoomValue): void {
  * hears once the wheel rests. A plain wheel scrolls, here and in the frame.
  */
 function onWheel(event: WheelEvent): void {
-  if ((!event.ctrlKey && !event.metaKey) || !stage || !drawn) return;
+  // The page in a pinned panel's frame is the page: the browser zooms it.
+  if ((!event.ctrlKey && !event.metaKey) || !stage || !drawn || plainFrame(current)) return;
   event.preventDefault();
   const delta = event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_LINE;
   const zoom = wheelZoom(drawn.scale, delta);
@@ -533,10 +625,11 @@ function onPick(): void {
 
 /**
  * A zoom key: a step in or out from the scale the frame is drawn at, or back
- * to fit. False while there is no frame, so the key zooms the browser.
+ * to fit. False while there is no frame, or only a pinned panel's, so the key
+ * zooms the browser.
  */
 export function zoomKey(action: ZoomAction): boolean {
-  if (!host || !drawn) return false;
+  if (!host || !drawn || plainFrame(current)) return false;
   setZoom(action === "zoom-fit" ? "fit" : stepZoom(drawn.scale, action === "zoom-in" ? 1 : -1));
   return true;
 }
@@ -579,10 +672,9 @@ function screenRect(): Hole {
 function screenFor(value: ViewportValue): Rect | null {
   if (!letterbox || !stage) return null;
   const mock = bodyFor(value);
-  const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
-  const place = fit(value, size, {
+  const place = fit(value, stageSize(), {
     frameZoom: zoomFor(value.dpr),
-    aside: value.panel.open ? panelWidth() : 0,
+    aside: asideOf(value.panel),
     side: value.panel.side,
     mock: mock?.inset,
   });
@@ -670,11 +762,19 @@ function contentNodes(): HTMLElement[] {
   return [readout, stage, notice].filter((node): node is HTMLElement => node !== null);
 }
 
+/**
+ * The knobs as the frame draws them. A zoom the wheel holds stays until it
+ * is in the store, and a frame up for a pinned panel alone is never zoomed.
+ */
+function drawnOf(value: ViewportValue): ViewportValue {
+  if (plainFrame(value)) return { ...value, zoom: "fit" };
+  return held === null ? value : { ...value, zoom: held };
+}
+
 /** Draw the knobs: a new zoom from elsewhere keeps the middle of the letterbox where it is. */
 function draw(value: ViewportValue): void {
   const zoom = current.zoom;
-  // A zoom the wheel holds stays until it is in the store.
-  current = held === null ? value : { ...value, zoom: held };
+  current = drawnOf(value);
   if (stage && current.zoom !== zoom) rezoom({ x: stage.clientWidth / 2, y: stage.clientHeight / 2 });
   else resize();
 }
@@ -738,7 +838,9 @@ function change(target: "open" | "closed"): void {
 function keep(): void {
   landSplash();
   const moving = running() || turning() || folding();
-  const away = moving || released || stage?.scrollLeft || stage?.scrollTop;
+  // A pinned panel's frame is the page, with no drawing to stand in for it.
+  const plain = plainFrame(current);
+  const away = moving || released || plain || stage?.scrollLeft || stage?.scrollTop;
   if (!letterbox || !frame || !picker || away) {
     clearSnapshot();
     return;
@@ -923,6 +1025,11 @@ function teardown(): void {
   drawn = null;
   clearTimeout(settling);
   held = null;
+  clearTimeout(making);
+  making = 0;
+  if (following) window.cancelAnimationFrame(following);
+  following = 0;
+  room = { left: 0, right: 0 };
   pending = null;
   forgetTurn();
   forgetFold();
@@ -1017,7 +1124,7 @@ export function apply(value: ViewportValue): void {
     return;
   }
   if (!host) {
-    current = held === null ? value : { ...value, zoom: held };
+    current = drawnOf(value);
     if (document.body) open(animate ? veiled : null, first);
     else document.addEventListener("DOMContentLoaded", openLater, { once: true });
     if (animate) change("open");
@@ -1036,7 +1143,10 @@ export function apply(value: ViewportValue): void {
     change("open");
     return;
   }
-  glideFrame(screen, { first, from: current.panel, to: value.panel }, () => draw(value));
+  // The page in a pinned panel's frame changes size in place, under the
+  // column that slides over it, and glides only to the other side.
+  if (plainFrame(value) && current.panel.side === value.panel.side) draw(value);
+  else glideFrame(screen, { first, from: current.panel, to: value.panel }, () => draw(value));
 }
 
 /** Take the frame away and leave the window where it is. */

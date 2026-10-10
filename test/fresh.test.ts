@@ -251,6 +251,27 @@ describe("fresh mode and localStorage", () => {
   });
 });
 
+describe("fresh mode and a pinned panel", () => {
+  const PINNED = JSON.stringify({ v: 2, side: "left", y: 300, top: 240, docked: true });
+
+  test("starts floating whatever was kept, and keeps no pin", () => {
+    local.set(PLACE_KEY, PINNED);
+    open({ search: FRESH });
+    const state = load();
+    expect(state.panel.docked).toBe(false);
+    expect(state).toEqual(DEFAULT_STATE);
+    keepPlace(merge(state, { panel: { docked: true } }));
+    expect(local.get(PLACE_KEY)).toBe(PINNED);
+    expect(localCalls()).toBe(0);
+  });
+
+  test("reads the kept pin with the mode off", () => {
+    local.set(PLACE_KEY, PINNED);
+    open();
+    expect(load().panel).toMatchObject({ side: "left", docked: true });
+  });
+});
+
 describe("fresh mode and sessionStorage", () => {
   test("a load of the user's starts from nothing", () => {
     session.set(STORAGE_KEY, DARK);

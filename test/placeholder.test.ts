@@ -76,6 +76,15 @@ describe("the kept drawing", () => {
     expect(readSnapshot(merge(PHONE, { mat: "green" }), VIEW)).toBeNull();
   });
 
+  test("is not shown once the panel is pinned to its side, or let go", () => {
+    writeSnapshot(kept());
+    const pinned = merge(PHONE, { panel: { docked: true } });
+    expect(readSnapshot(pinned, VIEW)).toBeNull();
+    writeSnapshot({ ...kept(), key: snapshotKey(pinned, VIEW) });
+    expect(readSnapshot(pinned, VIEW)).not.toBeNull();
+    expect(readSnapshot(PHONE, VIEW)).toBeNull();
+  });
+
   test("is not shown when what was kept is not in its shape", () => {
     items.set(SNAPSHOT_KEY, "{");
     expect(readSnapshot(PHONE, VIEW)).toBeNull();
@@ -136,6 +145,42 @@ describe("the early cover", () => {
     const blue = MAT_COLORS.blue;
     expect(earlyCover(JSON.stringify({ width: 390 }))).toContain(matGradient(blue.srgb));
     expect(earlyCover(JSON.stringify({ width: 390, mat: "teal" }))).toContain(matGradient(blue.p3));
+  });
+
+  test("hides the page for a panel pinned to its side alone, with no mat over it", () => {
+    const cover = earlyCover(JSON.stringify({ panel: { docked: true } }));
+    expect(cover).toContain("html{overflow:hidden!important}");
+    expect(cover).toContain("body>:not([data-devknobs]){content-visibility:hidden!important}");
+    expect(cover).not.toContain("html::after");
+    expect(cover).not.toContain("background");
+    // Closed, the frame is up still, at the window's width.
+    const closed = earlyCover(JSON.stringify({ panel: { docked: true, open: false } }));
+    expect(closed).toBe(cover);
+  });
+
+  test("hides it from the place kept across sessions too, in a session that stored none", () => {
+    const added: { textContent: string }[] = [];
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        head: { append: (node: { textContent: string }) => added.push(node) },
+        createElement: () => ({ textContent: "", setAttribute: () => {} }),
+      },
+    });
+    showEarly(parse(null, JSON.stringify({ side: "left", docked: true })));
+    expect(added).toHaveLength(1);
+    expect(added[0]?.textContent).not.toContain("html::after");
+  });
+
+  test("lies on the mat under a pinned panel's frame once a knob gives it one", () => {
+    const cover = earlyCover(JSON.stringify({ width: 390, mat: "green", panel: { docked: true } }));
+    expect(cover).toContain(matGradient(MAT_COLORS.green.srgb));
+  });
+
+  test("puts nothing up for a floating panel with no knob set", () => {
+    expect(() => earlyCover(JSON.stringify({ panel: { docked: false, open: true } }))).toThrow(
+      "no early style",
+    );
   });
 
   test("reads a session stored with its version as one stored before versions, and not one from a newer devknobs", () => {

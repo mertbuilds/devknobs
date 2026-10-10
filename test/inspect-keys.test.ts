@@ -28,7 +28,7 @@ function press(patch: Partial<KeyLike>): KeyLike {
 
 describe("the inspect action", () => {
   test("is in the catalog after grab, with its own icon", () => {
-    expect(ACTIONS.map((action) => action.id)).toEqual(["grab", "inspect", "replay", "requests"]);
+    expect(ACTIONS.map((action) => action.id)).toEqual(["grab", "inspect", "replay", "requests", "pin", "side"]);
     const inspect = ACTIONS.find((action) => action.id === "inspect");
     expect(inspect?.label).toBe("inspect");
     expect(inspect?.long).toBe("pick an element to see its styles");
