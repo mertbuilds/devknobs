@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { BODY_CAP } from "../src/requests/types";
-import { answerFrom, fakePage, leavePage, type Page, record, settle, streamOf } from "./requests-fakes";
+import {
+  answerFrom,
+  fakePage,
+  leavePage,
+  type Page,
+  record,
+  settle,
+  settles,
+  streamOf,
+  upload,
+} from "./requests-fakes";
 
 let page: Page;
 
@@ -69,6 +79,12 @@ describe("a request that works", () => {
     expect(page.net.calls[2]?.[0]).toBe(request);
   });
 
+  test("the browser's fetch runs on what the page called it on", async () => {
+    const own = { name: "the page's own object" };
+    await fetch.call(own, "/one");
+    expect(page.net.receivers).toEqual([own]);
+  });
+
   test("names the call that made it, with no frame of devknobs", async () => {
     async function loadItems(): Promise<number> {
       const response = await fetch("/api/items");
@@ -119,15 +135,27 @@ describe("headers", () => {
 });
 
 describe("request bodies", () => {
-  test("a Request's text body is read from a copy, and the request still goes out whole", async () => {
+  test("a Request's text body is named and never read or copied, and the request goes out whole", async () => {
     const request = new Request("http://app.test/api", {
       method: "POST",
       body: "name=Ada",
       headers: { "content-type": "application/x-www-form-urlencoded" },
     });
+    let copies = 0;
+    request.clone = () => {
+      copies++;
+      throw new Error("copied");
+    };
     await fetch(request);
     await settle();
-    expect(page.row().requestBody).toMatchObject({ kind: "text", text: "name=Ada", size: 8 });
+    expect(page.row().requestBody).toEqual({
+      kind: "stream",
+      text: "",
+      size: null,
+      truncated: false,
+      type: "application/x-www-form-urlencoded",
+    });
+    expect(copies).toBe(0);
     expect(request.bodyUsed).toBe(false);
     expect(await request.text()).toBe("name=Ada");
   });
@@ -155,6 +183,51 @@ describe("request bodies", () => {
     await fetch("/upload", init);
     expect(page.row().requestBody).toMatchObject({ kind: "stream", text: "", size: null });
     expect(stream.locked).toBe(false);
+  });
+
+  test("a stream the page sends inside a Request is named and never read, text or not", async () => {
+    const source = upload();
+    const request = new Request("http://app.test/upload", {
+      method: "POST",
+      body: source.stream,
+      duplex: "half",
+      headers: { "content-type": "text/plain" },
+    } as RequestInit);
+    const error = new TypeError("Failed to fetch");
+    // The browser gives the upload up, and lets its body go.
+    page.net.answer = (input) => {
+      if (input instanceof Request) void input.body?.cancel();
+      return Promise.reject(error);
+    };
+    expect(await fetch(request).catch((reason: unknown) => reason)).toBe(error);
+    await settle();
+    expect(page.row().requestBody).toEqual({ kind: "stream", text: "", size: null, truncated: false, type: "text/plain" });
+    expect(source.pulls()).toBe(0);
+    // No copy of the request holds its body open.
+    expect(source.cancelled()).toBe(true);
+  });
+
+  test("a Request sent with a method that has no body notes none", async () => {
+    const request = new Request("http://app.test/api", { method: "POST", body: "one" });
+    await fetch(request, { method: "GET" });
+    expect(page.row()).toMatchObject({ method: "GET", requestBody: null });
+  });
+
+  test("a body in the init takes the place of the Request's own, one the log cannot read too", async () => {
+    const request = () =>
+      new Request("http://app.test/api", { method: "POST", body: "one", headers: { "content-type": "text/plain" } });
+    await fetch(request(), { body: "two" });
+    const odd = { toString: () => "odd" } as unknown as BodyInit;
+    await fetch(request(), { body: odd });
+    expect(page.rows().map((row) => row.requestBody?.text ?? null)).toEqual(["two", null]);
+    expect(page.rows()[1]?.requestBody).toBeNull();
+  });
+
+  test("a Request whose body was read already notes none", async () => {
+    const request = new Request("http://app.test/api", { method: "POST", body: "one" });
+    await request.text();
+    await fetch(request);
+    expect(page.row().requestBody).toBeNull();
   });
 
   test("a form and bytes in the init", async () => {
@@ -241,18 +314,54 @@ describe("answers", () => {
     expect((await response.text()).length).toBe(BODY_CAP + 500);
   });
 
-  test("a body that streams in does not hold the page's response back", async () => {
+  test("an event stream is named and never copied, so the page's cancel reaches its source", async () => {
     const source = streamOf(["data: 1\n\n"], false);
-    const native = new Response(source.stream, { headers: { "content-type": "text/event-stream" } });
+    const native = new Response(source.stream, { headers: { "content-type": "text/event-stream; charset=utf-8" } });
+    let copies = 0;
+    native.clone = () => {
+      copies++;
+      throw new Error("copied");
+    };
     page.net.answer = () => Promise.resolve(native);
     const response = await fetch("/events");
     expect(response).toBe(native);
     await settle();
-    // The answer is in, the body is not: nothing of it is known yet.
-    expect(page.row()).toMatchObject({ state: "ok", status: 200, responseBody: null });
+    // The answer is in, and its body is the page's alone.
+    expect(page.row()).toMatchObject({
+      state: "ok",
+      status: 200,
+      responseBody: { kind: "stream", text: "", size: null, truncated: false, type: "text/event-stream; charset=utf-8" },
+    });
     expect(page.row().timing).toMatchObject({ response: 0, end: null, duration: null });
+    expect(copies).toBe(0);
     const reader = response.body?.getReader();
     expect(new TextDecoder().decode((await reader?.read())?.value)).toBe("data: 1\n\n");
+    expect(await settles(reader?.cancel() ?? Promise.reject())).toBe(true);
+    expect(source.cancelled()).toBe(true);
+  });
+
+  test("a slow text is let go after a while, so the page's cancel reaches its source", async () => {
+    page.recorder.uninstall();
+    leavePage();
+    page = record(fakePage(), "top", undefined, 30);
+    const source = streamOf(["half"], false);
+    const native = new Response(source.stream, { headers: { "content-type": "text/plain" } });
+    page.net.answer = () => Promise.resolve(native);
+    const response = await fetch("/slow.txt");
+    const reader = response.body?.getReader();
+    expect(new TextDecoder().decode((await reader?.read())?.value)).toBe("half");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(page.row().responseBody).toEqual({
+      kind: "text",
+      text: "half",
+      size: null,
+      truncated: true,
+      timedOut: true,
+      type: "text/plain",
+    });
+    expect(page.row().timing.end).toBeNull();
+    expect(await settles(reader?.cancel() ?? Promise.reject())).toBe(true);
+    expect(source.cancelled()).toBe(true);
   });
 });
 
@@ -315,6 +424,37 @@ describe("requests that fail", () => {
     controller.abort();
     await settle();
     expect(page.row().state).toBe("aborted");
+  });
+
+  test("a body that breaks off with no abort ends the row as failed, with why", async () => {
+    let fail = (_reason: unknown): void => {};
+    const stream = new ReadableStream<Uint8Array>({
+      start(inner) {
+        inner.enqueue(new TextEncoder().encode("half"));
+        fail = (reason) => inner.error(reason);
+      },
+    });
+    page.net.answer = () => Promise.resolve(new Response(stream, { headers: { "content-type": "text/plain" } }));
+    await fetch("/api/slow");
+    await settle();
+    expect(page.row()).toMatchObject({ state: "ok", error: null });
+    page.clock.tick(9);
+    fail(new TypeError("network error"));
+    await settle();
+    expect(page.row()).toMatchObject({ state: "failed", status: 200, error: "TypeError: network error" });
+    expect(page.row().timing).toMatchObject({ duration: 9, end: 1_700_000_000_009 });
+  });
+
+  test("a fault in noting the answer never reaches the page", async () => {
+    const native = new Response("ok");
+    Object.defineProperty(native, "status", {
+      get(): number {
+        throw new Error("hostile");
+      },
+    });
+    page.net.answer = () => Promise.resolve(native);
+    expect(await fetch("/api/items")).toBe(native);
+    expect(page.row().state).toBe("pending");
   });
 
   test("a fault in the note-taking never reaches the page", async () => {

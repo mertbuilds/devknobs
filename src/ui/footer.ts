@@ -3,7 +3,7 @@ import type { GrabControl } from "../grab/control";
 import { BINDING_WORDS, type LiveKeys } from "./bindings";
 import { button, el } from "./dom";
 import { icon } from "./icons";
-import { comboLabel, type Keys } from "./keys";
+import { type Combo, comboLabel, type Keys } from "./keys";
 
 /**
  * The panel's footer: the overflow badge, the fresh mode note, the keys the
@@ -32,6 +32,11 @@ export interface KeyChip {
   word: string;
 }
 
+/** A key as a hint shows it. A binding with none shows no key, and is still a control. */
+function keyLabel(combo: Combo | null, mac: boolean): string {
+  return combo ? comboLabel(combo, mac) : "";
+}
+
 /**
  * The keys the footer names, most used first: the panel's, the search key,
  * the grab key where there is a grab, replay's, and reset last, each as
@@ -43,11 +48,11 @@ export function keyChips(keys: Keys, grab: boolean, mac: boolean): KeyChip[] {
     { command: "search", key: "/", word: "search" },
   ];
   if (grab) {
-    chips.push({ command: "grab", key: comboLabel(keys.grab, mac), word: BINDING_WORDS.grab });
+    chips.push({ command: "grab", key: keyLabel(keys.grab, mac), word: BINDING_WORDS.grab });
   }
   chips.push(
-    { command: "replay", key: comboLabel(keys.replay, mac), word: BINDING_WORDS.replay },
-    { command: "reset", key: comboLabel(keys.reset, mac), word: BINDING_WORDS.reset },
+    { command: "replay", key: keyLabel(keys.replay, mac), word: BINDING_WORDS.replay },
+    { command: "reset", key: keyLabel(keys.reset, mac), word: BINDING_WORDS.reset },
   );
   return chips;
 }

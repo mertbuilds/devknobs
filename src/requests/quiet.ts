@@ -1,4 +1,4 @@
-import { shared } from "./shared";
+import { QUIET, shared } from "./shared";
 
 /**
  * The requests devknobs makes for itself, which the log leaves out. Every
@@ -10,7 +10,10 @@ import { shared } from "./shared";
 /** `fetch`, for devknobs' own use. The page's `fetch` makes it, so what the page put on `fetch` still runs. */
 export function quietFetch(url: string, init?: RequestInit): Promise<Response> {
   const recorder = shared();
-  return recorder ? recorder.quietly(url, () => fetch(url, init)) : fetch(url, init);
+  if (!recorder) return fetch(url, init);
+  // The call carries its own mark: a wrapper of the page's may pass it on a moment later.
+  const marked = { ...init, [QUIET]: true };
+  return recorder.quietly(url, () => fetch(url, marked));
 }
 
 /** Devknobs loads `url` by other means than `fetch`, an image say, and may again. */

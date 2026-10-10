@@ -27,6 +27,42 @@ describe("clipText", () => {
   test("counts the cap in bytes, and never ends on half a character", () => {
     const record = clipText("é".repeat(4), "text/plain", 5);
     expect(record).toMatchObject({ text: "éé", size: 8, truncated: true });
+    // A long text too, of which only the head is measured.
+    expect(clipText("é".repeat(40), "text/plain", 5)).toMatchObject({ text: "éé", size: null, truncated: true });
+    // A cut between the two halves of a character leaves neither.
+    expect(clipText("aaaa😀bbbb", "text/plain", 5)).toMatchObject({ text: "aaaa", truncated: true });
+    expect(clipText("aa😀bbbbbb", "text/plain", 5)).toMatchObject({ text: "aa", truncated: true });
+  });
+
+  // The engines keep the whole parent string alive behind a slice of it, so a
+  // row that kept `text.slice(0, cap)` would pin megabytes for its 64 KB. No
+  // test can see what a string holds on to, so this one checks the way the
+  // copy is made: the kept text is what the decoder made of the head's bytes,
+  // and the long text was never encoded whole.
+  test("what is kept of a long text is a copy of its head, not a slice of the whole", () => {
+    const decode = TextDecoder.prototype.decode;
+    const encode = TextEncoder.prototype.encode;
+    const decoded: string[] = [];
+    const encoded: number[] = [];
+    TextDecoder.prototype.decode = function (...args: Parameters<typeof decode>): string {
+      const text = decode.apply(this, args);
+      decoded.push(text);
+      return text;
+    };
+    TextEncoder.prototype.encode = function (input?: string): ReturnType<typeof encode> {
+      encoded.push(input?.length ?? 0);
+      return encode.call(this, input);
+    };
+    try {
+      const record = clipText("a".repeat(5 * BODY_CAP), "text/plain");
+      expect(record).toMatchObject({ truncated: true, size: null });
+      expect(record.text).toBe("a".repeat(BODY_CAP));
+      expect(decoded).toEqual([record.text]);
+      expect(encoded).toEqual([BODY_CAP]);
+    } finally {
+      TextDecoder.prototype.decode = decode;
+      TextEncoder.prototype.encode = encode;
+    }
   });
 });
 
@@ -125,6 +161,24 @@ describe("readText", () => {
     });
     await Promise.resolve();
     expect(source.cancelled()).toBe(true);
+  });
+
+  test("a body still coming after the wait is let go, with what came of it", async () => {
+    const source = streamOf(["abcd"], false);
+    const read = await readText({ body: source.stream, blob: () => Promise.reject() }, "text/plain", 64, 20);
+    expect(read).toEqual({
+      record: { kind: "text", text: "abcd", size: null, truncated: true, timedOut: true, type: "text/plain" },
+      complete: false,
+    });
+    expect(source.cancelled()).toBe(true);
+  });
+
+  test("a body that ends in time is whole, and nothing is cancelled later", async () => {
+    const source = streamOf(["abcd"]);
+    const read = await readText({ body: source.stream, blob: () => Promise.reject() }, "text/plain", 64, 20);
+    expect(read.record).toEqual({ kind: "text", text: "abcd", size: 4, truncated: false, type: "text/plain" });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(source.cancelled()).toBe(false);
   });
 
   test("a body of exactly the cap is whole", async () => {

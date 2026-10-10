@@ -28,8 +28,15 @@ export interface Combo {
 /** The shortcuts the panel can be told to use, and by whom. */
 export type Binding = "panel" | "grab" | "replay" | "requests" | "reset";
 
-/** Each binding's key. */
-export type Keys = Record<Binding, Combo>;
+/** Each binding's key as the mount options and the defaults give it: every binding has one. */
+export type BaseKeys = Record<Binding, Combo>;
+
+/**
+ * Each binding's key in force. A binding whose default the user gave to
+ * another one has none, null, until it is set a key of its own. The panel's
+ * always has one, as it is the way back to a closed panel.
+ */
+export type Keys = { panel: Combo } & Record<Exclude<Binding, "panel">, Combo | null>;
 
 const MODIFIER_NAMES: Record<string, "meta" | "ctrl" | "shift" | "alt"> = {
   meta: "meta",
@@ -115,7 +122,7 @@ export function comboSpoken(combo: Combo): string {
 }
 
 /** The panel's keys with none set: shift and the hotkey, shift g, shift r, shift n and shift backspace. */
-export function defaultKeys(options: { hotkey?: string; grabKey?: string } = {}): Keys {
+export function defaultKeys(options: { hotkey?: string; grabKey?: string } = {}): BaseKeys {
   return {
     panel: withShift(hotkeyOf(options.hotkey)),
     grab: parseCombo(options.grabKey) ?? withShift("g"),
@@ -267,7 +274,7 @@ export function keyAction(
     ["reset", keys.reset],
   ] as const;
   for (const [action, combo] of steps) {
-    if (comboMatches(event, combo)) return actsHere(event, combo) ? action : null;
+    if (combo && comboMatches(event, combo)) return actsHere(event, combo) ? action : null;
   }
   return null;
 }

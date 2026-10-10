@@ -25,6 +25,14 @@ export interface Shared {
 
 const SHARED = Symbol.for("devknobs.requests");
 
+/**
+ * The mark on the init of a `fetch` of devknobs' own, which the log leaves
+ * out. It is on the one call, so it still tells where a wrapper the page put
+ * over `fetch` waits before it passes the call on. The browser reads only
+ * the fields it knows of an init, so the mark means nothing to it.
+ */
+export const QUIET = Symbol.for("devknobs.quiet");
+
 function isShared(value: unknown): value is Shared {
   return typeof value === "object" && value !== null && Reflect.get(value, "version") === SHARED_VERSION;
 }

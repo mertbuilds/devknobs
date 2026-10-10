@@ -745,6 +745,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border: 1px solid var(--line);
   border-radius: 4px;
 }
+/* A binding with no key shows its word alone. */
+.hint-key:empty { display: none; }
 
 /* The settings, in place of the rows: each a row as the knob rows are, its
    grip column empty, and the way back on top of them, its chevron where a
@@ -859,6 +861,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: transform var(--glide) ease-out;
 }
 .wrap[data-open="false"][data-pane="leaving"] .handle { transition-duration: 150ms; }
+/* The closed handle on the left names the properties it eases, more exactly
+   than the rule above, so the ride back is named again here, more exactly yet. */
+.wrap[data-open="false"][data-side="left"][data-pane="leaving"] .handle { transition-property: transform; }
 .wrap[data-pane="open"] .handle { transform: translateX(calc(-1 * var(--pane-reach, 0px))); }
 .wrap[data-pane="open"][data-side="left"] .handle { transform: translateX(var(--pane-reach, 0px)); }
 /* The head stays while the body scrolls: the view's title, as quiet as a
@@ -959,8 +964,6 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 /* What the page loads on its own, of which the browser tells less, is a step quieter. */
 .req-row.light { color: var(--faint); }
-/* The device frame's rows carry a line on their edge, only while the page's own are listed too. */
-.req-list.mixed .req-row.framed { box-shadow: inset 2px 0 0 var(--line); }
 
 /* One request in full: the way back, then its sections, each a row that
    folds as the panel's rows do, with no grip column to keep. What a section

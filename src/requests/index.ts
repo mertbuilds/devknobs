@@ -55,6 +55,8 @@ export interface RecorderOptions {
   /** The page's own origin: sizes that read 0 from any other are hidden. */
   origin: string;
   schedule?: StoreOptions["schedule"];
+  /** How long an answer's body is read for before the read is given up, in ms. */
+  readFor?: number;
   /** The log of the page above the device frame, which this copy sends its rows to. */
   above?(): Shared | null;
 }
@@ -158,7 +160,7 @@ export function createRecorder(options: RecorderOptions): Shared {
     store.flush();
   }
 
-  install<Fetch>(patches, globalThis, "fetch", (original) => wrapFetch(original, log));
+  install<Fetch>(patches, globalThis, "fetch", (original) => wrapFetch(original, log, options.readFor));
   patchXhr(patches, log);
   const unobserve = observe();
   if (options.above) {

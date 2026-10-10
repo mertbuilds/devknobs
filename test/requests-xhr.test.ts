@@ -91,6 +91,47 @@ describe("a request from open to the end", () => {
     expect(String(XMLHttpRequest.prototype.send)).toBe(Function.prototype.toString.call(native.send));
   });
 
+  test("the browser's open gets the page's arguments and no more, so none is made to wait", () => {
+    const two = new XMLHttpRequest();
+    two.open("GET", "/a");
+    const five = new XMLHttpRequest();
+    five.open("GET", "/b", true, "ada", "pw");
+    // A third argument the page did not give would read as false: a request that blocks the page.
+    expect([two, five].map((xhr) => (xhr instanceof FakeXHR ? xhr.opens : null))).toEqual([[2], [5]]);
+  });
+
+  test("a send the browser refuses throws to the page as it would, and the row says so", () => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/items");
+    if (!(xhr instanceof FakeXHR)) throw new Error("not the fake");
+    const refused = new Error("NetworkError");
+    xhr.refuses = refused;
+    let caught: unknown = null;
+    try {
+      xhr.send("x");
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(refused);
+    expect(page.row()).toMatchObject({ state: "failed", error: "Error: NetworkError" });
+    // Nothing of devknobs' stays on an object that never sent.
+    expect(xhr.listening).toBe(0);
+  });
+
+  test("the listeners go with the request, however it ends", () => {
+    const ok = sent("GET", "/a");
+    expect(ok.listening).toBeGreaterThan(0);
+    ok.head(200);
+    ok.done();
+    const failed = sent("GET", "/b");
+    failed.end("error");
+    const again = new XMLHttpRequest();
+    again.open("GET", "/c");
+    again.send();
+    again.open("GET", "/d");
+    expect([ok, failed, again].map((xhr) => (xhr instanceof FakeXHR ? xhr.listening : null))).toEqual([0, 0, 0]);
+  });
+
   test("the browser's own errors reach the page, and note nothing", () => {
     const xhr = new XMLHttpRequest();
     expect(() => xhr.setRequestHeader("a", "b")).toThrow("InvalidStateError");
@@ -158,6 +199,64 @@ describe("requests that end without an answer", () => {
     ]);
   });
 
+  test("an object the page sends again from its own load handler: both rows are right", () => {
+    const xhr = new XMLHttpRequest();
+    let again = true;
+    // The page listens before it sends, so its handler was there first.
+    xhr.addEventListener("load", () => {
+      if (!again) return;
+      again = false;
+      xhr.open("GET", "/second");
+      xhr.send();
+    });
+    xhr.open("GET", "/first");
+    xhr.send();
+    const fake = FakeXHR.sent[0];
+    if (!fake) throw new Error("nothing sent");
+    fake.head(200, { "content-type": "text/plain" });
+    fake.text = "one";
+    // The first request's `loadend` comes after the page has sent the second.
+    fake.done();
+    expect(page.rows().map((row) => [row.url, row.state, row.status, row.responseBody?.text ?? null])).toEqual([
+      ["http://app.test/first", "ok", 200, "one"],
+      ["http://app.test/second", "pending", null, null],
+    ]);
+    fake.head(201, { "content-type": "text/plain" });
+    fake.text = "two";
+    fake.done();
+    expect(page.rows().map((row) => [row.url, row.state, row.status, row.responseBody?.text ?? null])).toEqual([
+      ["http://app.test/first", "ok", 200, "one"],
+      ["http://app.test/second", "ok", 201, "two"],
+    ]);
+    // Only the page's own listener is left on the object.
+    expect(fake.listening).toBe(1);
+  });
+
+  test("an object the page sends again from its own readystatechange handler: both rows are right", () => {
+    const xhr = new XMLHttpRequest();
+    let again = true;
+    xhr.addEventListener("readystatechange", () => {
+      if (xhr.readyState !== 4 || !again) return;
+      again = false;
+      xhr.open("GET", "/second");
+      xhr.send();
+    });
+    xhr.open("GET", "/first");
+    xhr.send();
+    const fake = FakeXHR.sent[0];
+    if (!fake) throw new Error("nothing sent");
+    fake.head(200, { "content-type": "text/plain" });
+    fake.text = "one";
+    fake.done();
+    fake.head(404, { "content-type": "text/plain" });
+    fake.text = "two";
+    fake.done();
+    expect(page.rows().map((row) => [row.url, row.state, row.status, row.responseBody?.text ?? null])).toEqual([
+      ["http://app.test/first", "ok", 200, "one"],
+      ["http://app.test/second", "failed", 404, "two"],
+    ]);
+  });
+
   test("an object used again after its end leaves the first row as it ended", () => {
     const xhr = new XMLHttpRequest();
     xhr.open("GET", "/first");
@@ -170,6 +269,55 @@ describe("requests that end without an answer", () => {
   });
 });
 
+describe("once devknobs let the page go", () => {
+  /** The page wraps the methods after devknobs, so its chain keeps devknobs' own in it. */
+  function wrapped(): () => void {
+    const proto = FakeXHR.prototype;
+    const { open, send } = proto;
+    proto.open = function (...args: Parameters<typeof open>): void {
+      open.apply(this, args);
+    };
+    proto.send = function (...args: Parameters<typeof send>): void {
+      send.apply(this, args);
+    };
+    return () => Object.assign(proto, native);
+  }
+
+  test("a request opened after that is not noted, and still goes out", () => {
+    const unwrap = wrapped();
+    try {
+      page.recorder.uninstall();
+      const fake = sent("GET", "/late");
+      expect(fake.url).toBe("/late");
+      expect(page.rows()).toEqual([]);
+    } finally {
+      unwrap();
+    }
+  });
+
+  test("a request opened while one of devknobs' own goes out is not the page's to note", () => {
+    const xhr = new XMLHttpRequest();
+    page.recorder.quietly("http://app.test/own", () => xhr.open("GET", "/own"));
+    xhr.send();
+    expect(FakeXHR.sent.length).toBe(1);
+    expect(page.rows()).toEqual([]);
+  });
+
+  test("a request opened before and sent after is not noted either", () => {
+    const unwrap = wrapped();
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", "/late");
+      page.recorder.uninstall();
+      xhr.send();
+      expect(FakeXHR.sent.length).toBe(1);
+      expect(page.rows()).toEqual([]);
+    } finally {
+      unwrap();
+    }
+  });
+});
+
 describe("answers that are not text", () => {
   test("json is written out again", () => {
     const fake = sent();
@@ -179,6 +327,23 @@ describe("answers that are not text", () => {
     fake.done(11);
     expect(page.row().responseBody).toMatchObject({ kind: "text", text: '{"a":[1,2]}', truncated: false });
     expect(fake.reads).toBe(0);
+  });
+
+  test("big json is only counted, by its length where the browser told of no progress", () => {
+    const fake = sent();
+    fake.responseType = "json";
+    fake.head(200, { "content-type": "application/json", "content-length": String(JSON_LIMIT + 1) });
+    fake.response = {
+      toJSON(): never {
+        throw new Error("written out");
+      },
+    };
+    fake.readyState = 4;
+    fake.dispatchEvent(new Event("readystatechange"));
+    expect(page.row()).toMatchObject({
+      state: "ok",
+      responseBody: { kind: "text", text: "", size: JSON_LIMIT + 1, truncated: true },
+    });
   });
 
   test("big json is only counted", () => {

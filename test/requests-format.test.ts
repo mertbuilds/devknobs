@@ -91,6 +91,16 @@ describe("methodLabel and kindLabel", () => {
     expect(kindLabel(image({ url: "http://app.test/x", initiatorType: "" }))).toBe("other");
     expect(kindLabel(fetched())).toBe("fetch");
   });
+
+  test("a word of the page's that every object has a member by is no kind and no method", () => {
+    for (const word of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"]) {
+      // By its extension, then by what loaded it: the word itself, cut short, and never a function's text.
+      expect(kindLabel(image({ url: `http://app.test/app.${word}`, initiatorType: "" }))).toBe("other");
+      expect(kindLabel(image({ url: "http://app.test/x", initiatorType: word }))).toBe(word.slice(0, 6));
+      expect(methodLabel(fetched({ method: word }))).toBe(word.slice(0, 5));
+      expect(methodLabel(fetched({ method: word.toUpperCase() }))).toBe(word.toUpperCase().slice(0, 5));
+    }
+  });
 });
 
 describe("statusLabel", () => {
@@ -255,6 +265,30 @@ describe("bodies", () => {
     expect(bodyText(text('{"id":7,"tags":["a"]}'))).toBe('{\n  "id": 7,\n  "tags": [\n    "a"\n  ]\n}');
   });
 
+  test("json that laying out would change stays as it was kept", () => {
+    const kept = (json: string) => expect(bodyText(text(json))).toBe(json);
+    // A number too long for the engine would lose its last digits.
+    kept('{"id":12345678901234567890}');
+    kept('{"price":1.10}');
+    // A key that comes twice would leave once, and number keys would change places.
+    kept('{"a":1,"a":2}');
+    kept('{"2":"b","1":"a"}');
+    // An escape written another way would be written the engine's way.
+    kept('{"name":"\\u00e9"}');
+  });
+
+  test("json is laid out whatever white space it came with, and a string keeps its own", () => {
+    expect(bodyText(text('{ "a" : [ 1,\n\t2 ],\r\n "b c" : "x  \\" y" }'))).toBe(
+      '{\n  "a": [\n    1,\n    2\n  ],\n  "b c": "x  \\" y"\n}',
+    );
+  });
+
+  test("a body cut by time says so, and not that it was cut at the cap", () => {
+    const late = text("half", { truncated: true, timedOut: true, size: null });
+    expect(bodyNote(late)).toBe("cut after 2 seconds, the rest was still coming");
+    expect(bodyNote(text("half", { truncated: true, size: null }))).toBe("truncated at 64 KB");
+  });
+
   test("json that was cut stays as it was kept", () => {
     const cut = text('{"id":7,"na', { truncated: true, size: null });
     expect(bodyText(cut)).toBe('{"id":7,"na');
@@ -386,6 +420,79 @@ describe("copyText", () => {
         "at onClick (http://app.test/app.js:22:3)",
       ].join("\n"),
     );
+  });
+
+  test("a secret in an address, a header or a stack is hidden, and a body is copied as it is", () => {
+    const entry = fetched({
+      url: "http://app.test/api/login?access_token=tok123&page=2&api_key=k9&sig=keep#session_id=s77",
+      finalUrl: "http://sso.test/done?jwt=eyJ.a.b&next=%2Fhome&X-Amz-Signature=abc&X-Amz-Credential=me",
+      redirected: true,
+      requestHeaders: [
+        ["content-type", "application/x-www-form-urlencoded"],
+        ["X-Auth", "a1"],
+        ["X-Session-Id", "s2"],
+        ["X-Signature", "s3"],
+        ["X-Amz-Credential", "c4"],
+        ["X-Jwt-Assertion", "j5"],
+        ["Accept", "text/html"],
+      ],
+      requestBody: {
+        kind: "form",
+        text: "user=ada\npassword=hunter2",
+        size: null,
+        truncated: false,
+        type: "application/x-www-form-urlencoded",
+      },
+      responseHeaders: [["content-type", "application/json"]],
+      responseBody: {
+        kind: "text",
+        text: '{"access_token":"tok999"}',
+        size: 25,
+        truncated: false,
+        type: "application/json",
+      },
+      initiator: [
+        "at login (http://app.test/app.js?token=t1&v=3:10:5)",
+        "login@http://app.test/app.js?auth=a2:22:3",
+        "at http://app.test/boot.js?v=4&key=k5",
+      ].join("\n"),
+    });
+    expect(copyText(entry)).toBe(
+      [
+        "POST http://app.test/api/login?access_token=<hidden>&page=2&api_key=<hidden>&sig=keep#session_id=<hidden>",
+        "answered from: http://sso.test/done?jwt=<hidden>&next=%2Fhome&X-Amz-Signature=<hidden>&X-Amz-Credential=<hidden>",
+        "status: 201 Created",
+        "time: 123ms, response after 80ms",
+        "size: 1.5 KB over the wire, 21 bytes of body",
+        "protocol: h2",
+        "",
+        "request headers:",
+        "content-type: application/x-www-form-urlencoded",
+        "X-Auth: <hidden>",
+        "X-Session-Id: <hidden>",
+        "X-Signature: <hidden>",
+        "X-Amz-Credential: <hidden>",
+        "X-Jwt-Assertion: <hidden>",
+        "Accept: text/html",
+        "",
+        "request body (application/x-www-form-urlencoded):",
+        "user=ada",
+        "password=hunter2",
+        "",
+        "response headers:",
+        "content-type: application/json",
+        "",
+        "response body (application/json, 25 bytes):",
+        '{"access_token":"tok999"}',
+        "",
+        "initiator:",
+        "at login (http://app.test/app.js?token=<hidden>&v=3:10:5)",
+        "login@http://app.test/app.js?auth=<hidden>:22:3",
+        "at http://app.test/boot.js?v=4&key=<hidden>",
+      ].join("\n"),
+    );
+    // The row keeps its own, for the pane to show.
+    expect(entry.url).toContain("access_token=tok123");
   });
 
   test("a light row, with what the browser does not give said plainly", () => {

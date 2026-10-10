@@ -4,7 +4,7 @@ import { type RequestEntry, RING_SIZE } from "../src/requests/types";
 import { BINDINGS, comboProblem, readKeys, resolveKeys } from "../src/ui/bindings";
 import { ACTIONS } from "../src/ui/catalog";
 import { comboText, defaultKeys, keyAction, type KeyLike, parseCombo } from "../src/ui/keys";
-import { HIDES_NOTE } from "../src/ui/requestdetail";
+import { GONE_NOTE, HIDES_NOTE } from "../src/ui/requestdetail";
 import { clockTime, copyText, LIGHT_WHY, LONG_BODY } from "../src/ui/requestformat";
 import {
   createRequests,
@@ -146,7 +146,7 @@ describe("the action and its key", () => {
   test("the key can be set, and is kept as the others are", () => {
     expect(readKeys(JSON.stringify({ requests: "Alt+N" }))).toEqual({ requests: "alt+n" });
     const keys = resolveKeys(defaultKeys(), { requests: "alt+n" });
-    expect(comboText(keys.requests)).toBe("alt+n");
+    expect(keys.requests && comboText(keys.requests)).toBe("alt+n");
     const press = (more: Partial<KeyLike>): KeyLike => ({
       key: "n",
       altKey: false,
@@ -231,16 +231,31 @@ describe("the list", () => {
     expect(full?.title).toBe("http://app.test/api/item-100");
   });
 
-  test("the frame's rows are told apart only while the page's own are listed too", () => {
+  test("a row of the device frame looks like any other row", () => {
     const at = scene();
     at.add(10, { source: "frame" });
-    at.requests.toggle();
-    const list = at.pane.body.one("req-list");
-    expect(list.classList.contains("mixed")).toBe(false);
     at.add(20);
+    at.requests.toggle();
+    const [own, framed] = at.rows();
+    expect(framed?.className).toBe("req-row");
+    expect(framed?.className).toBe(own?.className ?? "");
+    expect(at.pane.body.one("req-list").className).toBe("req-list");
+  });
+
+  test("a row the log let go is forgotten: a request by its id shows again as a new row", () => {
+    const at = scene();
+    const first = at.add(10);
+    at.requests.toggle();
+    const [old] = at.rows();
+    at.store.clear();
     at.timer.run();
-    expect(list.classList.contains("mixed")).toBe(true);
-    expect(at.rows().map((row) => row.classList.contains("framed"))).toEqual([false, true]);
+    expect(at.rows()).toEqual([]);
+    // A row kept by its id past its going would be taken for this one, and never shown.
+    at.store.put({ ...first, timing: { ...first.timing, start: LOADED + 20_000 } });
+    at.timer.run();
+    expect(at.texts().map((row) => row[1])).toEqual(["item-10"]);
+    expect(at.rows()[0]).not.toBe(old);
+    expect(at.pane.body.one("req-count").textContent).toBe("1");
   });
 
   test("a changed row is changed in place, and no other row is touched", () => {
@@ -776,6 +791,37 @@ describe("the detail", () => {
     expect(section(at, "request headers").one("req-inner").children).toBe(requestHeaders);
     expect(sections(at).find((each) => each.title === "initiator")?.open).toBe(true);
     expect(sections(at).find((each) => each.title === "request body")?.open).toBe(false);
+  });
+});
+
+describe("a request the log lets go while it shows", () => {
+  const note = (at: Scene) => at.pane.body.find("note").find((node) => node.textContent === GONE_NOTE);
+
+  test("says so quietly, and keeps what it showed", () => {
+    const at = scene();
+    at.add(10);
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    expect(note(at)?.hidden).toBe(true);
+    at.add(20);
+    at.timer.run();
+    expect(note(at)?.hidden).toBe(true);
+    at.store.clear();
+    at.timer.run();
+    expect(note(at)?.hidden).toBe(false);
+    expect(section(at, "general").one("req-inner").textContent).toContain("item-10");
+    at.pane.close();
+  });
+
+  test("pushed out by newer ones, too", () => {
+    const at = scene();
+    at.add(10);
+    at.requests.toggle();
+    at.rows()[0]?.click();
+    for (let index = 1; index <= RING_SIZE; index++) at.add(10 + index);
+    at.timer.run();
+    expect(note(at)?.hidden).toBe(false);
+    at.pane.close();
   });
 });
 

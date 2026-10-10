@@ -318,6 +318,29 @@ describe("the copy in the device frame", () => {
     top.recorder.uninstall();
   });
 
+  test("stops listening for its page to go once it lets the page go", () => {
+    const top = record(net);
+    const add = globalThis.addEventListener;
+    const remove = globalThis.removeEventListener;
+    const heard = new Set<unknown>();
+    globalThis.addEventListener = (type: string, listener: unknown) => {
+      if (type === "pagehide") heard.add(listener);
+    };
+    globalThis.removeEventListener = (type: string, listener: unknown) => {
+      if (type === "pagehide") heard.delete(listener);
+    };
+    try {
+      const frame = framed(LOADED, () => top.recorder);
+      expect(heard.size).toBe(1);
+      frame.leave();
+      expect(heard.size).toBe(0);
+    } finally {
+      globalThis.addEventListener = add;
+      globalThis.removeEventListener = remove;
+      top.recorder.uninstall();
+    }
+  });
+
   test("with no log above, or none it may read, it keeps its rows to itself", async () => {
     const frame = framed(LOADED, () => null);
     await fetch("/api/framed");

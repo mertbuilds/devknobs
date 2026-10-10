@@ -26,6 +26,11 @@ function press(patch: Partial<KeyLike>): KeyLike {
   };
 }
 
+/** A binding's key as text, or null where it has none. */
+function textOf(key: Combo | null): string | null {
+  return key ? comboText(key) : null;
+}
+
 function combo(spec: string): Combo {
   const parsed = parseCombo(spec);
   if (!parsed) throw new Error(`no combo in ${spec}`);
@@ -218,32 +223,55 @@ describe("resolveKeys", () => {
     const base = defaultKeys({ hotkey: "d", grabKey: "alt+shift+g" });
     const keys = resolveKeys(base, { panel: "alt+k" });
     expect(comboText(keys.panel)).toBe("alt+k");
-    expect(comboText(keys.grab)).toBe("alt+shift+g");
-    expect(comboText(keys.replay)).toBe("shift+r");
+    expect(textOf(keys.grab)).toBe("alt+shift+g");
+    expect(textOf(keys.replay)).toBe("shift+r");
     expect(comboText(resolveKeys(base, {}).panel)).toBe("shift+d");
   });
 
-  test("a set key that another binding has gives way to its base", () => {
+  test("a set key wins over another binding's default, which is left with no key", () => {
     const keys = resolveKeys(defaultKeys(), { panel: "shift+g" });
-    expect(comboText(keys.panel)).toBe("shift+k");
-    expect(comboText(keys.grab)).toBe("shift+g");
+    expect(comboText(keys.panel)).toBe("shift+g");
+    expect(keys.grab).toBeNull();
   });
 
-  test("a set delete gives way to a backspace another binding has", () => {
+  test("a key set before another binding got it as its default stays the user's", () => {
+    // Replay was on shift n before the requests log came with that default.
+    const keys = resolveKeys(defaultKeys(), { replay: "shift+n" });
+    expect(textOf(keys.replay)).toBe("shift+n");
+    expect(keys.requests).toBeNull();
+    // The binding left without one takes a key of its own, and can have its default back.
+    const set = resolveKeys(defaultKeys(), { replay: "shift+n", requests: "alt+n" });
+    expect([textOf(set.replay), textOf(set.requests)]).toEqual(["shift+n", "alt+n"]);
+    expect(textOf(resolveKeys(defaultKeys(), {}).requests)).toBe("shift+n");
+  });
+
+  test("the panel always keeps a key: one set on it for another binding gives way", () => {
+    const keys = resolveKeys(defaultKeys(), { replay: "shift+k" });
+    expect(comboText(keys.panel)).toBe("shift+k");
+    expect(textOf(keys.replay)).toBe("shift+r");
+  });
+
+  test("a set delete is a backspace, and takes it from the binding that had it by default", () => {
     const keys = resolveKeys(defaultKeys(), { grab: "shift+delete" });
-    expect(comboText(keys.grab)).toBe("shift+g");
+    expect(textOf(keys.grab)).toBe("shift+delete");
+    expect(keys.reset).toBeNull();
   });
 
   test("without grab, grab's key is free for another binding", () => {
     const keys = resolveKeys(defaultKeys(), { panel: "shift+g" }, false);
     expect(comboText(keys.panel)).toBe("shift+g");
-    expect(comboText(resolveKeys(defaultKeys(), { panel: "shift+g" }).panel)).toBe("shift+k");
+    expect(textOf(keys.grab)).toBe("shift+g");
   });
 
   test("two set keys can swap", () => {
     const keys = resolveKeys(defaultKeys(), { panel: "shift+g", grab: "shift+k" });
     expect(comboText(keys.panel)).toBe("shift+g");
-    expect(comboText(keys.grab)).toBe("shift+k");
+    expect(textOf(keys.grab)).toBe("shift+k");
+  });
+
+  test("two set keys that are the same: the first gives way to its base", () => {
+    const keys = resolveKeys(defaultKeys(), { replay: "alt+x", reset: "alt+x" });
+    expect([textOf(keys.replay), textOf(keys.reset)]).toEqual(["shift+r", "alt+x"]);
   });
 });
 
@@ -296,7 +324,7 @@ describe("createKeys", () => {
     local.set(KEYS_KEY, JSON.stringify({ panel: "alt+k", grab: "k" }));
     const keys = createKeys({ hotkey: "d" });
     expect(comboText(keys.get().panel)).toBe("alt+k");
-    expect(comboText(keys.get().grab)).toBe("shift+g");
+    expect(textOf(keys.get().grab)).toBe("shift+g");
     expect(keys.custom("panel")).toBe(true);
     expect(keys.custom("grab")).toBe(false);
     keys.destroy();
@@ -318,10 +346,10 @@ describe("createKeys", () => {
     keys.subscribe(() => heard++);
     keys.set("grab", combo("shift+x"));
     expect(JSON.parse(local.get(KEYS_KEY) ?? "")).toEqual({ v: KEYS_VERSION, grab: "shift+x" });
-    expect(comboText(keys.get().grab)).toBe("shift+x");
+    expect(textOf(keys.get().grab)).toBe("shift+x");
     keys.set("grab", null);
     expect(local.has(KEYS_KEY)).toBe(false);
-    expect(comboText(keys.get().grab)).toBe("shift+g");
+    expect(textOf(keys.get().grab)).toBe("shift+g");
     keys.set("panel", combo("shift+k"));
     expect(local.has(KEYS_KEY)).toBe(false);
     expect(heard).toBe(3);

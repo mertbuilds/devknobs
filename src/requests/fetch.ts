@@ -1,5 +1,6 @@
-import { describeBody, is, isText, readText, unread } from "./body";
+import { describeBody, is, isText, READ_MS, readText, unread } from "./body";
 import { absolute, headerOf, type Log, type Started } from "./record";
+import { QUIET } from "./shared";
 import { trimStack } from "./stack";
 import type { BodyRecord, HeaderList } from "./types";
 
@@ -18,6 +19,15 @@ function isRequest(input: unknown): input is Request {
 
 function field(init: unknown, key: string): unknown {
   return typeof init === "object" && init !== null ? Reflect.get(init, key) : undefined;
+}
+
+/** Is this call one of devknobs' own, by the mark `quietFetch` leaves on its init? */
+function isQuiet(init: unknown): boolean {
+  try {
+    return typeof init === "object" && init !== null && Reflect.get(init, QUIET) === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -47,8 +57,17 @@ function aborted(signal: unknown): boolean {
 interface Seen {
   request: Omit<Started, "initiator">;
   signal: unknown;
-  /** The body of a `Request`, read from a copy once the page's own is on its way. */
-  later: Promise<BodyRecord> | null;
+}
+
+/**
+ * The body a `Request` brings, named and never read or copied: a copy of a
+ * request would read its body, and one the page streams up is the page's
+ * alone. Text is told from bytes by the content type only.
+ */
+function carried(from: Request, method: string, type: string): BodyRecord | null {
+  if (method === "GET" || method === "HEAD") return null;
+  if (from.body === null || from.bodyUsed) return null;
+  return unread(isText(type) ? "stream" : "binary", null, type);
 }
 
 /** The request `fetch` is about to make of its arguments, which the init wins over. */
@@ -59,18 +78,12 @@ function see(input: unknown, init: unknown): Seen {
   const headers = listHeaders(given === undefined ? from?.headers : given);
   const type = headerOf(headers, "content-type");
   const sent = field(init, "body");
-  const body = describeBody(sent, type);
-  let later: Promise<BodyRecord> | null = null;
-  if (from && (sent === undefined || sent === null) && from.body !== null && !from.bodyUsed) {
-    const bodiless = method === "GET" || method === "HEAD";
-    // A copy leaves the request's own body whole. Bytes are only counted, never copied.
-    if (!bodiless && isText(type)) later = readText(from.clone(), type).then((read) => read.record);
-    else if (from.body) later = Promise.resolve(unread("binary", null, type));
-  }
+  // A body in the init takes the place of the request's own.
+  const own = from && (sent === undefined || sent === null) ? carried(from, method, type) : null;
+  const body = describeBody(sent, type) ?? own;
   return {
     request: { method, url: absolute(from ? from.url : String(input)), headers, body },
     signal: field(init, "signal") ?? from?.signal,
-    later,
   };
 }
 
@@ -80,12 +93,19 @@ function lengthOf(headers: HeaderList): number | null {
   return Number.isFinite(length) ? length : null;
 }
 
+/** An answer that comes a piece at a time for as long as the page listens. */
+function isEventStream(type: string): boolean {
+  return /^text\/event-stream\b/i.test(type.trim());
+}
+
 /**
  * The answer is in: note its head now, and read its body from a copy in the
  * background, so the page's own response is the browser's, untouched. Only
- * text is read, up to the cap. Bytes are named and counted.
+ * text is read, up to the cap and for `wait` ms. Bytes are named and counted.
+ * An event stream is named and never copied: a copy would hold the stream
+ * open after the page let it go.
  */
-function answered(log: Log, id: string, response: Response, signal: unknown): void {
+function answered(log: Log, id: string, response: Response, signal: unknown, wait: number): void {
   const responseHeaders = listHeaders(response.headers);
   const contentType = headerOf(responseHeaders, "content-type");
   const opaque = response.type === "opaque" || response.type === "opaqueredirect";
@@ -100,18 +120,19 @@ function answered(log: Log, id: string, response: Response, signal: unknown): vo
   });
   if (opaque) log.set(id, { responseBody: unread("opaque", null, "") });
   else if (response.body === null) log.ended(id, {});
+  else if (isEventStream(contentType)) log.set(id, { responseBody: unread("stream", null, contentType) });
   else if (!isText(contentType)) {
     log.set(id, { responseBody: unread("binary", lengthOf(responseHeaders), contentType) });
   } else {
-    readText(response.clone(), contentType).then(
+    readText(response.clone(), contentType, undefined, wait).then(
       ({ record, complete }) => {
         const responseBody = record.size === 0 ? null : record;
         if (complete) log.ended(id, { responseBody });
         else log.set(id, { responseBody });
       },
-      () => {
-        // The page gave the request up mid-body. Any other failed read is the page's to hear of.
-        if (aborted(signal)) log.ended(id, { state: "aborted" });
+      (error: unknown) => {
+        // The body broke off: the page gave the request up, or the connection did.
+        log.ended(id, { state: aborted(signal) ? "aborted" : "failed", error: describe(error) });
       },
     );
   }
@@ -122,22 +143,17 @@ function answered(log: Log, id: string, response: Response, signal: unknown): vo
  * browser as they came, and what comes back is the browser's own response or
  * the browser's own error. A failure in the note-taking never reaches the page.
  */
-export function wrapFetch(native: Fetch, log: Log): Fetch {
+export function wrapFetch(native: Fetch, log: Log, wait = READ_MS): Fetch {
   return function fetch(this: unknown): Promise<Response> {
     // The browser gets the page's arguments as they came, a missing one still missing.
     const args = arguments;
-    if (!log.active()) return Reflect.apply(native, this, args);
+    if (!log.active() || isQuiet(args[1])) return Reflect.apply(native, this, args);
     let id: string | null = null;
     let signal: unknown;
     try {
       const seen = see(args[0], args[1]);
       signal = seen.signal;
-      const row = log.start("fetch", { ...seen.request, initiator: trimStack(new Error().stack, 1) });
-      id = row;
-      seen.later?.then(
-        (requestBody) => log.set(row, { requestBody }),
-        () => {},
-      );
+      id = log.start("fetch", { ...seen.request, initiator: trimStack(new Error().stack, 1) });
     } catch {
       // Nothing noted: the request goes out all the same.
     }
@@ -147,7 +163,7 @@ export function wrapFetch(native: Fetch, log: Log): Fetch {
     return result.then(
       (response) => {
         try {
-          answered(log, row, response, signal);
+          answered(log, row, response, signal, wait);
         } catch {
           // The response is the page's, noted or not.
         }

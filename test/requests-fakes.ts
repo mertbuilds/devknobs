@@ -56,8 +56,24 @@ export class FakeXHR extends EventTarget {
   rawHeaders = "";
   /** How often the page or the log read the text. */
   reads = 0;
+  /** How many arguments each `open` came with. */
+  opens: number[] = [];
+  /** How many listeners are on the object now. */
+  listening = 0;
+  /** What the next `send` throws, as the browser does for a request it cannot make. */
+  refuses: Error | null = null;
+
+  override addEventListener(...args: Parameters<EventTarget["addEventListener"]>): void {
+    this.listening++;
+    super.addEventListener(...args);
+  }
+  override removeEventListener(...args: Parameters<EventTarget["removeEventListener"]>): void {
+    this.listening--;
+    super.removeEventListener(...args);
+  }
 
   open(method: string, url: string | URL): void {
+    this.opens.push(arguments.length);
     this.method = method;
     this.url = String(url);
     this.readyState = 1;
@@ -68,6 +84,7 @@ export class FakeXHR extends EventTarget {
   }
   send(body?: unknown): void {
     if (this.readyState !== 1) throw new Error("InvalidStateError");
+    if (this.refuses) throw this.refuses;
     this.body = body ?? null;
     FakeXHR.sent.push(this);
   }
@@ -93,8 +110,9 @@ export class FakeXHR extends EventTarget {
     this.readyState = 2;
     this.dispatchEvent(new Event("readystatechange"));
   }
-  /** The body is all in. */
+  /** The body is all in: the last progress, then the last state, as the browser orders them. */
   done(loaded = this.text.length): void {
+    this.dispatchEvent(Object.assign(new Event("progress"), { loaded }));
     this.readyState = 4;
     this.dispatchEvent(new Event("readystatechange"));
     this.dispatchEvent(new Event("load"));
@@ -162,6 +180,8 @@ export interface FakeFetch {
   calls: FetchArgs[];
   /** How many arguments each call came with. */
   counts: number[];
+  /** What each call had as its `this`. */
+  receivers: unknown[];
   answer: (...args: FetchArgs) => Promise<Response>;
   native: typeof fetch;
 }
@@ -170,10 +190,12 @@ export function fakeFetch(): FakeFetch {
   const fake: FakeFetch = {
     calls: [],
     counts: [],
+    receivers: [],
     answer: () => Promise.resolve(new Response("ok")),
     native: Object.assign(
-      function fetch(input?: RequestInfo | URL, _init?: RequestInit): Promise<Response> {
+      function fetch(this: unknown, input?: RequestInfo | URL, _init?: RequestInit): Promise<Response> {
         fake.counts.push(arguments.length);
+        fake.receivers.push(this);
         fake.calls.push([input, arguments[1]]);
         return fake.answer(input, arguments[1]);
       },
@@ -226,10 +248,15 @@ export function leavePage(): void {
 }
 
 /** A recorder on the fake page, with a clock and a timer the test drives. */
-export function record(net: FakeFetch, source: RequestSource = "top", above?: () => Shared | null): Page {
+export function record(
+  net: FakeFetch,
+  source: RequestSource = "top",
+  above?: () => Shared | null,
+  readFor?: number,
+): Page {
   const clock = fakeClock();
   const timer = manual();
-  const recorder = createRecorder({ source, clock, origin: ORIGIN, schedule: timer.schedule, above });
+  const recorder = createRecorder({ source, clock, origin: ORIGIN, schedule: timer.schedule, above, readFor });
   const rows = () => recorder.store.entries();
   return {
     recorder,
@@ -272,4 +299,31 @@ export function streamOf(chunks: string[], close = true): { stream: ReadableStre
     },
   });
   return { stream, cancelled: () => cancelled };
+}
+
+/** A body the page sends a piece at a time, which counts how often it is asked for one. */
+export function upload(): { stream: ReadableStream<Uint8Array>; pulls(): number; cancelled(): boolean } {
+  let pulls = 0;
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      pull() {
+        pulls++;
+      },
+      cancel() {
+        cancelled = true;
+      },
+    },
+    // Nothing is asked for until someone reads.
+    { highWaterMark: 0 },
+  );
+  return { stream, pulls: () => pulls, cancelled: () => cancelled };
+}
+
+/** Whether `promise` is over within `ms`: one that waits on a body held open is not. */
+export function settles(promise: Promise<unknown>, ms = 100): Promise<boolean> {
+  return Promise.race([
+    promise.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
+  ]);
 }

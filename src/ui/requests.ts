@@ -165,7 +165,6 @@ export function createRequests(context: RequestsContext = {}): Requests {
     row.status.classList.toggle("hot", statusHot(entry));
     put(row.time, durationLabel(entry.timing.duration));
     row.node.classList.toggle("light", light);
-    row.node.classList.toggle("framed", entry.source === "frame");
     const title = light ? `${entry.url}\n${LIGHT_WHY}` : entry.url;
     if (row.node.title !== title) row.node.title = title;
     row.node.hidden = !matches(entry, filter.value, chip);
@@ -216,7 +215,6 @@ export function createRequests(context: RequestsContext = {}): Requests {
       return false;
     });
     let at = 0;
-    let frames = 0;
     order = [...entries].reverse().map((entry) => {
       let row = rows.get(entry.id);
       if (row && kept[at] === row) at++;
@@ -226,11 +224,8 @@ export function createRequests(context: RequestsContext = {}): Requests {
         list.insertBefore(row.node, kept[at]?.node ?? null);
       }
       if (row.entry !== entry) draw(row, entry);
-      if (entry.source === "frame") frames++;
       return row;
     });
-    // The frame's rows are told apart only next to the page's own.
-    list.classList.toggle("mixed", frames > 0 && frames < order.length);
   }
 
   /** Where the list is scrolled to, or null while it keeps to its top. */
@@ -391,6 +386,8 @@ export function createRequests(context: RequestsContext = {}): Requests {
         body.append(view.node);
         const from = log();
         const stop = from?.subscribe((changed) => {
+          // Cleared away, or pushed out by newer ones: nothing more comes of it.
+          if (from.get(id) === undefined) view.gone();
           const next = changed.find((each) => each.id === id);
           if (!next || next === entry) return;
           entry = next;

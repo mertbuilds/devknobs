@@ -159,7 +159,10 @@ describe("devknobs' own requests", () => {
     page.clock.tick(50);
     const response = await quietFetch("/src/app.tsx.map", { cache: "force-cache" });
     expect(await response.text()).toBe("ok");
-    expect(page.net.calls).toEqual([["/src/app.tsx.map", { cache: "force-cache" }]]);
+    // The init is the caller's own, with devknobs' mark on it and nothing the browser reads.
+    expect(page.net.calls.map(([url, init]) => [url, Object.keys(init ?? {}), init?.cache])).toEqual([
+      ["/src/app.tsx.map", ["cache"], "force-cache"],
+    ]);
     FakeObserver.emit(timed("http://app.test/src/app.tsx.map", 51, { initiatorType: "fetch" }));
     expect(page.rows()).toEqual([]);
   });
@@ -188,6 +191,26 @@ describe("devknobs' own requests", () => {
     release(new Response("map"));
     await own;
     expect(page.rows().map((row) => row.url)).toEqual(["http://app.test/api/items"]);
+  });
+
+  test("a fetch of its own stays out of the log through a wrapper of the page's that waits", async () => {
+    const below = globalThis.fetch;
+    // The page's wrapper passes the call on a moment later, as an `async` one does.
+    globalThis.fetch = Object.assign(
+      async (...args: Parameters<typeof fetch>): Promise<Response> => {
+        await Promise.resolve();
+        return below(...args);
+      },
+      { preconnect: below.preconnect },
+    );
+    try {
+      expect(await (await quietFetch("/src/app.tsx.map")).text()).toBe("ok");
+      await fetch("/api/items");
+      expect(page.rows().map((row) => row.url)).toEqual(["http://app.test/api/items"]);
+      expect(page.net.calls.map(([url]) => url)).toEqual(["/src/app.tsx.map", "/api/items"]);
+    } finally {
+      globalThis.fetch = below;
+    }
   });
 
   test("a picture of its own is left out every time it loads", () => {

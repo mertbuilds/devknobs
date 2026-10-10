@@ -13,6 +13,9 @@ import type { Tips } from "./tooltip";
  * keys pressed. A key a binding cannot take is refused, and the chip says why.
  */
 
+/** What a binding's chip says while it has no key: its default went to another binding. */
+export const NO_KEY = "not set";
+
 /** How long a chip stays red, and its reason shows, after a key it cannot take, in ms. */
 const REFUSED_RED = 1000;
 const REFUSED_TIP = 1800;
@@ -121,11 +124,14 @@ export function createSettings(context: SettingsContext): Settings {
     for (const [binding, view] of keyViews) {
       const word = BINDING_WORDS[binding];
       const on = recording === binding;
-      view.set.textContent = on ? "press keys…" : comboLabel(now[binding], mac);
+      const combo = now[binding];
+      view.set.textContent = on ? "press keys…" : combo ? comboLabel(combo, mac) : NO_KEY;
       view.set.classList.toggle("recording", on);
       view.set.setAttribute(
         "aria-label",
-        on ? `press the new ${word} key` : `${word}, ${comboSpoken(now[binding])}, change`,
+        on
+          ? `press the new ${word} key`
+          : `${word}, ${combo ? comboSpoken(combo) : NO_KEY}, ${combo ? "change" : "set"}`,
       );
       view.back.hidden = !keys.custom(binding);
     }

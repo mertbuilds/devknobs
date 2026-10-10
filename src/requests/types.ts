@@ -37,6 +37,8 @@ export interface BodyRecord {
   size: number | null;
   /** There is more body than `text` holds. */
   truncated: boolean;
+  /** The body was still coming when the read was given up, so `text` was cut by time and not at the cap. */
+  timedOut?: boolean;
   /** The content type, or the kind of object a script sent, such as `ArrayBuffer`. */
   type: string;
 }

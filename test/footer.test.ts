@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { LiveKeys } from "../src/ui/bindings";
-import { createFooter, FRESH_NOTE } from "../src/ui/footer";
+import { resolveKeys } from "../src/ui/bindings";
+import { createFooter, FRESH_NOTE, keyChips } from "../src/ui/footer";
 import { defaultKeys } from "../src/ui/keys";
 
 /** An element, as far as the footer builds one. */
@@ -59,5 +60,20 @@ describe("createFooter", () => {
   test("says nothing of it with the mode off", () => {
     page("");
     expect(parts()).toEqual(["badge", "meta"]);
+  });
+});
+
+describe("keyChips", () => {
+  test("a binding with no key keeps its hint, with no key on it", () => {
+    // Reset's default went to grab, so reset has none.
+    const keys = resolveKeys(defaultKeys(), { grab: "shift+backspace" });
+    expect(keys.reset).toBeNull();
+    expect(keyChips(keys, true, true).map((chip) => [chip.command, chip.key])).toEqual([
+      ["panel", "⇧K"],
+      ["search", "/"],
+      ["grab", "⇧⌫"],
+      ["replay", "⇧R"],
+      ["reset", ""],
+    ]);
   });
 });

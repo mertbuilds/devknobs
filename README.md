@@ -332,10 +332,12 @@ escape goes back to the list, and then closes the pane. clear in the pane's
 head empties the log.
 
 copy in a request's head puts it on the clipboard as plain text, ready to paste
-into an AI chat. the values of `authorization`, `cookie`, `set-cookie` and
-`proxy-authorization`, and of any header with `token`, `secret`, `key` or
-`password` in its name, are copied as `<hidden>`. the pane shows them as the
-page set them.
+into an AI chat. header values and address parameters that look like secrets
+are copied as `<hidden>`: `authorization`, `cookie`, `set-cookie` and
+`proxy-authorization`, and any header or parameter with `token`, `secret`,
+`key`, `password`, `auth`, `session`, `signature`, `credential` or `jwt` in its
+name. bodies are copied as they are, so check before you paste. the pane shows
+all of it as the page set it.
 
 what it records, and what it cannot:
 
@@ -347,7 +349,9 @@ what it records, and what it cannot:
   origin that does not allow it.
 - no web sockets, and nothing a worker asks for.
 - a body is kept up to 64 KB, and only where it is text. bytes are counted, and
-  a stream the page sends is never read.
+  a stream the page sends is never read, nor is the body inside a `Request`
+  object or an event stream. an answer that is still coming 2 seconds after
+  its headers is kept as far as it came.
 - the last 300 requests are kept, in memory. nothing is stored, and nothing is
   sent anywhere. a reload starts the log again.
 - it records for as long as devknobs is mounted, the pane open or not, and from

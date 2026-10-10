@@ -2018,4 +2018,63 @@ describe("the panel's side pane", () => {
       Reflect.set(document, "querySelector", find);
     }
   });
+
+  /** A letterbox `width` px wide with an open panel beside a frame of 1500, and how often the panel was measured. */
+  function narrow(width: number, run: (beside: (aside: number) => string, measured: () => number) => void): void {
+    const box = { width, height: 800 + STRIP };
+    const create = document.createElement;
+    const find = document.querySelector;
+    let measured = 0;
+    Reflect.set(document, "createElement", (tag: string) => {
+      const element = new FakeElement(tag.toUpperCase());
+      Object.assign(element, { clientWidth: box.width, clientHeight: box.height });
+      return element;
+    });
+    Reflect.set(document, "querySelector", (selector: string) => {
+      if (selector !== '[data-devknobs="panel"]') return null;
+      measured++;
+      return { offsetWidth: PANEL };
+    });
+    const knobs = { ...KNOBS, width: 1500, panel: { open: true, side: "right" } } as const;
+    try {
+      apply(knobs);
+      run(
+        (aside) => {
+          const scale = fit(knobs, box, { aside }).transform;
+          return scale === 1 ? "" : `scale(${scale})`;
+        },
+        () => measured,
+      );
+    } finally {
+      coverBeside(0);
+      Reflect.set(document, "createElement", create);
+      Reflect.set(document, "querySelector", find);
+    }
+  }
+
+  test("in a window where the two cover more than half, the frame still keeps clear of the panel", () => {
+    narrow(1100, (beside) => {
+      // The panel and its pane are 600 of 1100: fit would give up on both, and the frame would sit under the panel.
+      expect(beside(PANEL + 339)).toBe(beside(0));
+      expect(beside(PANEL)).not.toBe(beside(0));
+      expect(drawnScale()).toBe(beside(PANEL));
+      coverBeside(339);
+      expect(drawnScale()).toBe(beside(PANEL));
+      // A pane narrow enough to fit beside is counted again.
+      coverBeside(280);
+      expect(drawnScale()).toBe(beside(PANEL + 280));
+      expect(beside(PANEL + 280)).not.toBe(beside(PANEL));
+    });
+  });
+
+  test("a pane that covers what it covered already moves nothing", () => {
+    narrow(1600, (_beside, measured) => {
+      coverBeside(339);
+      const before = measured();
+      coverBeside(339);
+      expect(measured()).toBe(before);
+      coverBeside(340);
+      expect(measured()).toBeGreaterThan(before);
+    });
+  });
 });

@@ -24,7 +24,10 @@ export const COPIED_SHOWS = 1800;
 
 /** What the detail says once, the first time a request is copied. */
 export const HIDES_NOTE =
-  "the copied text has <hidden> in place of the values of authorization, cookie and other secret headers";
+  "header values and address parameters that look like secrets are copied as <hidden>. bodies are copied as they are: check before you paste";
+
+/** What the detail says of a request the log let go while it showed. */
+export const GONE_NOTE = "this request is no longer in the log, and shows as it last was";
 
 /** One part of the detail. */
 interface Part {
@@ -145,6 +148,8 @@ export interface Detail {
   node: HTMLElement;
   /** The request changed: draw what is new of it. */
   update(entry: RequestEntry): void;
+  /** The log let the request go: say that what shows will not change again. */
+  gone(): void;
   /** Say how a copy went, for a moment, and with `note` what it left out. */
   say(text: string, hot: boolean, note: boolean): void;
   destroy(): void;
@@ -158,7 +163,9 @@ export function createDetail(entry: RequestEntry, back: () => void): Detail {
   const copied = el("span", "row-value idle");
   const hides = el("div", "note", HIDES_NOTE);
   hides.hidden = true;
-  node.append(rowBox(backButton, icon("chevron-left"), "requests", copied), hides);
+  const left = el("div", "note", GONE_NOTE);
+  left.hidden = true;
+  node.append(rowBox(backButton, icon("chevron-left"), "requests", copied), hides, left);
 
   /** The sections the user opened or folded by hand, which then stay so. */
   const chosen = new Map<string, boolean>();
@@ -215,6 +222,9 @@ export function createDetail(entry: RequestEntry, back: () => void): Detail {
     update(next: RequestEntry): void {
       now = next;
       for (const section of sections) draw(section);
+    },
+    gone(): void {
+      left.hidden = false;
     },
     say(text: string, hot: boolean, note: boolean): void {
       clearTimeout(timer);

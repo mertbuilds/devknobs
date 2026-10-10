@@ -68,50 +68,74 @@ function bodyOf(xhr: XMLHttpRequest, type: string, loaded: number | null): BodyR
   return record.size === 0 ? null : record;
 }
 
+/** The events that end a request with no answer. */
+const FAILS = ["error", "abort", "timeout"];
+
 /**
  * Follow one request to its end, through events on the object itself. Returns
  * the way to let it go early, for an object the page opens again mid-flight,
  * which the browser ends without a word.
+ *
+ * The listeners capture, so they run before the page's own on the object,
+ * and an answer is noted as the object reaches its last state, before the
+ * page hears `load`: a page that sends the object again from one of its own
+ * handlers finds the row done, and the listeners gone.
  */
 function watch(xhr: XMLHttpRequest, id: string, url: string, log: Log): () => void {
   let outcome: RequestState | null = null;
   let error: string | null = null;
   let over = false;
-  const onState = () => {
-    try {
-      if (xhr.readyState === 2) log.responded(id, head(xhr, url));
-    } catch {
-      // The headers come again at the end.
-    }
-  };
-  const onFail = (event: Event) => {
-    outcome = event.type === "abort" ? "aborted" : "failed";
-    error = event.type === "abort" ? null : event.type;
-  };
+  /** How many bytes are in, as the browser last said. */
+  let loaded: number | null = null;
   const unlisten = () => {
-    xhr.removeEventListener("readystatechange", onState);
-    for (const type of ["error", "abort", "timeout"]) xhr.removeEventListener(type, onFail);
-    xhr.removeEventListener("loadend", onEnd);
+    xhr.removeEventListener("readystatechange", onState, true);
+    xhr.removeEventListener("progress", onProgress, true);
+    for (const type of FAILS) xhr.removeEventListener(type, onFail, true);
+    xhr.removeEventListener("loadend", onEnd, true);
   };
-  function onEnd(event: Event): void {
+  function finish(): void {
     over = true;
     unlisten();
     try {
       const answer = head(xhr, url);
       const status = xhr.status;
-      const loaded: unknown = Reflect.get(event, "loaded");
       const state = outcome ?? (status === 0 || status >= 400 ? "failed" : "ok");
-      const responseBody = outcome
-        ? null
-        : bodyOf(xhr, answer.contentType ?? "", typeof loaded === "number" ? loaded : null);
+      // A browser that told of no progress may still have said how long the body is.
+      const length = Number.parseInt(headerOf(answer.responseHeaders ?? [], "content-length"), 10);
+      const size = loaded ?? (Number.isFinite(length) ? length : null);
+      const responseBody = outcome ? null : bodyOf(xhr, answer.contentType ?? "", size);
       log.ended(id, { ...answer, status: status === 0 ? null : status, state, error, responseBody });
     } catch {
       log.ended(id, { state: outcome ?? "failed", error });
     }
   }
-  xhr.addEventListener("readystatechange", onState);
-  for (const type of ["error", "abort", "timeout"]) xhr.addEventListener(type, onFail);
-  xhr.addEventListener("loadend", onEnd);
+  function onState(): void {
+    try {
+      if (xhr.readyState === 2) log.responded(id, head(xhr, url));
+    } catch {
+      // The headers come again at the end.
+    }
+    // With no status there is no answer: the event that follows says why.
+    if (xhr.readyState === 4 && xhr.status !== 0) finish();
+  }
+  function onProgress(event: Event): void {
+    const so: unknown = Reflect.get(event, "loaded");
+    if (typeof so === "number") loaded = so;
+  }
+  function onFail(event: Event): void {
+    outcome = event.type === "abort" ? "aborted" : "failed";
+    error = event.type === "abort" ? null : event.type;
+  }
+  function onEnd(event: Event): void {
+    // The end of a request this object made before, heard after the page sent it again.
+    if (xhr.readyState !== 4) return;
+    onProgress(event);
+    finish();
+  }
+  xhr.addEventListener("readystatechange", onState, true);
+  xhr.addEventListener("progress", onProgress, true);
+  for (const type of FAILS) xhr.addEventListener(type, onFail, true);
+  xhr.addEventListener("loadend", onEnd, true);
   return () => {
     if (over) return;
     over = true;

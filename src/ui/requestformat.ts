@@ -1,3 +1,4 @@
+import { READ_MS } from "../requests/body";
 import {
   BODY_CAP,
   type BodyRecord,
@@ -15,7 +16,7 @@ import {
 /** Why a light row says less, in the words its tooltip and its detail use. */
 export const LIGHT_WHY = "the browser gives a page only timing and size for this";
 
-/** What a hidden header's value is copied as. */
+/** What a hidden value is copied as, a header's or an address parameter's. */
 export const HIDDEN = "<hidden>";
 
 /** How much of a query a row shows, in characters, the `?` included. */
@@ -55,39 +56,43 @@ export function urlName(url: string): { name: string; query: string } {
   return { name: last === undefined ? parsed.host : `${last}${folder}`, query: parsed.search };
 }
 
-const EXTENSIONS: Record<string, string> = {
-  css: "css",
-  js: "js",
-  mjs: "js",
-  woff: "font",
-  woff2: "font",
-  ttf: "font",
-  otf: "font",
-  png: "img",
-  jpg: "img",
-  jpeg: "img",
-  gif: "img",
-  webp: "img",
-  avif: "img",
-  svg: "img",
-  ico: "img",
-  mp4: "media",
-  webm: "media",
-  mp3: "media",
-};
+/**
+ * A map and not an object: the word looked up comes from the page, and an
+ * object would answer `constructor` and `toString` with what every object has.
+ */
+const EXTENSIONS = new Map([
+  ["css", "css"],
+  ["js", "js"],
+  ["mjs", "js"],
+  ["woff", "font"],
+  ["woff2", "font"],
+  ["ttf", "font"],
+  ["otf", "font"],
+  ["png", "img"],
+  ["jpg", "img"],
+  ["jpeg", "img"],
+  ["gif", "img"],
+  ["webp", "img"],
+  ["avif", "img"],
+  ["svg", "img"],
+  ["ico", "img"],
+  ["mp4", "media"],
+  ["webm", "media"],
+  ["mp3", "media"],
+]);
 
 /** What Resource Timing says loaded a thing, as the kind of thing that most often is. */
-const INITIATORS: Record<string, string> = {
-  img: "img",
-  image: "img",
-  script: "js",
-  css: "css",
-  iframe: "frame",
-  video: "media",
-  audio: "media",
-  fetch: "fetch",
-  xmlhttprequest: "xhr",
-};
+const INITIATORS = new Map([
+  ["img", "img"],
+  ["image", "img"],
+  ["script", "js"],
+  ["css", "css"],
+  ["iframe", "frame"],
+  ["video", "media"],
+  ["audio", "media"],
+  ["fetch", "fetch"],
+  ["xmlhttprequest", "xhr"],
+]);
 
 function typeKind(type: string): string {
   if (/^image\//i.test(type)) return "img";
@@ -100,7 +105,7 @@ function typeKind(type: string): string {
 function extensionKind(url: string): string {
   try {
     const extension = /\.([a-z0-9]+)$/i.exec(new URL(url).pathname)?.[1] ?? "";
-    return EXTENSIONS[extension.toLowerCase()] ?? "";
+    return EXTENSIONS.get(extension.toLowerCase()) ?? "";
   } catch {
     return "";
   }
@@ -117,18 +122,22 @@ export function kindLabel(entry: RequestEntry): string {
   return (
     typeKind(entry.contentType) ||
     extensionKind(entry.url) ||
-    INITIATORS[entry.initiatorType] ||
+    INITIATORS.get(entry.initiatorType) ||
     entry.initiatorType.slice(0, 6) ||
     "other"
   );
 }
 
-const SHORT_METHODS: Record<string, string> = { DELETE: "DEL", OPTIONS: "OPT", CONNECT: "CONN" };
+const SHORT_METHODS = new Map([
+  ["DELETE", "DEL"],
+  ["OPTIONS", "OPT"],
+  ["CONNECT", "CONN"],
+]);
 
 /** What a row starts with: the method, kept short, or the kind where the browser gives no method. */
 export function methodLabel(entry: RequestEntry): string {
   if (entry.detail === "light" || entry.method === "") return kindLabel(entry);
-  return SHORT_METHODS[entry.method] ?? entry.method.slice(0, 5);
+  return SHORT_METHODS.get(entry.method) ?? entry.method.slice(0, 5);
 }
 
 /**
@@ -246,6 +255,7 @@ export function bodyNote(record: BodyRecord): string {
   if (record.kind === "binary") {
     return record.size === null ? "binary" : `binary, ${bytesLabel(record.size)}`;
   }
+  if (record.timedOut) return `cut after ${READ_MS / 1000} seconds, the rest was still coming`;
   if (record.truncated) {
     const whole = record.size === null ? "" : ` of ${bytesLabel(record.size)}`;
     return `truncated at ${bytesLabel(BODY_CAP)}${whole}`;
@@ -258,15 +268,39 @@ export function hasText(record: BodyRecord): boolean {
   return record.kind === "text" || record.kind === "form";
 }
 
+/** Json with the white space between its tokens taken out, and every string as it is. */
+function compact(json: string): string {
+  let out = "";
+  let quoted = false;
+  for (let at = 0; at < json.length; at++) {
+    const char = json.charAt(at);
+    if (quoted) {
+      out += char;
+      // What a backslash escapes is the string's, a quote too.
+      if (char === "\\") out += json.charAt(++at);
+      else if (char === '"') quoted = false;
+    } else if (char === '"') {
+      quoted = true;
+      out += char;
+    } else if (char !== " " && char !== "\n" && char !== "\r" && char !== "\t") out += char;
+  }
+  return out;
+}
+
 /**
  * A body's text as the detail shows it: json laid out a key a line, where it
  * is all there and reads as json, else as it was kept. `type` stands in where
  * the body does not know its own.
+ *
+ * Json is laid out only where that changes none of it. A number too long for
+ * the engine, a key that comes twice or an escape written another way would
+ * come back changed, and the screen would say other than the copied text.
  */
 export function bodyText(record: BodyRecord, type = ""): string {
   if (record.kind !== "text" || record.truncated || !isJson(record.type || type)) return record.text;
   try {
-    return JSON.stringify(JSON.parse(record.text), null, 2);
+    const value: unknown = JSON.parse(record.text);
+    return JSON.stringify(value) === compact(record.text) ? JSON.stringify(value, null, 2) : record.text;
   } catch {
     return record.text;
   }
@@ -313,12 +347,40 @@ export function generalLines(entry: RequestEntry, started: string): [label: stri
 }
 
 const SECRET_NAMES = new Set(["authorization", "cookie", "set-cookie", "proxy-authorization"]);
-const SECRET_PARTS = ["token", "secret", "key", "password"];
+const SECRET_PARTS = ["token", "secret", "key", "password", "auth", "session", "signature", "credential", "jwt"];
 
-/** A header whose value is a credential, by its name: never copied. */
+/** A header or an address parameter whose value is a credential, by its name: never copied. */
 export function hides(name: string): boolean {
   const lower = name.toLowerCase();
   return SECRET_NAMES.has(lower) || SECRET_PARTS.some((part) => lower.includes(part));
+}
+
+/** A parameter of an address: what starts it, its name, and its value up to the next one. */
+const PARAMETER = /([?&#])([^=&#\s]+)=([^&#\s]*)/g;
+
+/**
+ * An address with the values of its parameters that look like secrets
+ * hidden, the names kept: in its query, and after its hash, where a sign-in
+ * leaves a token. The rest of the address is as it was.
+ */
+export function hideParameters(url: string): string {
+  return url.replace(PARAMETER, (all: string, start: string, name: string) =>
+    hides(name) ? `${start}${name}=${HIDDEN}` : all,
+  );
+}
+
+/** Where a stack frame's address ends: its line and column, and the bracket V8 closes it with. */
+const FRAME_END = /(?::\d+){1,2}\)?$/;
+
+/** A stack with the secret parameters of each frame's address hidden, its line and column kept. */
+function hideStack(stack: string): string {
+  return stack
+    .split("\n")
+    .map((line) => {
+      const end = FRAME_END.exec(line)?.[0] ?? "";
+      return `${hideParameters(line.slice(0, line.length - end.length))}${end}`;
+    })
+    .join("\n");
 }
 
 function headerBlock(title: string, headers: HeaderList): string[] {
@@ -338,12 +400,15 @@ function bodyBlock(title: string, record: BodyRecord | null): string[] {
 /**
  * A request as plain text to paste into an AI chat: what was asked and how it
  * went, the headers, the bodies as they were kept, and the call that made it.
- * The values of headers that carry a credential are left out.
+ * The values of headers and of address parameters that look like secrets are
+ * hidden. The bodies are copied as they are.
  */
 export function copyText(entry: RequestEntry): string {
   const light = entry.detail === "light";
-  const lines = [`${light || !entry.method ? kindLabel(entry) : entry.method} ${entry.url}`];
-  if (entry.finalUrl && entry.finalUrl !== entry.url) lines.push(`answered from: ${entry.finalUrl}`);
+  const lines = [`${light || !entry.method ? kindLabel(entry) : entry.method} ${hideParameters(entry.url)}`];
+  if (entry.finalUrl && entry.finalUrl !== entry.url) {
+    lines.push(`answered from: ${hideParameters(entry.finalUrl)}`);
+  }
   if (!light || entry.status !== null) lines.push(`status: ${statusLine(entry)}`);
   const total = durationLabel(entry.timing.duration);
   const response = durationLabel(entry.timing.response);
@@ -358,6 +423,6 @@ export function copyText(entry: RequestEntry): string {
     ...headerBlock("response headers", entry.responseHeaders),
     ...bodyBlock("response body", entry.responseBody),
   );
-  if (entry.initiator) lines.push("", "initiator:", entry.initiator);
+  if (entry.initiator) lines.push("", "initiator:", hideStack(entry.initiator));
   return lines.join("\n");
 }
