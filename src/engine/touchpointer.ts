@@ -310,7 +310,7 @@ let host: HTMLElement | null = null;
 let dot: HTMLElement | null = null;
 /** Sees a dialog open where the browser sends no `toggle` for it. */
 let dialogs: MutationObserver | null = null;
-/** What the pointer is over in the top layer, as of its last way in or press. */
+/** What the pointer is over in the top layer, as of its last way in, move or press. */
 let over: Element | null = null;
 let gesture: Gesture | null = null;
 let nextId = 1;
@@ -387,20 +387,23 @@ const TOP_LAYER = [":popover-open", ":modal", ":fullscreen"];
 
 function inTopLayer(node: unknown): node is Element {
   if (!(node instanceof Element)) return false;
-  return TOP_LAYER.some((selector) => {
+  for (let index = 0; index < TOP_LAYER.length; index++) {
     try {
-      return node.matches(selector);
+      if (node.matches(TOP_LAYER[index] ?? "")) return true;
     } catch {
       // A browser from before this selector has nothing of its kind in the top layer.
-      return false;
     }
-  });
+  }
+  return false;
 }
 
 /**
- * Go over what the pointer came onto in the top layer, where it is not what
- * it was on before. This sees a dialog or a popover in a shadow root, whose
- * `toggle` and `open` attribute the watch on the page does not.
+ * Go over what the pointer is on in the top layer, where it is not what it
+ * was on before. This sees a dialog or a popover in a shadow root, whose
+ * `toggle` and `open` attribute the watch on the page does not. It runs on
+ * each way in, move and press, so the first move after such an opening puts
+ * the cursor back on top. A cursor that does not move at all stays under a
+ * dialog in a shadow root that the keyboard opened, until it moves.
  */
 function raiseOver(event: Event): void {
   if (!host || !layered()) return;
@@ -823,7 +826,7 @@ function onEvent(event: Event): void {
     }
     if (type === "pointerout" && event.relatedTarget === null) hideDot();
     else if (type !== "pointerleave" && type !== "pointerout") showDot(event);
-    if (type === "pointerover" || type === "pointerdown") raiseOver(event);
+    if (type === "pointerover" || type === "pointermove" || type === "pointerdown") raiseOver(event);
     if (type === "pointerdown") pressDot(true);
     else if (type === "pointerup" || type === "pointercancel") pressDot(false);
     if (type === "pointerdown") onPointerDown(event);

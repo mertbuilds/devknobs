@@ -610,6 +610,27 @@ const POPOVER = {
   },
 };
 
+/**
+ * A dialog in the shadow tree of a custom element, with a button in it. The
+ * path of an event on the button goes through the dialog, the shadow root and
+ * the custom element, and the page's own tree does not hold the dialog.
+ */
+function shadowDialog(): {
+  custom: FakeHTMLElement;
+  shadowRoot: FakeTarget;
+  dialog: FakeHTMLElement;
+  inside: FakeHTMLElement;
+} {
+  const custom = element("x-sheet");
+  const shadowRoot = new FakeTarget();
+  shadowRoot.parent = custom;
+  const dialog = new FakeHTMLElement("dialog");
+  dialog.parent = shadowRoot;
+  const inside = new FakeHTMLElement("button");
+  dialog.append(inside);
+  return { custom, shadowRoot, dialog, inside };
+}
+
 function toggle(target: FakeElement, type: string, newState: string): FakeEvent {
   const event = Object.assign(new FakeEvent(type), { newState });
   dispatch(target, event);
@@ -716,6 +737,42 @@ describe("touch pointer in a page with a top layer", () => {
     expect(layer).toEqual([]);
     fire(inside, "pointerover");
     expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("goes in again when the pointer comes onto a modal dialog in a shadow root", () => {
+    apply(true);
+    const { custom, shadowRoot, dialog, inside } = shadowDialog();
+    Object.assign(dialog, { matches: (selector: string) => selector === ":modal" });
+    expect(all(doc.documentElement)).not.toContain(dialog);
+    layer = [];
+    const event = fire(inside, "pointerover");
+    expect(event.composedPath()).toEqual([
+      inside,
+      dialog,
+      shadowRoot,
+      custom,
+      doc.body,
+      doc.documentElement,
+      win,
+    ]);
+    expect(layer).toEqual(["hide", "show"]);
+  });
+
+  test("goes in again once on the first move after a dialog in a shadow root opens under the pointer", () => {
+    apply(true);
+    const { dialog, inside } = shadowDialog();
+    let modal = false;
+    Object.assign(dialog, { matches: (selector: string) => modal && selector === ":modal" });
+    layer = [];
+    fire(inside, "pointermove");
+    expect(layer).toEqual([]);
+    modal = true;
+    fire(inside, "pointermove");
+    expect(layer).toEqual(["hide", "show"]);
+    layer = [];
+    fire(inside, "pointermove");
+    fire(dialog, "pointermove");
+    expect(layer).toEqual([]);
   });
 
   test("takes its watch away while paused", () => {
