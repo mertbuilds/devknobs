@@ -1,3 +1,4 @@
+import { fresh } from "../engine/fresh";
 import type { GrabControl } from "../grab/control";
 import { BINDING_WORDS, type LiveKeys } from "./bindings";
 import { button, el } from "./dom";
@@ -5,9 +6,13 @@ import { icon } from "./icons";
 import { comboLabel, type Keys } from "./keys";
 
 /**
- * The panel's footer: the overflow badge, the keys the panel answers to, each
- * a control that does what its key does, and the way into the settings.
+ * The panel's footer: the overflow badge, the fresh mode note, the keys the
+ * panel answers to, each a control that does what its key does, and the way
+ * into the settings.
  */
+
+/** What the footer says while fresh mode is on, so a panel back at its defaults is no surprise. */
+export const FRESH_NOTE = "fresh mode: nothing is kept";
 
 /**
  * What the footer says about the overflow knob, such as `2 overflowing`.
@@ -78,7 +83,9 @@ export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: bool
   keysToggle.append(icon("settings", 12));
   keysToggle.setAttribute("aria-label", "settings");
   meta.append(keysToggle);
-  foot.append(badge, meta);
+  foot.append(badge);
+  if (fresh()) foot.append(el("span", "fresh-note", FRESH_NOTE));
+  foot.append(meta);
 
   return {
     foot,

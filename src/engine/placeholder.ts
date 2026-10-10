@@ -1,6 +1,7 @@
 import type { DevknobsState, MatColorValue, PanelValue } from "../types";
 import type { Look } from "./browserkit";
 import { needsFrame } from "./frame";
+import { webStorage } from "./fresh";
 import { MAT_COLORS, matGradient } from "./matcolors";
 import { newer, stamped } from "./stored";
 
@@ -109,14 +110,6 @@ export function snapshotKey(knobs: Drawn, view: WindowSize): string {
   ]);
 }
 
-function session(): Storage | null {
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
 function lookOf(value: unknown): Look | null {
   if (typeof value !== "object" || value === null) return null;
   const read = (key: string): unknown => Reflect.get(value, key);
@@ -137,7 +130,7 @@ function lookOf(value: unknown): Look | null {
 /** The drawing the last page kept, if it was drawn for these knobs at this window's size. */
 export function readSnapshot(knobs: Drawn, view: WindowSize): Snapshot | null {
   try {
-    const text = session()?.getItem(SNAPSHOT_KEY);
+    const text = webStorage("session")?.getItem(SNAPSHOT_KEY);
     if (!text) return null;
     const data: unknown = JSON.parse(text);
     if (typeof data !== "object" || data === null || newer(data, SNAPSHOT_VERSION)) return null;
@@ -155,7 +148,7 @@ export function readSnapshot(knobs: Drawn, view: WindowSize): Snapshot | null {
 
 export function writeSnapshot(snapshot: Snapshot): void {
   try {
-    session()?.setItem(SNAPSHOT_KEY, JSON.stringify(stamped(snapshot, SNAPSHOT_VERSION)));
+    webStorage("session")?.setItem(SNAPSHOT_KEY, JSON.stringify(stamped(snapshot, SNAPSHOT_VERSION)));
   } catch {
     // Storage full or off: the next page shows the bare mat.
     clearSnapshot();
@@ -200,7 +193,7 @@ export function keepDrawing({ letterbox, zoom, key, css, look }: Kept): void {
 
 export function clearSnapshot(): void {
   try {
-    session()?.removeItem(SNAPSHOT_KEY);
+    webStorage("session")?.removeItem(SNAPSHOT_KEY);
   } catch {
     // Nothing kept, or nothing to reach.
   }

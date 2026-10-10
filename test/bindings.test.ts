@@ -248,7 +248,7 @@ describe("resolveKeys", () => {
 });
 
 /** A window with local storage the test can look into, and the storage events it listens for. */
-function stubWindow(): {
+function stubWindow(search = ""): {
   local: Map<string, string>;
   fire: (key: string | null) => void;
   listening: () => number;
@@ -268,6 +268,7 @@ function stubWindow(): {
     configurable: true,
     value: {
       localStorage,
+      location: { search },
       addEventListener: (type: string, listener: (event: { key: string | null }) => void) => {
         if (type === "storage") listeners.add(listener);
       },
@@ -337,6 +338,21 @@ describe("createKeys", () => {
     expect(comboText(keys.get().panel)).toBe("alt+k");
     keys.destroy();
     expect(listening()).toBe(0);
+  });
+
+  test("in fresh mode, a key set here holds through what another tab keeps", () => {
+    const { local, fire } = stubWindow("?devknobs=fresh");
+    const keys = createKeys();
+    let heard = 0;
+    keys.subscribe(() => heard++);
+    keys.set("panel", combo("shift+j"));
+    local.set(KEYS_KEY, JSON.stringify({ panel: "alt+k" }));
+    fire(KEYS_KEY);
+    fire(null);
+    expect(comboText(keys.get().panel)).toBe("shift+j");
+    expect(keys.custom("panel")).toBe(true);
+    expect(heard).toBe(1);
+    keys.destroy();
   });
 
   test("works without storage, the keys just do not stick", () => {

@@ -1,3 +1,4 @@
+import { fresh, webStorage } from "../engine/fresh";
 import { newer, stamped } from "../engine/stored";
 import {
   type Binding,
@@ -212,17 +213,9 @@ export function resolveKeys(base: Keys, stored: StoredKeys, grab = true): Keys {
   return keys;
 }
 
-function local(): Storage | null {
-  try {
-    return typeof window === "undefined" ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 function loadKeys(): StoredKeys {
   try {
-    return readKeys(local()?.getItem(KEYS_KEY));
+    return readKeys(webStorage("local")?.getItem(KEYS_KEY));
   } catch {
     return {};
   }
@@ -230,8 +223,8 @@ function loadKeys(): StoredKeys {
 
 function keepKeys(keys: StoredKeys): void {
   try {
-    if (Object.keys(keys).length === 0) local()?.removeItem(KEYS_KEY);
-    else local()?.setItem(KEYS_KEY, JSON.stringify(stamped(keys, KEYS_VERSION)));
+    if (Object.keys(keys).length === 0) webStorage("local")?.removeItem(KEYS_KEY);
+    else webStorage("local")?.setItem(KEYS_KEY, JSON.stringify(stamped(keys, KEYS_VERSION)));
   } catch {
     // Private mode, disabled storage: the key holds until the page goes.
   }
@@ -272,6 +265,8 @@ export function createKeys(
 
   function onStorage(event: StorageEvent): void {
     if (event.key !== KEYS_KEY && event.key !== null) return;
+    // In fresh mode nothing kept is read: a key set here holds, whatever another tab keeps.
+    if (fresh()) return;
     stored = loadKeys();
     changed();
   }

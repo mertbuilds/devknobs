@@ -5,6 +5,7 @@ import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
 import { deviceOf, formId, formOf, hasTouch } from "./devices";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
+import { carried, fresh, FRESH_ATTRIBUTE, loads, ownReload } from "./fresh";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
@@ -670,13 +671,22 @@ function layout(): void {
   else resize();
 }
 
+/**
+ * Send the window to where the frame went. Only a move that loads a page is
+ * marked as devknobs' own: one inside the document has no load to read the mark.
+ */
+function leave(target: string): void {
+  if (loads(target, window.location.href)) ownReload();
+  window.location.assign(target);
+}
+
 /** A device change hands the window its own page back, or leaves for where the frame went. */
 function handBack(): void {
   const target = release(true);
   if (target && target !== window.location.href) {
     halt();
     teardown();
-    window.location.assign(target);
+    leave(target);
     return;
   }
   // Under the veil, which then lifts off it.
@@ -773,6 +783,8 @@ function open(veiled: number | null, first: boolean): void {
   glass.className = "glass";
   frame = document.createElement("iframe");
   frame.setAttribute(FRAME_ATTRIBUTE, "");
+  // The page in the frame follows this one's mode, whatever its own address says.
+  if (fresh()) frame.setAttribute(FRESH_ATTRIBUTE, "");
   frame.name = FRAME_NAME;
   frame.title = "devknobs viewport";
   frame.setAttribute("sandbox", SANDBOX);
@@ -848,7 +860,7 @@ function release(follow: boolean): string {
   // The window went back to another entry meanwhile. It stays there, and the
   // frame is not followed.
   const moved = address.moved();
-  const target = follow && !moved ? locate() : "";
+  const target = follow && !moved ? carried(locate()) : "";
   window.removeEventListener("message", onMessage);
   window.removeEventListener("resize", resize);
   window.removeEventListener("pagehide", keep);
@@ -920,7 +932,7 @@ function close(follow: boolean): void {
   const target = release(follow);
   teardown();
   // Hidden, the page had no height to keep its scroll position in.
-  if (target && target !== window.location.href) window.location.assign(target);
+  if (target && target !== window.location.href) leave(target);
   else window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
 }
 
