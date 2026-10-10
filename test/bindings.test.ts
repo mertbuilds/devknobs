@@ -172,7 +172,7 @@ describe("isReserved", () => {
 describe("comboProblem", () => {
   test("puts the default keys back without a problem", () => {
     const keys = defaultKeys();
-    for (const binding of ["panel", "grab", "replay", "reset"] as const) {
+    for (const binding of ["panel", "grab", "replay", "requests", "reset"] as const) {
       expect(comboProblem(keys[binding], binding, keys)).toBeNull();
     }
   });

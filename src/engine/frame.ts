@@ -15,12 +15,20 @@ export const FRAME_NAME = "devknobs-frame";
 export type ZoomAction = "zoom-in" | "zoom-out" | "zoom-fit";
 
 /** What a key pressed inside the frame asks of the panel above it. */
-export type KeyAction = "toggle" | "close" | "replay" | "reset" | "search" | ZoomAction;
+export type KeyAction =
+  | "toggle"
+  | "close"
+  | "replay"
+  | "requests"
+  | "reset"
+  | "search"
+  | ZoomAction;
 
 const KEY_ACTIONS: readonly KeyAction[] = [
   "toggle",
   "close",
   "replay",
+  "requests",
   "reset",
   "search",
   "zoom-in",

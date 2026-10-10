@@ -26,7 +26,7 @@ export interface Combo {
 }
 
 /** The shortcuts the panel can be told to use, and by whom. */
-export type Binding = "panel" | "grab" | "replay" | "reset";
+export type Binding = "panel" | "grab" | "replay" | "requests" | "reset";
 
 /** Each binding's key. */
 export type Keys = Record<Binding, Combo>;
@@ -114,12 +114,13 @@ export function comboSpoken(combo: Combo): string {
   return comboText(combo).replaceAll("+", " ");
 }
 
-/** The panel's keys with none set: shift and the hotkey, shift g, shift r and shift backspace. */
+/** The panel's keys with none set: shift and the hotkey, shift g, shift r, shift n and shift backspace. */
 export function defaultKeys(options: { hotkey?: string; grabKey?: string } = {}): Keys {
   return {
     panel: withShift(hotkeyOf(options.hotkey)),
     grab: parseCombo(options.grabKey) ?? withShift("g"),
     replay: withShift(REPLAY_KEY),
+    requests: withShift(REQUESTS_KEY),
     reset: withShift("backspace"),
   };
 }
@@ -245,19 +246,24 @@ function actsHere(event: KeyLike, combo: Combo): boolean {
 /** The letter that with shift replays the page's animations. */
 export const REPLAY_KEY = "r";
 
+/** The letter that with shift shows the requests log, and hides it. */
+export const REQUESTS_KEY = "n";
+
 /**
  * What a keydown asks of the panel, if anything: escape closes, and the
- * panel's, replay's and reset's keys do theirs, the panel's winning where
- * they are the same. In a field, `actsHere` says whether the key is its.
+ * panel's, replay's, requests' and reset's keys do theirs, the panel's
+ * winning where they are the same. In a field, `actsHere` says whether the
+ * key is its.
  */
 export function keyAction(
   event: KeyLike,
-  keys: Pick<Keys, "panel" | "replay" | "reset">,
+  keys: Pick<Keys, "panel" | "replay" | "requests" | "reset">,
 ): KeyAction | null {
   if (event.key === "Escape") return "close";
   const steps = [
     ["toggle", keys.panel],
     ["replay", keys.replay],
+    ["requests", keys.requests],
     ["reset", keys.reset],
   ] as const;
   for (const [action, combo] of steps) {

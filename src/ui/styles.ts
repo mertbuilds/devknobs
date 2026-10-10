@@ -45,6 +45,7 @@ export const CSS = `
   --raised: #ffffff;
   --lift: 0 1px 2px rgb(0 0 0 / 0.1);
   --hot: #e5484d;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --edge: 0px;
   --edge-line: transparent;
   --glide: 220ms;
@@ -898,6 +899,104 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* The requests view, in the side pane. A bar on one line stays over the list
+   while it scrolls: a filter, the chips that pick whose requests show, and
+   how many do. Under it a row a request, as tall as the panel's rows and 8
+   round as they are, the pane being 13 with 1 of border and 4 of padding.
+   Only the name gives way: the method, the status and the time each keep
+   their width, so the columns line up down the list, and nothing wraps. */
+.req-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 4px;
+  background: var(--bg);
+}
+.req-filter { flex: 1; min-width: 0; }
+.req-chips { flex: none; display: flex; gap: 2px; }
+.req-count {
+  flex: none;
+  min-width: 20px;
+  padding: 0 6px 0 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--faint);
+}
+.req-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.req-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background-color 120ms ease-out;
+}
+.req-row:hover { background: var(--card); }
+.req-method { flex: none; width: 36px; overflow: hidden; font-size: 10.5px; color: var(--faint); }
+.req-name { flex: 1; min-width: 0; display: flex; font-family: var(--mono); font-size: 11px; }
+.req-path { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.req-query { flex: none; color: var(--faint); }
+.req-status { flex: none; width: 44px; font-variant-numeric: tabular-nums; text-align: right; }
+.req-status.hot { color: var(--hot); }
+.req-time {
+  flex: none;
+  width: 40px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--faint);
+}
+/* What the page loads on its own, of which the browser tells less, is a step quieter. */
+.req-row.light { color: var(--faint); }
+/* The device frame's rows carry a line on their edge, only while the page's own are listed too. */
+.req-list.mixed .req-row.framed { box-shadow: inset 2px 0 0 var(--line); }
+
+/* One request in full: the way back, then its sections, each a row that
+   folds as the panel's rows do, with no grip column to keep. What a section
+   holds sits 4 in from the row's edges, so 4 round. Addresses, headers and
+   bodies are in mono, wrap anywhere and can be selected. */
+.req-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.req-detail .main { width: 100%; padding-left: 8px; }
+.req-detail > .note { padding: 4px 8px; }
+.req-inner {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 2px 4px 6px;
+}
+.req-kv {
+  display: grid;
+  grid-template-columns: fit-content(45%) minmax(0, 1fr);
+  gap: 2px 8px;
+  padding: 0 4px;
+}
+.req-k { overflow-wrap: anywhere; color: var(--faint); }
+.req-headers .req-k { font-family: var(--mono); font-size: 11px; }
+.req-v, .req-pre {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.req-pre {
+  max-height: 240px;
+  margin: 0;
+  padding: 4px 6px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--bg);
+  border-radius: 4px;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;

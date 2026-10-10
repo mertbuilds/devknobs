@@ -124,6 +124,12 @@ export const ICONS = {
     p("m5.082 11.09 8.828 8.828"),
   ],
   "rotate-ccw": [p("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"), p("M3 3v5h5")],
+  "arrow-up-down": [p("m21 16-4 4-4-4"), p("M17 20V4"), p("m3 8 4-4 4 4"), p("M7 4v16")],
+  ban: [c("12", "12", "10"), p("M4.929 4.929 19.07 19.071")],
+  copy: [
+    ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" }],
+    p("M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"),
+  ],
   check: [p("M20 6 9 17l-5-5")],
   "chevron-left": [p("m15 18-6-6 6-6")],
   "chevrons-left-right": [p("m9 7-5 5 5 5"), p("m15 7 5 5-5 5")],
@@ -161,6 +167,7 @@ export const ROW_ICONS: Record<RowId, IconName> = {
 export const ACTION_ICONS: Record<Action["id"], IconName> = {
   grab: "square-dashed-mouse-pointer",
   replay: "rotate-ccw",
+  requests: "arrow-up-down",
 };
 
 /** The icon each shortcut shows in the settings, an action's own where it has one. */
@@ -168,6 +175,7 @@ export const BINDING_ICONS: Record<Binding, IconName> = {
   panel: "panel-right-open",
   grab: ACTION_ICONS.grab,
   replay: ACTION_ICONS.replay,
+  requests: ACTION_ICONS.requests,
   reset: "eraser",
 };
 

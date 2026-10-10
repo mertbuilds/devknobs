@@ -22,13 +22,14 @@ export const KEYS_KEY = "devknobs:keys";
 export const KEYS_VERSION = 1;
 
 /** The bindings in the order the panel lists them. */
-export const BINDINGS: readonly Binding[] = ["panel", "grab", "replay", "reset"];
+export const BINDINGS: readonly Binding[] = ["panel", "grab", "replay", "requests", "reset"];
 
 /** What each binding does, in the words the footer uses. */
 export const BINDING_WORDS: Record<Binding, string> = {
   panel: "panel",
   grab: "grab",
   replay: "replay animations",
+  requests: "requests",
   reset: "reset",
 };
 
