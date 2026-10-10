@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { type Mark, MARK_EVENT, readMark } from "../src/engine/touchmark";
 import { apply, pause, reset } from "../src/engine/touchpointer";
 
 type Listener = (event: FakeEvent) => void;
@@ -567,6 +568,97 @@ describe("touch pointer in a page", () => {
     expect(heard).toEqual(["touchstart", "pointerdown:touch"]);
     release(target);
     await task();
+  });
+});
+
+/**
+ * Put the page in a frame whose element hears the cursor's marks. With
+ * `takes`, the page above draws the cursor, as it does under a device.
+ */
+function frameOwner(takes: boolean): { marks: Mark[]; takes: boolean } {
+  const marks: Mark[] = [];
+  const owner = {
+    marks,
+    takes,
+    dispatchEvent(event: Event): boolean {
+      if (event.type !== MARK_EVENT) return true;
+      const mark = readMark("detail" in event ? event.detail : null);
+      if (mark) marks.push(mark);
+      if (owner.takes) event.preventDefault();
+      return !event.defaultPrevented;
+    },
+  };
+  Object.assign(win, { frameElement: owner });
+  return owner;
+}
+
+describe("touch pointer in a frame", () => {
+  test("hands its cursor to the page above, and draws none of its own", () => {
+    const owner = frameOwner(true);
+    apply(true);
+    expect(sheets()).toEqual(["touch-pointer"]);
+    expect(dotHost()).toBeUndefined();
+    expect(owner.marks).toEqual([{ at: null, pressed: false, held: false }]);
+    const target = element();
+    move(target, 20, 30, 0);
+    expect(owner.marks.at(-1)).toEqual({ at: { x: 20, y: 30 }, pressed: false, held: false });
+    press(target, 20, 30);
+    expect(owner.marks.at(-1)).toEqual({ at: { x: 20, y: 30 }, pressed: true, held: false });
+    release(target, 20, 30);
+    expect(owner.marks.at(-1)).toEqual({ at: { x: 20, y: 30 }, pressed: false, held: false });
+    fire(target, "pointerout", { relatedTarget: null });
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: false });
+    expect(dotHost()).toBeUndefined();
+    apply(false);
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: true });
+  });
+
+  test("draws its own cursor where the page above leaves the mark", () => {
+    const owner = frameOwner(false);
+    apply(true);
+    expect(owner.marks.length).toBe(1);
+    expect(dotHost()).toBeDefined();
+    move(element(), 20, 30, 0);
+    expect(dotHost()).toBeDefined();
+  });
+
+  test("draws its own cursor where the page above is out of reach", () => {
+    Object.defineProperty(win, "frameElement", {
+      configurable: true,
+      get() {
+        throw new Error("another origin");
+      },
+    });
+    apply(true);
+    expect(dotHost()).toBeDefined();
+  });
+
+  test("gives its own cursor up once the page above takes the mark", () => {
+    const owner = frameOwner(false);
+    apply(true);
+    expect(dotHost()).toBeDefined();
+    owner.takes = true;
+    move(element(), 20, 30, 0);
+    expect(dotHost()).toBeUndefined();
+    owner.takes = false;
+    move(element(), 22, 30, 0);
+    expect(dotHost()).toBeDefined();
+  });
+
+  test("pause tells the page above the mouse is a mouse, and says nothing more until it ends", () => {
+    const owner = frameOwner(true);
+    apply(true);
+    const target = element();
+    move(target, 20, 30, 0);
+    pause(true);
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: true });
+    const told = owner.marks.length;
+    move(target, 25, 30, 0);
+    win.dispatchEvent(new FakeEvent("blur"));
+    expect(owner.marks.length).toBe(told);
+    pause(false);
+    expect(owner.marks.at(-1)).toEqual({ at: null, pressed: false, held: false });
+    expect(dotHost()).toBeUndefined();
   });
 });
 

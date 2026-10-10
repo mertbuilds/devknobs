@@ -18,8 +18,9 @@ import { buildSafari, SAFARI_CSS } from "./safaridraw";
 
 /**
  * The browser's bars drawn in the screen around the frame, in the viewport's
- * shadow root. They live in the page above, so they keep its cursor and never
- * take the focus, and only back, forward and reload do anything.
+ * shadow root. They live in the page above, so they keep its cursor, or the
+ * touch cursor drawn over them there, and never take the focus, and only
+ * back, forward and reload do anything.
  */
 
 type Builder = (full: Bars, mini: Bars, look: Look, actions: Actions) => Painted;
@@ -165,6 +166,8 @@ export interface BrowserLayer {
   refresh(): void;
   /** Has the page's scroll minimized the bars? */
   minimized(): boolean;
+  /** Where the frame's page sits in the screen now, or null where it fills it. */
+  page(): Rect | null;
   /**
    * Blank the screen in the page's color and show the page loading, as
    * Safari shows a reload, until the frame's page can paint. While it loads
@@ -438,6 +441,7 @@ export function createBrowser(
       later = window.setTimeout(again, RESTYLE);
     },
     minimized: () => motion.minimized,
+    page: () => applied,
     startLoading,
     stopLoading,
     look: () => look,
