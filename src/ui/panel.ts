@@ -3,6 +3,7 @@ import { now, realNow } from "../engine/clock";
 import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { isMac } from "../engine/ua";
+import { setDockWidth } from "../engine/dock";
 import { coverBeside, frameWindow, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
 import type { DevknobsState } from "../types";
@@ -24,6 +25,7 @@ import {
 import { isReset } from "./list";
 import { createPalette } from "./palette";
 import { createPane } from "./pane";
+import { pinTip, togglePin } from "./pin";
 import { createPrefs } from "./prefs";
 import { createRows } from "./rows";
 import { createSettings } from "./settings";
@@ -62,10 +64,17 @@ export interface Panel {
  */
 export const HOST_STYLE = "position:fixed;top:0;z-index:2147483646;pointer-events:none";
 
+/** What the handle says it does: as the tab of a floating panel, or as the edge of a pinned one. */
+export const HANDLE_TITLE = "drag to move · shift-drag moves the handle";
+export const EDGE_TITLE = "click to close · drag across to move to the other side";
+
 /**
  * Build the panel, put it on the page and keep it in step with the engine. The
  * host carries an open shadow root, so the page cannot style the panel and the
  * panel cannot style the page.
+ *
+ * The pin in the footer docks the panel to its side as a column the window's
+ * height, and the engine puts the page in a frame beside it.
  *
  * The panel lists the knobs that are off their default or were set from it,
  * one row each, in the order they were added or dragged to, and a row opens
@@ -92,7 +101,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const wrap = el("div", "wrap");
   const handle = button("handle", "knobs");
-  handle.title = "drag to move · shift-drag moves the handle";
+  handle.title = HANDLE_TITLE;
   const panel = el("div", "panel");
 
   // A label, so a click anywhere around the field lands in it.
@@ -134,12 +143,19 @@ export function createPanel(options: PanelOptions = {}): Panel {
   home.append(rows, empty, add, head, results);
 
   const footer = createFooter(keys, grab, mac);
-  const { foot, badge, hints, keysToggle } = footer;
+  const { foot, badge, hints, keysToggle, pin } = footer;
   // The tooltip the icon-only controls share. Their aria-label already says
   // the same, so assistive tech is not told twice.
   const tip = el("div", "tip");
   tip.setAttribute("aria-hidden", "true");
   const tips = createTips(tip, wrap);
+  pin.addEventListener("click", togglePin);
+  tips.tooltip(pin, () =>
+    pinTip(
+      engine.getState().panel.docked,
+      document.documentElement.clientWidth || window.innerWidth,
+    ),
+  );
 
   const settings = createSettings({
     keys,
@@ -216,6 +232,9 @@ export function createPanel(options: PanelOptions = {}): Panel {
     panel.toggleAttribute("inert", !open);
     side.render(open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
+    // Pinned and open, the handle is the column's edge.
+    handle.title = open && state.panel.docked ? EDGE_TITLE : HANDLE_TITLE;
+    footer.drawPin(state.panel.docked);
     const live = liveOf(state);
     const anyShown = knobRows.renderRows(state, live);
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
@@ -450,8 +469,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
   window.addEventListener("resize", onResize);
   window.addEventListener("blur", onBlur);
   // The panel also grows and shrinks between renders, as a list filters or a
-  // text box is resized, and lays itself out again each time.
-  const resizes = new ResizeObserver(() => layout());
+  // text box is resized, and lays itself out again each time. Its width goes
+  // to the frame, which gives a pinned panel's column that much room.
+  const resizes = new ResizeObserver(() => {
+    setDockWidth(panel.getBoundingClientRect().width);
+    layout();
+  });
   resizes.observe(panel);
 
   function attach(): void {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SCREENS, turn } from "../src/engine/devices";
+import { DOCK_WIDTH, setDockWidth } from "../src/engine/dock";
 import { FOLD_TIME } from "../src/engine/fold";
 import { UNFRAMED } from "../src/engine/frame";
 import { FRESH_ATTRIBUTE, FRESH_RELOAD_KEY } from "../src/engine/fresh";
@@ -12,6 +13,7 @@ import { type Mark, MARK_EVENT } from "../src/engine/touchmark";
 import {
   apply,
   coverBeside,
+  DOCK_SETTLE,
   fit,
   label,
   onZoom,
@@ -505,7 +507,7 @@ const KNOBS = {
   edgeToEdge: true,
   zoom: "fit",
   mat: "blue",
-  panel: { open: false, side: "right" },
+  panel: { open: false, side: "right", docked: false },
 } as const;
 const VIEWPORT = { ...KNOBS, width: 390 } as const;
 const NATIVE_SHOW_MODAL = FakeDialog.prototype.showModal;
@@ -1994,7 +1996,7 @@ describe("the panel's side pane", () => {
     Reflect.set(document, "querySelector", (selector: string) =>
       selector === '[data-devknobs="panel"]' ? { offsetWidth: PANEL } : null,
     );
-    const knobs = { ...KNOBS, width: 1500, panel: { open: true, side: "right" } } as const;
+    const knobs = { ...KNOBS, width: 1500, panel: { open: true, side: "right", docked: false } } as const;
     const beside = (aside: number) => {
       const scale = fit(knobs, box, { aside }).transform;
       return scale === 1 ? "" : `scale(${scale})`;
@@ -2006,7 +2008,7 @@ describe("the panel's side pane", () => {
       expect(drawnScale()).toBe(beside(PANEL + 339));
       expect(beside(PANEL + 339)).not.toBe(beside(PANEL));
       // A closed panel covers nothing, whatever its pane would.
-      apply({ ...knobs, panel: { open: false, side: "right" } });
+      apply({ ...knobs, panel: { open: false, side: "right", docked: false } });
       expect(drawnScale()).toBe(beside(0));
       apply(knobs);
       expect(drawnScale()).toBe(beside(PANEL + 339));
@@ -2017,5 +2019,478 @@ describe("the panel's side pane", () => {
       Reflect.set(document, "createElement", create);
       Reflect.set(document, "querySelector", find);
     }
+  });
+});
+
+describe("a panel pinned to its side", () => {
+  /** The window, which the letterbox is as big as, and every other box in it for these fakes. */
+  let view: { width: number; height: number };
+  /** What the frame listens for on the window. */
+  let heard: Map<string, Set<() => void>>;
+  /** The waits the frame set and has not dropped, by the time they take. */
+  let waits: { run: () => void; ms: number; id: number }[];
+  let nextWait = 1;
+  const realClearTimeout = globalThis.clearTimeout;
+
+  const PINNED = { open: true, side: "right", docked: true } as const;
+  const PLAIN = { ...KNOBS, panel: PINNED } as const;
+  const named = (name: string): FakeElement => {
+    const found = everything().find((element) => Reflect.get(element, "className") === name);
+    if (!found) throw new Error(`no ${name}`);
+    return found;
+  };
+  const styleOf = (element: FakeElement, name: string) => Reflect.get(element.style, name);
+  /** The px the stage keeps clear of each side of the window. */
+  const room = () => [
+    styleOf(named("viewport"), "paddingLeft"),
+    styleOf(named("viewport"), "paddingRight"),
+  ];
+  const frameWidth = () => styleOf(frameElement(), "width");
+  const fire = (type: string) => {
+    for (const listener of [...(heard.get(type) ?? [])]) listener();
+  };
+  /** The window takes a new width, and says so. */
+  const resizeTo = (width: number) => {
+    view.width = width;
+    for (const element of everything()) element.clientWidth = width;
+    fire("resize");
+  };
+  /** Let the frame animate, so nothing in it is instant. */
+  const letMove = () => {
+    define("Element", FakeElement);
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+  };
+
+  beforeEach(() => {
+    view = { width: 1600, height: 900 };
+    heard = new Map();
+    waits = [];
+    Reflect.set(document, "createElement", (tag: string) => {
+      const element = new FakeElement(tag.toUpperCase());
+      Object.assign(element, { clientWidth: view.width, clientHeight: view.height });
+      return element;
+    });
+    const find = document.querySelector;
+    Reflect.set(document, "querySelector", (selector: string) =>
+      selector === '[data-devknobs="panel"]' ? { offsetWidth: PANEL } : find(selector),
+    );
+    Reflect.set(window, "addEventListener", (type: string, listener: () => void) => {
+      const set = heard.get(type) ?? new Set();
+      set.add(listener);
+      heard.set(type, set);
+    });
+    Reflect.set(window, "removeEventListener", (type: string, listener: () => void) => {
+      heard.get(type)?.delete(listener);
+    });
+    Reflect.set(window, "setTimeout", (run: () => void, ms: number) => {
+      const wait = { run, ms, id: nextWait++ };
+      waits.push(wait);
+      return wait.id;
+    });
+    define("clearTimeout", (id: number) => {
+      waits = waits.filter((wait) => wait.id !== id);
+    });
+  });
+
+  afterEach(() => {
+    coverBeside(0);
+    setDockWidth(DOCK_WIDTH);
+    define("clearTimeout", realClearTimeout);
+  });
+
+  describe("with no device and no width", () => {
+    test("frames the page in the window less the panel's column, edge to edge", () => {
+      apply(PLAIN);
+      expect(frameElement().getAttribute("sandbox")).toContain("allow-same-origin");
+      expect(Reflect.get(frameElement(), "src")).toBe(PAGE);
+      expect(room()).toEqual(["", "240px"]);
+      expect(frameWidth()).toBe("1360px");
+      expect(styleOf(frameElement(), "height")).toBe("900px");
+    });
+
+    test("keeps clear of a panel on the left on that side", () => {
+      apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["240px", ""]);
+      expect(frameWidth()).toBe("1360px");
+    });
+
+    test("draws no readout, no body, no bars, no scale and no zoom around it", () => {
+      apply(PLAIN);
+      expect(Reflect.get(named("size"), "hidden")).toBe(true);
+      expect(Reflect.get(named("glass"), "className")).toBe("glass");
+      expect(Reflect.get(named("page"), "className")).toBe("page");
+      expect(styleOf(named("screen"), "transform")).toBe("");
+      expect(styleOf(named("screen"), "left")).toBe("0px");
+      expect(styleOf(named("screen"), "top")).toBe("0px");
+      expect(styleOf(frameElement(), "zoom")).toBe("");
+      expect(styleOf(named("drawing"), "width")).toBe("1360px");
+      expect(styleOf(named("drawing"), "height")).toBe("900px");
+      expect(everything().some((element) => element.tagName === "svg" && element.parent === named("screen"))).toBe(false);
+    });
+
+    test("is never zoomed: a stored zoom waits for a knob's frame, and the keys zoom the browser", () => {
+      const zooms: ZoomValue[] = [];
+      onZoom((zoom) => zooms.push(zoom));
+      apply({ ...PLAIN, zoom: 0.5 });
+      expect(frameWidth()).toBe("1360px");
+      expect(styleOf(named("screen"), "transform")).toBe("");
+      expect(Reflect.get(named("size"), "hidden")).toBe(true);
+      expect(zoomKey("zoom-in")).toBe(false);
+      expect(zoomKey("zoom-fit")).toBe(false);
+      expect(zooms).toEqual([]);
+      // A width brings the knob's frame, zoom and all.
+      apply({ ...PLAIN, width: 390, zoom: 0.5 });
+      expect(styleOf(named("screen"), "transform")).toBe("scale(0.5)");
+      expect(zoomKey("zoom-in")).toBe(true);
+    });
+
+    test("hides the window's own page under it, as any frame does", () => {
+      const own = new FakeElement();
+      body.append(own);
+      apply(PLAIN);
+      expect(own.hasAttribute("inert")).toBe(true);
+      expect(own.style.getPropertyValue("content-visibility")).toBe("hidden");
+      expect(widthStyle()?.textContent).toContain("html{overflow:hidden!important}");
+    });
+
+    test("follows the window's size with the same frame, and never loads it again", async () => {
+      apply(PLAIN);
+      const frame = frameElement();
+      await load(FRAMED);
+      resizeTo(1200);
+      expect(frameWidth()).toBe("960px");
+      expect(room()).toEqual(["", "240px"]);
+      resizeTo(1900);
+      expect(frameWidth()).toBe("1660px");
+      expect(frameElement()).toBe(frame);
+      expect(Reflect.get(frame, "src")).toBe(PAGE);
+      expect(reloads).toBe(0);
+      expect(assigned).toEqual([]);
+    });
+
+    test("mirrors the frame's address in the window's, as a width's frame does", async () => {
+      apply(PLAIN);
+      await load(FRAMED);
+      expect(location.href).toBe(FRAMED);
+    });
+
+    test("follows the panel's width, wider and narrower, with the same frame and no load", async () => {
+      apply(PLAIN);
+      const frame = frameElement();
+      await load(FRAMED);
+      setDockWidth(340);
+      expect(room()).toEqual(["", "340px"]);
+      expect(frameWidth()).toBe("1260px");
+      setDockWidth(412.5);
+      expect(room()).toEqual(["", "412.5px"]);
+      expect(frameWidth()).toBe("1187.5px");
+      setDockWidth(240);
+      expect(room()).toEqual(["", "240px"]);
+      expect(frameWidth()).toBe("1360px");
+      expect(frameElement()).toBe(frame);
+      expect(Reflect.get(frame, "src")).toBe(PAGE);
+      expect(reloads).toBe(0);
+      expect(assigned).toEqual([]);
+    });
+
+    test("comes up beside a panel that is wider already", () => {
+      setDockWidth(340);
+      apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["340px", ""]);
+      expect(frameWidth()).toBe("1260px");
+    });
+
+    test("is one column only: a side pane beside the panel takes no room from the page", () => {
+      apply(PLAIN);
+      coverBeside(339);
+      expect(room()).toEqual(["", "240px"]);
+      expect(frameWidth()).toBe("1360px");
+    });
+
+    test("hears nothing of the panel's width while it floats, or once the frame is gone", () => {
+      apply({ ...KNOBS, width: 390, panel: { open: true, side: "right", docked: false } });
+      setDockWidth(340);
+      expect(room()).toEqual(["", ""]);
+      reset();
+      expect(() => setDockWidth(300)).not.toThrow();
+    });
+
+    test("gives the page the whole window back while the panel is closed, with no reload", async () => {
+      apply(PLAIN);
+      const frame = frameElement();
+      await load(FRAMED);
+      apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+      expect(room()).toEqual(["", ""]);
+      expect(frameWidth()).toBe("1600px");
+      // Closed, a new width of the panel still takes nothing.
+      setDockWidth(340);
+      expect(room()).toEqual(["", ""]);
+      apply(PLAIN);
+      expect(room()).toEqual(["", "340px"]);
+      expect(frameWidth()).toBe("1260px");
+      expect(frameElement()).toBe(frame);
+      expect(Reflect.get(frame, "src")).toBe(PAGE);
+      expect(reloads).toBe(0);
+      expect(assigned).toEqual([]);
+      expect(scrolls).toEqual([]);
+    });
+
+    test("moves to the other side with the column, the same frame", () => {
+      apply(PLAIN);
+      const frame = frameElement();
+      apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["240px", ""]);
+      expect(frameWidth()).toBe("1360px");
+      expect(frameElement()).toBe(frame);
+    });
+
+    test("leaves the panel over the page in a window too narrow to squeeze it further", () => {
+      apply(PLAIN);
+      // 560 leaves the page its least, 320, beside the panel.
+      resizeTo(560);
+      expect(room()).toEqual(["", "240px"]);
+      expect(frameWidth()).toBe("320px");
+      resizeTo(559);
+      expect(room()).toEqual(["", ""]);
+      expect(frameWidth()).toBe("559px");
+      // A wider panel goes over the page sooner, and back beside it once it is narrower.
+      resizeTo(640);
+      expect(frameWidth()).toBe("400px");
+      setDockWidth(340);
+      expect(room()).toEqual(["", ""]);
+      expect(frameWidth()).toBe("640px");
+      setDockWidth(300);
+      expect(room()).toEqual(["", "300px"]);
+      expect(frameWidth()).toBe("340px");
+    });
+
+    test("lets go of the frame when the panel is let go, as the width knob back at full does", async () => {
+      apply(PLAIN);
+      await load(PAGE);
+      apply(KNOBS);
+      expect(everything().some((element) => element.tagName === "IFRAME")).toBe(false);
+      expect(assigned).toEqual([]);
+      expect(scrolls).toEqual([{ left: 0, top: SCROLL_Y, behavior: "instant" }]);
+      expect(widthStyle()).toBeUndefined();
+    });
+
+    test("sends the window after the frame when it was let go on another page", async () => {
+      apply(PLAIN);
+      await load(FRAMED);
+      expect(location.href).toBe(FRAMED);
+      apply(KNOBS);
+      expect(everything().some((element) => element.tagName === "IFRAME")).toBe(false);
+      expect(assigned).toEqual([FRAMED]);
+      expect(scrolls).toEqual([]);
+    });
+
+    test("stays on the entry the window went back to, when it is let go", async () => {
+      apply(PLAIN);
+      await load(FRAMED);
+      location.href = EARLIER;
+      apply(KNOBS);
+      expect(assigned).toEqual([]);
+      expect(location.href).toBe(EARLIER);
+    });
+
+    test("comes up at once on a reload, in its room, the page under it hidden", () => {
+      const own = new FakeElement();
+      body.append(own);
+      // The first knobs applied are a reload's.
+      apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["240px", ""]);
+      expect(frameWidth()).toBe("1360px");
+      expect(own.hasAttribute("inert")).toBe(true);
+      expect(waits.filter((wait) => wait.ms === DOCK_SETTLE)).toEqual([]);
+    });
+
+    test("keeps no drawing for the next page: it has none but the page", () => {
+      const kept = new Map<string, string>([[SNAPSHOT_KEY, "old"]]);
+      Reflect.set(window, "sessionStorage", {
+        getItem: (key: string) => kept.get(key) ?? null,
+        setItem: (key: string, value: string) => kept.set(key, value),
+        removeItem: (key: string) => kept.delete(key),
+      });
+      apply(PLAIN);
+      fire("pagehide");
+      expect(kept.has(SNAPSHOT_KEY)).toBe(false);
+    });
+
+    describe("where things move", () => {
+      const settle = () => {
+        const due = waits.filter((wait) => wait.ms === DOCK_SETTLE);
+        waits = waits.filter((wait) => wait.ms !== DOCK_SETTLE);
+        for (const wait of due) wait.run();
+        return due.length;
+      };
+
+      test("narrows the page once the column has slid in over it, and widens it at once", () => {
+        letMove();
+        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        expect(frameWidth()).toBe("1600px");
+        apply(PLAIN);
+        // The column is on its way: the page is as wide as it was.
+        expect(room()).toEqual(["", ""]);
+        expect(frameWidth()).toBe("1600px");
+        expect(settle()).toBe(1);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+        // Closing takes the room back under the column as it leaves.
+        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        expect(room()).toEqual(["", ""]);
+        expect(frameWidth()).toBe("1600px");
+        expect(settle()).toBe(0);
+      });
+
+      test("follows the panel's edge at once as it is dragged wider, with no wait", () => {
+        letMove();
+        apply(PLAIN);
+        for (const px of [260, 300, 340]) {
+          setDockWidth(px);
+          expect(room()).toEqual(["", `${px}px`]);
+          expect(frameWidth()).toBe(`${1600 - px}px`);
+        }
+        expect(settle()).toBe(0);
+        // A window that resizes while the column is still on its way waits on.
+        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        apply(PLAIN);
+        fire("resize");
+        expect(frameWidth()).toBe("1600px");
+        expect(settle()).toBe(1);
+        expect(frameWidth()).toBe("1260px");
+      });
+
+      test("drops the wait when the panel closes before the page narrowed", () => {
+        letMove();
+        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        apply(PLAIN);
+        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        apply(PLAIN);
+        expect(frameWidth()).toBe("1600px");
+        expect(settle()).toBe(1);
+        expect(frameWidth()).toBe("1360px");
+      });
+
+      test("changes size in place, with no glide to stretch the page", () => {
+        letMove();
+        const glided: unknown[] = [];
+        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        const screen = named("screen");
+        let at = 0;
+        // The screen is somewhere else each time it is measured, so a glide would have a way to go.
+        Reflect.set(screen, "getBoundingClientRect", () => ({ left: at++, top: 0, width: 800, height: 600 }));
+        Reflect.set(screen, "animate", (keyframes: unknown) => {
+          glided.push(keyframes);
+          return { finished: new Promise(() => {}), cancel: () => {} };
+        });
+        apply(PLAIN);
+        settle();
+        apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+        expect(glided).toEqual([]);
+        // To the other side it glides, as the column does.
+        apply({ ...PLAIN, panel: { ...PINNED, open: false, side: "left" } });
+        expect(glided).toHaveLength(1);
+      });
+    });
+  });
+
+  describe("with a frame up already", () => {
+    const WIDE = { ...KNOBS, width: 1500, panel: { open: true, side: "right", docked: false } } as const;
+    const scaleOf = (size: { width: number; height: number }, aside: number) => {
+      const scale = fit(WIDE, size, { aside }).transform;
+      return scale === 1 ? "" : `scale(${scale})`;
+    };
+    const drawn = () => String(styleOf(named("screen"), "transform"));
+
+    test("shrinks the stage to the window less the column, and fits the frame in it with no guess beside", () => {
+      apply(WIDE);
+      // Floating, the panel lies over the mat, and the frame is fitted beside it.
+      expect(room()).toEqual(["", ""]);
+      expect(drawn()).toBe(scaleOf(view, PANEL));
+      apply({ ...WIDE, panel: PINNED });
+      expect(room()).toEqual(["", "240px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1360, height: 900 }, 0));
+      expect(drawn()).not.toBe(scaleOf(view, PANEL));
+      expect(frameWidth()).toBe("1500px");
+    });
+
+    test("never loads the page again as the panel is pinned and let go", async () => {
+      apply(WIDE);
+      const frame = frameElement();
+      await load(FRAMED);
+      apply({ ...WIDE, panel: PINNED });
+      apply(WIDE);
+      apply({ ...WIDE, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["240px", ""]);
+      apply(WIDE);
+      expect(room()).toEqual(["", ""]);
+      expect(drawn()).toBe(scaleOf(view, PANEL));
+      expect(frameElement()).toBe(frame);
+      expect(Reflect.get(frame, "src")).toBe(PAGE);
+      expect(reloads).toBe(0);
+      expect(assigned).toEqual([]);
+      expect(scrolls).toEqual([]);
+    });
+
+    test("keeps the mat under the column, which only the stage gives way to", () => {
+      apply({ ...WIDE, panel: PINNED });
+      expect(named("viewport").getAttribute("data-mat")).toBe("blue");
+      expect(Reflect.get(named("size"), "hidden")).toBe(false);
+      // The host still covers the window: the room is the letterbox's padding.
+      const host = body.children.find((child) => child.getAttribute("data-devknobs") === "viewport");
+      expect(Reflect.get(host?.style ?? {}, "cssText")).toContain("inset:0");
+    });
+
+    test("gives a wider panel's column its room with no load, and a closed panel's back", () => {
+      apply({ ...WIDE, panel: PINNED });
+      const frame = frameElement();
+      setDockWidth(340);
+      expect(room()).toEqual(["", "340px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1260, height: 900 }, 0));
+      expect(frameElement()).toBe(frame);
+      apply({ ...WIDE, panel: { ...PINNED, open: false } });
+      expect(room()).toEqual(["", ""]);
+      expect(drawn()).toBe(scaleOf(view, 0));
+    });
+
+    test("glides the frame to its place in the stage, with no wait", () => {
+      letMove();
+      apply(WIDE);
+      const glided: unknown[] = [];
+      const screen = named("screen");
+      let at = 0;
+      // The screen is somewhere else each time it is measured, as a refit moves it.
+      Reflect.set(screen, "getBoundingClientRect", () => ({ left: at++ * 50, top: 0, width: 800, height: 600 }));
+      Reflect.set(screen, "animate", (keyframes: unknown) => {
+        glided.push(keyframes);
+        return { finished: new Promise(() => {}), cancel: () => {} };
+      });
+      apply({ ...WIDE, panel: PINNED });
+      expect(room()).toEqual(["", "240px"]);
+      expect(glided).toHaveLength(1);
+      expect(waits.filter((wait) => wait.ms === DOCK_SETTLE)).toEqual([]);
+    });
+
+    test("stays up at the knob's width when the panel is let go, and goes with the knob", async () => {
+      apply({ ...WIDE, panel: PINNED });
+      const frame = frameElement();
+      await load(PAGE);
+      apply(WIDE);
+      expect(frameElement()).toBe(frame);
+      apply({ ...KNOBS, panel: WIDE.panel });
+      expect(everything().some((element) => element.tagName === "IFRAME")).toBe(false);
+    });
+
+    test("becomes the plain frame when the knob goes and the panel stays pinned, the same frame", async () => {
+      apply({ ...WIDE, panel: PINNED });
+      const frame = frameElement();
+      await load(FRAMED);
+      apply(PLAIN);
+      expect(frameElement()).toBe(frame);
+      expect(frameWidth()).toBe("1360px");
+      expect(Reflect.get(named("size"), "hidden")).toBe(true);
+      expect(drawn()).toBe("");
+      expect(assigned).toEqual([]);
+    });
   });
 });

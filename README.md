@@ -184,6 +184,45 @@ the grab key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
 `Shift R` and `Shift Backspace` off a Mac. each one is a button too, so a click does what its key does. with
 the overflow knob on, the count of overflowing boxes sits above them.
 
+### pinning
+
+the pin button in the footer, before the gear, docks the panel to its side the
+way devtools dock: a column from the top of the window to the bottom, flush
+with the edge, with the rows using the whole height and the footer at the
+bottom. the pin panel action in the search does the same, and unpin, the same
+button or action, makes it the floating panel again, where it was.
+
+the page gets narrower, for real. it runs in a same-origin frame, the one the
+width knob uses, that fills the window less the panel, so the viewport itself
+ends where the panel starts: media queries, `100vw`, and `position: fixed` and
+`sticky` boxes all follow, which a margin on the page could not give. the
+window's address still follows the page, and reloads, grab and every knob work
+as they do in any frame. with no device and no width set, that frame is the
+page and nothing else: no mat, no readout, no zoom. with a device or a width
+set, the mat simply ends where the panel starts, and the device is fitted in
+what is left.
+
+pinning loads the page once more when no frame is up yet, like picking a
+width, and unpinning hands the window its own page back, at the address the
+frame was on. with a device or a width set already, pinning and unpinning only
+change the room, and nothing loads. closing a pinned panel (`⇧K`, or a click on
+its edge) gives the page the whole window back and keeps the frame, so opening
+and closing never load anything either. closed, the handle is where it always
+is.
+
+open, the pinned panel has no handle out on the page. its edge on the page's
+side is the handle: click it to close the panel, or drag or fling it across to
+move the column to the other side. it is one column, as wide as the panel is,
+and when the panel's width changes the page's frame follows it, with no load.
+
+the page never gets narrower than 320px. in a window too narrow to leave it
+that beside the panel (under 560px for a panel 240px wide), the panel lies
+over the page instead, and the pin's tooltip says so.
+
+the pin is kept with the panel's place, in `localStorage` under
+`devknobs:place`, so a new tab starts pinned too. reset all leaves it, as it
+leaves the side.
+
 ### settings
 
 the gear button at the end of the footer opens the settings, in place of the

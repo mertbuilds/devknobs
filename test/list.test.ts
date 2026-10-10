@@ -132,13 +132,30 @@ describe("pinned rows", () => {
 
   test("reset all clears every knob, lists the default rows again, and keeps the panel's place", () => {
     const busy = use(use(BARE, "scheme", { scheme: "dark" }), "text", { text: 17 });
-    const place = { side: "left", y: 120, top: 80, edge: "bottom", tab: "none" } as const;
+    const place = {
+      side: "left",
+      y: 120,
+      top: 80,
+      edge: "bottom",
+      tab: "none",
+      docked: false,
+    } as const;
     const moved = merge(busy, { panel: { open: true, ...place } });
     const reset = resetState(moved);
     expect(listed(reset)).toEqual(["scheme", "text", "locale", "device"]);
     expect(reset.scheme).toBe("system");
     expect(reset.panel).toEqual({ open: true, ...place, pinned: [...DEFAULT_PINNED] });
     expect(resetState(BARE).panel.pinned).toEqual([...DEFAULT_PINNED]);
+  });
+
+  test("reset all keeps the panel pinned to its side: the pin is place, like the side", () => {
+    const pinned = merge(use(BARE, "viewport", { width: 390 }), {
+      panel: { open: true, side: "left", docked: true },
+    });
+    const reset = resetState(pinned);
+    expect(reset.width).toBe("full");
+    expect(reset.panel).toMatchObject({ open: true, side: "left", docked: true });
+    expect(resetState(BARE).panel.docked).toBe(false);
   });
 
   test("reset all has nothing to do only at the defaults with the default rows listed", () => {

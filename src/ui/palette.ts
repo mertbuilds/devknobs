@@ -7,6 +7,7 @@ import { el, reveal } from "./dom";
 import { commit, set } from "./editors";
 import { ACTION_ICONS, icon, ROW_ICONS } from "./icons";
 import { highlightAt, paletteMove } from "./keys";
+import { actionLabel, togglePin } from "./pin";
 import type { Rows } from "./rows";
 import { type Result, resultText, search, searchActions } from "./search";
 import type { Slide } from "./slide";
@@ -101,12 +102,12 @@ export function createPalette(context: PaletteContext): Palette {
     return { node, pick };
   }
 
-  function actionEntry(id: number, action: Action): Entry {
+  function actionEntry(id: number, action: Action, state: DevknobsState): Entry {
     return entry(
       id,
       () => runAction(action.id),
       icon(ACTION_ICONS[action.id]),
-      el("span", "entry-knob", action.label),
+      el("span", "entry-knob", actionLabel(action, state.panel.docked)),
       el("span", "entry-value", action.long),
     );
   }
@@ -128,7 +129,7 @@ export function createPalette(context: PaletteContext): Palette {
         ...(current ? [check] : []),
       );
     });
-    return [...actions.map((action, index) => actionEntry(index, action)), ...found];
+    return [...actions.map((action, index) => actionEntry(index, action, state)), ...found];
   }
 
   function browseEntries(state: DevknobsState): { nodes: HTMLElement[]; list: Entry[] } {
@@ -136,7 +137,7 @@ export function createPalette(context: PaletteContext): Palette {
     const list: Entry[] = [];
     nodes.push(el("div", "group-label", "actions"));
     for (const action of actionsHere) {
-      const item = actionEntry(list.length, action);
+      const item = actionEntry(list.length, action, state);
       list.push(item);
       nodes.push(item.node);
     }
@@ -196,6 +197,11 @@ export function createPalette(context: PaletteContext): Palette {
   function runAction(id: Action["id"]): void {
     if (id === "replay") {
       engine.replay();
+      return;
+    }
+    if (id === "pin") {
+      leaveSearch();
+      togglePin();
       return;
     }
     grab?.set(true);

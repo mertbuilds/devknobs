@@ -4,11 +4,12 @@ import { BINDING_WORDS, type LiveKeys } from "./bindings";
 import { button, el } from "./dom";
 import { icon } from "./icons";
 import { comboLabel, type Keys } from "./keys";
+import { pinWord } from "./pin";
 
 /**
  * The panel's footer: the overflow badge, the fresh mode note, the keys the
- * panel answers to, each a control that does what its key does, and the way
- * into the settings.
+ * panel answers to, each a control that does what its key does, the pin that
+ * docks the panel to its side, and the way into the settings.
  */
 
 /** What the footer says while fresh mode is on, so a panel back at its defaults is no surprise. */
@@ -57,9 +58,13 @@ export interface Footer {
   foot: HTMLElement;
   badge: HTMLElement;
   hints: Map<Command, HTMLButtonElement>;
+  /** Pins the panel to its side, and lets it float again. */
+  pin: HTMLButtonElement;
   keysToggle: HTMLButtonElement;
   /** Show the keys in force on the hints. */
   drawKeys(now: Keys): void;
+  /** Show whether the panel is pinned: the pin pressed, and what it does next. */
+  drawPin(docked: boolean): void;
 }
 
 export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: boolean): Footer {
@@ -78,11 +83,23 @@ export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: bool
     hints.set(chip.command, node);
     hintKeys.set(chip.command, key);
   }
+  // Pins the panel to its side. It has no key, so it is its icon alone.
+  const pin = button("hint pin-toggle", "");
+  let pinShown: boolean | null = null;
   // Opens the settings, where the keys are set.
   const keysToggle = button("hint keys-toggle", "");
   keysToggle.append(icon("settings", 12));
   keysToggle.setAttribute("aria-label", "settings");
-  meta.append(keysToggle);
+  meta.append(pin, keysToggle);
+
+  function drawPin(docked: boolean): void {
+    if (docked === pinShown) return;
+    pinShown = docked;
+    pin.replaceChildren(icon(docked ? "pin-off" : "pin", 12));
+    pin.setAttribute("aria-label", pinWord(docked));
+    pin.setAttribute("aria-pressed", docked ? "true" : "false");
+  }
+  drawPin(false);
   foot.append(badge);
   if (fresh()) foot.append(el("span", "fresh-note", FRESH_NOTE));
   foot.append(meta);
@@ -91,7 +108,9 @@ export function createFooter(keys: LiveKeys, grab: GrabControl | null, mac: bool
     foot,
     badge,
     hints,
+    pin,
     keysToggle,
+    drawPin,
     drawKeys(now: Keys): void {
       for (const chip of keyChips(now, grab !== null, mac)) {
         const key = hintKeys.get(chip.command);

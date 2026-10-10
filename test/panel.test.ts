@@ -8,6 +8,8 @@ import { HOST_STYLE, wallInput } from "../src/ui/panel";
 import {
   type Anchor,
   cornerAt,
+  dockedHandle,
+  dragDocked,
   dragTarget,
   dragTo,
   FLING,
@@ -236,6 +238,83 @@ describe("a closed panel's drag", () => {
     expect(dragTo("handle", false, bottom - 10, from, ROOM)).toEqual(
       at(bottom, LAST, "bottom", "bottom"),
     );
+  });
+});
+
+describe("a pinned panel's handle", () => {
+  const room = { view: 800, handle: 64 };
+  const from: Place = { y: 300, top: 200, edge: "none", tab: "none" };
+
+  test("moves alone along the window's edge while the panel is closed", () => {
+    expect(dragDocked(420, from, room)).toEqual({ y: 420, top: 320, edge: "none", tab: "none" });
+  });
+
+  test("snaps flush with the window's top and bottom within SNAP, and stays inside", () => {
+    expect(dragDocked(PANEL_GAP + SNAP, from, room).y).toBe(PANEL_GAP);
+    expect(dragDocked(-500, from, room).y).toBe(PANEL_GAP);
+    const low = 800 - PANEL_GAP - 64;
+    expect(dragDocked(low - SNAP, from, room).y).toBe(low);
+    expect(dragDocked(5000, from, room).y).toBe(low);
+  });
+
+  test("carries the panel's own top along by as much, for when it floats again", () => {
+    const flush: Place = { y: 128, top: 128, edge: "none", tab: "top" };
+    expect(dragDocked(400, flush, room)).toEqual({ y: 400, top: 400, edge: "none", tab: "top" });
+    // The floating panel settles from there, inside the window.
+    const landed = dragDocked(5000, from, room);
+    const floated = settle(landed, { view: 800, panel: 300, handle: 64 }, "top");
+    expect(floated.top).toBe(800 - PANEL_GAP - 300);
+    expect(floated.y).toBeGreaterThanOrEqual(floated.top);
+    expect(floated.y).toBeLessThanOrEqual(floated.top + 300 - 64);
+  });
+
+  test("shows where it was put, kept inside a window that got shorter", () => {
+    expect(dockedHandle(300, room)).toBe(300);
+    expect(dockedHandle(900, room)).toBe(800 - PANEL_GAP - 64);
+    expect(dockedHandle(-20, room)).toBe(PANEL_GAP);
+    expect(dockedHandle(300, { view: 200, handle: 64 })).toBe(200 - PANEL_GAP - 64);
+  });
+});
+
+describe("the pinned panel's styles", () => {
+  const rule = (selector: string) => {
+    const at = CSS.indexOf(`${selector} {`);
+    if (at < 0) throw new Error(`no rule for ${selector}`);
+    return CSS.slice(at, CSS.indexOf("}", at));
+  };
+
+  test("make it a square column the window's height, with no cap on the rows", () => {
+    const panel = rule('.wrap[data-dock="true"] .panel');
+    expect(panel).toContain("height: 100dvh");
+    expect(panel).toContain("max-height: none");
+    expect(panel).toContain("border-radius: 0");
+    expect(panel).toContain("border-top-width: 0");
+    expect(panel).toContain("border-bottom-width: 0");
+    expect(CSS).toContain('.wrap[data-dock="true"] .home { flex: 1 1 auto; }');
+  });
+
+  test("come after the floating panel's, which they override", () => {
+    expect(CSS.indexOf('.wrap[data-dock="true"] .panel {')).toBeGreaterThan(
+      CSS.lastIndexOf('.wrap[data-side="left"] .panel {'),
+    );
+  });
+
+  test("turn the open panel's handle into a strip down its edge that takes no room", () => {
+    const handle = rule('.wrap[data-dock="true"][data-open="true"] .handle');
+    expect(handle).toContain("width: 5px");
+    expect(handle).toContain("margin: 0 -5px 0 0");
+    expect(handle).toContain("height: 100dvh");
+    expect(CSS).toContain(
+      '.wrap[data-dock="true"][data-open="true"][data-side="left"] .handle { margin: 0 0 0 -5px; }',
+    );
+    // Closed, no rule of the pinned panel touches the handle: it is the handle as ever.
+    expect(CSS).not.toContain('.wrap[data-dock="true"] .handle');
+  });
+
+  test("leave the panel's width and the side pane alone", () => {
+    const panel = rule('.wrap[data-dock="true"] .panel');
+    expect(panel).not.toMatch(/[^-]width:/);
+    expect(CSS).not.toContain('[data-dock="true"] .side');
   });
 });
 

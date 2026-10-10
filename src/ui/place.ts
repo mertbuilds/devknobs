@@ -166,6 +166,27 @@ export function dragTo(
   return settle({ y, top: y - offset, edge: "none", tab: "none" }, room);
 }
 
+/**
+ * Where a drag of a pinned panel's handle lands, the panel closed. Pinned,
+ * the panel is a column the window's height, so only the handle moves, along
+ * the window's edge and flush with its ends within `SNAP`. The panel's own top
+ * goes along by as much, for when it floats again, and is held to the window
+ * then, as it has no height to be held by here.
+ */
+export function dragDocked(to: number, from: Place, room: Pick<Room, "view" | "handle">): Place {
+  const y = snap(to, PANEL_GAP, room.view - PANEL_GAP - room.handle);
+  return { y, top: y - (from.y - from.top), edge: "none", tab: from.tab };
+}
+
+/**
+ * Where a pinned panel's handle shows while the panel is closed: where it
+ * was put, kept inside the window. Nothing of it is stored, so the place the
+ * panel floats at is there when it is let go.
+ */
+export function dockedHandle(y: number, room: Pick<Room, "view" | "handle">): number {
+  return between(y, PANEL_GAP, room.view - PANEL_GAP - room.handle);
+}
+
 /** Where the pointer was at a moment of a drag, in px and ms. */
 export interface Sample {
   t: number;

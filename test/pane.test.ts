@@ -272,7 +272,7 @@ function build(options: { open?: boolean; width?: number; height?: number } = {}
     hideAfter: () => {},
     isFor: () => false,
     tooltip: (node, text) => {
-      tipped.push([fake(node), text]);
+      tipped.push([fake(node), typeof text === "string" ? text : text()]);
     },
     destroy: () => {},
   };

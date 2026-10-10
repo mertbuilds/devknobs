@@ -1,13 +1,16 @@
 import * as engine from "../engine";
-import type { DevknobsStatePatch, SideValue } from "../types";
+import type { DevknobsStatePatch, PanelValue, SideValue } from "../types";
 import {
   between,
   cornerAt,
+  dockedHandle,
   DRAG_SLOP,
+  dragDocked,
   dragTarget,
   dragTo,
   FLING_SPAN,
   FLING_TRAVEL,
+  GLIDE,
   glideTime,
   landSide,
   type Anchor,
@@ -22,7 +25,8 @@ import {
 /**
  * Where the handle and the panel show on the page, and the drag that moves
  * them: a press on the handle that travels drags, a fling throws the panel to
- * the other side, and what was dragged glides to where it lands.
+ * the other side, and what was dragged glides to where it lands. A pinned
+ * panel is a column down its side, which a drag only takes to the other one.
  */
 
 /** What the drag needs from the panel. */
@@ -67,6 +71,10 @@ export function createDrag(context: DragContext): Drag {
   /** Where the panel last showed, and whether it showed the last time it was placed. */
   let shownTop = engine.getState().panel.top;
   let shownOpen = engine.getState().panel.open;
+  /** Whether the panel was pinned the last time it was laid out. */
+  let shownDocked = engine.getState().panel.docked;
+  /** The panel growing into a column, or back into a card, until it lands. */
+  let docking: Animation | null = null;
 
   /**
    * Make a change to the wrapper show at once, with no transition. A slide
@@ -106,10 +114,67 @@ export function createDrag(context: DragContext): Drag {
         host.style.right = side === "right" ? "0" : "";
       });
     }
+    if (engine.getState().panel.docked) {
+      placeColumn(at, open);
+      return;
+    }
     wrap.dataset.tab = open ? at.tab : cornerAt(at.y, shownTop, measure());
     host.style.top = `${at.y}px`;
     panel.style.marginTop = `${shownTop - at.y}px`;
     context.placed?.({ y: at.y, top: shownTop });
+  }
+
+  /**
+   * Put a pinned panel where it goes: a column from the window's top to its
+   * bottom, whatever its place says. Open, its handle is a strip down the
+   * column's edge, and the host starts at the window's top. Closed, the
+   * handle shows where it was put, and the column slides away from under it.
+   */
+  function placeColumn(at: Place, open: boolean): void {
+    const room = { view: window.innerHeight, handle: handle.getBoundingClientRect().height };
+    const y = open ? 0 : dockedHandle(at.y, room);
+    wrap.dataset.tab = "none";
+    host.style.top = `${y}px`;
+    panel.style.marginTop = `${-y}px`;
+    context.placed?.({ y, top: 0 });
+  }
+
+  /** Does nothing here move, as under reduced motion? The stylesheet says. */
+  function motionless(): boolean {
+    const times = getComputedStyle(wrap).transitionDuration.split(",");
+    return times.every((time) => parseFloat(time) === 0);
+  }
+
+  /**
+   * The panel was pinned, or let go, while it shows: it grows from the box it
+   * was into the one it is, the card into the column or back, in the glide's
+   * time. Only the panel is laid out as it does, never the page, and the
+   * layout waits until it lands, so no height on the way is taken for the
+   * panel's own.
+   */
+  function glideDock(before: DOMRect): void {
+    if (typeof panel.animate !== "function" || motionless()) return;
+    const after = panel.getBoundingClientRect();
+    if (before.top === after.top && before.height === after.height) return;
+    const margin = parseFloat(panel.style.marginTop) || 0;
+    const going = panel.animate(
+      [
+        {
+          marginTop: `${margin + before.top - after.top}px`,
+          height: `${before.height}px`,
+          maxHeight: "none",
+        },
+        { marginTop: `${margin}px`, height: `${after.height}px`, maxHeight: "none" },
+      ],
+      { duration: GLIDE, easing: "ease-out" },
+    );
+    docking = going;
+    const land = () => {
+      if (docking !== going) return;
+      docking = null;
+      context.render();
+    };
+    going.finished.then(land, land);
   }
 
   /**
@@ -119,10 +184,23 @@ export function createDrag(context: DragContext): Drag {
    * and a handle with no height is off the page, with nothing to measure.
    * What is in the panel grows and shrinks by its top, so a row that folds
    * away does so in place, and the window by the edge the panel is flush with.
+   * A pinned panel has no place to settle: it is put down its side, and the
+   * place it floats at is kept as it is.
    */
   function layout(anchor: Anchor = "top"): void {
-    if (dragging) return;
+    if (dragging || docking) return;
     const stored = engine.getState().panel;
+    const turned = stored.docked !== shownDocked;
+    const before = turned && stored.open && shownOpen ? panel.getBoundingClientRect() : null;
+    shownDocked = stored.docked;
+    wrap.dataset.dock = stored.docked ? "true" : "false";
+    if (stored.docked) placePanel(stored, stored.open, stored.side);
+    else settleFloating(stored, anchor);
+    if (before) glideDock(before);
+  }
+
+  /** Settle a floating panel for the heights there are, and store where it landed. */
+  function settleFloating(stored: PanelValue, anchor: Anchor): void {
     const room = measure();
     const next = room.handle > 0 ? settle(stored, room, anchor) : stored;
     placePanel(next, stored.open, stored.side);
@@ -217,9 +295,10 @@ export function createDrag(context: DragContext): Drag {
     }
     dragged = true;
     // The panel and the handle move as one, and shift lets the handle go
-    // alone, halfway through a drag too, from where it shows.
-    const { open, side } = engine.getState().panel;
-    const target = dragTarget(event.shiftKey, open);
+    // alone, halfway through a drag too, from where it shows. A pinned
+    // panel's handle is its edge, with nowhere to go along it.
+    const { open, side, docked } = engine.getState().panel;
+    const target = dragTarget(event.shiftKey && !docked, open);
     wrap.dataset.drag = target;
     if (target !== moving) {
       moving = target;
@@ -228,7 +307,9 @@ export function createDrag(context: DragContext): Drag {
     }
     loose += step;
     // Not through the store: a pointermove is no reason to re-apply every knob.
-    dragAt = dragTo(target, open, loose, dragFrom, measure());
+    // An open column stays put up and down, and a closed one's handle moves alone.
+    if (!docked) dragAt = dragTo(target, open, loose, dragFrom, measure());
+    else if (!open) dragAt = dragDocked(loose, dragFrom, measure());
     placePanel(dragAt, open, side);
     // Across, what shows follows the pointer as far as the window goes. A
     // shift drag slides the handle along the panel and nowhere else.

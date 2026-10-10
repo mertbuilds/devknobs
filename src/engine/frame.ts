@@ -1,4 +1,4 @@
-import type { DevknobsState, SchemeValue } from "../types";
+import type { DevknobsState, PanelValue, SchemeValue } from "../types";
 import { parse } from "./store";
 
 /** Marks the iframe the width knob renders the page in. */
@@ -113,12 +113,15 @@ function positive(value: number | string): boolean {
   return typeof value === "number" && value > 0;
 }
 
+/** The frame knobs, with the panel where it can be pinned to its side. */
+export type Framing = FrameKnobs & { panel?: Pick<PanelValue, "docked"> };
+
 /**
  * Does any knob need the page inside the frame? Device pixels only exist in a
  * frame. Vision does too: its filter on the frame leaves the panel alone and
  * fixed elements in place, where one on `<html>` would not.
  */
-export function needsFrame(knobs: FrameKnobs): boolean {
+export function knobFrame(knobs: FrameKnobs): boolean {
   return (
     positive(knobs.width) ||
     positive(knobs.height) ||
@@ -129,16 +132,37 @@ export function needsFrame(knobs: FrameKnobs): boolean {
 }
 
 /**
+ * Is the page inside the frame? A knob puts it there, and so does a panel
+ * pinned to its side: only a frame gives the page a viewport that ends where
+ * the panel starts, for its media queries, `100vw` and fixed boxes alike.
+ */
+export function needsFrame(knobs: Framing): boolean {
+  return knobFrame(knobs) || knobs.panel?.docked === true;
+}
+
+/**
+ * Is the frame up for a pinned panel alone? Then it is the page as it was,
+ * edge to edge in the room the panel leaves: no mat shows, and no zoom.
+ */
+export function plainFrame(knobs: Framing): boolean {
+  return knobs.panel?.docked === true && !knobFrame(knobs);
+}
+
+/**
  * Is the frame up whatever the frame knob says? A size, a ratio or a vision
  * deficiency brings it up alone, and the knob then changes nothing to see.
  */
-export function frameForced(knobs: FrameKnobs): boolean {
+export function frameForced(knobs: Framing): boolean {
   return needsFrame({ ...knobs, frame: false });
 }
 
-/** The knobs a framed page runs with. It is the viewport already, so it never frames itself. */
+/**
+ * The knobs a framed page runs with. It is the viewport already, so it never
+ * frames itself, for a knob or for a pinned panel.
+ */
 export function framed(state: DevknobsState): DevknobsState {
-  return needsFrame(state) ? { ...state, ...UNFRAMED } : state;
+  if (!needsFrame(state)) return state;
+  return { ...state, ...UNFRAMED, panel: { ...state.panel, docked: false } };
 }
 
 /**

@@ -1,6 +1,7 @@
-import type { DevknobsState, MatColorValue, PanelValue } from "../types";
+import type { DevknobsState, MatColorValue } from "../types";
 import type { Look } from "./browserkit";
-import { needsFrame } from "./frame";
+import type { Docked } from "./dock";
+import { needsFrame, plainFrame } from "./frame";
 import { webStorage } from "./fresh";
 import { MAT_COLORS, matGradient } from "./matcolors";
 import { newer, stamped } from "./stored";
@@ -37,12 +38,14 @@ let earlyWait = 0;
  * The page under the frame hidden, as the frame hides it, and the bare mat
  * over it in the stored color where nothing else stands in yet. It is a
  * pseudo element, so a page that hydrates its document finds no node of ours
- * there.
+ * there. With no mat, as under a pinned panel's frame, the page is only hidden.
  */
-export function coverCss(mat: MatColorValue): string {
+export function coverCss(mat: MatColorValue | null): string {
+  const hide = `html{overflow:hidden!important}
+body>:not([data-devknobs]){content-visibility:hidden!important}`;
+  if (!mat) return hide;
   const paint = MAT_COLORS[mat];
-  return `html{overflow:hidden!important}
-body>:not([data-devknobs]){content-visibility:hidden!important}
+  return `${hide}
 html::after{content:"";position:fixed;inset:0;z-index:${Z_INDEX - 1};background:${matGradient(paint.srgb)};pointer-events:none}
 @media (color-gamut:p3){html::after{background:${matGradient(paint.p3)}}}`;
 }
@@ -65,7 +68,7 @@ export type Drawn = Pick<
   | "edgeToEdge"
   | "zoom"
   | "mat"
-> & { panel: Pick<PanelValue, "open" | "side"> };
+> & { panel: Docked };
 
 /** The window's size and pixel ratio, which a drawing of the frame depends on too. */
 export interface WindowSize {
@@ -104,6 +107,7 @@ export function snapshotKey(knobs: Drawn, view: WindowSize): string {
     knobs.mat,
     knobs.panel.open,
     knobs.panel.side,
+    knobs.panel.docked,
     view.innerWidth,
     view.innerHeight,
     view.devicePixelRatio,
@@ -250,12 +254,14 @@ export function stopAdopting(): void {
  * the page in a frame, hide it under the mat, and put the frame's drawing the
  * last page kept over that once there is a body for it. Devknobs takes both
  * away when it draws the frame, and they go on their own after `GIVE_UP`.
+ * A frame up for a pinned panel alone has no mat and keeps no drawing: the
+ * page is hidden until the frame shows it at its width.
  */
 export function showEarly(knobs: Drawn): void {
   if (!needsFrame(knobs) || !document.head) return;
   const style = document.createElement("style");
   style.setAttribute("data-devknobs", EARLY);
-  style.textContent = coverCss(knobs.mat);
+  style.textContent = coverCss(plainFrame(knobs) ? null : knobs.mat);
   document.head.append(style);
   window.setTimeout(dropEarly, GIVE_UP);
   const snapshot = readSnapshot(knobs, window);

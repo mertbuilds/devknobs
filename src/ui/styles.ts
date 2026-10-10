@@ -26,6 +26,10 @@
  * one size whatever shows. It eases back flush with the glide, and the border
  * goes only once it is clear: a clear border with a width still cuts the ends
  * of the lines it meets.
+ *
+ * Pinned, `data-dock="true"`, the panel is a column from the window's top to
+ * its bottom, square, with one hairline on the page's side, as wide as the
+ * panel is. Its rules come last, over the floating ones.
  */
 export const CSS = `
 .wrap {
@@ -710,9 +714,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .hint:focus-visible { outline-offset: 2px; }
 .hint:disabled { cursor: default; opacity: 0.5; }
 .hint:disabled:hover { color: inherit; }
-/* Opens the settings, at the end of the last line. */
-.keys-toggle { margin-left: auto; }
-.keys-toggle[aria-pressed="true"] { color: var(--fg); }
+/* The pin and the way into the settings, at the end of the last line. */
+.pin-toggle { margin-left: auto; }
+.keys-toggle[aria-pressed="true"], .pin-toggle[aria-pressed="true"] { color: var(--fg); }
 /* The tooltip of an icon-only control, set over it by the panel. */
 .tip {
   position: absolute;
@@ -902,4 +906,47 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
+
+/* The pinned panel: a column the window's height, flush with its edge and
+   square, the one hairline it keeps on the page's side. The top and bottom
+   borders go, and the padding there pays for them, so nothing in it moves
+   across. The rows take all the height there is, with the footer at the
+   bottom. Dragged off its edge it is still a column, square all round. */
+.wrap[data-dock="true"] .panel {
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  border-top-width: 0;
+  border-bottom-width: 0;
+  border-radius: 0;
+}
+.wrap[data-dock="true"] .body,
+.wrap[data-dock="true"] .home { flex: 1 1 auto; }
+.wrap[data-dock="true"]:is([data-mode="results"], [data-mode="browse"]) .rows {
+  max-height: 40vh;
+  max-height: 40dvh;
+}
+/* Open, the pinned panel has no handle out on the page. The handle is a strip
+   down the column's edge, over its hairline and its padding, that takes no
+   room: a click closes the panel, and a drag across takes the column to the
+   other side. It shows as it is hovered or focused. Closed, it is the handle
+   as ever, at the window's edge. */
+.wrap[data-dock="true"][data-open="true"] .handle {
+  width: 5px;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0 -5px 0 0;
+  padding: 0;
+  font-size: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  transition: background-color 120ms ease-out, transform var(--glide) ease-out;
+}
+.wrap[data-dock="true"][data-open="true"][data-side="left"] .handle { margin: 0 0 0 -5px; }
+.wrap[data-dock="true"][data-open="true"] .handle:hover,
+.wrap[data-dock="true"][data-open="true"] .handle:focus-visible { background: var(--line); }
+.wrap[data-dock="true"][data-open="true"] .handle:focus-visible { outline-offset: -1px; }
 `;

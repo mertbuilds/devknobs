@@ -23,9 +23,10 @@ const FRAME_GLIDE_SPEED = 6;
 
 /**
  * The panel as the frame is fitted beside it, with how much more of its edge
- * it covers than its own width, in px, as its side pane does.
+ * it covers than its own width, in px, as its side pane does, and whether it
+ * is pinned there, which takes its room from the frame's.
  */
-export type PanelSpot = Pick<PanelValue, "open" | "side"> & { beside?: number };
+export type PanelSpot = Pick<PanelValue, "open" | "side"> & { beside?: number; docked?: boolean };
 
 /** What decides whether a change of the knobs glides the frame. */
 export interface GlideCue {
@@ -41,12 +42,13 @@ export interface GlideCue {
 
 /**
  * Does the frame glide? Only when the panel changed side, opened or closed,
- * or covers more or less beside itself, never on the first paint, with less
- * motion, or while the device moves.
+ * was pinned or let go, or covers more or less beside itself, never on the
+ * first paint, with less motion, or while the device moves.
  */
 export function glides(cue: GlideCue): boolean {
   if (cue.first || cue.still || cue.moving) return false;
   if ((cue.from.beside ?? 0) !== (cue.to.beside ?? 0)) return true;
+  if ((cue.from.docked ?? false) !== (cue.to.docked ?? false)) return true;
   return cue.from.side !== cue.to.side || cue.from.open !== cue.to.open;
 }
 

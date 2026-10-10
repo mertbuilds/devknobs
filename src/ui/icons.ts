@@ -117,6 +117,18 @@ export const ICONS = {
     p("M15 3v18"),
     p("m10 15-3-3 3-3"),
   ],
+  pin: [
+    p("M12 17v5"),
+    p(
+      "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z",
+    ),
+  ],
+  "pin-off": [
+    p("M12 17v5"),
+    p("M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"),
+    p("m2 2 20 20"),
+    p("M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"),
+  ],
   eraser: [
     p(
       "M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21",
@@ -161,6 +173,7 @@ export const ROW_ICONS: Record<RowId, IconName> = {
 export const ACTION_ICONS: Record<Action["id"], IconName> = {
   grab: "square-dashed-mouse-pointer",
   replay: "rotate-ccw",
+  pin: "pin",
 };
 
 /** The icon each shortcut shows in the settings, an action's own where it has one. */

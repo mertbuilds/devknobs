@@ -112,6 +112,7 @@ describe("parse", () => {
         top: 24,
         edge: "bottom",
         tab: "none",
+        docked: false,
         pinned: ["scheme", "clock"],
       },
     });
@@ -236,6 +237,7 @@ describe("parse", () => {
       top: 200,
       edge: "none",
       tab: "none",
+      docked: false,
       pinned: [],
     });
   });
@@ -256,6 +258,18 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ panel: { side: 1 } })).panel.side).toBe("right");
     expect(parse(JSON.stringify({ panel: { side: "left" } })).panel.side).toBe("left");
     expect(parse(JSON.stringify({ panel: { side: "right" } })).panel.side).toBe("right");
+  });
+
+  test("floats the panel when the session predates the pin or stored junk, and keeps one pinned", () => {
+    expect(DEFAULT_STATE.panel.docked).toBe(false);
+    expect(parse(JSON.stringify({ panel: { side: "left" } })).panel.docked).toBe(false);
+    for (const docked of ["true", 1, null, {}]) {
+      expect(parse(JSON.stringify({ panel: { docked } })).panel.docked).toBe(false);
+    }
+    expect(parse(JSON.stringify({ panel: { docked: true } })).panel.docked).toBe(true);
+    // The rows pinned to the list are another thing, and neither reads as the other.
+    const both = parse(JSON.stringify({ panel: { docked: true, pinned: ["scheme"] } })).panel;
+    expect(both).toMatchObject({ docked: true, pinned: ["scheme"] });
   });
 
   test("pins no row when the session predates pinned rows or stored junk", () => {
@@ -439,6 +453,7 @@ describe("the place kept across sessions", () => {
       top: 80,
       edge: "bottom",
       tab: "none",
+      docked: false,
     });
     expect(parse(null, text).panel).toEqual({
       ...DEFAULT_STATE.panel,
@@ -448,6 +463,42 @@ describe("the place kept across sessions", () => {
       edge: "bottom",
       tab: "none",
     });
+  });
+
+  test("keeps the pin with the place, for a new session to start pinned", () => {
+    const pinned = merge(DEFAULT_STATE, { panel: { side: "left", docked: true } });
+    const text = placeText(pinned);
+    expect(JSON.parse(text)).toMatchObject({ v: PLACE_VERSION, side: "left", docked: true });
+    expect(parse(null, text).panel).toEqual({ ...DEFAULT_STATE.panel, side: "left", docked: true });
+    // Never open with it: the pin is place, and open is the session's.
+    expect(parse(null, text).panel.open).toBe(false);
+  });
+
+  test("a session's own pin wins over the kept one, either way", () => {
+    const kept = (docked: boolean) => JSON.stringify({ v: PLACE_VERSION, side: "left", docked });
+    const session = (docked: boolean) => JSON.stringify({ panel: { docked } });
+    expect(parse(session(false), kept(true)).panel.docked).toBe(false);
+    expect(parse(session(true), kept(false)).panel.docked).toBe(true);
+    // A session from before the pin takes the kept one.
+    expect(parse(JSON.stringify({ panel: { y: 90 } }), kept(true)).panel.docked).toBe(true);
+  });
+
+  test("a place kept before the pin floats, at any older version, and junk does too", () => {
+    expect(PLACE_VERSION).toBe(2);
+    const place = { side: "left", y: 120, top: 80, edge: "bottom", tab: "none" } as const;
+    for (const older of [place, { v: 0, ...place }, { v: 1, ...place }]) {
+      expect(parse(null, JSON.stringify(older)).panel).toEqual({
+        ...DEFAULT_STATE.panel,
+        ...place,
+        docked: false,
+      });
+    }
+    for (const docked of ["true", 1, null]) {
+      expect(parse(null, JSON.stringify({ v: PLACE_VERSION, docked })).panel.docked).toBe(false);
+    }
+    // One from a newer devknobs reads as nothing kept, pin and all.
+    const newer = JSON.stringify({ v: PLACE_VERSION + 1, ...place, docked: true });
+    expect(parse(null, newer).panel).toEqual(DEFAULT_STATE.panel);
   });
 
   test("a place from before edges keeps its handle off the fresh panel's corner", () => {
@@ -514,6 +565,16 @@ describe("the kept place", () => {
     save(merge(state, { panel: { side: "right", y: 300, top: 280, edge: "bottom" } }));
     expect(session.has(STORAGE_KEY)).toBe(true);
     expect(JSON.parse(local.get(PLACE_KEY) ?? "")).toEqual(kept);
+  });
+
+  test("a save never writes the pin there either, and keeping it does", () => {
+    const { local } = stubStorage();
+    const pinned = merge(load(), { panel: { docked: true } });
+    save(pinned);
+    expect(local.has(PLACE_KEY)).toBe(false);
+    keepPlace(pinned);
+    expect(JSON.parse(local.get(PLACE_KEY) ?? "").docked).toBe(true);
+    expect(load().panel.docked).toBe(true);
   });
 
   test("keeping it writes the place that reads back", () => {

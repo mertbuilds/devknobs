@@ -137,8 +137,8 @@ export function start(options: EngineOptions = {}): void {
   // state. It reads it, so the first paint is right, but a save would clobber it.
   persist = stored && !inFrame;
   if (inFrame) window.addEventListener("message", onMessage);
-  // A page that will not load in the frame offers this way out.
-  width.onExit(() => setState(UNFRAMED));
+  // A page that will not load in the frame offers this way out, of a pinned panel's frame too.
+  width.onExit(() => setState({ ...UNFRAMED, panel: { docked: false } }));
   // The letterbox zooms the frame from its own control, the wheel and the keys.
   width.onZoom((zoom) => setState({ zoom }));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));

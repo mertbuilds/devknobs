@@ -339,7 +339,7 @@ export function resetPatch(row: Row): DevknobsStatePatch {
 
 /** Something the panel does rather than a knob it sets. */
 export interface Action {
-  id: "grab" | "replay";
+  id: "grab" | "replay" | "pin";
   label: string;
   /** What a search result says after the name. */
   long: string;
@@ -359,6 +359,12 @@ export const ACTIONS: readonly Action[] = [
     label: "replay animations",
     long: "restart every animation from the start",
     aliases: ["restart", "animation", "rerun"],
+  },
+  {
+    id: "pin",
+    label: "pin panel",
+    long: "dock the panel to its side, the page beside it",
+    aliases: ["unpin", "dock", "undock", "sidebar", "column", "devtools"],
   },
 ];
 
