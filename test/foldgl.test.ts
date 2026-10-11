@@ -29,6 +29,7 @@ import {
   FRAGMENT,
   freeOf,
   hingeLine,
+  pastHinge,
   levelAt,
   reachOf,
   screenGl,
@@ -55,25 +56,13 @@ describe("the screen's blur", () => {
     }
   });
 
-  test("is none at the hinge, on either screen at any angle, at its ends and past them too, so the hinge side is as the page is", () => {
-    expect([TUNE_DEFAULTS.blurHinge, TUNE_DEFAULTS.edgeHinge]).toEqual([0, 0]);
-    for (const pane of ["inner", "cover"] as const) {
-      for (const open of HUNDREDTHS) {
-        for (const free of [1, 0.5, 0.1]) {
-          const look = screenLook(open, 40, free, null, pane);
-          expect(look.edge[0]).toBe(0);
-          for (const inside of [-40, -5, 0, 3, DEEP]) expect(blurAt(look, 0, inside)).toBe(0);
-        }
-      }
-    }
-  });
-
-  test("away from the ends rises from none at the hinge, and never falls toward the free edge", () => {
+  test("away from the ends is least at the hinge, under 2 css px at any angle, and never falls toward the free edge", () => {
     for (const open of HUNDREDTHS) {
       for (const free of [1, 0.5, 0.1]) {
         const look = screenLook(open, 0, free);
         const hinge = blurAt(look, 0, DEEP);
-        expect(hinge).toBe(0);
+        expect(hinge).toBeLessThan(2);
+        expect(hinge).toBeCloseTo(TUNE_DEFAULTS.blurHinge * turnBlur(open), 9);
         let last = hinge;
         for (const t of HUNDREDTHS) {
           expect(blurAt(look, t, DEEP)).toBeGreaterThanOrEqual(last);
@@ -112,25 +101,21 @@ describe("the screen's blur", () => {
     expect(screenLook(0.6, 12, 0.4).dark).toBe(freeDepth(0.6));
   });
 
-  test("blurs the page at its ends, as wide as the dark past them at the free edge, and less the nearer the hinge", () => {
+  test("blurs the page into the dark past its ends, as wide as that dark at the free edge, even at the hinge", () => {
     const wedge = 40;
     for (const open of [0.95, 0.05]) {
-      // Barely turned, the screen's blur is all but none: the ends' is what shows.
+      // Barely turned, the screen's blur is all but none near the hinge: the ends' is what shows there.
       const look = screenLook(open, wedge);
-      expect(look.edge).toEqual([0, TUNE_DEFAULTS.edgeFree * wedge]);
-      expect(blurAt(look, 1, -5)).toBeCloseTo(TUNE_DEFAULTS.edgeFree * wedge);
+      expect(look.edge).toEqual([TUNE_DEFAULTS.edgeHinge * wedge, TUNE_DEFAULTS.edgeFree * wedge]);
+      expect(blurAt(look, 0, -5)).toBeCloseTo(TUNE_DEFAULTS.edgeHinge * wedge);
+      expect(blurAt(look, 0, 0)).toBeCloseTo(TUNE_DEFAULTS.edgeHinge * wedge);
       expect(blurAt(look, 1, 0)).toBeCloseTo(TUNE_DEFAULTS.edgeFree * wedge);
-      expect(blurAt(look, 0.5, -20)).toBeCloseTo((TUNE_DEFAULTS.edgeFree / 2) * wedge);
-      let last = 0;
-      for (const t of HUNDREDTHS) {
-        expect(blurAt(look, t, 0)).toBeGreaterThanOrEqual(last);
-        last = blurAt(look, t, 0);
-      }
+      expect(blurAt(look, 0.5, -20)).toBeCloseTo(((TUNE_DEFAULTS.edgeHinge + TUNE_DEFAULTS.edgeFree) / 2) * wedge);
       // It eases off into the picture, and is gone as far in as it reaches.
-      const rim = TUNE_DEFAULTS.edgeFree * wedge;
-      expect(blurAt(look, 1, rim)).toBeLessThan(rim);
-      expect(blurAt(look, 1, rim)).toBeGreaterThan(blurAt(look, 1, DEEP));
-      expect(blurAt(look, 1, TUNE_DEFAULTS.edgeReach * rim)).toBe(blurAt(look, 1, DEEP));
+      const rim = TUNE_DEFAULTS.edgeHinge * wedge;
+      expect(blurAt(look, 0, rim)).toBeLessThan(rim);
+      expect(blurAt(look, 0, rim)).toBeGreaterThan(0);
+      expect(blurAt(look, 0, TUNE_DEFAULTS.edgeReach * rim)).toBe(blurAt(look, 0, DEEP));
     }
     // The further the screen reaches past the page, the wider.
     expect(blurAt(screenLook(0.3, 60), 0.2, 0)).toBeGreaterThan(blurAt(screenLook(0.3, 20), 0.2, 0));
@@ -270,29 +255,6 @@ describe("the screen's sharpness", () => {
     expect(FRAGMENT).toContain(`float[3](${WEIGHTS.join(", ")});`);
   });
 
-  test("never darkens by blurring: a point by the picture's end keeps its colour, and only the picture's own outline cuts it", () => {
-    const flat = () => 0.7;
-    /** A picture 100 css px long, its top end at 0: how much of it there is at a point. */
-    const seen = (_x: number, y: number, soft: number) => coverage(y, 100, soft);
-    for (const gap of [0, 0.5, 4, 12, 24]) {
-      // Inside it, however near an end, and however many of its taps fall past that end.
-      for (const y of [1, 3, 20, 50, 97, 99]) expect(tapped(flat, 30, y, gap, seen)).toBeCloseTo(0.7, 12);
-      // Past it, nothing, and on its end half, over a px: the outline is as sharp blurred as not.
-      for (const y of [-1, -30, 101]) expect(tapped(flat, 30, y, gap, seen)).toBe(0);
-      expect(tapped(flat, 30, 0, gap, seen)).toBeCloseTo(0.35, 12);
-    }
-    // What the taps add up to by itself, as it was drawn, is darker there: that is what dividing takes out.
-    const summed = [-2, -1, 0, 1, 2].reduce((sum, down) => sum + 0.7 * coverage(3 + down * 12, 100, 9) * (WEIGHTS[Math.abs(down)] ?? 0), 0);
-    expect(summed).toBeLessThan(0.5);
-    // With all of the picture about a point, nothing changes: the taps' weights add up to 1.
-    const page = (x: number, y: number) => 0.5 + 0.3 * Math.sin(x * 1.7) * Math.cos(y * 0.9);
-    expect(tapped(page, 30, 50, 4, seen)).toBeCloseTo(tapped(page, 30, 50, 4), 12);
-    expect(FRAGMENT).toContain("float share = seen(tap, soft) * WEIGHTS[abs(x)] * WEIGHTS[abs(y)];");
-    expect(FRAGMENT).toContain("sum += textureLod(page, tap / stage, lod).rgb * share;");
-    expect(FRAGMENT).toContain("had += share;");
-    expect(FRAGMENT).toContain("sum = sum / max(had, 0.0001) * seen(pos, 0.5 * px);");
-  });
-
   test("takes every px one way through the shader: no tap at a level left to the hardware, and no way out before the last line", () => {
     // texture() works its level out from the px next to it, which is not known where they take another branch.
     expect(FRAGMENT).not.toMatch(/\btexture\(/);
@@ -415,7 +377,7 @@ describe("the canvas", () => {
   const half = { x: 0, y: 0, width: 475.5, height: 669 };
 
   test("lies over the part that turns, and past the screen's ends along the hinge", () => {
-    const place = { pane: "inner" as const, across: true, stage, part: half, margin: 80, density: 2 };
+    const place = { pane: "inner" as const, across: true, stage, part: half, margin: 80, over: 0, density: 2 };
     expect(canvasRect(place)).toEqual({ x: 0, y: -80, width: 475.5, height: 829 });
     const upright = { width: 669, height: 951 };
     const lower = { x: 0, y: 475.5, width: 669, height: 475.5 };
@@ -425,6 +387,41 @@ describe("the canvas", () => {
       width: 829,
       height: 475.5,
     });
+  });
+
+  test("reaches past the hinge, onto the half that stays, and no further at the free edge, for either screen held either way", () => {
+    const upright = { width: 669, height: 951 };
+    const lower = { x: 0, y: 475.5, width: 669, height: 475.5 };
+    const whole = { x: 0, y: 0, width: 420, height: 912 };
+    const cases: [Pane, boolean, typeof stage, typeof half][] = [
+      ["inner", true, stage, half],
+      ["inner", false, upright, lower],
+      ["cover", true, { width: 420, height: 912 }, whole],
+      ["cover", false, { width: 912, height: 420 }, { x: 0, y: 0, width: 912, height: 420 }],
+    ];
+    for (const [pane, across, screen, part] of cases) {
+      for (const over of [0, 2, 8]) {
+        const past = pastHinge(part, pane, across, over);
+        const rect = canvasRect({ pane, across, stage: screen, part, margin: 80, over, density: 2 });
+        const [a, b, c] = hingeLine(pane, across, part);
+        const corners = [
+          [past.x, past.y],
+          [past.x + past.width, past.y + past.height],
+        ] as const;
+        const shares = corners.map(([x, y]) => a * x + b * y + c).sort((low, high) => low - high);
+        // As far past the hinge as asked, and at the free edge still.
+        const length = across ? part.width : part.height;
+        expect(shares[0]).toBeCloseTo(-over / length, 12);
+        expect(shares[1]).toBeCloseTo(1, 12);
+        // Nothing of it changes along the hinge, and the canvas is as wide across it.
+        expect(across ? [past.y, past.height] : [past.x, past.width]).toEqual(across ? [part.y, part.height] : [part.x, part.width]);
+        expect(across ? [rect.x, rect.width] : [rect.y, rect.height]).toEqual(across ? [past.x, past.width] : [past.y, past.height]);
+        expect(across ? rect.width : rect.height).toBe(length + over);
+      }
+    }
+    // The open screen's hinge is its right held across, and its top held upright.
+    expect(pastHinge(half, "inner", true, 2)).toEqual({ x: 0, y: 0, width: 477.5, height: 669 });
+    expect(pastHinge(lower, "inner", false, 2)).toEqual({ x: 0, y: 473.5, width: 669, height: 477.5 });
   });
 
   test("runs from the hinge to the free edge the way each screen's shade does", () => {
@@ -470,7 +467,7 @@ describe("WebGL2", () => {
     expect(contextOf({ getContext: () => ({}) })).toBeNull();
   });
 
-  const place = { pane: "inner" as const, across: true, stage: { width: 951, height: 669 }, part: { x: 0, y: 0, width: 475.5, height: 669 }, margin: 80, density: 2 };
+  const place = { pane: "inner" as const, across: true, stage: { width: 951, height: 669 }, part: { x: 0, y: 0, width: 475.5, height: 669 }, margin: 80, over: 0, density: 2 };
 
   /** How a faked WebGL2 fails: it makes nothing, is lost, does not link, saying `log`, throws `upload` at a picture, or tells of `error` after one. */
   interface Fail {

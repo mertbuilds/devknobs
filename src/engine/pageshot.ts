@@ -302,6 +302,12 @@ function keepShot(doc: Document, key: string, canvas: HTMLCanvasElement): void {
 /** How many px a blurred picture keeps across its blur's width. The browser stretches it the rest of the way as it shows it, as smooth. */
 const KEPT = 8;
 
+/** A blurred picture of a screen, and how long it is along the hinge with its black, in the sharp one's px. */
+export interface Blurred {
+  canvas: HTMLCanvasElement;
+  long: number;
+}
+
 /**
  * A picture of a screen `width` css px wide blurred as wide as each of
  * `widths`, the fold's blurs past the sharp one: made smaller a half at a
@@ -309,19 +315,50 @@ const KEPT = 8;
  * step smooths what the last left, but only till `KEPT` px cross the blur.
  * The wide blurs are so kept small, and the lot takes fewer px than the
  * pictures it is made of. Drawn once, each is as cheap to show as the
- * picture. Each is the picture alone, with no black past its ends, so a
- * blur never darkens them, and it ends where the sharp one does.
+ * picture. Each lies on black past the picture's ends along the hinge, its
+ * top and bottom `across` and its sides otherwise, as far as `blurMargin`
+ * has it, so the blur spreads those ends into the dark past them, as
+ * jadon7/iphone-duo blurs the picture and black together.
  */
-export function blurPictures(shot: HTMLCanvasElement, width: number, widths = blurWidths().slice(1)): HTMLCanvasElement[] {
+export function blurPictures(
+  shot: HTMLCanvasElement,
+  width: number,
+  across: boolean,
+  widths = blurWidths().slice(1),
+): Blurred[] {
+  const length = across ? shot.height : shot.width;
   return widths.map((wide) => {
     // How many of the picture's px the blur is wide: a rough picture's px is a few css px already.
-    const canvas = blurPicture(shot, Math.max(1, (wide * shot.width) / width));
-    if (canvas !== shot) return canvas;
-    // A blur no wider than a px of the picture is the picture again, on a canvas of its own, as it is shown by itself.
-    const own = canvasOf(shot.width, shot.height);
-    own?.pen.drawImage(shot, 0, 0);
-    return own?.canvas ?? shot;
+    const coarse = Math.max(1, (wide * shot.width) / width);
+    const margin = blurMargin(coarse);
+    const padded = canvasOf(shot.width + (across ? 0 : 2 * margin), shot.height + (across ? 2 * margin : 0));
+    if (!padded) return { canvas: blurPicture(shot, coarse), long: length };
+    padded.pen.fillStyle = "#000";
+    padded.pen.fillRect(0, 0, padded.canvas.width, padded.canvas.height);
+    padded.pen.drawImage(shot, across ? 0 : margin, across ? margin : 0);
+    const canvas = blurPicture(padded.canvas, coarse);
+    if (canvas !== padded.canvas) spend(padded.canvas);
+    return { canvas, long: length + 2 * margin };
   });
+}
+
+/**
+ * How far the black under a picture blurred `coarse` of its px wide reaches
+ * past its ends, in its px: two of the smallest picture's px, past where the
+ * blur spreads it, so none of it is cut off.
+ */
+export function blurMargin(coarse: number): number {
+  return Math.ceil(2 * coarse);
+}
+
+/**
+ * Where a blurred picture `padded` px long lies along its screen, whose
+ * picture is `shot` px long, in percent of the screen: its black reaching as
+ * far past either end, so its picture lies on the sharp one.
+ */
+export function marginPlace(shot: number, padded: number): { start: number; size: number } {
+  const exact = (value: number) => Math.round(value * 1e4) / 1e4;
+  return { start: exact(((shot - padded) / 2 / shot) * 100), size: exact((padded / shot) * 100) };
 }
 
 /** Let go of a canvas's px at once, where it was only a step on the way. */
