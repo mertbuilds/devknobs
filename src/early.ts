@@ -3,6 +3,7 @@ import { hasTouch } from "./engine/devices";
 import { isDevknobsFrame, nativeScheme } from "./engine/frame";
 import { early } from "./engine/media";
 import { showEarly } from "./engine/placeholder";
+import { resume } from "./engine/scrollkeep";
 import { load } from "./engine/store";
 import { apply as earlyUa } from "./engine/ua";
 import { installHook } from "./grab/hook";
@@ -18,6 +19,8 @@ import { applyOnLoad } from "./storage/onload";
  * and starts the requests log, so the page's first requests are in it.
  * Where the stored knobs put the page in a frame, it hides the page under the
  * frame's drawing from the first paint, so a reload never shows it full width.
+ * After a load devknobs asked for, it brings the page back to where it was
+ * scrolled.
  * Before all of that it sets what the storage presets marked "apply on load"
  * hold, so the page's own scripts start with them.
  */
@@ -34,3 +37,4 @@ recordRequests();
 installHook();
 // The page in the frame is the frame's own, and never hides.
 if (!inFrame) showEarly(stored);
+resume();

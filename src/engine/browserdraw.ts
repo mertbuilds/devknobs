@@ -16,6 +16,7 @@ import { baseMatchMedia } from "./matchmedia";
 import type { Rect } from "./mock";
 import { navigationOf } from "./reload";
 import { buildSafari, SAFARI_CSS } from "./safaridraw";
+import { keep } from "./scrollkeep";
 
 /**
  * The browser's bars drawn in the screen around the frame, in the viewport's
@@ -303,9 +304,13 @@ export function createBrowser(
         return;
       }
       onReload();
-      if (reachable(frame)) frame.contentWindow?.location.reload();
-      // An outside page loads again from the address the frame was given.
-      else frame.src = frame.src;
+      if (reachable(frame)) {
+        keep(frame.contentWindow, "frame");
+        frame.contentWindow?.location.reload();
+      } else {
+        // An outside page loads again from the address the frame was given.
+        frame.src = frame.src;
+      }
     },
     expand: () => step({ type: "tap" }),
   };

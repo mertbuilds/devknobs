@@ -63,6 +63,7 @@ import {
 } from "./placeholder";
 import { warmFonts } from "./pagefonts";
 import * as reload from "./reload";
+import * as scrollkeep from "./scrollkeep";
 import { ensureStyle, removeStyle } from "./style";
 import { createTouchDot, type TouchDot } from "./touchdot";
 import {
@@ -1114,6 +1115,10 @@ function open(veiled: number | null, first: boolean): void {
   frameUrl = window.location.href;
   address.follow({ page: frameDocument, locate, refresh: () => browser?.refresh() });
   scroll = { x: window.scrollX, y: window.scrollY };
+  // A frame a knob brings up starts where the page was. One a reload brings up
+  // has its own place, kept before the reload.
+  if (!first) scrollkeep.keep(window, "frame");
+  scrollkeep.follow(frameWindow);
   notice = createNotice(() => exit?.());
   refusal = document.createElement("div");
   refusal.className = "refused";
@@ -1187,6 +1192,7 @@ function release(follow: boolean): string {
   touchDot?.apply(false);
   address.unwatch();
   reload.untrack();
+  scrollkeep.follow(null);
   browser?.stopLoading();
   clearSnapshot();
   // The window shows its own page again, so its own address and title too.
