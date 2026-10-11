@@ -8,6 +8,8 @@ import { holeAt, holePath, MORPH_TIME, rounded, windowRect } from "../src/engine
 import {
   clearOutside,
   getOutside,
+  lookOutside,
+  parseLook,
   refuseOutside,
   setOutside,
 } from "../src/engine/outside";
@@ -1943,7 +1945,7 @@ describe("an outside page in the frame", () => {
     apply(PHONE_STATE);
     expect(sent).toEqual([OUTSIDE, "about:blank"]);
     expect(Reflect.get(byClass("refused") ?? {}, "hidden")).toBe(false);
-    expect(getOutside()).toEqual({ outside: OUTSIDE, refused: true, loaded: false });
+    expect(getOutside()).toEqual({ outside: OUTSIDE, refused: true, loaded: false, look: null });
   });
 
   test("takes the place of the window's own page in a frame that is up, and gives it back", async () => {
@@ -2126,6 +2128,135 @@ describe("an outside page in the frame", () => {
       show({ scheme: "light" });
       expect(Reflect.get(screen?.style ?? {}, "background")).toBe(LIGHT);
       expect(screen?.classList.contains("dark")).toBe(false);
+    });
+
+    describe("with the page's colors from the host", () => {
+      const CREAM = "rgb(250, 247, 242)";
+      const INK = "rgb(20, 17, 15)";
+      const BOTH = parseLook({ light: "#faf7f2", dark: "#14110f" });
+
+      test("draws the device's own screen in the color for each scheme", () => {
+        setOutside(OUTSIDE, false, BOTH);
+        show({ scheme: "dark" });
+        expect(ground()).toBe(INK);
+        expect(bars()).toBe("safari dark");
+        expect(Reflect.get(frameElement().style, "background")).toBe(INK);
+        expect(Reflect.get(byClass("screenblank")?.style ?? {}, "background")).toBe(INK);
+        show({ scheme: "light" });
+        expect(ground()).toBe(CREAM);
+        expect(bars()).toBe("safari light");
+        expect(Reflect.get(byClass("screenblank")?.style ?? {}, "background")).toBe(CREAM);
+        expect(byClass("domain")?.textContent).toBe("example.com");
+        expect(touched).toBe(0);
+      });
+
+      test("follows the window's own scheme under system, and its change", () => {
+        setOutside(OUTSIDE, false, BOTH);
+        show({ scheme: "system" });
+        loaded();
+        expect(ground()).toBe(CREAM);
+        systemDark = true;
+        for (const listener of heard) listener();
+        expect(ground()).toBe(INK);
+        expect(bars()).toBe("safari dark");
+      });
+
+      test("takes one color alone for both schemes, in the ink that reads on it", () => {
+        setOutside(OUTSIDE, false, parseLook({ light: "#faf7f2" }));
+        show({ scheme: "dark" });
+        expect(ground()).toBe(CREAM);
+        expect(bars()).toBe("safari light");
+        show({ scheme: "light" });
+        expect(ground()).toBe(CREAM);
+        expect(bars()).toBe("safari light");
+        setOutside(OUTSIDE, false, parseLook({ dark: "rgb(20, 17, 15)" }));
+        show({ scheme: "light" });
+        expect(ground()).toBe(INK);
+        expect(bars()).toBe("safari dark");
+        show({ scheme: "dark" });
+        expect(ground()).toBe(INK);
+        expect(bars()).toBe("safari dark");
+      });
+
+      test("picks the ink by how bright the color is, whatever the scheme", () => {
+        setOutside(OUTSIDE, false, parseLook({ light: "#14110f", dark: "#faf7f2" }));
+        show({ scheme: "light" });
+        expect(ground()).toBe(INK);
+        expect(bars()).toBe("safari dark");
+        show({ scheme: "dark" });
+        expect(ground()).toBe(CREAM);
+        expect(bars()).toBe("safari light");
+      });
+
+      test("lays a color that lets some through over the scheme's canvas", () => {
+        setOutside(OUTSIDE, false, parseLook({ light: "rgba(0, 0, 0, 0.5)", dark: "#00000080" }));
+        show({ scheme: "light" });
+        expect(ground()).toBe("rgb(128, 128, 128)");
+        show({ scheme: "dark" });
+        expect(ground()).toBe("rgb(9, 9, 9)");
+      });
+
+      test("takes colors that come after the page was shown, and gives them up, at once", () => {
+        setOutside(OUTSIDE, false);
+        show({ scheme: "dark" });
+        expect(ground()).toBe(DARK);
+        lookOutside(BOTH);
+        show({ scheme: "dark" });
+        expect(ground()).toBe(INK);
+        expect(Reflect.get(byClass("screenblank")?.style ?? {}, "background")).toBe(INK);
+        loaded();
+        lookOutside(parseLook({ dark: "#203040" }));
+        show({ scheme: "dark" });
+        expect(ground()).toBe("rgb(32, 48, 64)");
+        expect(Reflect.get(frameElement().style, "background")).toBe("rgb(32, 48, 64)");
+        lookOutside(null);
+        show({ scheme: "dark" });
+        expect(ground()).toBe(DARK);
+        expect(bars()).toBe("safari dark");
+        expect(touched).toBe(0);
+      });
+
+      test("is as with none for a color that is no color", () => {
+        setOutside(OUTSIDE, false, parseLook({ light: "red", dark: "url(https://example.com/x)" }));
+        show({ scheme: "dark" });
+        expect(ground()).toBe(DARK);
+        expect(bars()).toBe("safari dark");
+        show({ scheme: "light" });
+        expect(ground()).toBe(LIGHT);
+      });
+
+      test("says a page refuses to be framed on its color", () => {
+        setOutside(OUTSIDE, true, BOTH);
+        show({ scheme: "dark" });
+        const screen = byClass("refused");
+        expect(Reflect.get(screen?.style ?? {}, "background")).toBe(INK);
+        expect(screen?.classList.contains("dark")).toBe(true);
+        show({ scheme: "light" });
+        expect(Reflect.get(screen?.style ?? {}, "background")).toBe(CREAM);
+        expect(screen?.classList.contains("dark")).toBe(false);
+      });
+
+      test("goes with the page: another one, and the window's own, start with none", async () => {
+        setOutside(OUTSIDE, false, BOTH);
+        show({ scheme: "dark" });
+        expect(ground()).toBe(INK);
+        setOutside("https://example.org/", false);
+        show({ scheme: "dark" });
+        expect(ground()).toBe(DARK);
+        setOutside(OUTSIDE, false, BOTH);
+        show({ scheme: "dark" });
+        expect(ground()).toBe(INK);
+        foreign = false;
+        clearOutside();
+        show({ scheme: "dark" });
+        expect(getOutside().look).toBeNull();
+        Reflect.set(attach(), "getComputedStyle", () => ({ backgroundColor: "rgb(250, 240, 230)", colorScheme: "" }));
+        await load(PAGE);
+        Reflect.set(view.document, "readyState", "complete");
+        play();
+        expect(ground()).toBe("rgb(250, 240, 230)");
+        expect(bars()).toBe("safari light");
+      });
     });
 
     test("leaves the window's own page to say how it looks, and goes back to it", async () => {
