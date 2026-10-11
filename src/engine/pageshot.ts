@@ -1,4 +1,5 @@
 import { blurWidths } from "./fold";
+import { reachable } from "./frame";
 import { objectPlace } from "./objectfit";
 import { embedFonts, forgetFonts } from "./pagefonts";
 
@@ -166,6 +167,7 @@ export function shootPage(
   color: string,
   layout = "",
 ): HTMLCanvasElement | null {
+  if (!reachable(frame)) return null;
   const doc = frame.contentDocument;
   const view = frame.contentWindow;
   const screen = glass.getBoundingClientRect();
@@ -422,6 +424,7 @@ function blankPictures(live: Element, copy: Element): void {
 
 /** The page in `frame`, copied as it is now for `paintPage`, or null where it is out of reach. */
 export function copyPage(frame: HTMLIFrameElement): Element | null {
+  if (!reachable(frame)) return null;
   const doc = frame.contentDocument;
   if (!doc?.documentElement) return null;
   // Its styles inlined, as a drawing of it loads nothing of its own, and the
@@ -483,6 +486,7 @@ export async function paintPage(
   color: string,
   copy: Element,
 ): Promise<HTMLCanvasElement | null> {
+  if (!reachable(frame)) return null;
   const doc = frame.contentDocument;
   const view = frame.contentWindow;
   const screen = glass.getBoundingClientRect();

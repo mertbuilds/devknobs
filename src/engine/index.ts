@@ -1,6 +1,6 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
 import * as requests from "../requests";
-import { hasTouch } from "./devices";
+import { DEVICES, hasTouch } from "./devices";
 import {
   framed,
   isDevknobsFrame,
@@ -15,6 +15,7 @@ import * as header from "./header";
 import * as locale from "./locale";
 import * as media from "./media";
 import * as network from "./network";
+import { clearOutside, parseOutside, refuseOutside, setOutside } from "./outside";
 import * as outlines from "./outlines";
 import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
@@ -87,6 +88,8 @@ export function applyState(next: DevknobsState): void {
   text.apply(state.text);
   spacing.apply(state.spacing);
   ua.apply(state.ua);
+  // An outside page goes with the frame it was shown in.
+  if (!inFrame && !needsFrame(state)) clearOutside();
   width.apply(state);
   // While the frame is up, the copy inside it looks at the page at that width.
   overflow.apply(state.overflow && !needsFrame(state));
@@ -99,6 +102,45 @@ export function applyState(next: DevknobsState): void {
 export function setState(patch: DevknobsStatePatch): DevknobsState {
   applyState(merge(state, patch));
   return state;
+}
+
+/** What `showOutside` takes besides the address. */
+export interface OutsideOptions {
+  /**
+   * The page refuses to be framed, as the host's own check of its headers
+   * said. The frame never asks for it, and the device's screen says so.
+   */
+  refused?: boolean;
+}
+
+/**
+ * Show an outside page in the frame: one on another origin, at the device's
+ * size, which no knob reaches into. Only an `http:` or `https:` address is
+ * taken. With no frame up, the first phone of the list brings one. False
+ * where nothing was shown: another kind of address, the copy inside the
+ * frame, or before the knobs started.
+ */
+export function showOutside(url: string, options: OutsideOptions = {}): boolean {
+  const outside = parseOutside(url);
+  if (!running || inFrame || outside === null) return false;
+  setOutside(outside, options.refused === true);
+  const phone = DEVICES.find((device) => device.kind === "phone");
+  applyState(merge(state, needsFrame(state) || !phone ? {} : { device: phone.id }));
+  return true;
+}
+
+/** The outside page shown refuses to be framed, as the host's own check said: the device's screen says so. */
+export function refuseShown(): void {
+  if (!running || inFrame) return;
+  refuseOutside();
+  applyState(state);
+}
+
+/** Put the window's own page back in the frame, which stays up. */
+export function showOwn(): void {
+  if (!running || inFrame) return;
+  clearOutside();
+  applyState(state);
 }
 
 /**
@@ -161,6 +203,7 @@ export function stop(): void {
   inFrame = false;
   width.onExit(null);
   width.onZoom(null);
+  clearOutside();
   media.destroy();
   touch.reset();
   touchPointer.reset();

@@ -1,6 +1,7 @@
 import * as engine from "../engine";
 import { now, realNow } from "../engine/clock";
 import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
+import { getOutside } from "../engine/outside";
 import { onCount, overflowCount } from "../engine/overflow";
 import { isMac } from "../engine/ua";
 import { setDockWidth, watchColumn } from "../engine/dock";
@@ -165,6 +166,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   const body = el("div", "body");
   const empty = el("div", "empty", "nothing emulated");
+  // Said once, over the rows, while the frame shows an outside page no knob reaches into.
+  const outside = el(
+    "div",
+    "empty",
+    "showing an outside page. knobs that change the page work only on your own site",
+  );
   const rows = el("div", "rows");
   const results = el("div", "results");
   results.id = "devknobs-results";
@@ -176,7 +183,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
 
   // The rows view, which the settings and a feature's view slide in over.
   const home = el("div", "home pane");
-  home.append(rows, empty, add, head, results);
+  home.append(outside, rows, empty, add, head, results);
 
   const footer = createFooter(keys, grab, mac, inspect);
   const { foot, badge, hints, keysToggle, pin, collapse } = footer;
@@ -303,6 +310,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const hot = state.overflow && live.overflow !== null && live.overflow > 0;
     knobRows.viewOf("debug")?.value.classList.toggle("hot", hot);
     empty.hidden = anyShown;
+    outside.hidden = getOutside().outside === null;
     rows.hidden = !anyShown;
     const resetHint = hints.get("reset");
     if (resetHint) resetHint.disabled = isReset(state);

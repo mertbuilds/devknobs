@@ -11,6 +11,7 @@ import { type Actions, el, FONT, type Look, MORPH, type Painted, place } from ".
 import { buildChrome, CHROME_CSS } from "./chromedraw";
 import { type Color, luminance, parseColor } from "./color";
 import { give } from "./endroom";
+import { OUTSIDE_ATTRIBUTE, reachable } from "./frame";
 import { baseMatchMedia } from "./matchmedia";
 import type { Rect } from "./mock";
 import { navigationOf } from "./reload";
@@ -96,7 +97,19 @@ function backgroundOf(doc: Document, view: Window, dark: boolean): [number, numb
   return base;
 }
 
-/** What the bars show for the page in the frame, white and empty while it is out of reach. */
+/** The host of the address an outside page's bar shows, which the frame carries. */
+function outsideHost(frame: HTMLIFrameElement): string {
+  try {
+    return new URL(frame.getAttribute(OUTSIDE_ATTRIBUTE) ?? "").host;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * What the bars show for the page in the frame, white and empty while it is
+ * out of reach. An outside page is white too, under its own host.
+ */
 export function readLook(frame: HTMLIFrameElement): Look {
   const fallback: Look = {
     background: "rgb(255, 255, 255)",
@@ -106,6 +119,7 @@ export function readLook(frame: HTMLIFrameElement): Look {
     canBack: false,
     canForward: false,
   };
+  if (!reachable(frame)) return { ...fallback, host: outsideHost(frame) };
   try {
     const view = frame.contentWindow;
     const doc = frame.contentDocument;
@@ -132,6 +146,7 @@ export function readLook(frame: HTMLIFrameElement): Look {
 
 /** Can the frame's page be read? Not on another origin, or behind an error page. */
 function reaches(frame: HTMLIFrameElement): boolean {
+  if (!reachable(frame)) return false;
   try {
     return !!frame.contentDocument?.documentElement;
   } catch {
@@ -240,21 +255,29 @@ export function createBrowser(
     if (motion.minimized !== before) queueMicrotask(onChange);
   };
   const onScroll = () => {
+    if (!reachable(frame)) return;
     const page = frame.contentWindow;
     if (page) step({ type: "scroll", y: page.scrollY, time: performance.now() });
   };
   const actions: Actions = {
-    back: () => frame.contentWindow?.history.back(),
-    forward: () => frame.contentWindow?.history.forward(),
+    // An outside page keeps its history to itself.
+    back: () => {
+      if (reachable(frame)) frame.contentWindow?.history.back();
+    },
+    forward: () => {
+      if (reachable(frame)) frame.contentWindow?.history.forward();
+    },
     reload: () => {
       // While a page loads the button is Safari's stop, and the page shows as far as it got.
       if (busy) {
-        frame.contentWindow?.stop();
+        if (reachable(frame)) frame.contentWindow?.stop();
         stopLoading();
         return;
       }
       onReload();
-      frame.contentWindow?.location.reload();
+      if (reachable(frame)) frame.contentWindow?.location.reload();
+      // An outside page loads again from the address the frame was given.
+      else frame.src = frame.src;
     },
     expand: () => step({ type: "tap" }),
   };
@@ -266,6 +289,7 @@ export function createBrowser(
    */
   const roomFrame = () => {
     const bars = view?.bars ?? null;
+    if (!reachable(frame)) return;
     try {
       const page = frame.contentWindow;
       const doc = frame.contentDocument;
@@ -355,6 +379,7 @@ export function createBrowser(
   };
   /** The page in the frame, or null once it is on another origin, or an error page. */
   const pageOf = (): Document | null => {
+    if (!reachable(frame)) return null;
     try {
       return frame.contentDocument;
     } catch {
@@ -396,8 +421,8 @@ export function createBrowser(
   const read = () => {
     try {
       // The window stays the same across loads, its document does not.
-      const page = frame.contentWindow;
-      const doc = frame.contentDocument;
+      const page = reachable(frame) ? frame.contentWindow : null;
+      const doc = page ? frame.contentDocument : null;
       if (page && doc && doc !== watched) {
         query?.removeEventListener("change", read);
         query = page.matchMedia("(prefers-color-scheme: dark)");
@@ -406,7 +431,7 @@ export function createBrowser(
         watched = doc;
       }
       // A new page, or a new address in this one, starts with the bars out.
-      const now = page?.location.href ?? "";
+      const now = page?.location.href ?? frame.getAttribute(OUTSIDE_ATTRIBUTE) ?? "";
       if (now !== href) {
         href = now;
         step({ type: "navigate" });
@@ -452,7 +477,7 @@ export function createBrowser(
       clearTimeout(shrinking);
       query?.removeEventListener("change", read);
       try {
-        frame.contentWindow?.removeEventListener("scroll", onScroll);
+        if (reachable(frame)) frame.contentWindow?.removeEventListener("scroll", onScroll);
       } catch {
         // The frame went to another origin.
       }

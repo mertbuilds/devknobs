@@ -130,6 +130,21 @@ iframe {
      page that leaves its background to the browser. */
   background: Canvas;
 }
+/* Over the frame, on the device's screen, for an outside page that refuses to be framed. */
+.refused {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12%;
+  text-align: center;
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #6e6e73;
+  background: #fff;
+}
+.refused[hidden] { display: none; }
 .blocked {
   position: absolute;
   inset: 0;

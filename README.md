@@ -57,8 +57,9 @@ const DevKnobs =
 ```
 
 api: `mount(options?)`, `unmount()`, `getState()`, `setState(patch)`,
-`reset()`, `replay()`, `grab(elements, options?)`, `PRESETS`. `replay()` is what
-the panel calls replay animations.
+`reset()`, `replay()`, `grab(elements, options?)`, `frame`, `PRESETS`.
+`replay()` is what the panel calls replay animations. `frame` shows an outside
+page in the device, see an outside page in the frame below.
 
 ```js
 setState({ scheme: "dark" });
@@ -701,6 +702,65 @@ frame was. a page that refuses to be framed (`x-frame-options`,
 underneath is `inert` and `content-visibility: hidden` until the frame goes,
 and its scroll position comes back after. meanwhile its modal dialogs open as
 plain ones and its popovers stay hidden, as both would paint over the frame.
+
+### an outside page in the frame
+
+the frame can also show a page from another origin, such as a site a visitor
+pastes the address of. it is a frame only: the page is shown at the device's
+size, in its body, on the mat, and it turns, folds and changes device like
+your own page. nothing reaches into it.
+
+```js
+import { frame } from "devknobs";
+
+frame.show("https://example.com"); // false for anything but http and https
+frame.own(); // your own page again
+
+frame.get(); // { outside: "https://example.com/", refused: false, loaded: false }
+const stop = frame.subscribe(({ outside, refused, loaded }) => {});
+```
+
+with the script tag it is `window.devknobs.frame`. `show` brings the frame up
+as the first phone of the list where no device is on, and `own` leaves the
+frame up with your own page in it. turning the frame off goes back to your own
+page too. the outside page is for the session only: it is never stored, so a
+reload of the window is back on your own page.
+
+what works: the device's size and its fit, its body, the mat, turning, another
+device, the status bar, the browser's bars and the reload button, which asks
+for the address again. the bars are drawn still, with the page's host in the
+address, on white, as the page's scroll and colors cannot be read. the Duo
+folds and unfolds with a dark screen on the half that turns, as there is no
+picture of the page to put there. device pixel ratio and vision are set on
+the frame, so they work too.
+
+what does not: every knob that changes the page. color scheme, contrast,
+motion, transparency, text size, spacing, locale, time zone, clock,
+geolocation, network, user agent, touch, the touch pointer, speed, outlines,
+overflow, replay and grab all act inside a page, and devknobs is not in this
+one. the panel says so in one line while an outside page shows. the knobs
+keep their values for your own page. one exception: where the browser hands a
+frame's `color-scheme` down, the scheme knob still reaches an outside page,
+as that is set on the frame.
+
+the outside frame is sandboxed with `allow-scripts`, `allow-same-origin` (for
+its own origin), `allow-forms`, `allow-popups` and
+`allow-popups-to-escape-sandbox`, and nothing that navigates the window above.
+it sends no referrer and gets no `allow` permissions.
+
+many sites refuse to be framed with `x-frame-options` or `frame-ancestors`.
+the browser shows a blank or an error page then, and tells the page above
+nothing, so devknobs does not guess. `loaded` only says the frame's load
+event came, which a refused page sends too. check the headers on your server
+and say so:
+
+```js
+frame.show(url, { refused: true }); // known before showing it
+frame.refuse(); // found out after
+```
+
+the device's screen then reads `this site does not allow being shown inside
+another page`, and the page is not asked for.
 
 ## devices
 

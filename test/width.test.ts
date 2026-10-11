@@ -2,11 +2,18 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SCREENS, turn } from "../src/engine/devices";
 import { type ColumnEdge, DOCK_WIDTH, setDockWidth, watchColumn } from "../src/engine/dock";
 import { FOLD_TIME } from "../src/engine/fold";
-import { UNFRAMED } from "../src/engine/frame";
+import { OUTSIDE_ATTRIBUTE, UNFRAMED } from "../src/engine/frame";
 import { FRESH_ATTRIBUTE, FRESH_RELOAD_KEY } from "../src/engine/fresh";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
 import { holeAt, holePath, MORPH_TIME, rounded, windowRect } from "../src/engine/morph";
+import {
+  clearOutside,
+  getOutside,
+  refuseOutside,
+  setOutside,
+} from "../src/engine/outside";
+import { copyPage, paintPage, shootPage } from "../src/engine/pageshot";
 import { keepDrawing, SNAPSHOT_KEY } from "../src/engine/placeholder";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import { type Mark, MARK_EVENT } from "../src/engine/touchmark";
@@ -3010,5 +3017,256 @@ describe("a panel pinned to its side", () => {
       expect(drawn()).toBe("");
       expect(assigned).toEqual([]);
     });
+  });
+});
+
+describe("an outside page in the frame", () => {
+  const OUTSIDE = "https://example.com/pricing";
+  const PHONE_STATE = merge(DEFAULT_STATE, { device: "iphone-16-pro", dpr: "system" });
+  const DUO = { ...KNOBS, device: "iphone-duo", dpr: "system", browser: "off" } as const;
+  const SHUT = { ...DUO, posture: "closed", orientation: "portrait", width: 466, height: 678 } as const;
+  const OPEN = { ...DUO, posture: "open", orientation: "landscape", width: 951, height: 669 } as const;
+  /** How many times the frame's window or document was asked for. */
+  let touched: number;
+  /** Every address the frame was sent to. */
+  let sent: string[];
+  let queued: FrameRequestCallback[];
+  let reduce: boolean;
+  let errors: unknown[][];
+  const consoleError = console.error;
+  /** The frames made next hold a page on another origin. */
+  let foreign: boolean;
+
+  /** Another origin's page is in `frame`: its window and its document throw when asked for. */
+  function estrange(frame: object): void {
+    for (const key of ["contentWindow", "contentDocument"]) {
+      Object.defineProperty(frame, key, {
+        configurable: true,
+        get() {
+          touched++;
+          throw new Error("SecurityError");
+        },
+      });
+    }
+  }
+
+  beforeEach(() => {
+    touched = 0;
+    sent = [];
+    queued = [];
+    reduce = true;
+    errors = [];
+    console.error = (...args: unknown[]) => errors.push(args);
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "", transform: "none" }));
+    Object.assign(window, {
+      matchMedia: (query: string) => ({ matches: reduce && query.includes("reduce"), media: query }),
+      requestAnimationFrame: (callback: FrameRequestCallback) => queued.push(callback),
+      cancelAnimationFrame: () => {},
+    });
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+    foreign = true;
+    // A frame's page is on another origin from the start, unless a test says not.
+    const create = document.createElement;
+    Reflect.set(document, "createElement", (tag: string) => {
+      const element = create(tag);
+      if (tag !== "iframe") return element;
+      if (foreign) estrange(element);
+      let src = "";
+      Object.defineProperty(element, "src", {
+        configurable: true,
+        get: () => src,
+        set(next: string) {
+          src = next;
+          sent.push(next);
+        },
+      });
+      return element;
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    clearOutside();
+    Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+  });
+
+  /** Run the frames asked for, 16 ms apart, until none is asked for or `until` ms. */
+  function play(until = 2000): void {
+    for (let now = 0; now <= until && queued.length > 0; now += 16) {
+      for (const callback of queued.splice(0)) callback(now);
+    }
+  }
+
+  const byClass = (name: string) =>
+    everything().find((element) => String(Reflect.get(element, "className")).split(" ").includes(name));
+
+  function loaded(): void {
+    frameElement().dispatchEvent(new Event("load"));
+  }
+
+  test("is asked for under a sandbox that cannot navigate the window, with no referrer", () => {
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    const frame = frameElement();
+    expect(sent).toEqual([OUTSIDE]);
+    expect(frame.getAttribute(OUTSIDE_ATTRIBUTE)).toBe(OUTSIDE);
+    expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(frame.hasAttribute("allow")).toBe(false);
+    const sandbox = frame.getAttribute("sandbox")?.split(" ") ?? [];
+    expect(sandbox).toEqual(
+      expect.arrayContaining(["allow-scripts", "allow-same-origin", "allow-forms", "allow-popups"]),
+    );
+    expect(sandbox.filter((flag) => flag.startsWith("allow-top-navigation"))).toEqual([]);
+    expect(sandbox).not.toContain("allow-modals");
+  });
+
+  test("goes through the frame's whole life without its window or document ever being asked for", async () => {
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    await Bun.sleep(1);
+    play();
+    expect(getOutside().loaded).toBe(false);
+    loaded();
+    play();
+    expect(getOutside().loaded).toBe(true);
+    // Its mat, its sync, a turn, another device and a zoom.
+    sync(PHONE_STATE);
+    apply({ ...PHONE_STATE, mat: "green" });
+    apply(merge(PHONE_STATE, { orientation: "landscape" }));
+    play();
+    apply(merge(PHONE_STATE, { device: "pixel-10" }));
+    play();
+    expect(zoomKey("zoom-in")).toBe(true);
+    // A foldable folds open and shut with no picture of the page.
+    apply(SHUT);
+    play();
+    reduce = false;
+    apply(OPEN);
+    expect(byClass("fold")).toBeDefined();
+    play();
+    apply(SHUT);
+    play();
+    reduce = true;
+    // Refused, another outside page, and the window's own again.
+    refuseOutside();
+    apply(SHUT);
+    setOutside("https://example.org/", false);
+    apply(SHUT);
+    loaded();
+    clearOutside();
+    apply(SHUT);
+    play();
+    reset();
+    expect(touched).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("gives no picture of itself for a fold", async () => {
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    const frame = frameElement() as unknown as HTMLIFrameElement;
+    const glass = byClass("glass") as unknown as HTMLElement;
+    const copy = new FakeElement("HTML") as unknown as Element;
+    const size = { width: 402, height: 874 };
+    expect(copyPage(frame)).toBeNull();
+    expect(shootPage(frame, glass, size, "#fff")).toBeNull();
+    expect(await paintPage(frame, glass, size, "#fff", copy)).toBeNull();
+    expect(touched).toBe(0);
+  });
+
+  test("never shows the notice of a page that will not load in a frame", () => {
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    loaded();
+    expect(Reflect.get(byClass("blocked") ?? {}, "hidden")).toBe(true);
+    expect(Reflect.get(byClass("refused") ?? {}, "hidden")).toBe(true);
+  });
+
+  test("has its host in the drawn browser's bar", () => {
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    loaded();
+    play();
+    expect(everything().some((element) => element.textContent === "example.com")).toBe(true);
+  });
+
+  test("loads again from its address on the drawn browser's reload button", () => {
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    loaded();
+    play();
+    const [glyph] = new Set(everything().filter((element) => element.classList.contains("press")));
+    glyph?.dispatchEvent(new Event("click"));
+    expect(sent).toEqual([OUTSIDE, OUTSIDE]);
+    expect(getOutside().loaded).toBe(false);
+    expect(Reflect.get(byClass("screenblank") ?? {}, "hidden")).toBe(false);
+    loaded();
+    play();
+    expect(getOutside().loaded).toBe(true);
+    expect(Reflect.get(byClass("screenblank") ?? {}, "hidden")).toBe(true);
+    expect(touched).toBe(0);
+  });
+
+  test("that refuses to be framed is never asked for, and the device's screen says so", () => {
+    setOutside(OUTSIDE, true);
+    apply(PHONE_STATE);
+    expect(sent).toEqual(["about:blank"]);
+    const screen = byClass("refused");
+    expect(screen?.textContent).toBe("this site does not allow being shown inside another page");
+    expect(screen && Reflect.get(screen, "hidden")).toBe(false);
+    expect(screen?.parent).toBe(frameElement().parent);
+    loaded();
+    expect(getOutside().loaded).toBe(false);
+  });
+
+  test("said to refuse once it is shown leaves the frame, and the screen says so", () => {
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    loaded();
+    refuseOutside();
+    apply(PHONE_STATE);
+    expect(sent).toEqual([OUTSIDE, "about:blank"]);
+    expect(Reflect.get(byClass("refused") ?? {}, "hidden")).toBe(false);
+    expect(getOutside()).toEqual({ outside: OUTSIDE, refused: true, loaded: false });
+  });
+
+  test("takes the place of the window's own page in a frame that is up, and gives it back", async () => {
+    foreign = false;
+    apply(PHONE_STATE);
+    const frame = frameElement();
+    const own = frame.getAttribute("sandbox");
+    await load(PAGE);
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    estrange(frame);
+    expect(frameElement()).toBe(frame);
+    expect(sent).toEqual([PAGE, OUTSIDE]);
+    expect(frame.getAttribute("sandbox")).not.toBe(own);
+    loaded();
+    clearOutside();
+    apply(PHONE_STATE);
+    expect(sent).toEqual([PAGE, OUTSIDE, PAGE]);
+    expect(frame.getAttribute("sandbox")).toBe(own);
+    expect(frame.hasAttribute("referrerpolicy")).toBe(false);
+    // Out of reach still, until its own page is in.
+    expect(frame.hasAttribute(OUTSIDE_ATTRIBUTE)).toBe(true);
+    Reflect.deleteProperty(frame, "contentWindow");
+    Reflect.deleteProperty(frame, "contentDocument");
+    await load(PAGE);
+    expect(frame.hasAttribute(OUTSIDE_ATTRIBUTE)).toBe(false);
+    expect(location.href).toBe(PAGE);
+    expect(touched).toBe(0);
+  });
+
+  test("leaves the window where it is when the frame goes", () => {
+    setOutside(OUTSIDE, false);
+    apply(PHONE_STATE);
+    loaded();
+    apply(merge(PHONE_STATE, { device: "none" }));
+    play();
+    reset();
+    expect(assigned).toEqual([]);
+    expect(location.href).toBe(PAGE);
   });
 });

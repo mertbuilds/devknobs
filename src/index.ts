@@ -3,6 +3,7 @@ import { DEVICES } from "./engine/devices";
 import { isDevknobsFrame } from "./engine/frame";
 import { GEO_PRESETS } from "./engine/geo";
 import { LOCALE_PRESETS } from "./engine/locale";
+import { getOutside, subscribeOutside } from "./engine/outside";
 import { TIME_ZONE_PRESETS } from "./engine/time";
 import { UA_PRESETS } from "./engine/ua";
 import { createGrab, type GrabControl } from "./grab/control";
@@ -53,7 +54,8 @@ export type {
 export type { DeviceKind, DevicePreset } from "./engine/devices";
 export type { GeoPreset } from "./engine/geo";
 export type { UaBrand, UaHints, UaPreset } from "./engine/ua";
-export type { EngineOptions } from "./engine";
+export type { EngineOptions, OutsideOptions } from "./engine";
+export type { OutsideListener, OutsideState } from "./engine/outside";
 export type { GrabEntry, GrabFrame, GrabOptions, GrabPayload, ResolvedSource } from "./grab/types";
 
 export interface MountOptions extends engine.EngineOptions {
@@ -164,6 +166,34 @@ export const getState = engine.getState;
 export const setState = engine.setState;
 export const reset = engine.reset;
 export const replay = engine.replay;
+
+/**
+ * The device frame showing an outside page: one on another origin, such as a
+ * site a visitor pastes the address of. It is shown at the device's size, in
+ * its body and bars, and no knob reaches into it. Nothing of it is stored.
+ */
+export const frame = {
+  /**
+   * Show the page at `url` in the frame, and bring the frame up as a phone
+   * where there is none. Only `http:` and `https:` addresses are taken: false
+   * for any other. `refused` shows the screen of a page that refuses to be
+   * framed, without asking for the page.
+   */
+  show: engine.showOutside,
+  /**
+   * The outside page shown refuses to be framed, as the host's own check of
+   * its `x-frame-options` and `frame-ancestors` said: the device's screen
+   * says so. The browser tells a page above no such thing, so devknobs never
+   * guesses it.
+   */
+  refuse: engine.refuseShown,
+  /** Put the window's own page back in the frame. */
+  own: engine.showOwn,
+  /** What the frame shows now. */
+  get: getOutside,
+  /** Hear about every change of what the frame shows, its load included. Returns the way to stop. */
+  subscribe: subscribeOutside,
+};
 
 /**
  * Copy what an agent needs to find the elements in the code: their html, the
