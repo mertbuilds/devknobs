@@ -1,5 +1,14 @@
 # changelog
 
+## unreleased
+
+### device frame
+
+- `frame.show(url)` shows a page from another origin in the device, at its size, in its body and bars, and `frame.own()` puts your own page back. only `http` and `https` addresses are taken. `frame.get()` and `frame.subscribe()` say what the frame shows and when it loaded
+- an outside page is a frame only: turning, folding, another device, the mat and the reload button work, and the bars are drawn still with the page's host. knobs that change the page do not reach it, and the panel says so in one line
+- `frame.show(url, { refused: true })` and `frame.refuse()` put a plain message on the device's screen for a site that refuses to be framed, after the host's own check of its headers
+- an outside page is never stored: a reload of the window is back on your own page
+
 ## 0.1.2
 
 ### iPhone Duo

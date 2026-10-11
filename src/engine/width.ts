@@ -11,7 +11,9 @@ import {
   type FrameKnobs,
   handsSchemeDown,
   needsFrame,
+  OUTSIDE_ATTRIBUTE,
   post,
+  reachable,
   readMessage,
   UNFRAMED,
   type ZoomAction,
@@ -20,6 +22,7 @@ import { drawMat } from "./mat";
 import { landSplash, spreadMat } from "./matsplash";
 import { createNotice } from "./notice";
 import type { Mock, Rect } from "./mock";
+import { getOutside, landOutside, reloadingOutside } from "./outside";
 import { corners, drawMock, UNDER } from "./mockdraw";
 import { drawnAt, glideFrame, landGlide, placeKey } from "./frameglide";
 import {
@@ -116,6 +119,25 @@ const SANDBOX = [
   "allow-top-navigation-by-user-activation",
 ].join(" ");
 
+/**
+ * What an outside page gets: enough for a site to run as it does in a tab of
+ * its own, and nothing that lets it navigate the window above, a click
+ * included, as it is on another origin and its links are not the window's.
+ */
+const OUTSIDE_SANDBOX = [
+  "allow-scripts",
+  "allow-same-origin",
+  "allow-forms",
+  "allow-popups",
+  "allow-popups-to-escape-sandbox",
+].join(" ");
+
+/** What the screen says for an outside page the host says refuses to be framed. */
+const REFUSED = "this site does not allow being shown inside another page";
+
+/** The size of that text, in the device's css px. */
+const REFUSED_SIZE = 15;
+
 let host: HTMLElement | null = null;
 /** The mat around the frame, readout strip included, which the frame is fitted to. */
 let letterbox: HTMLElement | null = null;
@@ -160,6 +182,12 @@ let settling = 0;
 let zoomTo: ((zoom: ZoomValue) => void) | null = null;
 /** Says so when the page will not load in a frame. */
 let notice: HTMLElement | null = null;
+/** Says so on the device's screen, over the frame, for an outside page that refuses to be framed. */
+let refusal: HTMLElement | null = null;
+/** The outside page the frame was last pointed at, or null for the window's own. */
+let there: string | null = null;
+/** That page was put there as one that refuses to be framed. */
+let denied = false;
 /** Turns every knob that keeps the frame up off. The engine hands it in. */
 let exit: (() => void) | null = null;
 let current: ViewportValue = {
@@ -196,7 +224,7 @@ let released = false;
 
 /** The window inside the frame, while there is one. */
 export function frameWindow(): Window | null {
-  return frame?.contentWindow ?? null;
+  return frame && reachable(frame) ? frame.contentWindow : null;
 }
 
 function share(): void {
@@ -212,8 +240,9 @@ export function sync(state: DevknobsState): void {
 
 /** Where the frame is now. A frame that left the origin keeps the last place seen. */
 function locate(): string {
+  if (!frame || !reachable(frame)) return frameUrl;
   try {
-    const href = frame?.contentWindow?.location.href;
+    const href = frame.contentWindow?.location.href;
     if (href && href !== "about:blank") frameUrl = href;
   } catch {
     // Another origin: the frame cannot be followed there.
@@ -231,8 +260,9 @@ export function onZoom(handler: ((zoom: ZoomValue) => void) | null): void {
 
 /** The page in the frame, or null once it is on another origin, or an error page. */
 function frameDocument(): Document | null {
+  if (!frame || !reachable(frame)) return null;
   try {
-    return frame?.contentDocument ?? null;
+    return frame.contentDocument;
   } catch {
     return null;
   }
@@ -246,8 +276,12 @@ function warmFold(): void {
 
 function onLoad(): void {
   loaded = true;
+  // The window's own page is back in the frame, and can be read again.
+  if (there === null) frame?.removeAttribute(OUTSIDE_ATTRIBUTE);
+  else if (!denied) landOutside();
   const doc = frameDocument();
-  if (notice) notice.hidden = doc !== null;
+  // An outside page is out of reach as it should be, which is nothing to say.
+  if (notice) notice.hidden = doc !== null || there !== null;
   locate();
   const view = frameWindow();
   if (view && doc) {
@@ -433,6 +467,7 @@ function resize(): void {
   // A fitted frame never scrolls, so no rounding can bring a scrollbar.
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
+  if (refusal) refusal.style.fontSize = `${REFUSED_SIZE * place.zoom}px`;
   showBrowser(bars, page, place, auto);
   drawing.style.width = `${place.box.width}px`;
   drawing.style.height = `${place.box.height}px`;
@@ -705,7 +740,9 @@ function keep(): void {
     clearSnapshot();
     return;
   }
-  const look = browser?.look() ?? readLook(frame);
+  const shown = browser?.look() ?? readLook(frame);
+  // The next page is the window's own, whatever outside page is in the frame now.
+  const look = there === null ? shown : { ...shown, host: window.location.host };
   const key = snapshotKey(current, window);
   keepDrawing({ letterbox, zoom: picker.value, key, css: VIEWPORT_CSS, look });
 }
@@ -718,7 +755,68 @@ function pictureLoading(): boolean {
 }
 
 function onReloading(): void {
+  // An outside page says nothing but that it loaded, so the screen waits for that.
+  if (frame && there !== null && !denied) {
+    loaded = false;
+    reloadingOutside();
+  }
   if (!running()) browser?.startLoading(null);
+}
+
+/** Follow the pages of the frame for the reloads, while the window's own page is in it. */
+function track(): void {
+  reload.track({
+    view: frameWindow,
+    page: frameDocument,
+    loaded: () => loaded,
+    reloading: onReloading,
+  });
+}
+
+/** The screen says so, over the frame, while its outside page refuses to be framed. */
+function showRefusal(): void {
+  if (refusal) refusal.hidden = !denied;
+}
+
+/**
+ * Put the page the frame is for in it: an outside page, which nothing reads
+ * from then on, or the window's own again. `fresh` is a frame that just came
+ * up, with no page in it yet.
+ */
+function aim(fresh = false): void {
+  const { outside, refused } = getOutside();
+  if (!frame || released || (!fresh && outside === there && refused === denied)) return;
+  const was = there;
+  there = outside;
+  denied = outside !== null && refused;
+  showRefusal();
+  if (outside === null) {
+    // Its own page again, under the same sandbox as before, read once it has loaded.
+    if (!fresh) frame.setAttribute(OUTSIDE_ATTRIBUTE, frameUrl);
+    frame.removeAttribute("referrerpolicy");
+    frame.setAttribute("sandbox", SANDBOX);
+    loaded = false;
+    frame.src = frameUrl;
+    track();
+  } else {
+    // The window's own page is let go of while it can still be reached.
+    if (was === null && !fresh) {
+      address.unwatch();
+      reload.untrack();
+    }
+    frame.setAttribute(OUTSIDE_ATTRIBUTE, outside);
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.setAttribute("sandbox", OUTSIDE_SANDBOX);
+    if (notice) notice.hidden = true;
+    // A page that refuses to be framed is never asked for.
+    loaded = denied;
+    frame.src = denied ? "about:blank" : outside;
+  }
+  if (fresh) return;
+  browser?.stopLoading();
+  // The bars say where the frame is going at once, over a blank screen until it is there.
+  if (!loaded && !running()) browser?.startLoading(readLook(frame));
+  else browser?.refresh();
 }
 
 /**
@@ -763,23 +861,18 @@ function open(veiled: number | null, first: boolean): void {
   frame.setAttribute(FRAME_ATTRIBUTE, "");
   frame.name = FRAME_NAME;
   frame.title = "devknobs viewport";
-  frame.setAttribute("sandbox", SANDBOX);
   frameUrl = window.location.href;
   address.follow({ page: frameDocument, locate, refresh: () => browser?.refresh() });
   scroll = { x: window.scrollX, y: window.scrollY };
-  loaded = false;
-  frame.src = frameUrl;
-  frame.addEventListener("load", onLoad);
-  reload.track({
-    view: frameWindow,
-    page: frameDocument,
-    loaded: () => loaded,
-    reloading: onReloading,
-  });
   notice = createNotice(() => exit?.());
+  refusal = document.createElement("div");
+  refusal.className = "refused";
+  refusal.textContent = REFUSED;
+  aim(true);
+  frame.addEventListener("load", onLoad);
   pageBox = document.createElement("div");
   pageBox.className = "page";
-  pageBox.append(frame);
+  pageBox.append(frame, refusal);
   glass.append(pageBox);
   // The page's scroll minimizing or bringing back the bars resizes the frame.
   browser = createBrowser(glass, frame, resize, onReloading, painted);
@@ -864,6 +957,9 @@ function teardown(): void {
   mockKey = "";
   frame = null;
   notice = null;
+  refusal = null;
+  there = null;
+  denied = false;
   readout = null;
   caption = null;
   picker = null;
@@ -903,6 +999,7 @@ function close(follow: boolean): void {
 }
 
 export function apply(value: ViewportValue): void {
+  aim();
   const shape = shapeOf(value);
   const from = heading;
   heading = shape;

@@ -100,6 +100,10 @@ class FakeNode {
     this.attributes.set(name, value);
   }
 
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name);
+  }
+
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
   }

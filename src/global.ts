@@ -1,7 +1,7 @@
 import { bezelsBeside } from "./engine/bezels";
-import { getState, grab, mount, replay, reset, setState, unmount } from "./index";
+import { frame, getState, grab, mount, replay, reset, setState, unmount } from "./index";
 
-const api = { mount, unmount, getState, setState, reset, replay, grab };
+const api = { mount, unmount, getState, setState, reset, replay, grab, frame };
 
 declare global {
   interface Window {

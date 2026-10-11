@@ -64,7 +64,7 @@ class FakeDocument {
 }
 
 function frameOf(doc: FakeDocument | null): HTMLIFrameElement {
-  return { contentDocument: doc } as unknown as HTMLIFrameElement;
+  return { contentDocument: doc, hasAttribute: () => false } as unknown as HTMLIFrameElement;
 }
 
 afterEach(() => {
@@ -109,7 +109,7 @@ describe("forgetShots", () => {
     const doc = { body, images: [], querySelectorAll: () => [], createRange: () => ({}), defaultView: {} };
     Reflect.set(doc.defaultView, "MutationObserver", Observer);
     const view = { innerWidth: 100, innerHeight: 200, scrollX: 0, scrollY: 0 };
-    const frame = { contentDocument: doc, contentWindow: view, getBoundingClientRect: () => rect };
+    const frame = { contentDocument: doc, contentWindow: view, hasAttribute: () => false, getBoundingClientRect: () => rect };
     const glass = { getBoundingClientRect: () => rect };
     const pen = { fillRect() {}, setTransform() {}, beginPath() {}, rect() {}, clip() {} };
     const canvas = { width: 0, height: 0, getContext: () => pen };
@@ -219,7 +219,7 @@ describe("paintPage", () => {
     const rect = { left: 0, top: 0, width: 100, height: 200, right: 100, bottom: 200 };
     const doc = { querySelectorAll: () => [] };
     const view = { innerWidth: 100, innerHeight: 200, scrollX: 0, scrollY: 0 };
-    const frame = { contentDocument: doc, contentWindow: view, getBoundingClientRect: () => rect };
+    const frame = { contentDocument: doc, contentWindow: view, hasAttribute: () => false, getBoundingClientRect: () => rect };
     const glass = { getBoundingClientRect: () => rect };
     const root = { getAttribute: () => null, setAttribute() {} };
     const copy = { cloneNode: () => root };
