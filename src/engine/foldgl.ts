@@ -27,7 +27,8 @@ import type { Rect } from "./mock";
  * blurred together with the black there, so its colour spreads into the
  * dark and the line between them never shows, and so at the turned screen's
  * free edge, where the page is cut off as it is seen. The blur is the picture's
- * mipmaps, sampled 25 times about each point as far apart as it is wide.
+ * mipmaps, sampled 25 times about each point as far apart as it is wide,
+ * and where there is no blur, all on the point.
  * Its shades are worked out there too, at every px.
  * The picture goes up once as the fold starts, and each frame sets only a
  * few numbers and draws one quad. Where WebGL2 is not, the page's blurrier
@@ -108,6 +109,45 @@ export function blurAt(look: ScreenLook, t: number, inside: number): number {
   const rim = look.edge[0] + (look.edge[1] - look.edge[0]) * t;
   if (rim <= 0) return wipe;
   return Math.max(wipe, rim * (1 - smoothstep(0, tune.edgeReach * rim, inside)));
+}
+
+/** The share of a blurred point each of its taps takes, by how many taps it is from the middle one, each way: a row's five add up to 1. */
+export const WEIGHTS = [0.375, 0.25, 0.0625] as const;
+
+/**
+ * The picture's level a point needs with no blur at all, as the hardware
+ * picks it by itself: a px of the canvas to its `right` and one `down` are
+ * that many of the picture's px away. 0 where the picture is no denser than
+ * the canvas.
+ */
+export function sharpLevel(right: [number, number], down: [number, number]): number {
+  return 0.5 * Math.log2(Math.max(1, right[0] ** 2 + right[1] ** 2, down[0] ** 2 + down[1] ** 2));
+}
+
+/**
+ * The picture's level the taps `gap` css px apart are taken from, the
+ * picture `texels` of its px to a css px: a tap's own px as wide as the gap,
+ * and never sharper than `sharp`, the level with no blur. It has no step
+ * anywhere in `gap`, so nowhere on the screen does the picture change level
+ * at once.
+ */
+export function levelAt(gap: number, texels: number, sharp: number): number {
+  return Math.max(sharp, Math.log2(Math.max(1, gap * texels)));
+}
+
+/**
+ * What the shader's 25 taps about a point add up to, `gap` apart, each read
+ * by `sample`: with no gap they all fall on the point, so it is the point's
+ * own, sharp.
+ */
+export function tapped(sample: (x: number, y: number) => number, x: number, y: number, gap: number): number {
+  let sum = 0;
+  for (let down = -2; down <= 2; down++) {
+    for (let right = -2; right <= 2; right++) {
+      sum += sample(x + right * gap, y + down * gap) * (WEIGHTS[Math.abs(right)] ?? 0) * (WEIGHTS[Math.abs(down)] ?? 0);
+    }
+  }
+  return sum;
 }
 
 /** How much of the picture there is `at` css px along a picture `span` long, softened over `soft` either way: none past its ends. */
@@ -219,6 +259,11 @@ void main() {
  * varies gets a little noise, under a step of the screen's 256, so a dark,
  * slow shade shows no bands. What `tune` has comes in as uniforms, so a
  * number changed by hand shows at the next draw.
+ * Every px goes one way through it: the same taps from a level that
+ * `levelAt` has, which close onto the point as the blur goes to none. A px
+ * that took another way than the next one, by how wide its blur is, drew a
+ * line where they met, which moved with the fold. Only a draw with no blur
+ * anywhere takes one tap, and what says so is the same for all of its px.
  */
 export const FRAGMENT = `#version 300 es
 precision highp float;
@@ -241,7 +286,7 @@ uniform float grain;
 uniform float px;
 in vec2 pos;
 out vec4 color;
-const float WEIGHTS[3] = float[3](0.375, 0.25, 0.0625);
+const float WEIGHTS[3] = float[3](${WEIGHTS.join(", ")});
 float cover(float at, float span, float soft) {
   return smoothstep(-soft, soft, at) * (1.0 - smoothstep(span - soft, span + soft, at));
 }
@@ -272,6 +317,10 @@ float seen(vec2 at, float soft) {
   return cover(dot(along, at), dot(along, stage), soft) * (1.0 - smoothstep(free - reach, free + reach, dot(line.xy, at) + line.z));
 }
 void main() {
+  vec2 texels = vec2(textureSize(page, 0)) / stage;
+  vec2 right = dFdx(pos) * texels;
+  vec2 down = dFdy(pos) * texels;
+  float sharp = 0.5 * log2(max(1.0, max(dot(right, right), dot(down, down))));
   float t = clamp(dot(line.xy, pos) + line.z, 0.0, 1.0);
   float span = dot(along, stage);
   float at = dot(along, pos);
@@ -280,19 +329,18 @@ void main() {
   float rim = mix(edge.x, edge.y, t);
   if (rim > 0.0) wide = max(wide, rim * (1.0 - smoothstep(0.0, rimmed.x * rim, min(at, span - at))));
   float gap = rimmed.y * wide;
-  vec2 texels = vec2(textureSize(page, 0)) / stage;
   float soft = max(0.5 * px, 0.75 * gap);
-  if (gap < 0.5 * px) {
-    color = shaded(texture(page, pos / stage).rgb * seen(pos, soft), t);
-    return;
-  }
-  float lod = log2(max(1.0, gap * max(texels.x, texels.y)));
+  float lod = max(sharp, log2(max(1.0, gap * max(texels.x, texels.y))));
   vec3 sum = vec3(0.0);
-  for (int y = -2; y <= 2; y++) {
-    for (int x = -2; x <= 2; x++) {
-      vec2 tap = pos + vec2(float(x), float(y)) * gap;
-      float weight = WEIGHTS[abs(x)] * WEIGHTS[abs(y)];
-      sum += textureLod(page, tap / stage, lod).rgb * seen(tap, soft) * weight;
+  if (peak + edge.x + edge.y <= 0.0) {
+    sum = textureLod(page, pos / stage, lod).rgb * seen(pos, soft);
+  } else {
+    for (int y = -2; y <= 2; y++) {
+      for (int x = -2; x <= 2; x++) {
+        vec2 tap = pos + vec2(float(x), float(y)) * gap;
+        float weight = WEIGHTS[abs(x)] * WEIGHTS[abs(y)];
+        sum += textureLod(page, tap / stage, lod).rgb * seen(tap, soft) * weight;
+      }
     }
   }
   color = shaded(sum, t);

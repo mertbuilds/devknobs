@@ -29,10 +29,14 @@ import {
   FRAGMENT,
   freeOf,
   hingeLine,
+  levelAt,
   reachOf,
   screenGl,
   screenLook,
   shadeAt,
+  sharpLevel,
+  tapped,
+  WEIGHTS,
   wedgeOf,
 } from "../src/engine/foldgl";
 import { resetTune, setTune, TUNE_DEFAULTS } from "../src/engine/foldtune";
@@ -191,11 +195,112 @@ describe("the screen's shade", () => {
     // Under a step of the screen's 256 either way, so a page not shaded is drawn as it is.
     expect(FRAGMENT).toContain("- 0.5) * grain / 255.0;");
     expect(TUNE_DEFAULTS.grain).toBe(1);
-    // Both ways out of the shader go through it, and no loop runs to a number handed in.
-    expect(FRAGMENT.match(/color = /g)).toHaveLength(2);
-    expect(FRAGMENT.match(/color = shaded\(/g)).toHaveLength(2);
+    // The one way out of the shader goes through it, and no loop runs to a number handed in.
+    expect(FRAGMENT.match(/color = /g)).toHaveLength(1);
+    expect(FRAGMENT.match(/color = shaded\(/g)).toHaveLength(1);
     expect(FRAGMENT.match(/for \(int \w = -2; \w <= 2; \w\+\+\)/g)).toHaveLength(2);
     expect(FRAGMENT.match(/for \(/g)).toHaveLength(2);
+  });
+});
+
+describe("the screen's sharpness", () => {
+  afterEach(resetTune);
+
+  /** What `main` of the shader does, and the numbers handed to it. */
+  const main = FRAGMENT.slice(FRAGMENT.indexOf("void main() {"));
+  const handed = Array.from(FRAGMENT.matchAll(/uniform \w+ (\w+);/g), (found) => found[1] ?? "");
+
+  test("has no step in the picture's level anywhere in how wide the blur is, least of all where a px once went another way", () => {
+    for (const px of [1, 0.5, 1 / 3]) {
+      for (const texels of [1, 2, 3, 2.5]) {
+        const sharp = sharpLevel([px * texels, 0], [0, px * texels]);
+        expect(sharp).toBeCloseTo(Math.max(0, Math.log2(px * texels)), 12);
+        // With no blur it is the level the hardware would pick, so the page is as sharp as it was.
+        expect(levelAt(0, texels, sharp)).toBe(sharp);
+        let last = sharp;
+        for (let step = 0; step <= 4000; step++) {
+          const gap = (step / 2000) * 0.5 * px;
+          const level = levelAt(gap, texels, sharp);
+          expect(level).toBeGreaterThanOrEqual(last);
+          expect(level - last).toBeLessThan(0.002);
+          last = level;
+        }
+        // Wide, it is as it was: a tap's own px as wide as the gap.
+        expect(levelAt(24, texels, sharp)).toBeCloseTo(Math.log2(24 * texels), 12);
+      }
+    }
+    // A picture denser than the canvas is never read sharper than the canvas can show.
+    expect(levelAt(0.3, 2, sharpLevel([4, 0], [0, 4]))).toBe(2);
+    expect(sharpLevel([0, 0], [0, 0])).toBe(0);
+  });
+
+  test("blurs with taps that close onto the point as the blur goes to none, so sharp and blurred are one picture", () => {
+    expect(WEIGHTS[0] + 2 * WEIGHTS[1] + 2 * WEIGHTS[2]).toBe(1);
+    const page = (x: number, y: number) => 0.5 + 0.3 * Math.sin(x * 1.7) * Math.cos(y * 0.9);
+    for (const [x, y] of [[0, 0], [12.25, 40.5], [300, 7]] as const) {
+      expect(tapped(page, x, y, 0)).toBeCloseTo(page(x, y), 12);
+      // And no step on the way there: a hair of a gap is a hair of a blur.
+      expect(Math.abs(tapped(page, x, y, 0.001) - page(x, y))).toBeLessThan(1e-5);
+      let last = tapped(page, x, y, 0);
+      for (let step = 1; step <= 200; step++) {
+        const next = tapped(page, x, y, step / 200);
+        expect(Math.abs(next - last)).toBeLessThan(0.01);
+        last = next;
+      }
+    }
+    // Wide, it is a blur: a line a px wide is spread over the taps.
+    const line = (x: number) => (Math.abs(x) < 0.5 ? 1 : 0);
+    expect(tapped(line, 0, 0, 2)).toBe(WEIGHTS[0]);
+    expect(FRAGMENT).toContain(`float[3](${WEIGHTS.join(", ")});`);
+  });
+
+  test("takes every px one way through the shader: no tap at a level left to the hardware, and no way out before the last line", () => {
+    // texture() works its level out from the px next to it, which is not known where they take another branch.
+    expect(FRAGMENT).not.toMatch(/\btexture\(/);
+    const taps = FRAGMENT.match(/\btexture(?!Size)\w*\(/g) ?? [];
+    expect(taps).toEqual(["textureLod(", "textureLod("]);
+    expect(main).not.toContain("return");
+    expect(main.trimEnd().endsWith("color = shaded(sum, t);\n}")).toBe(true);
+    expect(FRAGMENT).not.toContain("discard");
+    expect(FRAGMENT).toContain("float lod = max(sharp, log2(max(1.0, gap * max(texels.x, texels.y))));");
+    expect(FRAGMENT).toContain("float sharp = 0.5 * log2(max(1.0, max(dot(right, right), dot(down, down))));");
+  });
+
+  test("works out what it needs of the px next to it before any branch, and nowhere else", () => {
+    const first = Math.min(...["if (", "for (", "?"].map((word) => main.indexOf(word)).filter((at) => at >= 0));
+    const slopes = Array.from(FRAGMENT.matchAll(/\b(dFdx|dFdy|fwidth)\(/g), (found) => found.index ?? 0);
+    expect(slopes).toHaveLength(2);
+    const from = FRAGMENT.indexOf(main);
+    for (const at of slopes) {
+      expect(at).toBeGreaterThan(from);
+      expect(at).toBeLessThan(from + first);
+    }
+  });
+
+  test("branches around a tap only by numbers that are the same for every px of a draw", () => {
+    const names = (text: string) => Array.from(text.matchAll(/[A-Za-z_]\w*/g), (found) => found[0]).filter((name) => !/^[xyz]$/.test(name));
+    const ifs = Array.from(main.matchAll(/\bif \((.*?)\) (\{)?/g));
+    expect(ifs.map((found) => found[1])).toEqual(["rim > 0.0", "peak + edge.x + edge.y <= 0.0"]);
+    for (const found of ifs) {
+      const uniform = names(found[1] ?? "").every((name) => handed.includes(name));
+      if (uniform) continue;
+      // One that differs from px to px is a line of its own, with no tap in it.
+      const line = main.slice(found.index, main.indexOf("\n", found.index));
+      expect(found[2]).toBeUndefined();
+      expect(line).not.toMatch(/texture|dFd|fwidth/);
+    }
+    expect(names("peak + edge.x + edge.y").every((name) => handed.includes(name))).toBe(true);
+    expect(main).not.toMatch(/gap\s*[<>]/);
+    // No blur anywhere is what the look says with the blur off, or the screen lying flat.
+    setTune("blurOn", 0);
+    const off = screenLook(0.5, 40);
+    expect(off.peak + off.edge[0] + off.edge[1]).toBe(0);
+    resetTune();
+    const flat = screenLook(1, 0);
+    expect(flat.peak + flat.edge[0] + flat.edge[1]).toBe(0);
+    const turned = screenLook(0.5, 40);
+    expect(turned.peak).toBeGreaterThan(0);
+    expect(Math.min(turned.peak, ...turned.edge)).toBeGreaterThanOrEqual(0);
   });
 });
 
