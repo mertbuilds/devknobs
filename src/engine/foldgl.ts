@@ -16,7 +16,7 @@ import {
   uvOf,
   WIPE,
 } from "./fold";
-import { tune } from "./foldtune";
+import { tune } from "./foldlook";
 import type { Rect } from "./mock";
 
 /**

@@ -1106,6 +1106,14 @@ not a symlink: Turbopack refuses a package linked from outside the app, and
 other bundlers treat the real path as app source. restart the app's dev server
 after each.
 
+the controls for tuning the iphone duo fold's look by hand, `src/engine/foldtune.ts`,
+are for development and never in the package: the build passes
+`--define DEVKNOBS_TUNE=false` to every bundle and `scripts/tunefree.ts` fails
+a build that has any of them. an app gets them by loading devknobs from source,
+a bundler alias from `devknobs` to this repo's `src`, where the constant is not
+defined and the table is on `window` under `Symbol.for("devknobs.foldtune")`.
+an app that builds from source for production defines `DEVKNOBS_TUNE` false too.
+
 ## license
 
 MIT, except the bezel images in `dist/bezels`. bippy and the code adapted

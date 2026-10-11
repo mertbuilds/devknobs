@@ -859,7 +859,7 @@ function draw(value: ViewportValue): void {
   current = drawnOf(value);
   if (stage && current.zoom !== zoom) rezoom({ x: stage.clientWidth / 2, y: stage.clientHeight / 2 });
   else resize();
-  hingeMoved();
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
 }
 
 /** Draw the knobs a device change goes to, once the last device faded out. */

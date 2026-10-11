@@ -45,7 +45,7 @@ import {
   type Turning,
   turningOf,
 } from "./foldpage";
-import { backColor, hingeMoved, installTune, tune, tuneLive, watchTune } from "./foldtune";
+import { backColor, finds, hingeMoved, installTune, tuneLive, watchTune } from "./foldtune";
 import type { Mock, Rect } from "./mock";
 import { drawMock, UNDER } from "./mockdraw";
 import { type Corners, lerp } from "./morph";
@@ -260,13 +260,15 @@ async function pagePictures(): Promise<HTMLCanvasElement[] | string> {
 }
 
 // A number of the fold's look set by hand shows at once, on a hinge that rests between its ends too.
-installTune();
-tuneLive({ open: hingeOpen, pictures: pagePictures });
-watchTune(() => {
-  if (!fold) return;
-  fold.drawn = "";
-  show(fold);
-});
+if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) {
+  installTune();
+  tuneLive({ open: hingeOpen, pictures: pagePictures });
+  watchTune(() => {
+    if (!fold) return;
+    fold.drawn = "";
+    show(fold);
+  });
+}
 
 /** Is a foldable folding? */
 export function folding(): boolean {
@@ -523,7 +525,7 @@ function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: stri
   leaf.window.style.clipPath = `path("${path}")`;
   leaf.rim.style.opacity = String(frame.lift);
   // Its dark, magenta where a hand looks for what draws a line.
-  const back = backColor();
+  const back = typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE ? backColor() : "#000";
   leaf.screen.style.background = back;
   leaf.dark.style.background = back;
   // Its free edge's dark turns with it, but its blur is of the picture lying flat, as far out as it is seen.
@@ -563,7 +565,7 @@ function show(going: Going): void {
   const drawn = shots ? `${open} ${going.out} ${going.still} ${unit.posture}` : "";
   if (drawn && drawn === going.drawn) {
     for (const watcher of Array.from(hinges)) watcher(going.open, going.hand);
-    hingeMoved();
+    if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
     return;
   }
   going.drawn = drawn;
@@ -591,10 +593,10 @@ function show(going: Going): void {
   scene.unit.style.transform = `translate(${by.x}px, ${by.y}px) scale(${size * drift.wide}, ${size * drift.tall})`;
   scene.unit.style.clipPath = opened && hand === 0 ? stillClip(going, shots, frame.inner !== null, own) : "";
   // The half that stays, but where a hand looks for what draws a line.
-  scene.unit.style.visibility = tune.stillOn >= 0.5 ? "" : "hidden";
+  scene.unit.style.visibility = (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) && finds.stillOn < 0.5 ? "hidden" : "";
   darken(scene.cover, screenDim(opened ? "inner" : "cover", open));
   for (const watcher of Array.from(hinges)) watcher(going.open, going.hand);
-  hingeMoved();
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
 }
 
 /**
@@ -649,7 +651,7 @@ function clear(last: Going): void {
   darken(last.scene.cover, 0);
   if (last.duo) endFoldShots();
   for (const watcher of Array.from(watchers)) watcher();
-  hingeMoved();
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
 }
 
 /** Is the hinge shut or open there? */
@@ -987,7 +989,7 @@ export function forgetFold(): void {
   window.removeEventListener("resize", settle);
   fold = null;
   for (const watcher of Array.from(watchers)) watcher();
-  hingeMoved();
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
   forgetShots();
   endFoldShots(true);
 }

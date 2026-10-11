@@ -1,5 +1,6 @@
 import type { PostureValue } from "../types";
-import { tune } from "./foldtune";
+import { tune } from "./foldlook";
+import { finds } from "./foldtune";
 import type { Rect, Sides } from "./mock";
 import { type Corners, fitCorners, lerp } from "./morph";
 
@@ -1063,11 +1064,11 @@ function blurFade(low: number, width: number, peak: number, free: number): BlurF
 
 /** Are the shades over the half that turns drawn, and is it blurred: both, but where a hand looks for what draws a line. */
 export function shadesOn(): boolean {
-  return tune.shadeOn >= 0.5;
+  return !(typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) || finds.shadeOn >= 0.5;
 }
 
 export function blurOn(): boolean {
-  return tune.blurOn >= 0.5;
+  return !(typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) || finds.blurOn >= 0.5;
 }
 
 /**
