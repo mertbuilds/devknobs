@@ -192,6 +192,22 @@ export interface Picture {
 }
 
 /**
+ * A rough picture of the page in `frame` as laid out now on a screen `size`
+ * css px, shown in `glass` for the knobs `value`, which it is kept by: the
+ * same one again while the page, its pictures and the screen stay as they are.
+ */
+export function roughOf(
+  frame: HTMLIFrameElement,
+  glass: HTMLElement,
+  value: BarsKnobs,
+  size: { width: number; height: number },
+  color: string,
+): HTMLCanvasElement | null {
+  const { device, posture, orientation, browser, edgeToEdge } = value;
+  return shootPage(frame, glass, size, color, [device, posture, orientation, browser, edgeToEdge].join(" "));
+}
+
+/**
  * The page in `frame` as laid out now on a screen `size` css px, shown in
  * `glass` for the knobs `value`, `copy` of it to draw, and its bars as shown.
  */
@@ -209,7 +225,7 @@ export function pictureOf(
   if (bars) bars.style.transform = "";
   const drawn = shown && copy ? copyBars(shown, value, size) : null;
   return {
-    shot: shootPage(frame, glass, size, color),
+    shot: roughOf(frame, glass, value, size, color),
     painted: copy ? withBars(paintPage(frame, glass, size, color, copy), drawn).catch(() => null) : null,
     bars,
   };
@@ -394,7 +410,7 @@ export function gluedOf(
 }
 
 /** Put `shot` on a glued screen: drawn by WebGL2, which hands it to the pictures laid over each other where it cannot. */
-function paintGlued(glued: Glued, shot: HTMLCanvasElement): void {
+export function paintGlued(glued: Glued, shot: HTMLCanvasElement): void {
   if (glued.gl) glued.gl.paint(shot);
   else paintLeaf(glued, shot);
 }

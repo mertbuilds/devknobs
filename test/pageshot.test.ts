@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  blankUrl,
   blurMargin,
   blurPictures,
   copyPage,
+  drawMedia,
   forgetShots,
   marginPlace,
   paintPage,
+  picturesKey,
+  type ShotAt,
   shootPage,
+  shotKey,
   svgUrl,
 } from "../src/engine/pageshot";
 import * as outlines from "../src/engine/outlines";
@@ -149,12 +154,15 @@ describe("forgetShots", () => {
       disconnect(): void {
         watching--;
       }
+      takeRecords(): unknown[] {
+        return [];
+      }
     }
     const rect = { left: 0, top: 0, width: 100, height: 200, right: 100, bottom: 200 };
     const body = { children: [] };
-    const doc = { body, images: [], querySelectorAll: () => [], createRange: () => ({}), defaultView: {} };
+    const doc = { body, documentElement: {}, querySelectorAll: () => [], createRange: () => ({}), defaultView: {} };
     Reflect.set(doc.defaultView, "MutationObserver", Observer);
-    const view = { innerWidth: 100, innerHeight: 200, scrollX: 0, scrollY: 0 };
+    const view = { innerWidth: 100, innerHeight: 200, scrollX: 0, scrollY: 0, getComputedStyle: () => ({ fontSize: "16px" }) };
     const frame = { contentDocument: doc, contentWindow: view, getBoundingClientRect: () => rect };
     const glass = { getBoundingClientRect: () => rect };
     const pen = { fillRect() {}, setTransform() {}, beginPath() {}, rect() {}, clip() {} };
@@ -429,5 +437,599 @@ describe("paintPage", () => {
     const { svg, style } = await drawn("10px", null);
     expect(svg).toContain('height="200" style="font-size:10px !important">');
     expect(style).toBe(";font-size:10px !important;position:relative;left:0px;top:-30px");
+  });
+});
+
+/** What a canvas was asked to draw, each call by its name and what it was given. */
+class RecordingPen {
+  calls: unknown[][] = [];
+  fillStyle = "";
+  globalAlpha = 1;
+  imageSmoothingEnabled = true;
+  /** Was smoothing on as each picture was drawn? */
+  smooth: boolean[] = [];
+  #note(name: string, args: unknown[]): void {
+    this.calls.push([name, ...args]);
+  }
+  fillRect(...args: unknown[]): void {
+    this.#note("fillRect", args);
+  }
+  setTransform(...args: unknown[]): void {
+    this.#note("setTransform", args);
+  }
+  beginPath(): void {}
+  rect(): void {}
+  fill(): void {}
+  clip(): void {
+    this.#note("clip", []);
+  }
+  roundRect(...args: unknown[]): void {
+    this.#note("roundRect", args);
+  }
+  save(): void {
+    this.#note("save", []);
+  }
+  restore(): void {
+    this.imageSmoothingEnabled = true;
+    this.#note("restore", []);
+  }
+  /** A picture is noted by what it shows as it is drawn, as a canvas takes it as it is then. */
+  drawImage(source: { currentSrc?: string }, ...args: number[]): void {
+    this.smooth.push(this.imageSmoothingEnabled);
+    this.#note("drawImage", [source.currentSrc ?? source, ...args.map((value) => Math.round(value * 1e3) / 1e3)]);
+  }
+  named(name: string): unknown[][] {
+    return this.calls.filter(([call]) => call === name).map(([, ...args]) => args);
+  }
+}
+
+/** A canvas of its own each time one is made, so one picture is told from another. */
+interface FakeCanvas {
+  width: number;
+  height: number;
+  pen: RecordingPen;
+  getContext(): RecordingPen;
+}
+
+/** Every canvas made while `run` runs, till what it gives settles, in the order they were made. */
+function withCanvases<Result>(run: (made: FakeCanvas[]) => Result): Result {
+  const made: FakeCanvas[] = [];
+  const before = Reflect.get(globalThis, "document");
+  Reflect.set(globalThis, "document", {
+    createElement: () => {
+      const pen = new RecordingPen();
+      const canvas: FakeCanvas = { width: 0, height: 0, pen, getContext: () => pen };
+      made.push(canvas);
+      return canvas;
+    },
+  });
+  const restore = () => {
+    Reflect.set(globalThis, "document", before);
+  };
+  let result: Result;
+  try {
+    result = run(made);
+  } catch (error) {
+    restore();
+    throw error;
+  }
+  if (result instanceof Promise) return result.finally(restore) as Result;
+  restore();
+  return result;
+}
+
+/** How a full-bleed picture is styled, as it computes: it covers its box from the middle. */
+const BLEED = {
+  display: "block",
+  position: "static",
+  opacity: "1",
+  visibility: "visible",
+  backgroundColor: "rgba(0, 0, 0, 0)",
+  color: "rgb(0, 0, 0)",
+  objectFit: "cover",
+  objectPosition: "50% 50%",
+  imageRendering: "auto",
+  borderLeftWidth: "0px",
+  borderRightWidth: "0px",
+  borderTopWidth: "0px",
+  borderBottomWidth: "0px",
+  paddingLeft: "0px",
+  paddingRight: "0px",
+  paddingTop: "0px",
+  paddingBottom: "0px",
+  borderTopLeftRadius: "0px",
+  borderTopRightRadius: "0px",
+  borderBottomRightRadius: "0px",
+  borderBottomLeftRadius: "0px",
+};
+
+/** The Duo's two screens, and the picture a full-bleed page shows on each. */
+const COVER = { width: 466, height: 678, src: "cover.jpg", natural: [774, 1125] as const };
+const INNER = { width: 951, height: 669, src: "inner.jpg", natural: [1600, 1125] as const };
+
+/**
+ * A page whose whole content is one picture that covers its viewport, in a
+ * frame that fills its screen, as the Duo shows one with no browser bars: as
+ * far as a picture of it reads it. What the test changes about it shows the
+ * next time it is read.
+ */
+function fullBleed() {
+  const page = { ...COVER, scrollY: 0, dpr: 3, text: "16px", style: { ...BLEED }, other: [] as unknown[], drawn: 1 };
+  /** What watches the page for changes, and those it has not been told of yet. */
+  const watchers: { pending: unknown[] }[] = [];
+  class Watcher {
+    pending: unknown[] = [];
+    constructor() {
+      watchers.push(this);
+    }
+    observe(): void {}
+    disconnect(): void {}
+    takeRecords(): unknown[] {
+      return this.pending.splice(0);
+    }
+  }
+  const box = () => ({ left: 0, top: 0, width: page.width, height: page.height, right: page.width, bottom: page.height });
+  const asked: unknown[] = [];
+  const picture = {
+    complete: true,
+    get naturalWidth() {
+      return page.natural[0];
+    },
+    get naturalHeight() {
+      return page.natural[1];
+    },
+    get currentSrc() {
+      return page.src;
+    },
+    hasAttribute: () => false,
+    closest: () => null,
+    getBoundingClientRect: box,
+    childNodes: [],
+    children: [],
+  };
+  /** A box devknobs put on the page, red, which a picture of the page leaves out. */
+  const ours = {
+    hasAttribute: (name: string) => name === "data-devknobs",
+    getBoundingClientRect: box,
+    childNodes: [],
+    children: [],
+  };
+  const html = {};
+  const doc = {
+    body: { children: [picture, ours] },
+    documentElement: html,
+    querySelectorAll: () => [picture, ...page.other],
+    createRange: () => ({}),
+    defaultView: { MutationObserver: Watcher },
+  };
+  const view = {
+    get innerWidth() {
+      return page.width;
+    },
+    get innerHeight() {
+      return page.height;
+    },
+    scrollX: 0,
+    get scrollY() {
+      return page.scrollY;
+    },
+    get devicePixelRatio() {
+      return page.dpr;
+    },
+    getComputedStyle: (node: unknown) => {
+      asked.push(node);
+      if (node === html) return { fontSize: page.text };
+      return node === ours ? { ...BLEED, backgroundColor: "rgb(255, 0, 0)" } : page.style;
+    },
+  };
+  /** The screen in the window, the device drawn `page.drawn` times its size, a little off the window's corner. */
+  const screen = () => {
+    const [left, top, width, height] = [40, 30, page.width, page.height].map((value) => value * page.drawn);
+    return { left, top, width, height, right: (left ?? 0) + (width ?? 0), bottom: (top ?? 0) + (height ?? 0) };
+  };
+  const frame = { contentDocument: doc, contentWindow: view, getBoundingClientRect: screen };
+  const glass = { getBoundingClientRect: screen };
+  /** A rough picture of it on the screen it fills now. */
+  const shoot = (layout = "") =>
+    shootPage(frame as unknown as HTMLIFrameElement, glass as unknown as HTMLElement, { width: page.width, height: page.height }, "#000", layout);
+  return { page, picture, ours, asked, watchers, frame, glass, shoot };
+}
+
+describe("shotKey", () => {
+  const at: ShotAt = {
+    size: { width: 466, height: 678 },
+    color: "#000",
+    layout: "iphone-duo closed portrait off true",
+    frame: { x: 0, y: 0, width: 466 },
+    view: { width: 466, height: 678 },
+    scroll: { x: 0, y: 0 },
+    dpr: 3,
+    text: "16px",
+    pictures: "cover.jpg@774x1125",
+  };
+
+  test("is the same for the same screen, page and pictures", () => {
+    expect(shotKey({ ...at, size: { ...at.size }, view: { ...at.view } })).toBe(shotKey(at));
+  });
+
+  test("tells the folded screen's picture from the open screen's, by every part that differs", () => {
+    const open: ShotAt = {
+      ...at,
+      size: { width: 951, height: 669 },
+      layout: "iphone-duo open landscape off true",
+      frame: { x: 0, y: 0, width: 951 },
+      view: { width: 951, height: 669 },
+    };
+    expect(shotKey(open)).not.toBe(shotKey(at));
+    // Any one of them alone is enough.
+    for (const part of ["size", "layout", "frame", "view"] as const) expect(shotKey({ ...at, [part]: open[part] })).not.toBe(shotKey(at));
+  });
+
+  test("changes with the device pixel ratio, the text size, the scroll, the color, and what the pictures show", () => {
+    const others: Partial<ShotAt>[] = [
+      { dpr: 2 },
+      { text: "20px" },
+      { scroll: { x: 0, y: 40 } },
+      { scroll: { x: 40, y: 0 } },
+      { color: "#fff" },
+      { pictures: "inner.jpg@1600x1125" },
+      { pictures: "cover.jpg@0x0" },
+    ];
+    const keys = new Set([shotKey(at), ...others.map((other) => shotKey({ ...at, ...other }))]);
+    expect(keys.size).toBe(others.length + 1);
+  });
+});
+
+describe("picturesKey", () => {
+  const image = (currentSrc: string, naturalWidth: number, naturalHeight: number) => ({ currentSrc, naturalWidth, naturalHeight });
+  const pageOf = (nodes: unknown[]) => ({ querySelectorAll: () => nodes }) as unknown as Document;
+
+  test("names each picture by its address and its size as made, so another source or one loaded since shows", () => {
+    expect(picturesKey(pageOf([image("cover.jpg", 774, 1125)]))).toBe("9:cover.jpg@774x1125");
+    // A picture as data is told by its length and its end, not carried whole.
+    const data = (fill: string) => `data:image/png;base64,${fill.repeat(5000)}`;
+    expect(picturesKey(pageOf([image(data("A"), 8, 8)]))?.length).toBeLessThan(100);
+    expect(picturesKey(pageOf([image(data("A"), 8, 8)]))).not.toBe(picturesKey(pageOf([image(data("B"), 8, 8)])));
+    expect(picturesKey(pageOf([image(data("A"), 8, 8)]))).not.toBe(picturesKey(pageOf([image(`${data("A")}A`, 8, 8)])));
+    expect(picturesKey(pageOf([image("cover.jpg", 0, 0)]))).not.toBe(picturesKey(pageOf([image("cover.jpg", 774, 1125)])));
+    expect(picturesKey(pageOf([image("inner.jpg", 1600, 1125)]))).not.toBe(picturesKey(pageOf([image("cover.jpg", 774, 1125)])));
+    expect(picturesKey(pageOf([]))).toBe("");
+  });
+
+  test("has none for a page with a video or a drawing, which may show something else any frame", () => {
+    expect(picturesKey(pageOf([image("a.jpg", 1, 1), { videoWidth: 10, readyState: 4 }]))).toBeNull();
+    expect(picturesKey(pageOf([{ width: 300, height: 150 }]))).toBeNull();
+  });
+});
+
+describe("a rough picture kept", () => {
+  /** Lay the page out for one of the Duo's screens, with the picture it shows there. */
+  const lay = (page: ReturnType<typeof fullBleed>["page"], screen: typeof COVER | typeof INNER) => Object.assign(page, screen);
+
+  test("is given again while the page, its screen and its pictures stay as they are", () => {
+    withCanvases(() => {
+      const { shoot } = fullBleed();
+      const first = shoot();
+      expect(first).not.toBeNull();
+      expect(shoot()).toBe(first);
+    });
+  });
+
+  test("of the folded screen is never given for the open one, nor the open one's for the folded", () => {
+    withCanvases(() => {
+      const { page, shoot } = fullBleed();
+      const folded = shoot("closed");
+      lay(page, INNER);
+      const open = shoot("open");
+      expect(open).not.toBe(folded);
+      expect([open?.width, open?.height]).toEqual([Math.round(951 / 4), Math.round(669 / 4)]);
+      lay(page, COVER);
+      expect(shoot("closed")).toBe(folded);
+      lay(page, INNER);
+      expect(shoot("open")).toBe(open);
+    });
+  });
+
+  test("is not given for the open screen while the page still shows the folded screen's picture there, as it does till its scripts hear", () => {
+    withCanvases(() => {
+      const { page, shoot } = fullBleed();
+      // The frame is laid out open a moment, the page's picture not yet picked for it.
+      Object.assign(page, { width: INNER.width, height: INNER.height });
+      const ahead = shoot("open");
+      // Then the page picks the open screen's, with no change to the page a watcher is told of.
+      lay(page, INNER);
+      expect(shoot("open")).not.toBe(ahead);
+    });
+  });
+
+  test("is taken again once the device pixel ratio, the text size, the scroll or the knobs it is laid out by change", () => {
+    withCanvases(() => {
+      const { page, shoot } = fullBleed();
+      const first = shoot("closed");
+      // One at a time: each alone is enough.
+      for (const change of [{ dpr: 2 }, { dpr: 3, text: "20px" }, { text: "16px", scrollY: 40 }]) {
+        Object.assign(page, change);
+        expect(shoot("closed")).not.toBe(first);
+      }
+      Object.assign(page, { scrollY: 0 });
+      expect(shoot("closed")).toBe(first);
+      expect(shoot("closed minimized")).not.toBe(first);
+    });
+  });
+
+  test("is given again however large the device is drawn, as a fold draws it smaller or larger on its way", () => {
+    withCanvases((made) => {
+      const { page, shoot } = fullBleed();
+      const first = shoot();
+      // A third of its size, where no px of the window comes out even.
+      page.drawn = 1 / 3;
+      expect(shoot()).toBe(first);
+      page.drawn = 0.77;
+      expect(shoot()).toBe(first);
+      // And one taken there is the same picture: the page's css px on the screen's, whatever the window's.
+      forgetShots();
+      shoot();
+      expect(made[1]?.pen.named("setTransform")).toEqual(made[0]?.pen.named("setTransform"));
+    });
+  });
+
+  test("is dropped once the page has changed, also where the watcher has not been told of it yet", () => {
+    withCanvases(() => {
+      const { watchers, shoot } = fullBleed();
+      const first = shoot();
+      expect(watchers.length).toBe(1);
+      // A change in this same task: the watcher holds it, and is told only later.
+      watchers[0]?.pending.push({});
+      const second = shoot();
+      expect(second).not.toBe(first);
+      expect(shoot()).toBe(second);
+    });
+  });
+
+  test("is never kept of a page with a video or a drawing on it", () => {
+    withCanvases(() => {
+      const { page, shoot } = fullBleed();
+      page.other = [{ width: 300, height: 150, hasAttribute: () => false }];
+      expect(shoot()).not.toBe(shoot());
+    });
+  });
+});
+
+describe("the page's own pictures, drawn by hand", () => {
+  const rect = (left: number, top: number, width: number, height: number) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height }) as DOMRect;
+  const style = (over: Partial<typeof BLEED>) => ({ ...BLEED, ...over }) as unknown as CSSStyleDeclaration;
+  const pen = () => new RecordingPen();
+  const draw = (to: RecordingPen, natural: readonly [number, number], box: DOMRect, over: Partial<typeof BLEED> = {}) =>
+    drawMedia(to as unknown as CanvasRenderingContext2D, { source: { currentSrc: "a.jpg" } as unknown as CanvasImageSource, width: natural[0], height: natural[1] }, box, style(over));
+
+  test("a picture that covers its box is cut to it, not squeezed into it", () => {
+    const to = pen();
+    // The folded screen's picture in the open screen's box: 951 / 774 times as large both ways, its top and bottom cut.
+    draw(to, COVER.natural, rect(0, 0, 951, 669));
+    expect(to.named("drawImage")).toEqual([["a.jpg", 0, 290.257, 774, 544.486, 0, 0, 951, 669]]);
+    expect(to.named("clip")).toEqual([]);
+  });
+
+  test("one that is contained, kept its own size or put off the middle goes where the page shows it", () => {
+    const to = pen();
+    draw(to, [800, 200], rect(10, 20, 200, 100), { objectFit: "contain" });
+    draw(to, [50, 20], rect(10, 20, 200, 100), { objectFit: "none", objectPosition: "100% 0%" });
+    draw(to, [800, 200], rect(10, 20, 200, 100), { objectFit: "fill" });
+    expect(to.named("drawImage")).toEqual([
+      ["a.jpg", 0, 0, 800, 200, 10, 45, 200, 50],
+      ["a.jpg", 0, 0, 50, 20, 160, 20, 50, 20],
+      ["a.jpg", 0, 0, 800, 200, 10, 20, 200, 100],
+    ]);
+  });
+
+  test("lies inside the element's border and padding, within its round corners less those", () => {
+    const to = pen();
+    draw(to, [100, 100], rect(0, 0, 120, 140), {
+      objectFit: "fill",
+      borderLeftWidth: "2px",
+      borderRightWidth: "2px",
+      borderTopWidth: "2px",
+      borderBottomWidth: "2px",
+      paddingLeft: "8px",
+      paddingRight: "8px",
+      paddingTop: "18px",
+      paddingBottom: "18px",
+      borderTopLeftRadius: "30px",
+      borderTopRightRadius: "50%",
+      borderBottomRightRadius: "30px 40px",
+      borderBottomLeftRadius: "4px",
+    });
+    expect(to.named("drawImage")).toEqual([["a.jpg", 0, 0, 100, 100, 10, 20, 100, 100]]);
+    expect(to.named("roundRect")).toEqual([
+      [10, 20, 100, 100, [{ x: 20, y: 10 }, { x: 50, y: 50 }, { x: 20, y: 20 }, { x: 0, y: 0 }]],
+    ]);
+    // Cut to them for this picture only.
+    expect(to.calls.map(([name]) => name)).toEqual(["save", "roundRect", "clip", "drawImage", "restore"]);
+  });
+
+  test("is drawn px for px where the page asks for that, and smooth again after", () => {
+    const to = pen();
+    draw(to, [10, 10], rect(0, 0, 100, 100), { imageRendering: "pixelated" });
+    draw(to, [10, 10], rect(0, 0, 100, 100));
+    expect(to.smooth).toEqual([false, true]);
+  });
+
+  test("a rough picture draws them so too, and leaves out what devknobs put on the page", () => {
+    withCanvases((made) => {
+      const { page, ours, asked, shoot } = fullBleed();
+      // The open screen, the page still showing the folded screen's picture on it.
+      Object.assign(page, { width: INNER.width, height: INNER.height });
+      shoot();
+      const drawn = made[0]?.pen;
+      expect(drawn?.named("drawImage")).toEqual([["cover.jpg", 0, 290.257, 774, 544.486, 0, 0, 951, 669]]);
+      // Its box is never looked at, so none of it is painted: only the screen's own color is filled.
+      expect(asked).not.toContain(ours);
+      expect(drawn?.named("fillRect").length).toBe(1);
+    });
+  });
+});
+
+describe("paintPage, with a picture on the page", () => {
+  test("draws the page's pictures as they are when it is asked, not as they are once the drawing of the page is in", async () => {
+    const { page, frame, glass } = fullBleed();
+    Object.assign(page, INNER);
+    let decoded: () => void = () => {};
+    const decode = new Promise<void>((resolve) => {
+      decoded = resolve;
+    });
+    class FakeImage {
+      currentSrc = "the drawing of the page";
+      src = "";
+      decode(): Promise<void> {
+        return decode;
+      }
+    }
+    const names = ["Image", "XMLSerializer"];
+    const before = names.map((name) => Reflect.get(globalThis, name));
+    Reflect.set(globalThis, "Image", FakeImage);
+    Reflect.set(globalThis, "XMLSerializer", class {
+      serializeToString(): string {
+        return "<html></html>";
+      }
+    });
+    const root = { getAttribute: () => null, setAttribute() {} };
+    try {
+      await withCanvases(async (made) => {
+        const painted = paintPage(
+          frame as unknown as HTMLIFrameElement,
+          glass as unknown as HTMLElement,
+          { width: 951, height: 669 },
+          "#000",
+          { cloneNode: () => root } as unknown as Element,
+        );
+        // Drawn already, on a canvas of their own: the open screen's picture, whole in its box.
+        expect(made.length).toBe(1);
+        expect(made[0]?.pen.named("drawImage")).toEqual([["inner.jpg", 0.392, 0, 1599.215, 1125, 0, 0, 951, 669]]);
+        // A fold lays the frame out for the folded screen meanwhile, and the page shows that screen's picture.
+        Object.assign(page, COVER);
+        decoded();
+        const canvas = (await painted) as unknown as FakeCanvas | null;
+        expect(canvas).toBe(made[1] ?? null);
+        // The drawing of the page, then the pictures as they were taken: nothing of the page as it is by now.
+        const over = made[0];
+        expect(canvas?.pen.named("drawImage")).toEqual([
+          ["the drawing of the page", 0, 0, 951, 669],
+          [over, 0, 0],
+        ]);
+        expect(made[0]?.pen.named("drawImage").length).toBe(1);
+      });
+    } finally {
+      for (const [index, name] of names.entries()) Reflect.set(globalThis, name, before[index]);
+    }
+  });
+});
+
+/** An element of a page as far as a copy of it reads one: its name, what is set on it, and what it holds. */
+class Tag {
+  children: Tag[] = [];
+  parentElement: Tag | null = null;
+  readonly attributes = new Map<string, string>();
+  /** A picture's state, where it is one of the live page's. */
+  complete = false;
+  naturalWidth = 0;
+  naturalHeight = 0;
+  text = "";
+  constructor(
+    readonly localName: string,
+    attributes: Record<string, string> = {},
+    children: Tag[] = [],
+  ) {
+    for (const [name, value] of Object.entries(attributes)) this.attributes.set(name, value);
+    this.append(...children);
+  }
+  set textContent(text: string) {
+    this.text = text;
+  }
+  append(...nodes: Tag[]): void {
+    for (const node of nodes) {
+      node.parentElement = this;
+      this.children.push(node);
+    }
+  }
+  remove(): void {
+    const holder = this.parentElement;
+    if (holder) holder.children = holder.children.filter((node) => node !== this);
+    this.parentElement = null;
+  }
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+  all(): Tag[] {
+    return this.children.flatMap((child) => [child, ...child.all()]);
+  }
+  /** By names and by attributes that are set, any of a list. */
+  querySelectorAll(selector: string): Tag[] {
+    const parts = selector.split(",").map((part) => part.trim());
+    return this.all().filter((node) => parts.some((part) => (part.startsWith("[") ? node.attributes.has(part.slice(1, -1)) : node.localName === part)));
+  }
+  querySelector(selector: string): Tag | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+  clone(): Tag {
+    return new Tag(this.localName, Object.fromEntries(this.attributes), this.children.map((child) => child.clone()));
+  }
+  /** A picture that has loaded, `width` by `height` px as made. */
+  loaded(width: number, height: number): Tag {
+    this.complete = true;
+    this.naturalWidth = width;
+    this.naturalHeight = height;
+    return this;
+  }
+}
+
+describe("copyPage, of a page with pictures and with what devknobs put on it", () => {
+  /** The page, and its copy. */
+  function copied(body: Tag[]): { live: Tag; copy: Tag } {
+    const live = new Tag("html", {}, [new Tag("head", {}, [new Tag("style", { "data-devknobs": "outlines" })]), new Tag("body", {}, body)]);
+    const inert = { importNode: (node: Tag) => node.clone(), createElement: (name: string) => new Tag(name) };
+    const doc = { documentElement: live, styleSheets: [], implementation: { createHTMLDocument: () => inert } };
+    const copy = copyPage({ contentDocument: doc } as unknown as HTMLIFrameElement) as unknown as Tag | null;
+    if (!copy) throw new Error("the page was not copied");
+    return { live, copy };
+  }
+
+  test("holds nothing devknobs put on the page: its hosts go, as its styles do, whose rules are in the copy's own", () => {
+    const { live, copy } = copied([
+      new Tag("main", {}, [new Tag("p")]),
+      new Tag("div", { "data-devknobs": "touch-pointer" }, [new Tag("span")]),
+      new Tag("div", { "data-devknobs": "overflow" }),
+      new Tag("script"),
+    ]);
+    expect(copy.querySelectorAll("[data-devknobs]")).toEqual([]);
+    expect(copy.all().map((node) => node.localName)).toEqual(["head", "style", "body", "main", "p"]);
+    // The one style left is the copy's own, with the page's rules.
+    expect(copy.querySelector("style")?.attributes.has("data-devknobs")).toBe(false);
+    // The page itself keeps all of it.
+    expect(live.querySelectorAll("[data-devknobs]").length).toBe(3);
+  });
+
+  test("gives each picture that has loaded a picture of nothing as large in its place, so the browser draws no box for a missing one", () => {
+    const { live, copy } = copied([
+      new Tag("picture", {}, [
+        new Tag("source", { media: "(orientation: landscape), (width > 600px)", srcset: "inner.jpg" }),
+        new Tag("img", { src: "cover.jpg", srcset: "cover@2x.jpg 2x", sizes: "100vw", loading: "lazy", alt: "lock screen" }).loaded(1600, 1125),
+      ]),
+      new Tag("img", { src: "late.jpg" }),
+    ]);
+    const [first, late] = copy.querySelectorAll("img");
+    expect(first?.attributes.get("src")).toBe(blankUrl(1600, 1125));
+    expect(decodeURIComponent(blankUrl(1600, 1125))).toBe('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1125"/>');
+    // Nothing is left to pick another source by.
+    expect([...(first?.attributes.keys() ?? [])].sort()).toEqual(["alt", "src"]);
+    expect(copy.querySelectorAll("source")).toEqual([]);
+    // One that has not loaded is as the page shows it: missing.
+    expect(late?.attributes.get("src")).toBe("late.jpg");
+    // And the page's own are untouched.
+    expect(live.querySelector("img")?.attributes.get("src")).toBe("cover.jpg");
+    expect(live.querySelectorAll("source").length).toBe(1);
   });
 });
