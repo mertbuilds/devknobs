@@ -46,7 +46,14 @@ describe("the fold's numbers", () => {
       expect(row.default).toBeLessThanOrEqual(row.max);
       expect(row.step).toBeGreaterThan(0);
       // A switch is one way or the other: every other number has ten steps or more.
-      const switches: Record<string, [label: string, ships: number]> = { shadeOn: ["shades on", 1], blurOn: ["blur on", 1], blurEase: ["blur rise shape", 0] };
+      const switches: Record<string, [label: string, ships: number]> = {
+        shadeOn: ["shades on", 1],
+        blurOn: ["blur on", 1],
+        blurEase: ["blur rise shape", 0],
+        backTint: ["black as magenta", 0],
+        frameOn: ["case pictures on", 1],
+        stillOn: ["still half on", 1],
+      };
       const switched = switches[row.key];
       expect(row.step).toBeLessThanOrEqual(switched ? 1 : (row.max - row.min) / 10);
       if (switched) expect([row.min, row.max, row.step, row.label, row.default]).toEqual([0, 1, 1, ...switched]);

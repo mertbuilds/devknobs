@@ -583,7 +583,6 @@ describe("a Duo folding in its frames", () => {
       if (facing[0]) {
         // Dark a little past the turned screen, and in it a window cut to it, onto the page laid flat, which never turns.
         const [cut] = facing[0].children;
-        expect(style(facing[0], "background")).toBe("#000");
         expect(style(facing[0], "clipPath")).toStartWith('path("M');
         expect(style(cut, "clipPath")).toStartWith('path("M');
         expect(style(cut?.children[0], "transform")).toStartWith("matrix(");
@@ -603,6 +602,9 @@ describe("a Duo folding in its frames", () => {
           const short = hinge - right(facing[0]);
           const flat = (overOf(0.5) * shots.open[2]) / 951;
           expect(flat).toBeCloseTo(12, 1);
+          // Its dark ends twice as far short, on an edge of its own under the page: the browser cuts the dark and the
+          // page's canvas each by itself, so on one edge the dark showed through the page as a line.
+          expect(style(facing[0], "background")).toBe(`linear-gradient(#000, #000) 0 0 / ${hinge - 2 * flat}px 100% no-repeat`);
           expect(short).toBeGreaterThan(flat / 4);
           expect(short).toBeLessThan(flat + 0.2);
           if (shot.deg <= 82) expect(short).toBeGreaterThan(flat - 0.2);
@@ -610,6 +612,7 @@ describe("a Duo folding in its frames", () => {
         } else {
           // The folded screen's dark lies under its case all round.
           expect(right(facing[0])).toBeGreaterThan(right(cut));
+          expect(style(facing[0], "background")).toBe("#000");
         }
         glued = true;
       }
@@ -714,6 +717,50 @@ describe("a Duo folding in its frames", () => {
     expect(edges()).toBe(before);
   });
 
+  test("shows what draws a line as a hand asks: its dark as magenta, without the case's pictures, without the half that stays", async () => {
+    foldDevice(SHUT, OPEN, sceneOf(), (value) => drawn.push(value), true);
+    await Bun.sleep(0);
+    let now = 0;
+    const step = async () => {
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      await Bun.sleep(0);
+    };
+    // A hand takes the hinge to where the open screen's half shows, and holds it there till it rests.
+    for (let target = 0; target <= 0.8; target += 1 / 60) {
+      scrubFold(target);
+      await step();
+    }
+    for (let waited = 0; waited < 2000 && frames.length > 0; waited += 1) await step();
+    const looks = () => {
+      const [, inner] = model()?.children ?? [];
+      return [style(inner, "background"), ...canvases().map((canvas) => style(canvas, "visibility")), style(unit, "visibility")];
+    };
+    const before = looks();
+    expect(before[0]).toStartWith("linear-gradient(#000, #000) 0 0 / ");
+    expect(before.slice(1)).toEqual(["", "", ""]);
+    try {
+      setTune("backTint", 1);
+      expect(looks()).toEqual([before[0]?.replaceAll("#000", "#f0f") ?? "", "", "", ""]);
+      setTune("frameOn", 0);
+      expect(looks().slice(1)).toEqual(["hidden", "hidden", ""]);
+      setTune("stillOn", 0);
+      expect(looks().slice(1)).toEqual(["hidden", "hidden", "hidden"]);
+    } finally {
+      resetTune();
+    }
+    expect(looks()).toEqual(before);
+    // The half that stays is never left hidden once the fold is over.
+    setTune("stillOn", 0);
+    try {
+      expect(style(unit, "visibility")).toBe("hidden");
+      stopFold();
+      expect(style(unit, "visibility")).toBe("");
+    } finally {
+      resetTune();
+    }
+  });
+
   test("writes nothing to the page between frames, once the fades are done, and draws it all again at one", async () => {
     foldDevice(SHUT, OPEN, sceneOf(), (value) => drawn.push(value), true);
     await Bun.sleep(0);
@@ -767,11 +814,11 @@ describe("a Duo folding in its frames", () => {
     // The device shows only its still half while that fades in, then only its screen, under the rendered case.
     expect(clips.find((clip) => clip !== "")).toContain("100000px");
     expect(clips[firstWhole + 1]).not.toContain("100000px");
-    // With the open screen's half turning over it, it goes on under that, a px further than that stops short of the hinge: 4 css px here.
+    // With the open screen's half turning over it, it goes on under that, a px further than its dark stops short of the hinge: twice 4 css px here.
     const xs = (clip: string | undefined) => (clip?.match(/-?\d+(\.\d+)?(?=px \d)/g) ?? []).map(Number);
     const under = (clip: string | undefined) => Math.max(...xs(clip)) - Math.min(...xs(clip)) - 475.5 - BLEED;
     expect(under(clips[firstWhole + 1])).toBeCloseTo(0, 6);
-    expect(under(clips.findLast((clip) => clip !== ""))).toBeCloseTo(1 + overOf(0.5), 6);
+    expect(under(clips.findLast((clip) => clip !== ""))).toBeCloseTo(1 + 2 * overOf(0.5), 6);
     // Out over SHOTS_FADE ms, the device at rest under it, then the layer goes.
     const fading = outs.slice(outs.lastIndexOf("") + 1).map(Number);
     expect(fading.length).toBeGreaterThanOrEqual(SHOTS_FADE / 16 - 2);
