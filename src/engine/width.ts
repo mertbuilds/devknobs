@@ -1038,7 +1038,11 @@ function aim(fresh = false): void {
   touchDot?.apply(touching());
   if (outside === null) {
     // Its own page again, under the same sandbox as before, read once it has loaded.
-    if (!fresh) frame.setAttribute(OUTSIDE_ATTRIBUTE, frameUrl);
+    if (!fresh) {
+      frame.setAttribute(OUTSIDE_ATTRIBUTE, frameUrl);
+      // It starts at its top: no place is carried over from the outside page.
+      scrollkeep.keep(null, "frame");
+    }
     frame.removeAttribute("referrerpolicy");
     frame.setAttribute("sandbox", SANDBOX);
     loaded = false;
@@ -1116,8 +1120,8 @@ function open(veiled: number | null, first: boolean): void {
   address.follow({ page: frameDocument, locate, refresh: () => browser?.refresh() });
   scroll = { x: window.scrollX, y: window.scrollY };
   // A frame a knob brings up starts where the page was. One a reload brings up
-  // has its own place, kept before the reload.
-  if (!first) scrollkeep.keep(window, "frame");
+  // has its own place, kept before the reload, and an outside page has none.
+  if (!first && getOutside().outside === null) scrollkeep.keep(window, "frame");
   scrollkeep.follow(frameWindow);
   notice = createNotice(() => exit?.());
   refusal = document.createElement("div");

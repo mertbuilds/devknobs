@@ -15,6 +15,7 @@ import {
 } from "../src/engine/fresh";
 import { OWNER_KEY, RELOAD_KEY } from "../src/engine/locale";
 import { SNAPSHOT_KEY } from "../src/engine/placeholder";
+import { resume, SCROLL_KEY, SCROLL_VERSION } from "../src/engine/scrollkeep";
 import {
   DEFAULT_STATE,
   keepPlace,
@@ -207,6 +208,7 @@ describe("wiped", () => {
     expect(wiped(STORAGE_KEY)).toBe(true);
     expect(wiped(SNAPSHOT_KEY)).toBe(true);
     expect(wiped(FRESH_RELOAD_KEY)).toBe(true);
+    expect(wiped(SCROLL_KEY)).toBe(true);
     expect(wiped("devknobs:new")).toBe(true);
   });
 
@@ -310,6 +312,39 @@ describe("fresh mode and sessionStorage", () => {
     // The user's reload after it starts over.
     open({ search: FRESH });
     expect(load()).toEqual(DEFAULT_STATE);
+  });
+
+  test("the scroll place kept for a reload comes back after one devknobs asked for, and never after the user's", () => {
+    const kept = () =>
+      JSON.stringify({ v: SCROLL_VERSION, at: Date.now(), page: { path: "/", x: 0, y: 640 } });
+    /** A load of the page at its top, and every place it was scrolled back to. */
+    const loadPage = (): number[] => {
+      const puts: number[] = [];
+      const page = open({ search: FRESH });
+      Object.assign(page.location, { pathname: "/" });
+      Object.assign(page, {
+        scrollX: 0,
+        scrollY: 0,
+        document: {
+          readyState: "complete",
+          documentElement: { scrollWidth: 1200, scrollHeight: 3000, clientWidth: 1200, clientHeight: 800 },
+        },
+        scrollTo: (options: ScrollToOptions) => puts.push(options.top ?? 0),
+        requestAnimationFrame: () => 0,
+      });
+      resume();
+      return puts;
+    };
+    session.set(SCROLL_KEY, kept());
+    session.set(FRESH_RELOAD_KEY, asked(0));
+    expect(loadPage()).toEqual([640]);
+    expect(session.has(SCROLL_KEY)).toBe(false);
+
+    // Kept moments ago, but the load is the user's: it starts over.
+    session.set(SCROLL_KEY, kept());
+    expect(loadPage()).toEqual([]);
+    expect(session.has(SCROLL_KEY)).toBe(false);
+    expect(localCalls()).toBe(0);
   });
 
   test("a mark that is too old, or does not read, does not count", () => {
