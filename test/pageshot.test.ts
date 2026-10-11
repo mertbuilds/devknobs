@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   blankUrl,
+  blurMargin,
   blurPictures,
   copyPage,
   drawMedia,
   forgetShots,
+  marginPlace,
   paintPage,
   picturesKey,
   type ShotAt,
@@ -185,7 +187,24 @@ describe("forgetShots", () => {
 });
 
 describe("blurPictures", () => {
-  test("blurs the picture alone, with no black under it, so no blur darkens its ends and each ends where the sharp one does", () => {
+  test("reaches the black under each blur twice its width past the picture's ends", () => {
+    expect(blurMargin(1)).toBe(2);
+    expect(blurMargin(32)).toBe(64);
+    // In whole px, never short.
+    expect(blurMargin(1.3)).toBe(3);
+  });
+
+  test("lays a blur's picture on the sharp one, its black reaching as far past either end", () => {
+    const { start, size } = marginPlace(200, 328);
+    expect(start).toBe(-32);
+    expect(size).toBe(164);
+    // Its picture runs from 0 to 100 percent of the screen.
+    expect(start + (size * 64) / 328).toBeCloseTo(0, 6);
+    expect(start + (size * (64 + 200)) / 328).toBeCloseTo(100, 6);
+    expect(marginPlace(200, 200)).toEqual({ start: 0, size: 100 });
+  });
+
+  test("puts the picture on black past its ends along the hinge only, and blurs them together", () => {
     /** Each canvas made, and what was drawn on it, at where. */
     const made: { width: number; height: number; drawn: [number, number, number, number][]; fills: string[] }[] = [];
     const before = Reflect.get(globalThis, "document");
@@ -209,21 +228,32 @@ describe("blurPictures", () => {
       shot.height = 200;
       made.length = 0;
       // A rough picture of a screen 400 css px wide: a quarter of its px, so a blur 8, 32 and 128 css px wide is 2, 8 and 32 of them.
-      const down = blurPictures(shot, 400, [8, 32, 128]);
-      // Kept whole till 8 px cross the blur, then a quarter of the px each way: the picture's own shape, nothing past its ends.
-      expect(down.map((picture) => [picture.width, picture.height])).toEqual([
-        [100, 200],
-        [100, 200],
-        [25, 50],
+      const down = blurPictures(shot, 400, true, [8, 32, 128]);
+      // Each as long as the picture and its black, in the picture's px, however few px it keeps.
+      expect(down.map((picture) => picture.long)).toEqual([200 + 2 * 4, 200 + 2 * 16, 200 + 2 * 64]);
+      // Kept whole till 8 px cross the blur, then a quarter of the px each way.
+      expect(down.map((picture) => [picture.canvas.width, picture.canvas.height])).toEqual([
+        [100, 200 + 2 * 4],
+        [100, 200 + 2 * 16],
+        [25, (200 + 2 * 64) / 4],
       ]);
-      // Nothing is filled in under the picture, and each step draws all of the last over all of its own.
-      expect(made.flatMap((canvas) => canvas.fills)).toEqual([]);
-      expect(made.every((canvas) => canvas.drawn.length === 1 && canvas.drawn[0]?.[0] === 0 && canvas.drawn[0]?.[1] === 0)).toBe(true);
+      const first = made[0];
+      expect(first?.fills).toEqual(["#000"]);
+      expect(first?.drawn[0]?.slice(0, 2)).toEqual([0, 4]);
       // Every canvas that was a step on the way is let go of at once: only the three shown keep their px.
       const kept = made.filter((canvas) => canvas.width > 0);
       expect(kept).toHaveLength(3);
-      expect(down.every((picture) => kept.some((canvas) => Object.is(canvas, picture)))).toBe(true);
+      expect(down.every((picture) => kept.some((canvas) => Object.is(canvas, picture.canvas)))).toBe(true);
       expect(made.length).toBeGreaterThan(9);
+      made.length = 0;
+      const side = blurPictures(shot, 400, false, [8, 32, 128]);
+      expect(side.map((picture) => picture.long)).toEqual([100 + 2 * 4, 100 + 2 * 16, 100 + 2 * 64]);
+      expect(side.map((picture) => [picture.canvas.width, picture.canvas.height])).toEqual([
+        [100 + 2 * 4, 200],
+        [100 + 2 * 16, 200],
+        [(100 + 2 * 64) / 4, 50],
+      ]);
+      expect(made[0]?.drawn[0]?.slice(0, 2)).toEqual([4, 0]);
     } finally {
       Reflect.set(globalThis, "document", before);
     }
@@ -244,26 +274,26 @@ describe("blurPictures", () => {
       const shot = document.createElement("canvas");
       shot.width = 951;
       shot.height = 669;
-      const blurred = blurPictures(shot, 951);
+      const blurred = blurPictures(shot, 951, true);
       // 4, 8, 16, 32 and 48 css px wide: whole, whole, a half, a quarter and a sixth of the px each way.
-      expect(blurred.map((picture) => picture.width)).toEqual([951, 951, 476, 238, 159]);
-      const px = (pictures: { width: number; height: number }[]) => pictures.reduce((sum, { width, height }) => sum + width * height, 0);
+      expect(blurred.map((picture) => picture.canvas.width)).toEqual([951, 951, 476, 238, 159]);
+      expect(blurred.map((picture) => picture.long)).toEqual([669 + 16, 669 + 32, 669 + 64, 669 + 128, 669 + 192]);
+      const px = (pictures: { canvas: { width: number; height: number } }[]) =>
+        pictures.reduce((sum, { canvas }) => sum + canvas.width * canvas.height, 0);
       // The three there were, 8, 32 and 128 css px wide, each whole with its black: 669 + 16, + 64 and + 256 css px long.
       const were = 951 * (3 * 669 + 4 * (8 + 32 + 128));
       expect(px(blurred)).toBeLessThan(0.75 * were);
       // A blur a hand sets as wide as it goes makes two pictures more, and few px more.
-      const widest = blurPictures(shot, 951, [4, 8, 16, 32, 64, 128, 256]);
+      const widest = blurPictures(shot, 951, true, [4, 8, 16, 32, 64, 128, 256]);
       expect(px(widest)).toBeLessThan(1.05 * px(blurred));
       // A step that would not be drawn is no step: a rough picture's px is as wide as the first blur.
       const rough = document.createElement("canvas");
       rough.width = 238;
       rough.height = 167;
       made.length = 0;
-      const [same] = blurPictures(rough, 952, [4]);
-      expect([same?.width, same?.height]).toEqual([238, 167]);
-      // The picture again, but on a canvas of its own: it is shown and faded apart from the sharp one.
+      const [same] = blurPictures(rough, 952, true, [4]);
+      expect([same?.canvas.width, same?.canvas.height]).toEqual([238, 167 + 4]);
       expect(made).toHaveLength(1);
-      expect(Object.is(same, rough)).toBe(false);
     } finally {
       Reflect.set(globalThis, "document", before);
     }

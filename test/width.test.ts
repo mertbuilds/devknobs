@@ -1177,10 +1177,10 @@ describe("a foldable folding", () => {
     // laid out open, the half that stays live under a dim, the copy turning over it.
     const style = (name: string, key: string) => String(Reflect.get(byClass(name)?.style ?? {}, key) ?? "");
     // Each side of the half that turns is its body, the window onto the page its screen is, and the shade over
-    // it, then the bend's half on the half that stays.
+    // it, and nothing down the hinge.
     const leaves = () => byClass("fold")?.children[0]?.children ?? [];
     expect(Reflect.get(frameElement().style, "width")).toBe("466px");
-    expect(leaves()).toHaveLength(7);
+    expect(leaves()).toHaveLength(6);
     // Its body whole, only its screen faded, so nothing behind the device shows through.
     expect(Reflect.get(leaves()[3]?.style ?? {}, "opacity") || "").toBe("");
     expect(Reflect.get(leaves()[3]?.children[0]?.style ?? {}, "opacity")).toBe("0");

@@ -19,7 +19,7 @@ import {
   shotWindow,
   shownAt,
 } from "./fold";
-import { freeOf, reachOf, screenLook, wedgeOf } from "./foldgl";
+import { freeOf, pastHinge, reachOf, screenLook, wedgeOf } from "./foldgl";
 import {
   type Face,
   div,
@@ -201,8 +201,10 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     glued.node.style.visibility = seen ? "" : "hidden";
     if (!seen || !picture || !opening) continue;
     // The page stays still and flat behind the turned screen, dark where the screen reaches past it.
-    glued.cut.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
-    glued.node.style.clipPath = `path("${roundedPath(bled(rect, glued.pane, layout.across, seen), bledRadii(glued.radii), seen)}")`;
+    // The page goes on a little past the hinge, over the other half's, and the dark does not, so none shows between the two.
+    const past = pastPath(rect, glued, layout.across, picture, seen);
+    glued.cut.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}${past}")`;
+    glued.dark.style.clipPath = `path("${roundedPath(bled(rect, glued.pane, layout.across, seen), bledRadii(glued.radii), seen)}")`;
     const { x, y } = plane.corner;
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     const free = freeOf(opening, glued.pane, picture);
@@ -213,6 +215,28 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     const wedge = wedgeOf(opening, glued.pane, picture, span);
     glued.gl?.draw(screenLook(open, wedge, free, own ? glued.pane : null, glued.pane));
   }
+}
+
+/**
+ * The outline of what a glued screen shows past its hinge, as css path data
+ * to go after its window's: as far past it as `glued.over` has it, between
+ * the window's two corners at the hinge, as `seen` sees them, and flat, as
+ * its `picture` and the half that stays lie, however far the screen has
+ * turned. Nothing where it shows none.
+ */
+function pastPath(rect: Rect, glued: Glued, across: boolean, picture: Rect, seen: (point: Point) => Point): string {
+  const { over, pane } = glued;
+  if (over <= 0) return "";
+  const { x, y, width, height } = pastHinge(rect, pane, across, over);
+  // What of it is past the hinge: the picture's right in the render, held either way.
+  const strip = across ? { x: x + width - over, y, width: over, height } : { x, y, width, height: over };
+  const wide = picture.width / (across ? rect.width : rect.height);
+  const flat = (point: Point) => {
+    const on = across ? { x: Math.min(point.x, rect.x + rect.width), y: point.y } : { x: point.x, y: Math.max(point.y, rect.y) };
+    const at = seen(on);
+    return { x: at.x + (Math.abs(point.x - on.x) + Math.abs(point.y - on.y)) * wide, y: at.y };
+  };
+  return roundedPath(strip, [0, 0, 0, 0], flat);
 }
 
 /**

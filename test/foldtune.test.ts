@@ -26,9 +26,9 @@ describe("the fold's numbers", () => {
     expect(tune).toEqual(TUNE_DEFAULTS);
     foldTune.get().blurMost = 1;
     expect(tune.blurMost).toBe(TUNE_DEFAULTS.blurMost);
-    // The hinge side sharp, at its ends too, and the widest blur three eighths of the 128 css px it was.
+    // The hinge side sharp, but for its ends' blur, and the widest blur three eighths of the 128 css px it was.
     expect(TUNE_DEFAULTS.blurMost).toBe(48);
-    expect([TUNE_DEFAULTS.blurHinge, TUNE_DEFAULTS.edgeHinge]).toEqual([0, 0]);
+    expect([TUNE_DEFAULTS.blurHinge, TUNE_DEFAULTS.edgeHinge]).toEqual([0, 0.3]);
     expect(TUNE_DEFAULTS.blurRise).toBe(2);
     expect(TUNE_DEFAULTS.blurAngle).toBe(90);
     // No shade over the half that turns: each is a hand's to bring back.

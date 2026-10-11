@@ -5,9 +5,10 @@
 ### iPhone Duo
 
 - the half that turns shows the page at the text size knob's size: its lines meet the other half's at the hinge. a page that sets its own root font size folds right too
-- the half that turns is sharp at the hinge through the whole fold, at its top and bottom ends too, and blurs gently toward its free edge: 48 px at most, where it was 128
-- a blur never darkens the half that turns: the black past its top and bottom ends and past its free edge is no longer blurred into the page, so it keeps its colour up to its own outline, drawn by WebGL2 or by the blurred pictures laid over each other
-- nothing darkens the half that turns at the hinge: the bend's dark strip is no longer laid over it in the fold's frames
+- the half that turns is sharp at the hinge through the whole fold, and blurs gently toward its free edge: 48 px at most, where it was 128. its top and bottom ends still blur into the black past them, at the hinge too
+- nothing marks the hinge: the bend's dark strip is gone from both halves
+- no thin dark line runs down the hinge as the Duo folds: the page on the half that turns is drawn 2 px past the hinge, over the other half's, so the black under it never shows between the two
+- a fold that turns copies of the half has no black px down the hinge either
 - where WebGL2 does not draw the half that turns, its blur rises with no lines down it: the blurred pictures laid over each other are twice as wide each, not four times, and each fades in exactly where the one under it is all in
 - the half that turns is no longer shaded toward its free edge as it turns: it keeps the screen's own light, the same as the other half's, so no lines run down it. the three shades are still in the fold's table, at 0, for a hand to bring back
 - a shade brought back has no lines either: WebGL2 works it out at every px, and where gradients draw it they go through as many stops as its bends need, not 9

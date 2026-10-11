@@ -22,12 +22,11 @@ import type { Rect } from "./mock";
 /**
  * The page on the screen of a fold's half that turns, drawn by WebGL2 from
  * a picture of it, as Apple and jadon7/iphone-duo draw theirs: blurred from
- * the hinge toward the free edge as the hinge sets it, none at the hinge,
- * and toward the picture's ends along the hinge, where the turned screen
- * reaches past it. A blur never darkens: the black past the picture's ends,
- * and past the turned screen's free edge, where the page is cut off as it
- * is seen, is no part of it, so the picture keeps its colour up to its own
- * outline, which stays sharp. The blur is the picture's
+ * the hinge toward the free edge as the hinge sets it, and past the
+ * picture's ends along the hinge, where the turned screen reaches past it,
+ * blurred together with the black there, so its colour spreads into the
+ * dark and the line between them never shows, and so at the turned screen's
+ * free edge, where the page is cut off as it is seen. The blur is the picture's
  * mipmaps, sampled 25 times about each point as far apart as it is wide,
  * and where there is no blur, all on the point.
  * Its shades are worked out there too, at every px.
@@ -136,39 +135,19 @@ export function levelAt(gap: number, texels: number, sharp: number): number {
   return Math.max(sharp, Math.log2(Math.max(1, gap * texels)));
 }
 
-/** The least of the picture a point's taps have between them that their sum is divided by. */
-const LEAST = 1e-4;
-
 /**
- * What the shader's 25 taps about a point come to, `gap` apart, each read
+ * What the shader's 25 taps about a point add up to, `gap` apart, each read
  * by `sample`: with no gap they all fall on the point, so it is the point's
- * own, sharp. A tap counts by how much of the picture there is at it, as
- * `seen` has it, softened as far as the blur is wide, and what they add up
- * to is divided by how much they have between them, so a tap past the
- * picture takes nothing from the point's colour. Only how much of the
- * picture is at the point itself, softened over half a px, `px` css px wide,
- * takes from it: its outline.
+ * own, sharp.
  */
-export function tapped(
-  sample: (x: number, y: number) => number,
-  x: number,
-  y: number,
-  gap: number,
-  seen: (x: number, y: number, soft: number) => number = () => 1,
-  px = 1,
-): number {
-  const soft = Math.max(0.5 * px, 0.75 * gap);
+export function tapped(sample: (x: number, y: number) => number, x: number, y: number, gap: number): number {
   let sum = 0;
-  let had = 0;
   for (let down = -2; down <= 2; down++) {
     for (let right = -2; right <= 2; right++) {
-      const at: [number, number] = [x + right * gap, y + down * gap];
-      const share = seen(...at, soft) * (WEIGHTS[Math.abs(right)] ?? 0) * (WEIGHTS[Math.abs(down)] ?? 0);
-      sum += sample(...at) * share;
-      had += share;
+      sum += sample(x + right * gap, y + down * gap) * (WEIGHTS[Math.abs(right)] ?? 0) * (WEIGHTS[Math.abs(down)] ?? 0);
     }
   }
-  return (sum / Math.max(had, LEAST)) * seen(x, y, 0.5 * px);
+  return sum;
 }
 
 /** How much of the picture there is `at` css px along a picture `span` long, softened over `soft` either way: none past its ends. */
@@ -195,7 +174,8 @@ export function wedgeOf(window: Quad, pane: Pane, picture: Rect, span: number): 
  * Where the turned screen of `pane`, its window `window`, is seen to end on
  * its `picture` at its free edge, as a share of the way from the hinge to
  * the picture's own, 1 where it reaches it: the window cuts the page lying
- * flat there, so the page ends at that cut, as at its ends.
+ * flat there, so the page is blurred into the dark past that cut, as past
+ * its ends.
  */
 export function freeOf(window: Quad, pane: Pane, picture: Rect): number {
   if (picture.width <= 0) return 1;
@@ -226,13 +206,30 @@ export interface ScreenPlace {
   part: Rect;
   /** How far past the screen's ends along the hinge the turned screen may reach, in css px. */
   margin: number;
+  /** How far past the hinge the canvas reaches, in css px, as `pastHinge` has it. */
+  over: number;
   /** How many of the display's px a css px of the picture takes. */
   density: number;
 }
 
-/** Where the canvas lies on the whole screen: over the part that turns, and `margin` past its ends along the hinge. */
+/**
+ * The part of the screen of `pane` that turns, `part`, reaching `over` css
+ * px past the hinge, onto the half that stays: its side where `hingeLine`
+ * is 0. What is drawn of the half that turns goes that far, so its edge and
+ * the other half's never meet in one px of the display, where each would
+ * cover a part of it and what lies behind both would show as a line down
+ * the hinge.
+ */
+export function pastHinge(part: Rect, pane: Pane, across: boolean, over: number): Rect {
+  const { x, y, width, height } = part;
+  if (across) return { x: pane === "inner" ? x : x - over, y, width: width + over, height };
+  return { x, y: pane === "inner" ? y - over : y, width, height: height + over };
+}
+
+/** Where the canvas lies on the whole screen: over the part that turns, `over` past the hinge, and `margin` past its ends along the hinge. */
 export function canvasRect(place: ScreenPlace): Rect {
-  const { across, part, stage, margin } = place;
+  const { across, stage, margin } = place;
+  const part = pastHinge(place.part, place.pane, across, place.over);
   return across
     ? { x: part.x, y: -margin, width: part.width, height: stage.height + 2 * margin }
     : { x: -margin, y: part.y, width: stage.width + 2 * margin, height: part.height };
@@ -271,10 +268,9 @@ void main() {
 }`;
 
 /**
- * `blurAt`, `coverage` and `tapped`, the same: the picture blurred with none
- * of the black past it, which lies past its ends along the hinge and past
- * where the turned screen's free edge cuts it, then cut to its own outline,
- * and darkened toward that edge
+ * `blurAt` and `coverage`, the same, then the picture and the
+ * black past it blurred together: past its ends along the hinge, and past
+ * where the turned screen's free edge cuts it, and darkened toward that edge
  * as `freeDark` has it, and shaded as `shadeAt` has it: each at every px, so
  * no shade has stops to bend at. A shade that is off costs a compare. What
  * varies gets a little noise, under a step of the screen's 256, so a dark,
@@ -353,21 +349,17 @@ void main() {
   float soft = max(0.5 * px, 0.75 * gap);
   float lod = max(sharp, log2(max(1.0, gap * max(texels.x, texels.y))));
   vec3 sum = vec3(0.0);
-  float had = 0.0;
   if (peak + edge.x + edge.y <= 0.0) {
-    sum = textureLod(page, pos / stage, lod).rgb;
-    had = 1.0;
+    sum = textureLod(page, pos / stage, lod).rgb * seen(pos, soft);
   } else {
     for (int y = -2; y <= 2; y++) {
       for (int x = -2; x <= 2; x++) {
         vec2 tap = pos + vec2(float(x), float(y)) * gap;
-        float share = seen(tap, soft) * WEIGHTS[abs(x)] * WEIGHTS[abs(y)];
-        sum += textureLod(page, tap / stage, lod).rgb * share;
-        had += share;
+        float weight = WEIGHTS[abs(x)] * WEIGHTS[abs(y)];
+        sum += textureLod(page, tap / stage, lod).rgb * seen(tap, soft) * weight;
       }
     }
   }
-  sum = sum / max(had, ${LEAST.toFixed(4)}) * seen(pos, 0.5 * px);
   color = shaded(sum, t);
 }`;
 

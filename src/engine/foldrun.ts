@@ -27,7 +27,6 @@ import {
 } from "./fold";
 import { BLEED, pick, pose, type Shots, shotsOf } from "./foldframes";
 import {
-  creaseOf,
   type Face,
   div,
   fill,
@@ -123,22 +122,20 @@ interface Leaf extends Panel {
   pivot: Point;
 }
 
-/** The half that turns as the copies of its two sides, and the bend's half on it. */
+/** The half that turns as the copies of its two sides. */
 interface Copies {
   inner: Leaf;
   outer: Leaf;
-  bend: HTMLElement;
 }
 
 /**
- * The layer a fold is drawn on, the fold's place on it, the half that turns,
- * as copies or as frames, and the bend's half on the half that stays.
+ * The layer a fold is drawn on, the fold's place on it, and the half that
+ * turns, as copies or as frames. Nothing marks the hinge on either half.
  */
 interface Layer {
   layer: HTMLElement;
   place: HTMLElement;
   turning: Copies | Shots;
-  still: HTMLElement;
 }
 
 /**
@@ -353,6 +350,7 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     radii: turning.radii,
     pivot: turning.pivot,
     width: size.width,
+    across,
   };
   if (picture.shot) paintLeaf(leaf, picture.shot);
   // The page as the browser draws it, once it has, over the rough one.
@@ -365,7 +363,9 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
 /**
  * The copies of the half that turns: its inside, the open screen's half,
  * `inner`, and its outside, the folded body, `outer`, each with the window its
- * screen is, and the bend's half on it.
+ * screen is. The inside's body goes a px past the hinge and its window does
+ * not, so its screen's dark stops a px short of the hinge: none of it shows
+ * past the window, as a line down the hinge.
  */
 function copiesOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictures): Copies {
   const sides = turningOf(layout, open, closed);
@@ -381,15 +381,18 @@ function copiesOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictur
   }
   outer.node.style.transformOrigin = layout.origins.outer;
   outer.veil.style.transformOrigin = layout.origins.outer;
-  const bend = creaseOf(layout, open, true);
-  inner.veil.append(bend);
-  return { inner, outer, bend };
+  const { rect: whole } = screenOf(open);
+  const far = 1e5;
+  const short = (value: number) => Math.round((value + 1) * 100) / 100;
+  inner.screen.style.clipPath = layout.across
+    ? `inset(${-far}px ${short(whole.x + whole.width - layout.hinge)}px ${-far}px ${-far}px)`
+    : `inset(${short(layout.hinge - whole.y)}px ${-far}px ${-far}px ${-far}px)`;
+  return { inner, outer };
 }
 
 /**
  * Put the half that turns over the frame's own device, as the fold's frames
- * where `found` has them, else as copies, and the bend's half on the half that
- * stays, which shows only while the inside does, so the outside never goes over it.
+ * where `found` has them, else as copies.
  */
 function build(
   scene: FoldScene,
@@ -401,22 +404,20 @@ function build(
 ): Layer {
   const layer = div("fold");
   const place = div("");
-  const still = creaseOf(layout, open, false);
   let turning: Copies | Shots;
   const shots = found && shotsOf(layout, open, closed, pictures, found);
   if (shots) {
-    // Under the frames, which draw the hinge over it.
-    place.append(still, shots.model);
+    place.append(shots.model);
     turning = shots;
   } else {
     const copies = copiesOf(layout, open, closed, pictures);
     const { inner, outer } = copies;
-    place.append(inner.node, inner.window, inner.veil, outer.node, outer.window, outer.veil, still);
+    place.append(inner.node, inner.window, inner.veil, outer.node, outer.window, outer.veil);
     turning = copies;
   }
   layer.append(place);
   scene.place(layer);
-  return { layer, place, turning, still };
+  return { layer, place, turning };
 }
 
 /** Where the frame's own device is, now that it is drawn `posture`. */
@@ -569,11 +570,7 @@ function show(going: Going): void {
     turning.inner.why = turning.outer.why = going.waiting ? COPIES_WAIT : COPIES_ONLY;
     stand(turning.inner, layout, frame, frame.inner, open, 1 - hand);
     stand(turning.outer, layout, frame, frame.outer, open, 1 - hand);
-    turning.bend.style.opacity = String(frame.lift);
   }
-  // As the half that turns shows it, faded as it is. Under the frames it may go on past a right angle, so it never goes at once.
-  parts.still.style.visibility = frame.inner || shots ? "" : "hidden";
-  parts.still.style.opacity = String(frame.lift * (1 - hand));
   // The frame's own device moves with the fold, its folded body onto where it lies shut, and under the frames with them.
   const opened = unit.posture === "open";
   const own = opened ? layout.unfolded.scale : layout.folded.scale;
