@@ -1,4 +1,5 @@
 import type { DevknobsState, SchemeValue } from "../types";
+import { baseMatchMedia } from "./matchmedia";
 import { parse } from "./store";
 
 /** Marks the iframe the width knob renders the page in. */
@@ -10,6 +11,22 @@ export const FRAME_ATTRIBUTE = "data-devknobs-frame";
  * its own.
  */
 export const FRAME_NAME = "devknobs-frame";
+
+/**
+ * Marks the frame while an outside page is in it, with the address its bar
+ * shows. That page is on another origin, so nothing reads its window or its
+ * document.
+ */
+export const OUTSIDE_ATTRIBUTE = "data-devknobs-outside";
+
+/**
+ * May the page in `frame` be read? Not while an outside page is in it. Every
+ * read of the frame's window or document asks this first, so an outside page
+ * is never touched.
+ */
+export function reachable(frame: HTMLIFrameElement): boolean {
+  return !frame.hasAttribute(OUTSIDE_ATTRIBUTE);
+}
 
 /** What a zoom key asks of the frame: a step in or out, or back to fit. */
 export type ZoomAction = "zoom-in" | "zoom-out" | "zoom-fit";
@@ -95,6 +112,16 @@ export function handsSchemeDown(root: Node): boolean {
   }
   probe.remove();
   return schemeHandover;
+}
+
+/**
+ * The scheme the page in `frame` is given: the one the frame element carries,
+ * else the window's own, which a frame with none follows.
+ */
+export function schemeGiven(frame: HTMLIFrameElement): "light" | "dark" {
+  const set = frame.style.colorScheme;
+  if (set === "light" || set === "dark") return set;
+  return baseMatchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 /** The knobs that bring the frame up. */
