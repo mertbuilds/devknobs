@@ -264,7 +264,7 @@ function shadeTo(node: HTMLElement, background: string): void {
  * of the two draws the page, and why, is noted for the tuning hook to tell.
  */
 export function light(panel: Panel, open: number, free: number | null, out: number, lit = false): void {
-  drew(free === null ? "webgl" : "layers", free === null ? BY_WEBGL : panel.why);
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) drew(free === null ? "webgl" : "layers", free === null ? BY_WEBGL : panel.why);
   // A hand has set how wide the blur gets since its pictures were made: they are made again, as wide as it asks.
   const widths = blurWidths();
   const same = widths.length === panel.widths.length && widths.every((width, index) => width === panel.widths[index]);

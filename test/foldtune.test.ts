@@ -9,6 +9,7 @@ import {
   JADON,
   jadonBlur,
   resetTune,
+  TABLE_DEFAULTS,
   TUNE_DEFAULTS,
   TUNE_KEY,
   tune,
@@ -22,7 +23,7 @@ afterEach(() => {
 
 describe("the fold's numbers", () => {
   test("start as they ship, and are handed out as a copy", () => {
-    expect(foldTune.get()).toEqual(TUNE_DEFAULTS);
+    expect(foldTune.get()).toEqual(TABLE_DEFAULTS);
     expect(tune).toEqual(TUNE_DEFAULTS);
     foldTune.get().blurMost = 1;
     expect(tune.blurMost).toBe(TUNE_DEFAULTS.blurMost);
@@ -37,9 +38,9 @@ describe("the fold's numbers", () => {
 
   test("lists every number once, as it ships and as it is, in a range that holds both", () => {
     const { spec } = foldTune;
-    expect(spec.map((row): string => row.key).sort()).toEqual(Object.keys(TUNE_DEFAULTS).sort());
+    expect(spec.map((row): string => row.key).sort()).toEqual(Object.keys(TABLE_DEFAULTS).sort());
     for (const row of spec) {
-      expect(row.default).toBe(TUNE_DEFAULTS[row.key]);
+      expect(row.default).toBe(TABLE_DEFAULTS[row.key]);
       expect(row.value).toBe(row.default);
       expect(row.min).toBeLessThan(row.max);
       expect(row.default).toBeGreaterThanOrEqual(row.min);
@@ -206,11 +207,11 @@ describe("the fold's numbers", () => {
         expect(set[row.key]).toBeLessThanOrEqual(row.max);
       }
     }
-    expect(sets.ours).toEqual(TUNE_DEFAULTS);
+    expect(sets.ours).toEqual(TABLE_DEFAULTS);
     // Data only: the table is as it was, and a set changed by who took it changes no other.
     expect(tune).toEqual(TUNE_DEFAULTS);
     if (sets.ours) sets.ours.blurMost = 1;
-    expect(foldTune.presets().ours).toEqual(TUNE_DEFAULTS);
+    expect(foldTune.presets().ours).toEqual(TABLE_DEFAULTS);
     expect(TUNE_DEFAULTS.blurMost).toBe(48);
     const { jadon, "jadon blur": blur } = sets;
     expect(blur).toMatchObject({ blurHinge: 0, blurRise: 1.35, blurAngle: 90, blurHold: 1, blurEase: 1, blurSpread: 1, blurMost: 43 });

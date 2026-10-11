@@ -32,7 +32,7 @@ import {
   screenOf,
   turningOf,
 } from "./foldpage";
-import { backColor, tune, tuneChanges } from "./foldtune";
+import { backColor, finds, tuneChanges } from "./foldtune";
 import type { Rect } from "./mock";
 import type { Corners } from "./morph";
 
@@ -187,12 +187,12 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
   // The screens change only with the frame, with what draws them, or with a number of their look set by hand.
   // And with what lies over them: WebGL2 shades a screen itself once the bars' copy is off it.
   const over = [turning.inner.stage.lastElementChild, turning.outer.stage.lastElementChild];
-  const by = [turning.inner.gl, turning.inner.pictures, turning.outer.gl, turning.outer.pictures, tuneChanges(), ...over];
+  const by = [turning.inner.gl, turning.inner.pictures, turning.outer.gl, turning.outer.pictures, typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE ? tuneChanges() : 0, ...over];
   const { lit } = turning;
   if (lit && lit.shot === shot && lit.by.every((one, index) => one === by[index])) return;
   turning.lit = shot && { shot, by };
   // The case's pictures, but where a hand looks for what draws a line.
-  const framed = tune.frameOn >= 0.5 ? "" : "hidden";
+  const framed = (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) && finds.frameOn < 0.5 ? "hidden" : "";
   plane.canvas.style.visibility = framed;
   turning.still.canvas.style.visibility = framed;
   const pane = shot && shotPane(shots, shot);
@@ -212,7 +212,7 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     const dark = bled(rect, glued.pane, layout.across, seen, short, 8 * glued.over);
     glued.node.style.clipPath = `path("${roundedPath(dark, bledRadii(glued.radii), seen)}")`;
     const { x, y } = plane.corner;
-    glued.node.style.background = backOf(backColor(), picture.x + picture.width - x, short);
+    glued.node.style.background = backOf(typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE ? backColor() : "#000", picture.x + picture.width - x, short);
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     const free = freeOf(opening, glued.pane, picture);
     // The free edge's dark is WebGL2's where it draws the page, else a gradient's, and so are the screen's shades.

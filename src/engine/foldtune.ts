@@ -1,56 +1,27 @@
 import { formOf } from "./devices";
+import { TUNE_DEFAULTS, tune } from "./foldlook";
 
 /**
- * The numbers a fold's look is drawn by, in one table read each time a fold
- * is drawn, so they can be tuned by hand on a live page: a development hook
- * on `window`, under `Symbol.for("devknobs.foldtune")`. Nothing is stored:
- * the table lives in memory, and a reload puts every number back. It also
- * says what drew the page on the half that turns the last time a fold was
- * drawn, and why, as WebGL2 and the layers are tuned apart, and, for
- * comparing with the fold it was modelled on, sets of numbers by name, the
- * hinge's angle, and the picture of the page a fold draws.
+ * The controls a fold's look is tuned by, by hand on a live page: a
+ * development hook on `window`, under `Symbol.for("devknobs.foldtune")`,
+ * over the numbers of `foldlook.ts`. Nothing is stored: the table lives in
+ * memory, and a reload puts every number back. It also says what drew the
+ * page on the half that turns the last time a fold was drawn, and why, as
+ * WebGL2 and the layers are tuned apart, and, for comparing with the fold it
+ * was modelled on, sets of numbers by name, the hinge's angle, and the
+ * picture of the page a fold draws.
+ *
+ * For development from source only. The build sets `DEVKNOBS_TUNE` false,
+ * every use of this module is behind it, and nothing here runs as the module
+ * loads, so the bundler leaves all of it out of the package: what is called
+ * as it loads is marked pure, and `scripts/tunefree.ts` fails a build that
+ * has any of it.
  */
 
-/** Every number as it ships. Tuned values that are kept go here. */
-export const TUNE_DEFAULTS = {
-  /** The widest the blur gets, in css px at scale 1: at the free edge, the half standing at `blurAngle`. */
-  blurMost: 48,
-  /** The blur at the hinge, as a share of the blur at the free edge at the same angle. None as it ships: the hinge side is sharp. */
-  blurHinge: 0,
-  /** How the blur rises from the hinge to the free edge: 1 evenly, more keeps it low further from the hinge. */
-  blurRise: 2,
-  /** The hinge's angle the blur is widest at, in degrees: 180 open flat, 90 a right angle, 0 shut. */
-  blurAngle: 90,
-  /** How the blur falls off away from that angle: 1 evenly, more keeps it low further from it. */
-  blurStand: 1.5,
-  /** How much of its peak the blur keeps past that angle, on the side away from where the screen lies flat in sight: 0 falls as it rose, 1 stays at the peak. */
-  blurHold: 0,
-  /** How the blur rises to its peak: 0 by `blurStand`'s power, 1 slow at both ends, as jadon7/iphone-duo's does. */
-  blurEase: 0,
-  /** How wide the blur at the picture's ends along the hinge is at the hinge, in widths of the dark past them. */
-  edgeHinge: 0.3,
-  /** The same at the free edge. */
-  edgeFree: 1,
-  /** How far into the picture from an end the blur past it reaches, in widths of that blur. */
-  edgeReach: 1.5,
-  /** How far apart WebGL2's taps are, as a share of the blur's width: more is softer, till the taps show. */
-  blurSpread: 0.5,
-  /** How dark the turned screen's free edge gets, 0 to 1, the half standing at a right angle. None as it ships, so the four numbers under it do nothing till a hand raises it: 0.7 is as measured from Apple's. */
-  darkMost: 0,
-  /** How that dark falls off away from a right angle: more keeps it to fewer degrees about it. */
-  darkPower: 3,
-  /** Where that dark starts, as a share of the way from the hinge to the free edge. */
-  darkFrom: 0.25,
-  /** How wide the darkest strip at the free edge is, as a share of the same way. */
-  darkBand: 0.05,
-  /** How much of that dark comes on evenly from where it starts: the rest is the strip's. */
-  darkBroad: 0.5,
-  /** How strongly the half that turns is shaded toward its free edge as it turns. Not at all as it ships: Apple's is 1.5. */
-  wipeShade: 0,
-  /** How deep the shadow over the outer half of the open screen's half gets, 0 to 1. None as it ships: Apple's is 1. */
-  farShade: 0,
-  /** How much noise WebGL2 adds to a shade it draws, in steps of a screen's 256, so a dark, slow one shows no bands. */
-  grain: 1,
+export { TUNE_DEFAULTS, tune };
+
+/** The switches for finding what draws a line, as they are with nothing looked for. */
+export const FIND_DEFAULTS = {
   /** For finding what draws a line: 0 leaves every shade over the half that turns out, but the screen's own light. */
   shadeOn: 1,
   /** The same for its blur: 0 leaves it sharp. */
@@ -63,14 +34,18 @@ export const TUNE_DEFAULTS = {
   stillOn: 1,
 } satisfies Record<string, number>;
 
-export type TuneKey = keyof typeof TUNE_DEFAULTS;
+/** Every number of the table as it ships, the look's and then the switches. */
+export const TABLE_DEFAULTS = /* @__PURE__ */ Object.assign({}, TUNE_DEFAULTS, FIND_DEFAULTS);
 
-/** The numbers as they are now. Read where a fold is drawn, never copied. */
-export const tune: Record<TuneKey, number> = { ...TUNE_DEFAULTS };
+export type FindKey = keyof typeof FIND_DEFAULTS;
+export type TuneKey = keyof typeof TABLE_DEFAULTS;
+
+/** The switches as they are now. Read where a fold is drawn, never copied. */
+export const finds: Record<FindKey, number> = /* @__PURE__ */ Object.assign({}, FIND_DEFAULTS);
 
 /** The black a fold lays under the half that turns, as a css colour: magenta where a hand looks for what draws a line. */
 export function backColor(): string {
-  return tune.backTint >= 0.5 ? "#f0f" : "#000";
+  return finds.backTint >= 0.5 ? "#f0f" : "#000";
 }
 
 /** What a control for a number shows, and how far it lets it go. */
@@ -153,9 +128,9 @@ export interface TuneLive {
   pictures(): Promise<HTMLCanvasElement[] | string>;
 }
 
-const listeners = new Set<() => void>();
+const listeners = /* @__PURE__ */ new Set<() => void>();
 /** Those who listen on `window`, who hear of what draws the page too. The folds' own do not: a number has not changed. */
-const hearers = new Set<() => void>();
+const hearers = /* @__PURE__ */ new Set<() => void>();
 let info: FoldInfo = { drawnBy: "none", why: "no fold has drawn yet" };
 let changes = 0;
 let live: TuneLive | null = null;
@@ -165,12 +140,21 @@ let due = false;
 let shotSaid = "no picture has been asked for yet";
 
 function isKey(key: string): key is TuneKey {
-  return Object.hasOwn(TUNE_DEFAULTS, key);
+  return Object.hasOwn(TABLE_DEFAULTS, key);
+}
+
+function isFind(key: TuneKey): key is FindKey {
+  return Object.hasOwn(FIND_DEFAULTS, key);
 }
 
 /** The table's keys, in the order it lists them. */
 function keys(): TuneKey[] {
-  return Object.keys(TUNE_DEFAULTS).filter(isKey);
+  return Object.keys(TABLE_DEFAULTS).filter(isKey);
+}
+
+/** A number of the table as it is now, the look's or a switch. */
+function valueOf(key: TuneKey): number {
+  return isFind(key) ? finds[key] : tune[key];
 }
 
 function changed(): void {
@@ -248,15 +232,17 @@ export function setTune(key: string, value: number): void {
   if (!isKey(key) || !Number.isFinite(value)) return;
   const { min, max } = RANGES[key];
   const next = Math.min(max, Math.max(min, value));
-  if (next === tune[key]) return;
-  tune[key] = next;
+  if (next === valueOf(key)) return;
+  if (isFind(key)) finds[key] = next;
+  else tune[key] = next;
   changed();
 }
 
 /** Put every number back as it ships. */
 export function resetTune(): void {
-  if (keys().every((key) => tune[key] === TUNE_DEFAULTS[key])) return;
+  if (keys().every((key) => valueOf(key) === TABLE_DEFAULTS[key])) return;
   Object.assign(tune, TUNE_DEFAULTS);
+  Object.assign(finds, FIND_DEFAULTS);
   changed();
 }
 
@@ -300,7 +286,7 @@ export function jadonBlur(pane: "inner" | "cover"): number {
  */
 function presets(): Record<string, Record<string, number>> {
   const blur = {
-    ...TUNE_DEFAULTS,
+    ...TABLE_DEFAULTS,
     blurMost: Math.round(jadonBlur("inner")),
     blurHinge: 0,
     blurRise: 1.35,
@@ -313,7 +299,7 @@ function presets(): Record<string, Record<string, number>> {
     farShade: 0,
   };
   return {
-    ours: { ...TUNE_DEFAULTS },
+    ours: { ...TABLE_DEFAULTS },
     jadon: { ...blur, darkMost: 1, darkFrom: 0.2, darkPower: 1, darkBroad: 1, shadeOn: 1 },
     "jadon blur": blur,
   };
@@ -359,9 +345,9 @@ async function shot(): Promise<Blob | null> {
 
 export const foldTune: FoldTune = {
   get spec() {
-    return keys().map((key) => ({ key, ...RANGES[key], value: tune[key], default: TUNE_DEFAULTS[key] }));
+    return keys().map((key) => ({ key, ...RANGES[key], value: valueOf(key), default: TABLE_DEFAULTS[key] }));
   },
-  get: () => ({ ...tune }),
+  get: () => ({ ...tune, ...finds }),
   set: setTune,
   reset: resetTune,
   subscribe,
@@ -373,7 +359,7 @@ export const foldTune: FoldTune = {
 };
 
 /** Where the table is on `window`. */
-export const TUNE_KEY = Symbol.for("devknobs.foldtune");
+export const TUNE_KEY = /* @__PURE__ */ Symbol.for("devknobs.foldtune");
 
 /** Put the table on this page's `window`, where there is one. */
 export function installTune(): void {

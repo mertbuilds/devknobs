@@ -10,7 +10,7 @@
 - no thin dark line runs down the hinge as the Duo folds: the half that turns stops 2 px short of the hinge and the black under it 4 px short, each on an edge of its own, and the other half goes on under both, so the black never shows through the page's edge
 - a fold that turns copies of the half has no black px down the hinge either
 - where WebGL2 does not draw the half that turns, its blur rises with no lines down it: the blurred pictures laid over each other are twice as wide each, not four times, and each fades in exactly where the one under it is all in
-- the half that turns is no longer shaded toward its free edge as it turns: it keeps the screen's own light, the same as the other half's, so no lines run down it. the three shades are still in the fold's table, at 0, for a hand to bring back
+- the half that turns is no longer shaded toward its free edge as it turns: it keeps the screen's own light, the same as the other half's, so no lines run down it. the three shades are still in the fold's numbers, at 0
 - a shade brought back has no lines either: WebGL2 works it out at every px, and where gradients draw it they go through as many stops as its bends need, not 9
 - a picture on the page that covers its box, or is contained in it, is cut and placed on the half that turns as the page shows it. it was stretched over its box, so a page that had not yet picked its picture for the open screen showed the folded screen's twice as wide as it is tall
 - unfolding, the open screen's half shows the page as it lays itself out open, once it has picked what it shows there: its picture is taken again when the frame is drawn open, where the page changed since
@@ -20,7 +20,9 @@
 
 ### internal
 
-- the numbers of the fold's look are in one table, on `window` under `Symbol.for("devknobs.foldtune")`, to tune by hand on a live page. nothing is stored
+- the numbers of the fold's look are in one table. the package has them as they ship and no way to set them
+- the four below are in development from source only, with `DEVKNOBS_TUNE` not defined: the build defines it false and fails if any of them is in the package
+- the table is on `window` under `Symbol.for("devknobs.foldtune")`, to tune by hand on a live page. nothing is stored
 - the same hook's `info()` says what drew the half that turns the last time, WebGL2 or the layers, and why
 - the table has two switches for finding what draws a line, `shadeOn` and `blurOn`, and `grain`, the fine noise WebGL2 adds to a shade it draws
 - three more switches for finding what draws a line: `backTint` makes the black under the half that turns magenta, `frameOn` leaves out the pictures of the case, `stillOn` hides the half that stays
