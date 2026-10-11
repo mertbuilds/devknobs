@@ -247,9 +247,15 @@ function share(): void {
   if (latest) post(frameWindow(), { source: "devknobs", type: "state", state: latest });
 }
 
-/** Does the frame's screen take the mouse as a finger? Not once the window has its own page back. */
+/**
+ * Does the frame's screen take the mouse as a finger? Not once the window has
+ * its own page back, and not over an outside page, which has no copy to say
+ * where the pointer is on it.
+ */
 function touching(): boolean {
-  return latest !== null && !released && hasTouch(latest.device) && latest.touchPointer;
+  return (
+    latest !== null && !released && there === null && hasTouch(latest.device) && latest.touchPointer
+  );
 }
 
 /** Keep the knobs and hand them to the frame, which applies them to its own page. */
@@ -1013,6 +1019,7 @@ function aim(fresh = false): void {
   there = outside;
   denied = outside !== null && refused;
   showRefusal();
+  touchDot?.apply(touching());
   if (outside === null) {
     // Its own page again, under the same sandbox as before, read once it has loaded.
     if (!fresh) frame.setAttribute(OUTSIDE_ATTRIBUTE, frameUrl);
