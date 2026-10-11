@@ -32,7 +32,7 @@ import {
   screenOf,
   turningOf,
 } from "./foldpage";
-import { tuneChanges } from "./foldtune";
+import { backColor, tune, tuneChanges } from "./foldtune";
 import type { Rect } from "./mock";
 import type { Corners } from "./morph";
 
@@ -191,6 +191,10 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
   const { lit } = turning;
   if (lit && lit.shot === shot && lit.by.every((one, index) => one === by[index])) return;
   turning.lit = shot && { shot, by };
+  // The case's pictures, but where a hand looks for what draws a line.
+  const framed = tune.frameOn >= 0.5 ? "" : "hidden";
+  plane.canvas.style.visibility = framed;
+  turning.still.canvas.style.visibility = framed;
   const pane = shot && shotPane(shots, shot);
   const quad = shot && pane ? shotQuad(shot, pane) : null;
   for (const glued of [turning.inner, turning.outer]) {
@@ -208,6 +212,7 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     const dark = bled(rect, glued.pane, layout.across, seen, short, 8 * glued.over);
     glued.node.style.clipPath = `path("${roundedPath(dark, bledRadii(glued.radii), seen)}")`;
     const { x, y } = plane.corner;
+    glued.node.style.background = backOf(backColor(), picture.x + picture.width - x, short);
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     const free = freeOf(opening, glued.pane, picture);
     // The free edge's dark is WebGL2's where it draws the page, else a gradient's, and so are the screen's shades.
@@ -217,6 +222,22 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     const wedge = wedgeOf(opening, glued.pane, picture, span);
     glued.gl?.draw(screenLook(open, wedge, free, own ? glued.pane : null, glued.pane));
   }
+}
+
+/**
+ * The dark under a window as a css background, `color` all over, or, where
+ * the window stops `short` px of the render short of the hinge, at `hinge`
+ * in the node, the picture's right, only up to twice as far short of it. The
+ * browser cuts the dark and the page's canvas over it each by itself where
+ * the window is cut: on that edge, where each covers a part of a px, the
+ * dark shows through the page, a fifth of it black, as a line down the
+ * hinge. So the dark ends before that edge, on one of its own under the
+ * page, and only the page is cut there, over the half that stays.
+ */
+export function backOf(color: string, hinge: number, short: number): string {
+  if (short <= 0) return color;
+  const wide = Math.round((hinge - 2 * short) * 100) / 100;
+  return `linear-gradient(${color}, ${color}) 0 0 / ${wide}px 100% no-repeat`;
 }
 
 /**

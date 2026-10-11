@@ -55,12 +55,23 @@ export const TUNE_DEFAULTS = {
   shadeOn: 1,
   /** The same for its blur: 0 leaves it sharp. */
   blurOn: 1,
+  /** The same for the black a fold lays under the half that turns: 1 makes it magenta, so what shows of it is seen. */
+  backTint: 0,
+  /** The same for the Duo's fold frames: 0 leaves the pictures of its case out, the half that turns and the half that stays. */
+  frameOn: 1,
+  /** The same for the half that stays: 0 hides the frame's own device while it folds. */
+  stillOn: 1,
 } satisfies Record<string, number>;
 
 export type TuneKey = keyof typeof TUNE_DEFAULTS;
 
 /** The numbers as they are now. Read where a fold is drawn, never copied. */
 export const tune: Record<TuneKey, number> = { ...TUNE_DEFAULTS };
+
+/** The black a fold lays under the half that turns, as a css colour: magenta where a hand looks for what draws a line. */
+export function backColor(): string {
+  return tune.backTint >= 0.5 ? "#f0f" : "#000";
+}
 
 /** What a control for a number shows, and how far it lets it go. */
 interface Range {
@@ -94,6 +105,9 @@ const RANGES: Record<TuneKey, Range> = {
   grain: { label: "shade grain", min: 0, max: 2, step: 0.05, hint: "Fine noise WebGL adds to a shade it draws, so a dark, slow one shows no bands: 1 is one step of the screen's 256." },
   shadeOn: { label: "shades on", min: 0, max: 1, step: 1, hint: "For finding what draws a line: 0 leaves out every shade over the turning half." },
   blurOn: { label: "blur on", min: 0, max: 1, step: 1, hint: "For finding what draws a line: 0 leaves the turning half sharp." },
+  backTint: { label: "black as magenta", min: 0, max: 1, step: 1, hint: "For finding what draws a line: 1 makes the black under the turning half magenta." },
+  frameOn: { label: "case pictures on", min: 0, max: 1, step: 1, hint: "For finding what draws a line: 0 leaves out the pictures of the case as it folds." },
+  stillOn: { label: "still half on", min: 0, max: 1, step: 1, hint: "For finding what draws a line: 0 hides the half that stays as it folds." },
 };
 
 /** A number of the table as a control shows it. */

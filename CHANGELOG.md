@@ -34,7 +34,7 @@
 - the half that turns shows the page at the text size knob's size: its lines meet the other half's at the hinge. a page that sets its own root font size folds right too
 - the half that turns is sharp at the hinge through the whole fold, and blurs gently toward its free edge: 48 px at most, where it was 128. its top and bottom ends still blur into the black past them, at the hinge too
 - nothing marks the hinge: the bend's dark strip is gone from both halves
-- no thin dark line runs down the hinge as the Duo folds: the half that turns and the black under it stop on one edge 2 px short of the hinge, and the other half goes on under it, so the black never shows between the two
+- no thin dark line runs down the hinge as the Duo folds: the half that turns stops 2 px short of the hinge and the black under it 4 px short, each on an edge of its own, and the other half goes on under both, so the black never shows through the page's edge
 - a fold that turns copies of the half has no black px down the hinge either
 - where WebGL2 does not draw the half that turns, its blur rises with no lines down it: the blurred pictures laid over each other are twice as wide each, not four times, and each fades in exactly where the one under it is all in
 - the half that turns is no longer shaded toward its free edge as it turns: it keeps the screen's own light, the same as the other half's, so no lines run down it. the three shades are still in the fold's table, at 0, for a hand to bring back
@@ -50,6 +50,7 @@
 - the numbers of the fold's look are in one table, on `window` under `Symbol.for("devknobs.foldtune")`, to tune by hand on a live page. nothing is stored
 - the same hook's `info()` says what drew the half that turns the last time, WebGL2 or the layers, and why
 - the table has two switches for finding what draws a line, `shadeOn` and `blurOn`, and `grain`, the fine noise WebGL2 adds to a shade it draws
+- three more switches for finding what draws a line: `backTint` makes the black under the half that turns magenta, `frameOn` leaves out the pictures of the case, `stillOn` hides the half that stays
 
 ## 0.1.2
 

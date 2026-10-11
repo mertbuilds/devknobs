@@ -45,7 +45,7 @@ import {
   type Turning,
   turningOf,
 } from "./foldpage";
-import { hingeMoved, installTune, tuneLive, watchTune } from "./foldtune";
+import { backColor, hingeMoved, installTune, tune, tuneLive, watchTune } from "./foldtune";
 import type { Mock, Rect } from "./mock";
 import { drawMock, UNDER } from "./mockdraw";
 import { type Corners, lerp } from "./morph";
@@ -112,6 +112,8 @@ interface Leaf extends Panel {
   screen: HTMLElement;
   /** The part of the screen that turns, as it lies flat, cut to where the turned one is seen. */
   window: HTMLElement;
+  /** The dark in it, under the pictures. */
+  dark: HTMLElement;
   /** The dark its ends along the hinge go toward as the half stands. */
   rim: HTMLElement;
   /** The shade's layer, turned with the body over the window. */
@@ -334,6 +336,7 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     node,
     screen,
     window: opening,
+    dark,
     stage,
     pictures: [],
     shot: null,
@@ -519,6 +522,10 @@ function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: stri
   });
   leaf.window.style.clipPath = `path("${path}")`;
   leaf.rim.style.opacity = String(frame.lift);
+  // Its dark, magenta where a hand looks for what draws a line.
+  const back = backColor();
+  leaf.screen.style.background = back;
+  leaf.dark.style.background = back;
   // Its free edge's dark turns with it, but its blur is of the picture lying flat, as far out as it is seen.
   light(leaf, open, 1, seenShare(rect, pivot, frame.degrees, layout.across, layout.depth));
   // Its body stays whole, so nothing behind the device shows through it.
@@ -583,6 +590,8 @@ function show(going: Going): void {
   const size = (unit.base * scale) / own;
   scene.unit.style.transform = `translate(${by.x}px, ${by.y}px) scale(${size * drift.wide}, ${size * drift.tall})`;
   scene.unit.style.clipPath = opened && hand === 0 ? stillClip(going, shots, frame.inner !== null, own) : "";
+  // The half that stays, but where a hand looks for what draws a line.
+  scene.unit.style.visibility = tune.stillOn >= 0.5 ? "" : "hidden";
   darken(scene.cover, screenDim(opened ? "inner" : "cover", open));
   for (const watcher of Array.from(hinges)) watcher(going.open, going.hand);
   hingeMoved();
@@ -593,14 +602,15 @@ function show(going: Going): void {
  * that stays, till the copy of the other fades into it. It goes a px of the
  * screen under the inside of the half that turns, while that shows, so their
  * edges at the hinge leave no seam, and under the frames a px further than
- * their open screen stops short of the hinge. Under the frames, once the still half's
+ * the dark under their open screen stops short of the hinge, twice as far as
+ * the screen does. Under the frames, once the still half's
  * rendered case is all in, only its screen shows, `BLEED` px further out, under
  * that case, so none of the bezel picture shows past the render's.
  */
 function stillClip(going: Going, shots: Shots | null, inside: boolean, own: number): string {
   const { layout, unit } = going;
   const at = (value: number) => (value * own) / unit.base;
-  const under = inside ? 1 + (shots?.inner.over ?? 0) : 0;
+  const under = inside ? 1 + 2 * (shots?.inner.over ?? 0) : 0;
   const hinge = at(layout.hinge + (layout.across ? -under : under));
   const far = 1e5;
   const points = (corners: [number, number][]) => `polygon(${corners.map(([px, py]) => `${px}px ${py}px`).join(", ")})`;
@@ -635,6 +645,7 @@ function clear(last: Going): void {
   window.removeEventListener("resize", settle);
   drop(last.parts);
   last.scene.unit.style.clipPath = "";
+  last.scene.unit.style.visibility = "";
   darken(last.scene.cover, 0);
   if (last.duo) endFoldShots();
   for (const watcher of Array.from(watchers)) watcher();
