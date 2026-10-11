@@ -181,6 +181,8 @@ export function start(options: EngineOptions = {}): void {
   if (inFrame) window.addEventListener("message", onMessage);
   // A page that will not load in the frame offers this way out.
   width.onExit(() => setState(UNFRAMED));
+  // The drawn browser's back button leaves an outside page for the window's own.
+  width.onOwn(showOwn);
   // The letterbox zooms the frame from its own control, the wheel and the keys.
   width.onZoom((zoom) => setState({ zoom }));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));
@@ -199,6 +201,7 @@ export function stop(): void {
   stopRelay = null;
   inFrame = false;
   width.onExit(null);
+  width.onOwn(null);
   width.onZoom(null);
   clearOutside();
   media.destroy();

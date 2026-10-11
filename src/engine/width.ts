@@ -190,6 +190,8 @@ let there: string | null = null;
 let denied = false;
 /** Turns every knob that keeps the frame up off. The engine hands it in. */
 let exit: (() => void) | null = null;
+/** Puts the window's own page back in the frame. The engine hands it in. */
+let own: (() => void) | null = null;
 let current: ViewportValue = {
   ...UNFRAMED,
   scheme: "system",
@@ -252,6 +254,10 @@ function locate(): string {
 
 export function onExit(handler: (() => void) | null): void {
   exit = handler;
+}
+
+export function onOwn(handler: (() => void) | null): void {
+  own = handler;
 }
 
 export function onZoom(handler: ((zoom: ZoomValue) => void) | null): void {
@@ -885,7 +891,7 @@ function open(veiled: number | null, first: boolean): void {
   pageBox.append(frame, refusal);
   glass.append(pageBox);
   // The page's scroll minimizing or bringing back the bars resizes the frame.
-  browser = createBrowser(glass, frame, resize, onReloading, painted);
+  browser = createBrowser(glass, frame, resize, onReloading, painted, () => own?.());
   turnCover = document.createElement("div");
   turnCover.className = "screenblank";
   turnCover.hidden = true;

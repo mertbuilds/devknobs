@@ -17,6 +17,7 @@ import {
   apply,
   fit,
   label,
+  onOwn,
   onZoom,
   origin,
   reset,
@@ -1716,6 +1717,15 @@ describe("an outside page in the frame", () => {
     frameElement().dispatchEvent(new Event("load"));
   }
 
+  /** Safari's glyphs, by the first path each is drawn with. */
+  const BACK = "M4.2 -8L-4.2 0L4.2 8";
+  const FORWARD = "M-4.2 -8L4.2 0L-4.2 8";
+  const RELOAD = "M6.66 0.92A6.59 6.59 0 1 1 2.93 -5.02";
+
+  function glyphOf(path: string): FakeElement | undefined {
+    return everything().find((element) => element.children[0]?.getAttribute("d") === path);
+  }
+
   test("is asked for under a sandbox that cannot navigate the window, with no referrer", () => {
     setOutside(OUTSIDE, false);
     apply(PHONE_STATE);
@@ -1807,8 +1817,7 @@ describe("an outside page in the frame", () => {
     apply(PHONE_STATE);
     loaded();
     play();
-    const [glyph] = new Set(everything().filter((element) => element.classList.contains("press")));
-    glyph?.dispatchEvent(new Event("click"));
+    glyphOf(RELOAD)?.dispatchEvent(new Event("click"));
     expect(sent).toEqual([OUTSIDE, OUTSIDE]);
     expect(getOutside().loaded).toBe(false);
     expect(Reflect.get(byClass("screenblank") ?? {}, "hidden")).toBe(false);
@@ -1817,6 +1826,101 @@ describe("an outside page in the frame", () => {
     expect(getOutside().loaded).toBe(true);
     expect(Reflect.get(byClass("screenblank") ?? {}, "hidden")).toBe(true);
     expect(touched).toBe(0);
+  });
+
+  describe("under the drawn browser's back button", () => {
+    /** How many times the window's own page was asked back. */
+    let owned: number;
+
+    beforeEach(() => {
+      owned = 0;
+      onOwn(() => owned++);
+    });
+
+    afterEach(() => {
+      onOwn(null);
+    });
+
+    function press(path: string): void {
+      const glyph = glyphOf(path);
+      if (glyph?.classList.contains("press")) glyph.dispatchEvent(new Event("click"));
+    }
+
+    test("is left for the window's own page, in every layout of the bars", () => {
+      const layouts = [
+        { browser: "compact" },
+        { browser: "bottom" },
+        { browser: "top" },
+        { browser: "compact", orientation: "landscape" },
+      ] as const;
+      for (const [index, layout] of layouts.entries()) {
+        setOutside(OUTSIDE, false);
+        apply(merge(PHONE_STATE, layout));
+        loaded();
+        play();
+        const back = glyphOf(BACK);
+        expect(back?.classList.contains("off")).toBe(false);
+        expect(back?.classList.contains("press")).toBe(true);
+        press(BACK);
+        expect(owned).toBe(index + 1);
+        clearOutside();
+        reset();
+      }
+      expect(touched).toBe(0);
+    });
+
+    test("keeps forward off, which does nothing", () => {
+      setOutside(OUTSIDE, false);
+      apply(merge(PHONE_STATE, { browser: "bottom" }));
+      loaded();
+      play();
+      const forward = glyphOf(FORWARD);
+      expect(forward?.classList.contains("off")).toBe(true);
+      expect(forward?.classList.contains("press")).toBe(false);
+      forward?.dispatchEvent(new Event("click"));
+      expect(owned).toBe(0);
+      expect(sent).toEqual([OUTSIDE]);
+      expect(touched).toBe(0);
+    });
+
+    test("is left from the screen of a page that refuses to be framed too", () => {
+      setOutside(OUTSIDE, true);
+      apply(PHONE_STATE);
+      play();
+      expect(glyphOf(BACK)?.classList.contains("off")).toBe(false);
+      press(BACK);
+      expect(owned).toBe(1);
+      expect(touched).toBe(0);
+    });
+
+    test("leaves the window's own page its own history", async () => {
+      foreign = false;
+      let backs = 0;
+      apply(PHONE_STATE);
+      Reflect.set(attach().history, "back", () => backs++);
+      // The bars read its look, and its history with it, from its document.
+      Reflect.set(view, "getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+      /** The page in the frame has loaded all of itself, and the screen shows it. */
+      const settle = () => {
+        Reflect.set(view.document, "readyState", "complete");
+        play();
+      };
+      view.commit(PAGE);
+      Reflect.set(view.navigation ?? {}, "canGoBack", true);
+      await Bun.sleep(1);
+      loaded();
+      settle();
+      expect(glyphOf(BACK)?.classList.contains("off")).toBe(false);
+      press(BACK);
+      expect(backs).toBe(1);
+      // A page with nowhere to go back to keeps the button off.
+      await load(PAGE);
+      settle();
+      expect(glyphOf(BACK)?.classList.contains("off")).toBe(true);
+      press(BACK);
+      expect(backs).toBe(1);
+      expect(owned).toBe(0);
+    });
   });
 
   test("that refuses to be framed is never asked for, and the device's screen says so", () => {

@@ -128,7 +128,15 @@ export function readLook(frame: HTMLIFrameElement): Look {
     const scheme = schemeGiven(frame);
     const dark = scheme === "dark";
     const [r, g, b] = canvasOf(dark);
-    return { ...fallback, background: `rgb(${r}, ${g}, ${b})`, dark, scheme, host: outsideHost(frame) };
+    // Back leaves an outside page for the window's own.
+    return {
+      ...fallback,
+      background: `rgb(${r}, ${g}, ${b})`,
+      dark,
+      scheme,
+      host: outsideHost(frame),
+      canBack: true,
+    };
   }
   try {
     const view = frame.contentWindow;
@@ -223,6 +231,8 @@ function same(a: Rect | null, b: Rect | null): boolean {
  * The page's scroll moves `minimized()`, and `onChange` hears when it does.
  * `onReload` hears the reload button before the page reloads, and `ready`
  * says when the frame's page is in and ready to paint, with no reload on its way.
+ * `onOwn` hears the back button of an outside page, which leaves it for the
+ * window's own.
  */
 export function createBrowser(
   glass: HTMLElement,
@@ -230,6 +240,7 @@ export function createBrowser(
   onChange: () => void,
   onReload: () => void = () => {},
   ready: () => boolean = () => true,
+  onOwn: () => void = () => {},
 ): BrowserLayer {
   /** Blanks the screen while its page reloads. */
   const blank = el("div", "screenblank");
@@ -273,9 +284,10 @@ export function createBrowser(
     if (page) step({ type: "scroll", y: page.scrollY, time: performance.now() });
   };
   const actions: Actions = {
-    // An outside page keeps its history to itself.
+    // An outside page keeps its history to itself: back leaves it for the window's own page.
     back: () => {
       if (reachable(frame)) frame.contentWindow?.history.back();
+      else onOwn();
     },
     forward: () => {
       if (reachable(frame)) frame.contentWindow?.history.forward();
