@@ -353,7 +353,6 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     radii: turning.radii,
     pivot: turning.pivot,
     width: size.width,
-    across,
   };
   if (picture.shot) paintLeaf(leaf, picture.shot);
   // The page as the browser draws it, once it has, over the rough one.

@@ -618,12 +618,13 @@ describe("a Duo folding in its frames", () => {
       return [inner, outer].map((one) => style(one?.children[0]?.children[0]?.children[3], "background")).join("|");
     };
     const before = edges();
-    expect(before).toContain("linear-gradient(");
+    // None as it ships, and nothing else darkens the turned screen at its hinge.
+    expect(before).toBe("|");
     try {
       setTune("darkMost", 0.2);
       // No frame was asked for: it is drawn by the time the number is set.
       expect(frames).toHaveLength(0);
-      expect(edges()).not.toBe(before);
+      expect(edges()).toContain("linear-gradient(");
     } finally {
       resetTune();
     }

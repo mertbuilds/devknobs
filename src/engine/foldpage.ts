@@ -5,7 +5,7 @@ import { corners } from "./mockdraw";
 import { type ScreenGl, screenGl } from "./foldgl";
 import { BY_WEBGL, drew } from "./foldtune";
 import type { Corners } from "./morph";
-import { blurPictures, marginPlace, paintPage, shootPage } from "./pageshot";
+import { blurPictures, paintPage, shootPage } from "./pageshot";
 
 /**
  * The page on the screens of a fold's half that turns, whichever way the
@@ -43,8 +43,6 @@ export interface Panel {
   span: [number, number];
   /** The screen's width, in css px. */
   width: number;
-  /** Does the hinge run down the screen, so its ends along it are its top and bottom. */
-  across: boolean;
 }
 
 export function div(className: string): HTMLElement {
@@ -79,17 +77,8 @@ export function placeAt(node: HTMLElement, rect: Rect): HTMLElement {
 
 /** Put `shot` on a leaf's stage, and the same blurred over it, as much as was shown before. */
 export function paintLeaf(leaf: Panel, shot: HTMLCanvasElement): void {
-  const { across } = leaf;
   const widths = blurWidths();
-  const blurred = blurPictures(shot, leaf.width, across, widths.slice(1));
-  const next = [shot, ...blurred.map((blur) => blur.canvas)].map(fill);
-  for (const { canvas: picture, long } of blurred) {
-    // Its black past the ends along the hinge reaches past the screen's.
-    const { start, size } = marginPlace(across ? shot.height : shot.width, long);
-    picture.style[across ? "top" : "left"] = `${start}%`;
-    picture.style[across ? "height" : "width"] = `${size}%`;
-    picture.style[across ? "bottom" : "right"] = "auto";
-  }
+  const next = [shot, ...blurPictures(shot, leaf.width, widths.slice(1))].map(fill);
   next.forEach((picture, index) => {
     const last = leaf.pictures[index];
     if (index === 0 || !last) return;
@@ -158,12 +147,12 @@ export function turningOf(layout: FoldLayout, open: Face, closed: Face): { inner
 
 /**
  * A half of the crease down the hinge, in the open screen's body, darkest at
- * the hinge: on the half that turns, `turned`, or on the half that stays,
- * placed from `corner` of the body. Each meets the other there, the one on
- * the half that turns turned with it, so its edge at the hinge is not cut off
- * as it stands.
+ * the hinge: on the half that turns, `turned`, or on the half that stays.
+ * Each meets the other there, the one on the half that turns turned with it,
+ * so its edge at the hinge is not cut off as it stands. The fold's frames
+ * have none on the half that turns, whose hinge side nothing darkens.
  */
-export function creaseOf(layout: FoldLayout, open: Face, turned: boolean, corner: Point = { x: 0, y: 0 }): HTMLElement {
+export function creaseOf(layout: FoldLayout, open: Face, turned: boolean): HTMLElement {
   const { across, hinge } = layout;
   const { rect } = screenOf(open);
   const before = across === turned;
@@ -171,8 +160,8 @@ export function creaseOf(layout: FoldLayout, open: Face, turned: boolean, corner
   const node = placeAt(
     div(""),
     across
-      ? { x: from - corner.x, y: rect.y - corner.y, width: BEND, height: rect.height }
-      : { x: rect.x - corner.x, y: from - corner.y, width: rect.width, height: BEND },
+      ? { x: from, y: rect.y, width: BEND, height: rect.height }
+      : { x: rect.x, y: from, width: rect.width, height: BEND },
   );
   const away = across ? (before ? "to left" : "to right") : before ? "to top" : "to bottom";
   node.style.background = `linear-gradient(${away}, rgba(0, 0, 0, 0.3), transparent)`;
@@ -355,7 +344,7 @@ export function gluedOf(
   node.append(cut);
   const flatly = placeAt(div(""), { ...rect, x: 0, y: 0 });
   flatly.style.transformOrigin = "0 0";
-  // Cut at the hinge, but not at the ends along it, where the blurs spread the picture into the dark past it.
+  // Cut at the hinge, but not at the ends along it, where WebGL2's canvas and the shades reach past the picture.
   flatly.style.overflowX = across ? "clip" : "visible";
   flatly.style.overflowY = across ? "visible" : "clip";
   const stage = placeAt(div(""), { ...whole.rect, x: whole.rect.x - rect.x, y: whole.rect.y - rect.y });
@@ -390,7 +379,6 @@ export function gluedOf(
     toward: turning.toward,
     span: turning.span,
     width: side.size.width,
-    across,
     gl: null,
   };
   const part = { ...rect, x: rect.x - whole.rect.x, y: rect.y - whole.rect.y };
