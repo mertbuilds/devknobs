@@ -33,12 +33,14 @@ import {
   fill,
   light,
   paintDrawn,
+  paintGlued,
   paintLeaf,
   type Panel,
   type Picture,
   type Pictures,
   pictureOf,
   placeAt,
+  roughOf,
   round,
   screenOf,
   type Turning,
@@ -185,6 +187,12 @@ interface Going {
   wait: { since: number | null; painted: boolean } | null;
   parts: Layer;
   unit: Unit;
+  /**
+   * How many times the fold was drawn since the frame's own device was last
+   * drawn open in the middle of it, while the open screen's picture is still
+   * to be looked at again. Null otherwise.
+   */
+  fresh: number | null;
   /**
    * Under the frames, how far the still half's rendered case has faded in
    * over the device's bezel picture since the hinge left an end, and how far
@@ -427,6 +435,59 @@ function redraw(going: Going, posture: PostureValue): void {
   going.draw(going.values[posture]);
   fold = going;
   going.unit = measure(going.scene, posture);
+  // The folded body is the frame's own only for the last of the way shut, where its picture has all but gone.
+  going.fresh = posture === "open" ? 0 : null;
+}
+
+/**
+ * After how many draws of the fold the open screen's picture is looked at
+ * again, counted from the one that drew the frame's own device open: the
+ * second, by when the page has heard of its new size, and once more later,
+ * for what it had to load for it. Both come before the open screen's half
+ * shows, a quarter of a second into an unfold.
+ */
+const RETAKES = [2, 10];
+
+/**
+ * The frame's own device is drawn open in the middle of a fold, so the page
+ * lays itself out for the open screen for real now. The picture of that
+ * layout a fold starts with was taken ahead in one task, the frame drawn
+ * that way a moment, unseen: the page's scripts had not heard of the size
+ * yet, and whatever they set for it, a picture picked for it too, was still
+ * as the folded screen had it. So it is taken again here where the page has
+ * changed since, and put on the half that turns, which then meets the live
+ * half at the hinge. A page that stays as it was costs a look, not a picture.
+ */
+function retake(going: Going): void {
+  const { fresh } = going;
+  if (fresh === null) return;
+  going.fresh = fresh >= Math.max(...RETAKES) ? null : fresh + 1;
+  if (!RETAKES.includes(fresh)) return;
+  const { scene, values } = going;
+  const { size } = going.faces.open;
+  const color = scene.background();
+  const last = going.pictures.open;
+  // The same rough picture again: the page is as the picture has it.
+  if (roughOf(scene.frame, scene.glass, values.open, size, color) === last.shot) return;
+  const next = pictureOf(scene.frame, scene.glass, values.open, size, color, copyPage(scene.frame));
+  going.pictures = { ...going.pictures, open: next };
+  const put = (shot: HTMLCanvasElement) => {
+    if (fold !== going || going.pictures.open !== next) return;
+    const { turning } = going.parts;
+    if ("model" in turning) paintGlued(turning.inner, shot);
+    else paintLeaf(turning.inner, shot);
+  };
+  // Only once the browser has drawn it, so a sharp picture never gives way to a rough one, but where it will not.
+  const rough = () => {
+    if (next.shot) put(next.shot);
+  };
+  if (!next.painted) rough();
+  else {
+    void next.painted.then((drawn) => {
+      if (drawn) paintDrawn(next, drawn, put);
+      else rough();
+    });
+  }
 }
 
 /**
@@ -490,6 +551,7 @@ function show(going: Going): void {
   // Under the frames every layer is drawn at the angle of the frame shown, so the device changes as one picture, a frame at a time.
   const open = shots ? pick(shots, going.open) : going.open;
   sync(going, open);
+  retake(going);
   const { unit, scene } = going;
   const drawn = shots ? `${open} ${going.out} ${going.still} ${unit.posture}` : "";
   if (drawn && drawn === going.drawn) {
@@ -817,6 +879,7 @@ export function foldDevice(
     wait,
     parts,
     unit: measure(scene, from.posture),
+    fresh: null,
     // At rest the device shows as it is drawn, till the hinge moves.
     still: 0,
     out: 1,

@@ -161,6 +161,8 @@ class FakePen {
   beginPath(): void {}
   rect(): void {}
   clip(): void {}
+  save(): void {}
+  restore(): void {}
 
   drawImage(bitmap: FakeBitmap, ...args: number[]): void {
     // As a browser does, drawing a picture let go of.
@@ -1988,5 +1990,180 @@ describe("the fold's tuning hook, asking the frame", () => {
     unwatch();
     expect(open).toBeGreaterThan(0.5);
     expect(await (await foldTune.shot())?.text()).toBe("238x167");
+  });
+});
+
+describe("the pictures of the page a fold turns", () => {
+  /** The Duo's two screens, and the picture a full-bleed page picks for each once it hears of the screen's size. */
+  const FOLDED = { width: 466, height: 678, src: "cover.jpg", natural: [774, 1125] };
+  const UNFOLDED = { width: 951, height: 669, src: "inner.jpg", natural: [1600, 1125] };
+  /** The page as it is now: its viewport, and the picture it shows. */
+  let page = { ...FOLDED };
+  /** What happened, in order: each time the frame was drawn, and each picture of the page the browser was asked to draw, with what the page showed then. */
+  let log: string[] = [];
+  /** Changes to the page its watcher has not been told of yet. */
+  let pending: unknown[] = [];
+
+  beforeEach(() => {
+    paints = Promise.resolve();
+    log = [];
+    pending = [];
+  });
+
+  afterEach(() => {
+    stopFold();
+    // The rough pictures kept go with the frame.
+    forgetFold();
+  });
+
+  /**
+   * The frame with a page in it whose whole content is one picture that
+   * covers the viewport, no bezels, so the fold turns copies. The browser
+   * does not draw the page here, so the rough picture stays on each screen.
+   */
+  function pictured(): FoldScene {
+    class Watcher {
+      observe(): void {}
+      disconnect(): void {}
+      takeRecords(): unknown[] {
+        return pending.splice(0);
+      }
+    }
+    const box = () => ({ left: 0, top: 0, width: page.width, height: page.height, right: page.width, bottom: page.height });
+    const picture = {
+      complete: true,
+      closed: false,
+      get src() {
+        return page.src;
+      },
+      get currentSrc() {
+        return page.src;
+      },
+      get naturalWidth() {
+        return page.natural[0] ?? 0;
+      },
+      get naturalHeight() {
+        return page.natural[1] ?? 0;
+      },
+      closest: () => null,
+      // Read once for each picture of the page the browser is asked for, as the picture goes on it.
+      getBoundingClientRect: () => {
+        log.push(`${page.src} in ${page.width} by ${page.height}`);
+        return box();
+      },
+    };
+    const css = { fontSize: "16px", objectFit: "cover", objectPosition: "50% 50%" };
+    const doc = {
+      documentElement: new FakePage(),
+      body: { children: [] },
+      styleSheets: [],
+      implementation: { createHTMLDocument: () => ({ importNode: () => new FakePage(), createElement: () => new FakeNode() }) },
+      querySelectorAll: () => [picture],
+      createRange: () => ({}),
+      defaultView: { MutationObserver: Watcher },
+    };
+    const view = {
+      get innerWidth() {
+        return page.width;
+      },
+      get innerHeight() {
+        return page.height;
+      },
+      scrollX: 0,
+      scrollY: 0,
+      devicePixelRatio: 3,
+      getComputedStyle: () => css,
+    };
+    const frame = Object.assign(new FakeNode(), { contentDocument: doc, contentWindow: view });
+    return { ...sceneOf(), frame: frame as unknown as HTMLIFrameElement, body: () => null };
+  }
+
+  /** Fold from `from` to `to`, the frame's page laid out for each screen it is drawn for. */
+  function folds(from: ViewportValue, to: ViewportValue): void {
+    foldDevice(from, to, pictured(), (value) => {
+      drawn.push(value);
+      page.width = Number(value.width);
+      page.height = Number(value.height);
+      log.push(`frame ${value.posture}`);
+      unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+    });
+  }
+
+  /** The picture on the open screen's half that turns: the first on its stage. */
+  function innerPicture(): FakeNode | undefined {
+    const [, window] = placed();
+    return window?.children[1]?.children[0];
+  }
+
+  test("folding from open, the open screen's picture is taken before the frame is drawn folded, with what the page shows open", () => {
+    page = { ...UNFOLDED };
+    folds(OPEN, SHUT);
+    expect(log).toEqual(["inner.jpg in 951 by 669", "frame closed", "inner.jpg in 466 by 678", "frame open"]);
+    // The open screen's own: a quarter of 951 by 669, as the rough one is.
+    expect([innerPicture()?.width, innerPicture()?.height]).toEqual([238, 167]);
+  });
+
+  test("unfolding, the folded screen's picture is taken first, then the open screen's with the frame drawn open a moment, and the frame is put back", () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    // The page has not heard of the open screen yet, so it still shows the folded screen's picture on it.
+    expect(log).toEqual(["cover.jpg in 466 by 678", "frame open", "cover.jpg in 951 by 669", "frame closed"]);
+    expect([page.width, page.height]).toEqual([466, 678]);
+  });
+
+  test("unfolding, takes the open screen's picture again once the frame is drawn open and the page has picked its picture for it", async () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    const ahead = innerPicture();
+    expect(ahead?.pen).not.toBeNull();
+    const taken = log.length;
+    await playing(2000, () => {
+      // The frame's own device is drawn open a little into the unfold, and the page hears of it.
+      if (log.at(-1) === "frame open" && page.src === FOLDED.src) Object.assign(page, { src: UNFOLDED.src, natural: UNFOLDED.natural });
+    });
+    expect(folding()).toBe(false);
+    // Once, with the open screen's picture, before the fold lands open.
+    expect(log.slice(taken)).toEqual(["frame open", "inner.jpg in 951 by 669", "frame open"]);
+  });
+
+  test("puts that picture on the half that turns, in place of the one taken ahead", async () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    const ahead = innerPicture();
+    let seen: FakeNode | undefined;
+    await playing(2000, () => {
+      if (log.at(-1) === "frame open" && page.src === FOLDED.src) Object.assign(page, { src: UNFOLDED.src, natural: UNFOLDED.natural });
+      if (folding()) seen = innerPicture();
+    });
+    expect(seen).toBeDefined();
+    expect(seen).not.toBe(ahead);
+    expect([seen?.width, seen?.height]).toEqual([238, 167]);
+  });
+
+  test("unfolding a page that stays as it was, keeps the picture taken ahead and takes no other", async () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    const ahead = innerPicture();
+    const taken = log.length;
+    let seen: FakeNode | undefined;
+    await playing(2000, () => {
+      if (folding()) seen = innerPicture();
+    });
+    expect(log.slice(taken)).toEqual(["frame open", "frame open"]);
+    expect(seen).toBe(ahead);
+  });
+
+  test("takes it again where the page changed in a way only its watcher is told of", async () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    const taken = log.length;
+    let told = false;
+    await playing(2000, () => {
+      if (log.at(-1) === "frame open" && !told) {
+        told = true;
+        pending.push({});
+      }
+    });
+    expect(log.slice(taken)).toEqual(["frame open", "cover.jpg in 951 by 669", "frame open"]);
   });
 });

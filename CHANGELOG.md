@@ -9,6 +9,11 @@
 - where WebGL2 does not draw the half that turns, its blur rises with no lines down it: the blurred pictures laid over each other are twice as wide each, not four times, and each fades in exactly where the one under it is all in
 - the half that turns is no longer shaded toward its free edge as it turns: it keeps the screen's own light, the same as the other half's, so no lines run down it. the three shades are still in the fold's table, at 0, for a hand to bring back
 - a shade brought back has no lines either: WebGL2 works it out at every px, and where gradients draw it they go through as many stops as its bends need, not 9
+- a picture on the page that covers its box, or is contained in it, is cut and placed on the half that turns as the page shows it. it was stretched over its box, so a page that had not yet picked its picture for the open screen showed the folded screen's twice as wide as it is tall
+- unfolding, the open screen's half shows the page as it lays itself out open, once it has picked what it shows there: its picture is taken again when the frame is drawn open, where the page changed since
+- the half that turns shows the page's pictures as they were when its picture was taken, not as they are a moment later, the frame laid out for the other screen and back
+- nothing devknobs put on the page is on the half that turns, nor the browser's box for a picture it could not load
+- a rough picture of the page is kept by all it depends on: its screen, viewport and knobs, the device pixel ratio, the text size, the scroll and what the page's pictures show. one of the folded screen never stands in for the open one's
 
 ### internal
 
