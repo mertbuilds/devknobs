@@ -15,7 +15,15 @@ import * as header from "./header";
 import * as locale from "./locale";
 import * as media from "./media";
 import * as network from "./network";
-import { clearOutside, parseOutside, refuseOutside, setOutside } from "./outside";
+import {
+  clearOutside,
+  lookOutside,
+  type OutsideLook,
+  parseLook,
+  parseOutside,
+  refuseOutside,
+  setOutside,
+} from "./outside";
 import * as outlines from "./outlines";
 import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
@@ -112,6 +120,11 @@ export interface OutsideOptions {
    * said. The frame never asks for it, and the device's screen says so.
    */
   refused?: boolean;
+  /**
+   * The page's colors, as the host found them, such as its `theme-color`. The
+   * device's own screen around the page takes the one for its scheme.
+   */
+  look?: OutsideLook;
 }
 
 /**
@@ -124,7 +137,7 @@ export interface OutsideOptions {
 export function showOutside(url: string, options: OutsideOptions = {}): boolean {
   const outside = parseOutside(url);
   if (!running || inFrame || outside === null) return false;
-  setOutside(outside, options.refused === true);
+  setOutside(outside, options.refused === true, parseLook(options.look));
   const phone = DEVICES.find((device) => device.kind === "phone");
   applyState(merge(state, needsFrame(state) || !phone ? {} : { device: phone.id }));
   return true;
@@ -134,6 +147,16 @@ export function showOutside(url: string, options: OutsideOptions = {}): boolean 
 export function refuseShown(): void {
   if (!running || inFrame) return;
   refuseOutside();
+  applyState(state);
+}
+
+/**
+ * The outside page shown has these colors, as the host found them after it was
+ * shown, and the device's own screen takes them at once. Null takes them away.
+ */
+export function lookShown(look: OutsideLook | null): void {
+  if (!running || inFrame) return;
+  lookOutside(parseLook(look));
   applyState(state);
 }
 

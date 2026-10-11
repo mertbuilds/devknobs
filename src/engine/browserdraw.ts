@@ -9,11 +9,12 @@ import {
 } from "./browserui";
 import { type Actions, el, FONT, type Look, MORPH, type Painted, place } from "./browserkit";
 import { buildChrome, CHROME_CSS } from "./chromedraw";
-import { type Color, luminance, parseColor } from "./color";
+import { type Color, luminance, parseColor, parsePlainColor } from "./color";
 import { give } from "./endroom";
 import { OUTSIDE_ATTRIBUTE, reachable, schemeGiven } from "./frame";
 import { baseMatchMedia } from "./matchmedia";
 import type { Rect } from "./mock";
+import { getOutside } from "./outside";
 import { navigationOf } from "./reload";
 import { buildSafari, SAFARI_CSS } from "./safaridraw";
 import { keep } from "./scrollkeep";
@@ -103,6 +104,21 @@ function backgroundOf(doc: Document, view: Window, dark: boolean): [number, numb
   return base;
 }
 
+/**
+ * The color the host gave for the outside page under `scheme`, over the
+ * browser's own canvas where it lets some through. One color alone is for
+ * both schemes. Null with none.
+ */
+function givenOf(scheme: "light" | "dark"): [number, number, number] | null {
+  const look = getOutside().look;
+  const color = parsePlainColor(look?.[scheme] ?? look?.light ?? look?.dark);
+  if (!color) return null;
+  const { red, green, blue, alpha } = color;
+  const [r, g, b] = canvasOf(scheme === "dark");
+  const over = (top: number, under: number) => Math.round(top * alpha + under * (1 - alpha));
+  return [over(red, r), over(green, g), over(blue, b)];
+}
+
 /** The host of the address an outside page's bar shows, which the frame carries. */
 function outsideHost(frame: HTMLIFrameElement): string {
   try {
@@ -115,7 +131,8 @@ function outsideHost(frame: HTMLIFrameElement): string {
 /**
  * What the bars show for the page in the frame, white and empty while it is
  * out of reach. An outside page, which nothing reads, is its own host on the
- * browser's canvas for the scheme it is given, dark or light.
+ * color the host gave for the scheme it is given, in the ink that reads on
+ * it, else on the browser's canvas for that scheme, dark or light.
  */
 export function readLook(frame: HTMLIFrameElement): Look {
   const fallback: Look = {
@@ -128,13 +145,13 @@ export function readLook(frame: HTMLIFrameElement): Look {
   };
   if (!reachable(frame)) {
     const scheme = schemeGiven(frame);
-    const dark = scheme === "dark";
-    const [r, g, b] = canvasOf(dark);
+    const given = givenOf(scheme);
+    const [r, g, b] = given ?? canvasOf(scheme === "dark");
     // Back leaves an outside page for the window's own.
     return {
       ...fallback,
       background: `rgb(${r}, ${g}, ${b})`,
-      dark,
+      dark: given ? luminance(r, g, b) < 0.4 : scheme === "dark",
       scheme,
       host: outsideHost(frame),
       canBack: true,
@@ -367,7 +384,7 @@ export function createBrowser(
    * the part of a pixel the page is not, and its stylesheet's white there is a
    * hairline along the edge of a dark page, which comes and goes as the page
    * is drawn in new layers. A page out of reach keeps the stylesheet's, and an
-   * outside page takes its scheme's canvas.
+   * outside page takes its scheme's canvas, or the color the host gave.
    */
   const back = () => {
     const known = reaches(frame) || !reachable(frame);
@@ -455,8 +472,8 @@ export function createBrowser(
   };
   /**
    * Read the look again. A page that is loading keeps the one it had, but an
-   * outside page's is its scheme's alone, so it and the blank screen follow
-   * the scheme at once, and the window's own scheme is watched from then on.
+   * outside page's is its scheme's and the host's alone, so it and the blank
+   * screen follow both at once, and the window's own scheme is watched from then on.
    */
   const reread = () => {
     const outside = !reachable(frame);
