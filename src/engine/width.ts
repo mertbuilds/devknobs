@@ -206,6 +206,8 @@ let there: string | null = null;
 let denied = false;
 /** Turns every knob that keeps the frame up off. The engine hands it in. */
 let exit: (() => void) | null = null;
+/** Puts the window's own page back in the frame. The engine hands it in. */
+let own: (() => void) | null = null;
 let current: ViewportValue = {
   ...UNFRAMED,
   scheme: "system",
@@ -280,6 +282,10 @@ function locate(): string {
 
 export function onExit(handler: (() => void) | null): void {
   exit = handler;
+}
+
+export function onOwn(handler: (() => void) | null): void {
+  own = handler;
 }
 
 export function onZoom(handler: ((zoom: ZoomValue) => void) | null): void {
@@ -606,6 +612,7 @@ function showBrowser(
   glass.style.height = page ? `${place.height * zoom}px` : "";
   browser.show({ bars, page, size: place, zoom, follow, sizeFrame });
   browser.refresh();
+  showRefusal();
 }
 
 /**
@@ -667,6 +674,12 @@ function resize(): void {
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
   if (refusal) refusal.style.fontSize = `${REFUSED_SIZE * place.zoom}px`;
+  // Natively, the page inside gets the scheme as its real preference. System
+  // leaves the frame to follow the window. Set before the bars are drawn,
+  // which follow it at once around an outside page.
+  const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
+  if (native) frame.style.colorScheme = current.scheme;
+  else frame.style.removeProperty("color-scheme");
   showBrowser(bars, page, place, auto);
   touchDot?.fit(place, place.zoom);
   drawing.style.width = `${place.box.width}px`;
@@ -676,11 +689,6 @@ function resize(): void {
   screen.style.top = `${place.top - (mock?.inset.top ?? 0) * place.scale}px`;
   showMock(mock, place);
   screen.style.transform = place.transform === 1 ? "" : `scale(${place.transform})`;
-  // Natively, the page inside gets the scheme as its real preference. System
-  // leaves the frame to follow the window.
-  const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
-  if (native) frame.style.colorScheme = current.scheme;
-  else frame.style.removeProperty("color-scheme");
   frame.style.filter = visionFilter(current.vision);
   checkZoom();
   warmFold();
@@ -1002,9 +1010,17 @@ function track(): void {
   });
 }
 
-/** The screen says so, over the frame, while its outside page refuses to be framed. */
+/**
+ * The screen says so, over the frame, while its outside page refuses to be
+ * framed, on the ground and in the ink of the scheme that page is given.
+ */
 function showRefusal(): void {
-  if (refusal) refusal.hidden = !denied;
+  if (!refusal) return;
+  refusal.hidden = !denied;
+  if (!frame || !denied) return;
+  const look = readLook(frame);
+  refusal.style.background = look.background;
+  refusal.classList.toggle("dark", look.dark);
 }
 
 /**
@@ -1018,7 +1034,6 @@ function aim(fresh = false): void {
   const was = there;
   there = outside;
   denied = outside !== null && refused;
-  showRefusal();
   touchDot?.apply(touching());
   if (outside === null) {
     // Its own page again, under the same sandbox as before, read once it has loaded.
@@ -1044,6 +1059,7 @@ function aim(fresh = false): void {
     loaded = denied;
     frame.src = denied ? "about:blank" : outside;
   }
+  showRefusal();
   if (fresh) return;
   browser?.stopLoading();
   // The bars say where the frame is going at once, over a blank screen until it is there.
@@ -1109,7 +1125,7 @@ function open(veiled: number | null, first: boolean): void {
   pageBox.append(frame, refusal);
   glass.append(pageBox);
   // The page's scroll minimizing or bringing back the bars resizes the frame.
-  browser = createBrowser(glass, frame, resize, onReloading, painted);
+  browser = createBrowser(glass, frame, resize, onReloading, painted, () => own?.());
   touchDot = createTouchDot({
     glass,
     frame,

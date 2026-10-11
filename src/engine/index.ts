@@ -184,6 +184,8 @@ export function start(options: EngineOptions = {}): void {
   requests.start();
   // A page that will not load in the frame offers this way out, of a pinned panel's frame too.
   width.onExit(() => setState({ ...UNFRAMED, panel: { docked: false } }));
+  // The drawn browser's back button leaves an outside page for the window's own.
+  width.onOwn(showOwn);
   // The letterbox zooms the frame from its own control, the wheel and the keys.
   width.onZoom((zoom) => setState({ zoom }));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));
@@ -202,6 +204,7 @@ export function stop(): void {
   stopRelay = null;
   inFrame = false;
   width.onExit(null);
+  width.onOwn(null);
   width.onZoom(null);
   clearOutside();
   media.destroy();
