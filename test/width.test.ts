@@ -3117,6 +3117,14 @@ describe("an outside page in the frame", () => {
     frameElement().dispatchEvent(new Event("load"));
   }
 
+  /** Every frame in the page. */
+  const frameElements = () => everything().filter((element) => element.tagName === "IFRAME");
+
+  /** The frames of the live copies of an outside page on a foldable: the open screen's, then the folded one's. */
+  function copyFrames(): FakeElement[] {
+    return (byClass("live")?.children ?? []).flatMap((box) => [...box.descendants()].filter((element) => element.tagName === "IFRAME"));
+  }
+
   /** Safari's glyphs, by the first path each is drawn with. */
   const BACK = "M4.2 -8L-4.2 0L4.2 8";
   const FORWARD = "M-4.2 -8L4.2 0L-4.2 8";
@@ -3643,6 +3651,24 @@ describe("an outside page in the frame", () => {
       expect(touched).toBe(0);
     });
 
+    test("gives the live copies of a page on a foldable the scheme, and the screen's ground till they load", () => {
+      const duo = { device: "iphone-duo" } as const;
+      /** Each copy's scheme, its own ground and the ground its page stands on. */
+      const looks = () =>
+        copyFrames().map((copy) => [copy.style.colorScheme, Reflect.get(copy.style, "background"), Reflect.get(copy.parent?.style ?? {}, "background")]);
+      setOutside(OUTSIDE, false);
+      show({ ...duo, scheme: "dark" });
+      expect(looks()).toEqual([["dark", DARK, DARK], ["dark", DARK, DARK]]);
+      show({ ...duo, scheme: "light" });
+      expect(looks()).toEqual([["light", LIGHT, LIGHT], ["light", LIGHT, LIGHT]]);
+      show({ ...duo, scheme: "system" });
+      expect(looks()).toEqual([["", LIGHT, LIGHT], ["", LIGHT, LIGHT]]);
+      systemDark = true;
+      for (const listener of heard) listener();
+      expect(looks()).toEqual([["", DARK, DARK], ["", DARK, DARK]]);
+      expect(touched).toBe(0);
+    });
+
     test("says a page refuses to be framed on the scheme's ground", () => {
       setOutside(OUTSIDE, true);
       show({ scheme: "dark" });
@@ -3808,6 +3834,219 @@ describe("an outside page in the frame", () => {
       settle();
       expect(ground()).toBe("rgb(250, 240, 230)");
       expect(bars()).toBe("safari light");
+    });
+  });
+
+  describe("on a foldable", () => {
+    const OTHER = "https://example.org/";
+    /** The Duo shut, held upright, in its browser's bars. */
+    const DUO_STATE = merge(PHONE_STATE, { device: "iphone-duo" });
+    const size = (frame: FakeElement | undefined) => [Reflect.get(frame?.style ?? {}, "width"), Reflect.get(frame?.style ?? {}, "height")];
+    const hidden = (frame: FakeElement | undefined) => Reflect.get(frame?.style ?? {}, "visibility") === "hidden";
+
+    test("keeps a live copy of the page for each screen, loaded ahead of a fold, asked for as its own frame is and never a place to go", () => {
+      setOutside(OUTSIDE, false);
+      apply(PHONE_STATE);
+      // None on a device that does not fold.
+      expect(frameElements()).toHaveLength(1);
+      expect(byClass("live")).toBeUndefined();
+      // The Duo picked while the page shows.
+      apply(DUO_STATE);
+      const own = frameElement();
+      const [open, shut] = copyFrames();
+      expect(frameElements()).toEqual([own, open, shut] as FakeElement[]);
+      expect(sent).toEqual([OUTSIDE, OUTSIDE, OUTSIDE]);
+      for (const copy of [open, shut]) {
+        for (const name of [OUTSIDE_ATTRIBUTE, "referrerpolicy", "sandbox"]) expect(copy?.getAttribute(name)).toBe(own.getAttribute(name) ?? "none");
+        expect(copy?.hasAttribute("allow")).toBe(false);
+        // Not the frame the window's page lives in: neither its mark nor its name.
+        expect(copy?.hasAttribute("data-devknobs-frame")).toBe(false);
+        expect(Reflect.get(copy ?? {}, "name")).toBeUndefined();
+        // Never a place the pointer, the keyboard or a reader goes.
+        expect(Reflect.get(copy ?? {}, "inert")).toBe(true);
+        expect([copy?.getAttribute("inert"), copy?.getAttribute("tabindex"), copy?.getAttribute("aria-hidden")]).toEqual(["", "-1", "true"]);
+        expect(Reflect.get(copy?.style ?? {}, "pointerEvents")).toBe("none");
+      }
+      // Each at its screen's size, as the browser's bars leave the page there: the folded screen's as the frame's own now.
+      expect(size(shut)).toEqual(size(own));
+      expect(size(open)).toEqual(["903px", "669px"]);
+      // On a layer of their own over the device, under the notice, which shows nothing at rest.
+      const live = byClass("live");
+      const above = live?.parent?.children ?? [];
+      expect(above.indexOf(live as FakeElement)).toBe(above.length - 2);
+      expect(Reflect.get(live?.style ?? {}, "visibility")).toBe("hidden");
+      // Unfolded, the frame's own is the size of the open screen's copy, and none of them loads again.
+      const shutSize = size(shut);
+      apply(merge(DUO_STATE, { posture: "open" }));
+      expect(frameElements()).toEqual([own, open, shut] as FakeElement[]);
+      expect(size(own)).toEqual(["903px", "669px"]);
+      expect(size(open)).toEqual(["903px", "669px"]);
+      expect(size(shut)).toEqual(shutSize);
+      expect(sent).toEqual([OUTSIDE, OUTSIDE, OUTSIDE]);
+      expect(touched).toBe(0);
+    });
+
+    test("comes up with the copies where the outside page is shown on a Duo that is up", () => {
+      foreign = false;
+      apply(DUO_STATE);
+      expect(frameElements()).toHaveLength(1);
+      foreign = true;
+      setOutside(OUTSIDE, false);
+      apply(DUO_STATE);
+      estrange(frameElement());
+      expect(copyFrames()).toHaveLength(2);
+      expect(sent).toEqual([PAGE, OUTSIDE, OUTSIDE, OUTSIDE]);
+      expect(touched).toBe(0);
+    });
+
+    test("shows the screen's ground in a copy's place till its page has loaded, and again while it reloads with the frame's own", () => {
+      const LIGHT = "rgb(255, 255, 255)";
+      setOutside(OUTSIDE, false);
+      apply(DUO_STATE);
+      const [open, shut] = copyFrames();
+      for (const copy of [open, shut]) {
+        expect(hidden(copy)).toBe(true);
+        expect(Reflect.get(copy?.parent?.style ?? {}, "background")).toBe(LIGHT);
+      }
+      open?.dispatchEvent(new Event("load"));
+      expect([hidden(open), hidden(shut)]).toEqual([false, true]);
+      // A copy's load says nothing of the frame's own page.
+      expect(getOutside().loaded).toBe(false);
+      shut?.dispatchEvent(new Event("load"));
+      loaded();
+      play();
+      expect([hidden(open), hidden(shut)]).toEqual([false, false]);
+      glyphOf(RELOAD)?.dispatchEvent(new Event("click"));
+      expect(sent).toEqual(Array.from({ length: 6 }, () => OUTSIDE));
+      expect([hidden(open), hidden(shut)]).toEqual([true, true]);
+      expect(copyFrames()).toEqual([open, shut] as FakeElement[]);
+      expect(touched).toBe(0);
+    });
+
+    test("loads another outside page in the same copies", () => {
+      setOutside(OUTSIDE, false);
+      apply(DUO_STATE);
+      const before = copyFrames();
+      for (const copy of before) copy.dispatchEvent(new Event("load"));
+      setOutside(OTHER, false);
+      apply(DUO_STATE);
+      expect(copyFrames()).toEqual(before);
+      expect(sent).toEqual([OUTSIDE, OUTSIDE, OUTSIDE, OTHER, OTHER, OTHER]);
+      for (const copy of before) {
+        expect(copy.getAttribute(OUTSIDE_ATTRIBUTE)).toBe(OTHER);
+        expect(hidden(copy)).toBe(true);
+      }
+      expect(touched).toBe(0);
+    });
+
+    test("takes the copies away with the outside page, with the Duo, with the frame, and for a page that refuses to be framed", () => {
+      const up = () => {
+        setOutside(OUTSIDE, false);
+        apply(DUO_STATE);
+        expect(frameElements()).toHaveLength(3);
+      };
+      const gone = () => {
+        expect(byClass("live")).toBeUndefined();
+        expect(copyFrames()).toEqual([]);
+      };
+      // The host says the page refuses to be framed.
+      up();
+      refuseOutside();
+      apply(DUO_STATE);
+      gone();
+      expect(frameElements()).toHaveLength(1);
+      // Another device, which does not fold.
+      up();
+      apply(PHONE_STATE);
+      gone();
+      expect(frameElements()).toHaveLength(1);
+      // The window's own page again.
+      up();
+      clearOutside();
+      apply(DUO_STATE);
+      gone();
+      expect(frameElements()).toHaveLength(1);
+      // The frame itself.
+      up();
+      reset();
+      gone();
+      expect(frameElements()).toHaveLength(0);
+      expect(touched).toBe(0);
+    });
+
+    test("has none for a page shown as one that refuses to be framed", () => {
+      setOutside(OUTSIDE, true);
+      apply(DUO_STATE);
+      expect(byClass("live")).toBeUndefined();
+      expect(frameElements()).toHaveLength(1);
+      expect(sent).toEqual(["about:blank"]);
+    });
+
+    test("folds with the copies shown over the fold, and never loads one again or reads one", () => {
+      setOutside(OUTSIDE, false);
+      apply(SHUT);
+      loaded();
+      play();
+      const all = frameElements();
+      expect(all).toHaveLength(3);
+      const live = byClass("live");
+      reduce = false;
+      apply(OPEN);
+      const fold = byClass("fold");
+      const above = live?.parent?.children ?? [];
+      // The fold's own layer goes under theirs, which shows while it folds.
+      expect(fold && above.indexOf(fold)).toBe(above.indexOf(live as FakeElement) - 1);
+      expect(Reflect.get(live?.style ?? {}, "visibility")).toBe("visible");
+      expect(frameElements()).toEqual(all);
+      play();
+      expect(byClass("fold")).toBeUndefined();
+      expect(Reflect.get(live?.style ?? {}, "visibility")).toBe("hidden");
+      // Open, on the live page in the frame's own, at the size its copy had all along.
+      const [open] = copyFrames();
+      expect(size(frameElement())).toEqual(["951px", "669px"]);
+      expect(size(open)).toEqual(["951px", "669px"]);
+      apply(SHUT);
+      play();
+      expect(frameElements()).toEqual(all);
+      expect(sent).toEqual([OUTSIDE, OUTSIDE, OUTSIDE]);
+      expect(touched).toBe(0);
+      expect(errors).toEqual([]);
+    });
+
+    test("lands a fold at once where its page goes while it folds", () => {
+      setOutside(OUTSIDE, false);
+      apply(SHUT);
+      loaded();
+      play();
+      reduce = false;
+      apply(OPEN);
+      expect(byClass("fold")).toBeDefined();
+      clearOutside();
+      apply(OPEN);
+      expect(byClass("fold")).toBeUndefined();
+      expect(byClass("live")).toBeUndefined();
+      expect(frameElements()).toHaveLength(1);
+      expect(size(frameElement())).toEqual(["951px", "669px"]);
+      expect(touched).toBe(0);
+    });
+
+    test("folds the window's own page with its one frame, and no copy of it", () => {
+      foreign = false;
+      apply(SHUT);
+      play();
+      reduce = false;
+      apply(OPEN);
+      expect(byClass("fold")).toBeDefined();
+      expect(byClass("live")).toBeUndefined();
+      expect(frameElements()).toHaveLength(1);
+      play();
+      apply(SHUT);
+      play();
+      expect(byClass("fold")).toBeUndefined();
+      expect(byClass("live")).toBeUndefined();
+      expect(frameElements()).toHaveLength(1);
+      expect(sent).toEqual([PAGE]);
+      expect(errors).toEqual([]);
     });
   });
 });

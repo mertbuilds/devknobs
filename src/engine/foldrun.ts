@@ -26,11 +26,13 @@ import {
   shotsDrift,
 } from "./fold";
 import { BLEED, pick, pose, type Shots, shotsOf } from "./foldframes";
+import { caseLive, layLive, type LiveCopies, restLive, syncLive, wakeLive } from "./foldlive";
 import {
   type Face,
   div,
   fill,
   light,
+  liveOn,
   paintDrawn,
   paintGlued,
   paintLeaf,
@@ -102,6 +104,12 @@ export interface FoldScene extends TurnScene {
   body(value: ViewportValue): Mock | null;
   /** Where the screen would be drawn for the knobs, in the letterbox. */
   screenFor(value: ViewportValue): Rect | null;
+  /**
+   * Live copies of an outside page, one laid out for each screen, on a layer
+   * over the fold's: they fold in place of the pictures of the page, which
+   * cannot be taken. None for the window's own page.
+   */
+  live?: LiveCopies | null;
 }
 
 /** A copy of one side of the half that turns, and the window onto the page its screen is. */
@@ -357,6 +365,7 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     width: size.width,
     across,
   };
+  if (picture.live) liveOn(leaf, picture.live);
   if (picture.shot) paintLeaf(leaf, picture.shot);
   // The page as the browser draws it, once it has, over the rough one.
   void picture.painted?.then((drawn) => {
@@ -422,7 +431,41 @@ function build(
   }
   layer.append(place);
   scene.place(layer);
+  if (scene.live) layCopies(scene.live, place, turning, pictures);
   return { layer, place, turning };
+}
+
+/**
+ * Lay the live copies of an outside page for the fold just built: each
+ * copy's boxes stand for the fold's own, from its place down to the screen
+ * as it lies, and what the fold lays over a picture goes over the copy's
+ * page: the browser's bars, its shades, and the frame of the turning half's
+ * case where it draws one. The fold's own window onto the page is not
+ * drawn, so the copy alone is cut at the hinge, on the edge the fold cuts
+ * there, and no dark of the fold's lies under that edge.
+ */
+function layCopies(live: LiveCopies, place: HTMLElement, turning: Copies | Shots, pictures: Pictures): void {
+  if ("model" in turning) {
+    for (const [copy, glued, picture] of [[live.open, turning.inner, pictures.open], [live.closed, turning.outer, pictures.closed]] as const) {
+      glued.cut.style.display = "none";
+      const shades = [glued.flat, glued.shade, glued.edge].map((real) => ({ real, box: 4 }));
+      layLive(copy, glued, [place, turning.model, glued.node, glued.cut, glued.picture, glued.stage], shades, picture.bars);
+    }
+    // The frame of the turning half's case lies over the fold's screens, so over the copies too.
+    caseLive(live, [place, turning.model], turning.plane.canvas);
+  } else {
+    for (const [copy, leaf, picture] of [[live.open, turning.inner, pictures.open], [live.closed, turning.outer, pictures.closed]] as const) {
+      leaf.window.style.display = "none";
+      const shades = [
+        { real: leaf.dark, box: 2, under: true },
+        { real: leaf.rim, box: 5 },
+        { real: leaf.flat, box: 2 },
+        { real: leaf.veil, box: 0, parts: [leaf.shade, leaf.edge] },
+      ];
+      layLive(copy, leaf, [place, null, leaf.window, null, null, leaf.stage], shades, picture.bars);
+    }
+  }
+  wakeLive(live);
 }
 
 /** Where the frame's own device is, now that it is drawn `posture`. */
@@ -595,6 +638,7 @@ function show(going: Going): void {
   // The half that stays, but where a hand looks for what draws a line.
   scene.unit.style.visibility = (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) && finds.stillOn < 0.5 ? "hidden" : "";
   darken(scene.cover, screenDim(opened ? "inner" : "cover", open));
+  if (scene.live) syncLive(scene.live);
   for (const watcher of Array.from(hinges)) watcher(going.open, going.hand);
   if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
 }
@@ -649,6 +693,7 @@ function clear(last: Going): void {
   last.scene.unit.style.clipPath = "";
   last.scene.unit.style.visibility = "";
   darken(last.scene.cover, 0);
+  if (last.scene.live) restLive(last.scene.live);
   if (last.duo) endFoldShots();
   for (const watcher of Array.from(watchers)) watcher();
   if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
@@ -855,7 +900,10 @@ export function foldDevice(
   const layout = foldLayout(closed, open, across);
   // The fold's frames are the Duo's, drawn to go with its bezels, which a body has once they have loaded.
   const duo = [open, closed].every((side) => side.body?.image?.file.startsWith("iphone-duo-"));
-  const pictures = opening ? { open: after, closed: before } : { open: before, closed: after };
+  const taken = opening ? { open: after, closed: before } : { open: before, closed: after };
+  // No picture of an outside page can be taken: a live copy of it stands on each screen instead.
+  const { live } = scene;
+  const pictures = live ? { open: { ...taken.open, live: live.open }, closed: { ...taken.closed, live: live.closed } } : taken;
   const values = { [from.posture]: from, [value.posture]: value } as Record<PostureValue, ViewportValue>;
   const start = openOf(from.posture);
   const target = openOf((held ? from : value).posture);
@@ -985,6 +1033,7 @@ export function forgetFold(): void {
   if (fold) {
     window.cancelAnimationFrame(fold.frame);
     drop(fold.parts);
+    if (fold.scene.live) restLive(fold.scene.live);
   }
   window.removeEventListener("resize", settle);
   fold = null;

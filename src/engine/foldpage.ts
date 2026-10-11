@@ -3,6 +3,7 @@ import { type BlurFade, blurWidths, type FoldLayout, type FoldSide, freeShades, 
 import type { Mock, Rect } from "./mock";
 import { corners } from "./mockdraw";
 import { type ScreenGl, screenGl } from "./foldgl";
+import { type LiveCopy, liveBlurs } from "./foldlive";
 import { BY_WEBGL, drew } from "./foldtune";
 import type { Corners } from "./morph";
 import { blurPictures, marginPlace, paintPage, shootPage } from "./pageshot";
@@ -163,6 +164,17 @@ export interface Picture {
   shot: HTMLCanvasElement | null;
   painted: Promise<Drawn | null> | null;
   bars: HTMLElement | null;
+  /** A live copy of an outside page laid out on that screen, which stands in for the pictures no one can take of it. */
+  live?: LiveCopy;
+}
+
+/** Why no picture of the page is drawn on a screen a live copy of an outside page stands on. */
+export const LIVE = "the page is on another origin, so a live copy of it folds in place of a picture, blurred by the browser";
+
+/** A live copy's page and the blurs over it stand as a panel's pictures, which it lights as it does those. */
+export function liveOn(panel: Panel, live: LiveCopy): void {
+  panel.pictures = liveBlurs(live);
+  panel.why = LIVE;
 }
 
 /**
@@ -303,6 +315,8 @@ export interface Glued extends Panel {
   over: number;
   /** The page drawn by WebGL2, or null where the pictures are laid over each other instead. */
   gl: ScreenGl | null;
+  /** The live copy of an outside page that stands on it, or null where pictures do. */
+  live: LiveCopy | null;
 }
 
 /**
@@ -385,7 +399,13 @@ export function gluedOf(
     width: side.size.width,
     across,
     gl: null,
+    live: picture.live ?? null,
   };
+  // An outside page: nothing of it to draw, and its live copy is lit as the pictures are.
+  if (picture.live) {
+    liveOn(glued, picture.live);
+    return glued;
+  }
   const part = { ...rect, x: rect.x - whole.rect.x, y: rect.y - whole.rect.y };
   const place = { pane: turning.pane, across, stage: side.size, part, margin, density };
   glued.gl = screenGl(place, (why, shot) => {
