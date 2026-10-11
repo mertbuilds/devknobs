@@ -409,6 +409,7 @@ function showBrowser(
   glass.style.height = page ? `${place.height * zoom}px` : "";
   browser.show({ bars, page, size: place, zoom, follow, sizeFrame });
   browser.refresh();
+  showRefusal();
 }
 
 /**
@@ -468,6 +469,12 @@ function resize(): void {
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
   if (refusal) refusal.style.fontSize = `${REFUSED_SIZE * place.zoom}px`;
+  // Natively, the page inside gets the scheme as its real preference. System
+  // leaves the frame to follow the window. Set before the bars are drawn,
+  // which follow it at once around an outside page.
+  const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
+  if (native) frame.style.colorScheme = current.scheme;
+  else frame.style.removeProperty("color-scheme");
   showBrowser(bars, page, place, auto);
   drawing.style.width = `${place.box.width}px`;
   drawing.style.height = `${place.box.height}px`;
@@ -476,11 +483,6 @@ function resize(): void {
   screen.style.top = `${place.top - (mock?.inset.top ?? 0) * place.scale}px`;
   showMock(mock, place);
   screen.style.transform = place.transform === 1 ? "" : `scale(${place.transform})`;
-  // Natively, the page inside gets the scheme as its real preference. System
-  // leaves the frame to follow the window.
-  const native = current.scheme !== "system" && handsSchemeDown(frame.getRootNode());
-  if (native) frame.style.colorScheme = current.scheme;
-  else frame.style.removeProperty("color-scheme");
   frame.style.filter = visionFilter(current.vision);
   checkZoom();
   warmFold();
@@ -773,9 +775,17 @@ function track(): void {
   });
 }
 
-/** The screen says so, over the frame, while its outside page refuses to be framed. */
+/**
+ * The screen says so, over the frame, while its outside page refuses to be
+ * framed, on the ground and in the ink of the scheme that page is given.
+ */
 function showRefusal(): void {
-  if (refusal) refusal.hidden = !denied;
+  if (!refusal) return;
+  refusal.hidden = !denied;
+  if (!frame || !denied) return;
+  const look = readLook(frame);
+  refusal.style.background = look.background;
+  refusal.classList.toggle("dark", look.dark);
 }
 
 /**
@@ -789,7 +799,6 @@ function aim(fresh = false): void {
   const was = there;
   there = outside;
   denied = outside !== null && refused;
-  showRefusal();
   if (outside === null) {
     // Its own page again, under the same sandbox as before, read once it has loaded.
     if (!fresh) frame.setAttribute(OUTSIDE_ATTRIBUTE, frameUrl);
@@ -812,6 +821,7 @@ function aim(fresh = false): void {
     loaded = denied;
     frame.src = denied ? "about:blank" : outside;
   }
+  showRefusal();
   if (fresh) return;
   browser?.stopLoading();
   // The bars say where the frame is going at once, over a blank screen until it is there.

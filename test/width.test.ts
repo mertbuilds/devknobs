@@ -315,6 +315,14 @@ class FakeStyle {
   removeProperty(name: string): void {
     this.values.delete(name);
   }
+
+  get colorScheme(): string {
+    return this.getPropertyValue("color-scheme");
+  }
+
+  set colorScheme(value: string) {
+    this.setProperty("color-scheme", value);
+  }
 }
 
 /** Just enough of an element for the frame to come up over a page and go again. */
@@ -1871,5 +1879,176 @@ describe("an outside page in the frame", () => {
     reset();
     expect(assigned).toEqual([]);
     expect(location.href).toBe(PAGE);
+  });
+
+  describe("under the scheme knob", () => {
+    const DARK = "rgb(18, 18, 18)";
+    const LIGHT = "rgb(255, 255, 255)";
+    /** The window's own scheme, and who listens for it to change. */
+    let systemDark: boolean;
+    let heard: (() => void)[];
+
+    beforeEach(() => {
+      systemDark = false;
+      heard = [];
+      define("getComputedStyle", () => ({
+        backgroundColor: "",
+        colorScheme: "",
+        transform: "none",
+        getPropertyValue: () => "",
+      }));
+      const system = {
+        get matches() {
+          return systemDark;
+        },
+        addEventListener: (_type: string, listener: () => void) => heard.push(listener),
+        removeEventListener: () => {},
+      };
+      Object.assign(window, {
+        matchMedia: (query: string) =>
+          query.includes("prefers-color-scheme")
+            ? system
+            : { matches: reduce && query.includes("reduce"), media: query },
+      });
+      // A browser that hands the frame element's scheme down, as its probe frame finds.
+      const root = {
+        isConnected: true,
+        appendChild(probe: FakeElement) {
+          Object.defineProperty(probe, "contentWindow", {
+            configurable: true,
+            value: {
+              matchMedia: (query: string) => ({
+                matches: query.includes(`: ${probe.style.colorScheme})`),
+              }),
+            },
+          });
+        },
+      };
+      Reflect.set(FakeElement.prototype, "getRootNode", () => root);
+    });
+
+    afterEach(() => {
+      Reflect.deleteProperty(FakeElement.prototype, "getRootNode");
+    });
+
+    const glass = () => everything().find((element) => String(Reflect.get(element, "className")).startsWith("glass"));
+    /** The screen's ground, which shows wherever the frame and the bars leave it bare. */
+    const ground = () => Reflect.get(glass()?.style ?? {}, "background");
+    const bars = () => Reflect.get(byClass("safari") ?? {}, "className");
+
+    function show(knobs: Parameters<typeof merge>[1]): void {
+      apply(merge(PHONE_STATE, knobs));
+    }
+
+    test("dark draws the device's own screen dark, whatever the window prefers", () => {
+      setOutside(OUTSIDE, false);
+      show({ scheme: "dark" });
+      expect(frameElement().style.colorScheme).toBe("dark");
+      expect(ground()).toBe(DARK);
+      expect(bars()).toBe("safari dark");
+      expect(Reflect.get(frameElement().style, "background")).toBe(DARK);
+      expect(Reflect.get(byClass("screenblank")?.style ?? {}, "background")).toBe(DARK);
+      expect(byClass("domain")?.textContent).toBe("example.com");
+      expect(touched).toBe(0);
+    });
+
+    test("light draws it light, under a window that prefers dark too", () => {
+      systemDark = true;
+      setOutside(OUTSIDE, false);
+      show({ scheme: "light" });
+      expect(ground()).toBe(LIGHT);
+      expect(bars()).toBe("safari light");
+    });
+
+    test("follows the knob at once, while the page loads and after", () => {
+      setOutside(OUTSIDE, false);
+      show({ scheme: "light" });
+      expect(ground()).toBe(LIGHT);
+      show({ scheme: "dark" });
+      expect(ground()).toBe(DARK);
+      expect(bars()).toBe("safari dark");
+      expect(Reflect.get(byClass("screenblank")?.style ?? {}, "background")).toBe(DARK);
+      loaded();
+      show({ scheme: "light" });
+      expect(ground()).toBe(LIGHT);
+      expect(bars()).toBe("safari light");
+      expect(touched).toBe(0);
+    });
+
+    test("system follows the window's own scheme, and its change", () => {
+      setOutside(OUTSIDE, false);
+      show({ scheme: "system" });
+      loaded();
+      expect(frameElement().style.colorScheme).toBe("");
+      expect(ground()).toBe(LIGHT);
+      expect(bars()).toBe("safari light");
+      expect(heard.length).toBe(1);
+      systemDark = true;
+      for (const listener of heard) listener();
+      expect(ground()).toBe(DARK);
+      expect(bars()).toBe("safari dark");
+      systemDark = false;
+      for (const listener of heard) listener();
+      expect(ground()).toBe(LIGHT);
+      expect(touched).toBe(0);
+    });
+
+    test("fills the screen beside a page its bars inset, on the Duo open in landscape", () => {
+      const duo = { device: "iphone-duo", posture: "open", orientation: "landscape" } as const;
+      setOutside(OUTSIDE, false);
+      show({ ...duo, scheme: "dark" });
+      const box = frameElement().parent;
+      // The page is inset at both sides, and the screen's ground shows there.
+      expect(Reflect.get(frameElement().style, "width")).toBe("903px");
+      expect(Number.parseFloat(Reflect.get(box?.style ?? {}, "left"))).toBeGreaterThan(0);
+      expect(ground()).toBe(DARK);
+      show({ ...duo, scheme: "light" });
+      expect(ground()).toBe(LIGHT);
+      show({ ...duo, scheme: "dark", posture: "closed", orientation: "portrait" });
+      expect(ground()).toBe(DARK);
+      show({ device: "iphone-16-pro", orientation: "landscape", scheme: "dark", edgeToEdge: false });
+      expect(ground()).toBe(DARK);
+      show({ device: "pixel-9", orientation: "landscape", scheme: "light" });
+      expect(ground()).toBe(LIGHT);
+      expect(touched).toBe(0);
+    });
+
+    test("says a page refuses to be framed on the scheme's ground", () => {
+      setOutside(OUTSIDE, true);
+      show({ scheme: "dark" });
+      const screen = byClass("refused");
+      expect(Reflect.get(screen?.style ?? {}, "background")).toBe(DARK);
+      expect(screen?.classList.contains("dark")).toBe(true);
+      show({ scheme: "light" });
+      expect(Reflect.get(screen?.style ?? {}, "background")).toBe(LIGHT);
+      expect(screen?.classList.contains("dark")).toBe(false);
+    });
+
+    test("leaves the window's own page to say how it looks, and goes back to it", async () => {
+      foreign = false;
+      show({ scheme: "dark" });
+      // Its own page paints its own background, which the bars read from its document.
+      Reflect.set(attach(), "getComputedStyle", () => ({ backgroundColor: "rgb(250, 240, 230)", colorScheme: "" }));
+      /** The page in the frame has loaded all of itself, and the screen shows it. */
+      const settle = () => {
+        Reflect.set(view.document, "readyState", "complete");
+        play();
+      };
+      await load(PAGE);
+      settle();
+      expect(ground()).toBe("rgb(250, 240, 230)");
+      expect(bars()).toBe("safari light");
+      setOutside(OUTSIDE, false);
+      show({ scheme: "dark" });
+      expect(ground()).toBe(DARK);
+      expect(bars()).toBe("safari dark");
+      loaded();
+      clearOutside();
+      show({ scheme: "dark" });
+      await load(PAGE);
+      settle();
+      expect(ground()).toBe("rgb(250, 240, 230)");
+      expect(bars()).toBe("safari light");
+    });
   });
 });
