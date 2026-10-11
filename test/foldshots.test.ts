@@ -29,6 +29,7 @@ import {
   watchFold,
   watchHinge,
 } from "../src/engine/foldrun";
+import { BLEED, bled } from "../src/engine/foldframes";
 import { OVER, overOf } from "../src/engine/foldpage";
 import { foldTune, hingeMoved, resetTune, setTune } from "../src/engine/foldtune";
 import { DEFAULT_STATE } from "../src/engine/store";
@@ -420,12 +421,51 @@ beforeEach(() => {
   resizes = new Set();
 });
 
-describe("how far past the hinge the open screen's half that turns is drawn", () => {
+describe("how far short of the hinge the open screen's half that turns stops", () => {
   test("is 2 css px, and 2 px of the display where the screen is drawn smaller than that, 8 css px at most", () => {
     expect([overOf(3), overOf(1)]).toEqual([OVER, OVER]);
     expect(overOf(0.5) * 0.5).toBe(2);
     expect(overOf(0.25)).toBe(8);
     expect(overOf(0.01)).toBe(8);
+  });
+});
+
+describe("the dark under a turned screen and what cuts its window", () => {
+  const rect = { x: 0, y: 0, width: 475.5, height: 669 };
+  const tall = { x: 0, y: 0, width: 669, height: 475.5 };
+  /** A screen seen 3 px of the render a px, squeezed across the hinge to `turn` of that, as it is turned. */
+  const seenBy = (across: boolean, turn: number) => (point: { x: number; y: number }) =>
+    across ? { x: 3 * turn * point.x, y: 3 * point.y } : { x: 3 * point.x, y: 3 * turn * point.y };
+
+  test("reach as far past the screen's top and bottom ends and its free edge as they did before it stopped short of the hinge", () => {
+    for (const across of [true, false]) {
+      const part = across ? rect : tall;
+      for (const turn of [1, 0.7, 0.2, 0.01]) {
+        const seen = seenBy(across, turn);
+        for (const pane of ["inner", "cover"] as const) {
+          const was = bled(part, pane, across, seen);
+          const now = bled(part, pane, across, seen, 6, 16);
+          // Its ends along the hinge, to the last digit.
+          expect(across ? [now.y, now.height] : [now.x, now.width]).toEqual(across ? [was.y, was.height] : [was.x, was.width]);
+          expect(across ? [was.y, was.height] : [was.x, was.width]).toEqual(across ? [-BLEED, 669 + 2 * BLEED] : [-BLEED, 669 + 2 * BLEED]);
+          // Its free edge: the open screen's left held across, and its bottom held upright.
+          if (pane === "inner") {
+            expect(across ? now.x : now.y + now.height).toBe(across ? was.x : was.y + was.height);
+          } else {
+            // The folded screen's hinge is under its case, so nothing of it changes.
+            expect(now).toEqual(was);
+          }
+        }
+        // Only the open screen's hinge side comes in: seen 6 px of the render short of the hinge, 16 of its own px at most.
+        const was = bled(part, "inner", across, seen);
+        const now = bled(part, "inner", across, seen, 6, 16);
+        const [before, after] = across ? [was.x + was.width, now.x + now.width] : [was.y, now.y];
+        expect(before).toBe(across ? 475.5 : 0);
+        const short = Math.abs(after - before);
+        expect(short).toBeCloseTo(Math.min(16, 6 / (3 * turn)), 9);
+        expect(across ? after < before : after > before).toBe(true);
+      }
+    }
   });
 });
 
@@ -542,14 +582,14 @@ describe("a Duo folding in its frames", () => {
       expect(facing.length).toBeLessThanOrEqual(1);
       if (facing[0]) {
         // Dark a little past the turned screen, and in it a window cut to it, onto the page laid flat, which never turns.
-        const [dark, cut] = facing[0].children;
-        expect(style(dark, "background")).toBe("#000");
-        expect(style(dark, "clipPath")).toStartWith('path("M');
+        const [cut] = facing[0].children;
+        expect(style(facing[0], "background")).toBe("#000");
+        expect(style(facing[0], "clipPath")).toStartWith('path("M');
         expect(style(cut, "clipPath")).toStartWith('path("M');
         expect(style(cut?.children[0], "transform")).toStartWith("matrix(");
-        // The window itself is cut by nothing else, so the dark's edge at the hinge is not its own.
-        expect(style(facing[0], "clipPath")).toBe("");
-        expect(style(facing[0], "background")).toBe("");
+        // The page laid flat is cut at the hinge and not at its ends, where the dark past them is blurred into it.
+        expect([style(cut?.children[0], "overflowX"), style(cut?.children[0], "overflowY")]).toEqual(["clip", "visible"]);
+        expect(style(cut?.children[0], "clipPath")).toBe("");
         // How far right each reaches in the render, where the open screen's hinge is.
         const right = (node: FakeNode | undefined) => {
           const numbers = (style(node, "clipPath").match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
@@ -557,13 +597,19 @@ describe("a Duo folding in its frames", () => {
         };
         const hinge = shots.open[0] + shots.open[2] / 2 - left;
         if (facing[0] === inner) {
-          // The open screen's page goes on past the hinge, over the half that stays, and its dark stops at the hinge.
-          expect(right(dark)).toBeCloseTo(hinge, 1);
-          expect(right(cut)).toBeGreaterThan(hinge + 1);
+          // The open screen's window ends at the hinge, and what cuts it and its dark, one edge, short of it, however far
+          // it has turned: 2 px of the display, 4 css px of the page lying flat drawn half as big, 12 px of the render.
+          expect(right(cut)).toBeCloseTo(hinge, 1);
+          const short = hinge - right(facing[0]);
+          const flat = (overOf(0.5) * shots.open[2]) / 951;
+          expect(flat).toBeCloseTo(12, 1);
+          expect(short).toBeGreaterThan(flat / 4);
+          expect(short).toBeLessThan(flat + 0.2);
+          if (shot.deg <= 82) expect(short).toBeGreaterThan(flat - 0.2);
           past = true;
         } else {
           // The folded screen's dark lies under its case all round.
-          expect(right(dark)).toBeGreaterThan(right(cut));
+          expect(right(facing[0])).toBeGreaterThan(right(cut));
         }
         glued = true;
       }
@@ -589,10 +635,10 @@ describe("a Duo folding in its frames", () => {
       const [, inner, outer] = node?.children ?? [];
       const glued = [inner, outer].flatMap((one) => [
         style(one, "visibility"),
+        style(one, "clipPath"),
         style(one?.children[0], "clipPath"),
-        style(one?.children[1], "clipPath"),
-        style(one?.children[1]?.children[0], "transform"),
-        style(one?.children[1]?.children[0]?.children[1], "background"),
+        style(one?.children[0]?.children[0], "transform"),
+        style(one?.children[0]?.children[0]?.children[1], "background"),
       ]);
       const place = layer()?.children[0];
       return JSON.stringify([
@@ -652,7 +698,7 @@ describe("a Duo folding in its frames", () => {
     /** The dark at the free edge of each turned screen, which the layers draw where WebGL2 is not. */
     const edges = () => {
       const [, inner, outer] = model()?.children ?? [];
-      return [inner, outer].map((one) => style(one?.children[1]?.children[0]?.children[3], "background")).join("|");
+      return [inner, outer].map((one) => style(one?.children[0]?.children[0]?.children[3], "background")).join("|");
     };
     const before = edges();
     // None as it ships, and nothing else darkens the turned screen at its hinge.
@@ -721,6 +767,11 @@ describe("a Duo folding in its frames", () => {
     // The device shows only its still half while that fades in, then only its screen, under the rendered case.
     expect(clips.find((clip) => clip !== "")).toContain("100000px");
     expect(clips[firstWhole + 1]).not.toContain("100000px");
+    // With the open screen's half turning over it, it goes on under that, a px further than that stops short of the hinge: 4 css px here.
+    const xs = (clip: string | undefined) => (clip?.match(/-?\d+(\.\d+)?(?=px \d)/g) ?? []).map(Number);
+    const under = (clip: string | undefined) => Math.max(...xs(clip)) - Math.min(...xs(clip)) - 475.5 - BLEED;
+    expect(under(clips[firstWhole + 1])).toBeCloseTo(0, 6);
+    expect(under(clips.findLast((clip) => clip !== ""))).toBeCloseTo(1 + overOf(0.5), 6);
     // Out over SHOTS_FADE ms, the device at rest under it, then the layer goes.
     const fading = outs.slice(outs.lastIndexOf("") + 1).map(Number);
     expect(fading.length).toBeGreaterThanOrEqual(SHOTS_FADE / 16 - 2);

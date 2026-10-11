@@ -592,14 +592,15 @@ function show(going: Going): void {
  * What of the frame's own device shows open, in its own css px: the half
  * that stays, till the copy of the other fades into it. It goes a px of the
  * screen under the inside of the half that turns, while that shows, so their
- * edges at the hinge leave no seam. Under the frames, once the still half's
+ * edges at the hinge leave no seam, and under the frames a px further than
+ * their open screen stops short of the hinge. Under the frames, once the still half's
  * rendered case is all in, only its screen shows, `BLEED` px further out, under
  * that case, so none of the bezel picture shows past the render's.
  */
 function stillClip(going: Going, shots: Shots | null, inside: boolean, own: number): string {
   const { layout, unit } = going;
   const at = (value: number) => (value * own) / unit.base;
-  const under = inside ? 1 : 0;
+  const under = inside ? 1 + (shots?.inner.over ?? 0) : 0;
   const hinge = at(layout.hinge + (layout.across ? -under : under));
   const far = 1e5;
   const points = (corners: [number, number][]) => `polygon(${corners.map(([px, py]) => `${px}px ${py}px`).join(", ")})`;

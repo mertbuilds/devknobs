@@ -19,7 +19,7 @@ import {
   shotWindow,
   shownAt,
 } from "./fold";
-import { freeOf, pastHinge, reachOf, screenLook, wedgeOf } from "./foldgl";
+import { freeOf, reachOf, screenLook, wedgeOf } from "./foldgl";
 import {
   type Face,
   div,
@@ -78,8 +78,9 @@ export interface Shots {
 /**
  * How far the dark under the window reaches past the turned screen, in its
  * css px, under the case all round, but for the open screen's hinge side,
- * where the page goes on past it: so where the window's edge and the case's
- * hole each fade out over a px, the mat never shows between them.
+ * where the page goes on past it and the dark stops short, as `bled` has it:
+ * so where the window's edge and the case's hole each fade out over a px,
+ * the mat never shows between them.
  */
 export const BLEED = 2;
 
@@ -201,10 +202,11 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     glued.node.style.visibility = seen ? "" : "hidden";
     if (!seen || !picture || !opening) continue;
     // The page stays still and flat behind the turned screen, dark where the screen reaches past it.
-    // The page goes on a little past the hinge, over the other half's, and the dark does not, so none shows between the two.
-    const past = pastPath(rect, glued, layout.across, picture, seen);
-    glued.cut.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}${past}")`;
-    glued.dark.style.clipPath = `path("${roundedPath(bled(rect, glued.pane, layout.across, seen), bledRadii(glued.radii), seen)}")`;
+    glued.cut.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
+    // It stops short of the hinge, its dark with it, as far as `over` css px of the page lying flat are in the render.
+    const short = glued.over * (picture.width / (layout.across ? rect.width : rect.height));
+    const dark = bled(rect, glued.pane, layout.across, seen, short, 8 * glued.over);
+    glued.node.style.clipPath = `path("${roundedPath(dark, bledRadii(glued.radii), seen)}")`;
     const { x, y } = plane.corner;
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     const free = freeOf(opening, glued.pane, picture);
@@ -218,46 +220,44 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
 }
 
 /**
- * The outline of what a glued screen shows past its hinge, as css path data
- * to go after its window's: as far past it as `glued.over` has it, between
- * the window's two corners at the hinge, as `seen` sees them, and flat, as
- * its `picture` and the half that stays lie, however far the screen has
- * turned. Nothing where it shows none.
- */
-function pastPath(rect: Rect, glued: Glued, across: boolean, picture: Rect, seen: (point: Point) => Point): string {
-  const { over, pane } = glued;
-  if (over <= 0) return "";
-  const { x, y, width, height } = pastHinge(rect, pane, across, over);
-  // What of it is past the hinge: the picture's right in the render, held either way.
-  const strip = across ? { x: x + width - over, y, width: over, height } : { x, y, width, height: over };
-  const wide = picture.width / (across ? rect.width : rect.height);
-  const flat = (point: Point) => {
-    const on = across ? { x: Math.min(point.x, rect.x + rect.width), y: point.y } : { x: point.x, y: Math.max(point.y, rect.y) };
-    const at = seen(on);
-    return { x: at.x + (Math.abs(point.x - on.x) + Math.abs(point.y - on.y)) * wide, y: at.y };
-  };
-  return roundedPath(strip, [0, 0, 0, 0], flat);
-}
-
-/**
  * A screen's rect, seen as `seen` has it, bigger by `BLEED` px along the
  * hinge and by as much as `SEEN_BLEED` takes across it, but at the open
- * screen's hinge: its right held across, else its top.
+ * screen's hinge, its right held across, else its top: there it is smaller,
+ * by as much as it takes to be seen `short` px of the render short of the
+ * hinge, and by no more than `most` of its own px. So the window
+ * and its dark end on one edge there, short of the hinge, with the half that
+ * stays under it: the dark never has an edge of its own beside the page's,
+ * for a px of the display to show it through. With no `short`, it ends at
+ * the hinge.
  */
-function bled(rect: Rect, pane: Pane, across: boolean, seen: (point: Point) => Point): Rect {
+export function bled(rect: Rect, pane: Pane, across: boolean, seen: (point: Point) => Point, short = 0, most = 0): Rect {
   const { x, y, width, height } = rect;
   const middle = { x: x + width / 2, y: y + height / 2 };
-  // How far a side has to go out to be seen `SEEN_BLEED` px of the render further on.
-  const outward = (at: Point, step: Point) => {
+  // How many px of the render a px of the screen is seen as, going `step` from `at`.
+  const shown = (at: Point, step: Point) => {
     const from = seen(at);
     const to = seen({ x: at.x + step.x, y: at.y + step.y });
-    const shown = Math.hypot(to.x - from.x, to.y - from.y);
-    return Math.max(BLEED, Math.min(8 * BLEED, shown > 0 ? SEEN_BLEED / shown : 8 * BLEED));
+    return Math.hypot(to.x - from.x, to.y - from.y);
+  };
+  // How far a side has to go out to be seen `SEEN_BLEED` px of the render further on.
+  const outward = (at: Point, step: Point) => {
+    const by = shown(at, step);
+    return Math.max(BLEED, Math.min(8 * BLEED, by > 0 ? SEEN_BLEED / by : 8 * BLEED));
+  };
+  // How far the hinge's side has to come in to be seen `short` px of the render short of it: a way in, so less than none out.
+  const inward = (at: Point, step: Point) => {
+    if (short <= 0) return 0;
+    const by = shown(at, step);
+    return -Math.min(most, by > 0 ? short / by : most);
   };
   const hinge = pane === "inner";
   const left = across ? outward({ x, y: middle.y }, { x: -1, y: 0 }) : BLEED;
-  const right = across ? (hinge ? 0 : outward({ x: x + width, y: middle.y }, { x: 1, y: 0 })) : BLEED;
-  const top = across ? BLEED : hinge ? 0 : outward({ x: middle.x, y }, { x: 0, y: -1 });
+  const right = across
+    ? hinge
+      ? inward({ x: x + width, y: middle.y }, { x: -1, y: 0 })
+      : outward({ x: x + width, y: middle.y }, { x: 1, y: 0 })
+    : BLEED;
+  const top = across ? BLEED : hinge ? inward({ x: middle.x, y }, { x: 0, y: 1 }) : outward({ x: middle.x, y }, { x: 0, y: -1 });
   const bottom = across ? BLEED : outward({ x: middle.x, y: y + height }, { x: 0, y: 1 });
   return { x: x - left, y: y - top, width: width + left + right, height: height + top + bottom };
 }
