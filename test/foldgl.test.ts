@@ -29,7 +29,6 @@ import {
   FRAGMENT,
   freeOf,
   hingeLine,
-  pastHinge,
   levelAt,
   reachOf,
   screenGl,
@@ -377,7 +376,7 @@ describe("the canvas", () => {
   const half = { x: 0, y: 0, width: 475.5, height: 669 };
 
   test("lies over the part that turns, and past the screen's ends along the hinge", () => {
-    const place = { pane: "inner" as const, across: true, stage, part: half, margin: 80, over: 0, density: 2 };
+    const place = { pane: "inner" as const, across: true, stage, part: half, margin: 80, density: 2 };
     expect(canvasRect(place)).toEqual({ x: 0, y: -80, width: 475.5, height: 829 });
     const upright = { width: 669, height: 951 };
     const lower = { x: 0, y: 475.5, width: 669, height: 475.5 };
@@ -387,41 +386,6 @@ describe("the canvas", () => {
       width: 829,
       height: 475.5,
     });
-  });
-
-  test("reaches past the hinge, onto the half that stays, and no further at the free edge, for either screen held either way", () => {
-    const upright = { width: 669, height: 951 };
-    const lower = { x: 0, y: 475.5, width: 669, height: 475.5 };
-    const whole = { x: 0, y: 0, width: 420, height: 912 };
-    const cases: [Pane, boolean, typeof stage, typeof half][] = [
-      ["inner", true, stage, half],
-      ["inner", false, upright, lower],
-      ["cover", true, { width: 420, height: 912 }, whole],
-      ["cover", false, { width: 912, height: 420 }, { x: 0, y: 0, width: 912, height: 420 }],
-    ];
-    for (const [pane, across, screen, part] of cases) {
-      for (const over of [0, 2, 8]) {
-        const past = pastHinge(part, pane, across, over);
-        const rect = canvasRect({ pane, across, stage: screen, part, margin: 80, over, density: 2 });
-        const [a, b, c] = hingeLine(pane, across, part);
-        const corners = [
-          [past.x, past.y],
-          [past.x + past.width, past.y + past.height],
-        ] as const;
-        const shares = corners.map(([x, y]) => a * x + b * y + c).sort((low, high) => low - high);
-        // As far past the hinge as asked, and at the free edge still.
-        const length = across ? part.width : part.height;
-        expect(shares[0]).toBeCloseTo(-over / length, 12);
-        expect(shares[1]).toBeCloseTo(1, 12);
-        // Nothing of it changes along the hinge, and the canvas is as wide across it.
-        expect(across ? [past.y, past.height] : [past.x, past.width]).toEqual(across ? [part.y, part.height] : [part.x, part.width]);
-        expect(across ? [rect.x, rect.width] : [rect.y, rect.height]).toEqual(across ? [past.x, past.width] : [past.y, past.height]);
-        expect(across ? rect.width : rect.height).toBe(length + over);
-      }
-    }
-    // The open screen's hinge is its right held across, and its top held upright.
-    expect(pastHinge(half, "inner", true, 2)).toEqual({ x: 0, y: 0, width: 477.5, height: 669 });
-    expect(pastHinge(lower, "inner", false, 2)).toEqual({ x: 0, y: 473.5, width: 669, height: 477.5 });
   });
 
   test("runs from the hinge to the free edge the way each screen's shade does", () => {
@@ -467,7 +431,7 @@ describe("WebGL2", () => {
     expect(contextOf({ getContext: () => ({}) })).toBeNull();
   });
 
-  const place = { pane: "inner" as const, across: true, stage: { width: 951, height: 669 }, part: { x: 0, y: 0, width: 475.5, height: 669 }, margin: 80, over: 0, density: 2 };
+  const place = { pane: "inner" as const, across: true, stage: { width: 951, height: 669 }, part: { x: 0, y: 0, width: 475.5, height: 669 }, margin: 80, density: 2 };
 
   /** How a faked WebGL2 fails: it makes nothing, is lost, does not link, saying `log`, throws `upload` at a picture, or tells of `error` after one. */
   interface Fail {

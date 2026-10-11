@@ -2,7 +2,7 @@ import { type BarsKnobs, copyBars, type Drawn, withBars } from "./barshot";
 import { type BlurFade, blurWidths, type FoldLayout, type FoldSide, freeShades, type Pane, paneBlurs, paneShades, type Point, screenDim, type Shades } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners } from "./mockdraw";
-import { pastHinge, type ScreenGl, screenGl } from "./foldgl";
+import { type ScreenGl, screenGl } from "./foldgl";
 import { BY_WEBGL, drew } from "./foldtune";
 import type { Corners } from "./morph";
 import { blurPictures, marginPlace, paintPage, shootPage } from "./pageshot";
@@ -291,27 +291,28 @@ export function litByGl(glued: Glued): boolean {
 
 /** A screen of a frame's half that turns, a window onto the page lying flat behind it. */
 export interface Glued extends Panel {
-  /** Over every frame in the render. */
+  /** Dark, over every frame in the render, cut a little past the turned screen's outline, under the case, so no edge of it lets the mat through, and `over` css px short of the open screen's hinge. */
   node: HTMLElement;
-  /** The dark in it, cut a little past the turned screen's outline, under the case, so no edge of it lets the mat through, but at the open screen's hinge. */
-  dark: HTMLElement;
-  /** The window over the dark, cut to the turned screen's outline, and `over` css px past the hinge. */
+  /** The window in it, cut to the turned screen's outline. */
   cut: HTMLElement;
   /** The part that turns as it lies, in its own css px, laid flat where the page is seen, and its corners. */
   picture: HTMLElement;
   size: { width: number; height: number };
   radii: Corners;
-  /** How far past the hinge the page is drawn, in its css px: none on the folded screen, whose hinge side is under its case. */
+  /** How far short of the hinge the screen stops, in its css px, the half that stays going on under it: not at all on the folded screen, whose hinge side is under its case. */
   over: number;
   /** The page drawn by WebGL2, or null where the pictures are laid over each other instead. */
   gl: ScreenGl | null;
 }
 
 /**
- * How far past the hinge the open screen's half that turns is drawn, over
- * the half that stays, which shows the same page there: in css px of the
- * screen, and in px of the display where those are the bigger, at most 4
- * times as far.
+ * How far short of the hinge the open screen's half that turns stops, the
+ * half that stays going on under it that far and a px more, with the same
+ * page: in css px of the screen, and in px of the display where those are
+ * the bigger, at most 4 times as far. So the edge of the half that turns and
+ * of its dark, which is one edge, and the other half's never meet in one px
+ * of the display, where the dark would show between the two as a line down
+ * the hinge.
  */
 export const OVER = 2;
 
@@ -326,12 +327,8 @@ export function overOf(density: number): number {
  * the part that turns, in its own css px, the pictures and the browser's bars
  * as the screen lies, the dark of the picture and the shade of the turned
  * screen, all laid flat. The window is cut to the turned screen, so none of
- * its dark shows past the case. The open screen's is drawn a little past
- * the hinge, as `overOf` has it, and its dark is not: so no px of the
- * display at the hinge has the dark's edge and the page's in it, where the
- * dark would show between the two halves as a line. The page is drawn by
- * WebGL2 where it can be, `margin` css px past its ends along the hinge,
- * `density` display px a css px.
+ * its dark shows past the case. The page is drawn by WebGL2 where it can be,
+ * `margin` css px past its ends along the hinge, `density` display px a css px.
  */
 export function gluedOf(
   side: Face,
@@ -345,25 +342,19 @@ export function gluedOf(
   const { rect, radii } = turning;
   const whole = screenOf(side);
   const node = placeAt(div(""), box);
-  const dark = fill(div(""));
-  dark.style.background = "#000";
+  node.style.background = "#000";
   const cut = fill(div(""));
-  node.append(dark, cut);
-  const over = turning.pane === "inner" ? overOf(density) : 0;
+  node.append(cut);
   const flatly = placeAt(div(""), { ...rect, x: 0, y: 0 });
   flatly.style.transformOrigin = "0 0";
-  // Cut a little past the hinge, but not at the ends along it, where the blurs spread the picture into the dark past it.
-  const past = pastHinge({ ...rect, x: 0, y: 0 }, turning.pane, across, over);
-  const far = 1e5;
-  const [right, bottom] = [rect.width - past.x - past.width, rect.height - past.y - past.height];
-  flatly.style.clipPath = across
-    ? `inset(${-far}px ${right}px ${-far}px ${past.x}px)`
-    : `inset(${past.y}px ${-far}px ${bottom}px ${-far}px)`;
+  // Cut at the hinge, but not at the ends along it, where the blurs spread the picture into the dark past it.
+  flatly.style.overflowX = across ? "clip" : "visible";
+  flatly.style.overflowY = across ? "visible" : "clip";
   const stage = placeAt(div(""), { ...whole.rect, x: whole.rect.x - rect.x, y: whole.rect.y - rect.y });
   if (picture.bars) stage.append(picture.bars);
-  // Their dark goes over what the blurs spread past the ends too, and over the page past the hinge.
+  // Their dark goes over what the blurs spread past the ends too.
   const darkening = () => {
-    const node = placeAt(div(""), past);
+    const node = fill(div(""));
     node.style[across ? "top" : "left"] = "-100%";
     node.style[across ? "height" : "width"] = "300%";
     return node;
@@ -376,12 +367,11 @@ export function gluedOf(
   const glued: Glued = {
     pane: turning.pane,
     node,
-    dark,
     cut,
     picture: flatly,
     size: { width: rect.width, height: rect.height },
     radii,
-    over,
+    over: turning.pane === "inner" ? overOf(density) : 0,
     stage,
     pictures: [],
     shot: null,
@@ -397,7 +387,7 @@ export function gluedOf(
     gl: null,
   };
   const part = { ...rect, x: rect.x - whole.rect.x, y: rect.y - whole.rect.y };
-  const place = { pane: turning.pane, across, stage: side.size, part, margin, over, density };
+  const place = { pane: turning.pane, across, stage: side.size, part, margin, density };
   glued.gl = screenGl(place, (why, shot) => {
     glued.gl = null;
     glued.why = why;

@@ -206,30 +206,13 @@ export interface ScreenPlace {
   part: Rect;
   /** How far past the screen's ends along the hinge the turned screen may reach, in css px. */
   margin: number;
-  /** How far past the hinge the canvas reaches, in css px, as `pastHinge` has it. */
-  over: number;
   /** How many of the display's px a css px of the picture takes. */
   density: number;
 }
 
-/**
- * The part of the screen of `pane` that turns, `part`, reaching `over` css
- * px past the hinge, onto the half that stays: its side where `hingeLine`
- * is 0. What is drawn of the half that turns goes that far, so its edge and
- * the other half's never meet in one px of the display, where each would
- * cover a part of it and what lies behind both would show as a line down
- * the hinge.
- */
-export function pastHinge(part: Rect, pane: Pane, across: boolean, over: number): Rect {
-  const { x, y, width, height } = part;
-  if (across) return { x: pane === "inner" ? x : x - over, y, width: width + over, height };
-  return { x, y: pane === "inner" ? y - over : y, width, height: height + over };
-}
-
-/** Where the canvas lies on the whole screen: over the part that turns, `over` past the hinge, and `margin` past its ends along the hinge. */
+/** Where the canvas lies on the whole screen: over the part that turns, and `margin` past its ends along the hinge. */
 export function canvasRect(place: ScreenPlace): Rect {
-  const { across, stage, margin } = place;
-  const part = pastHinge(place.part, place.pane, across, place.over);
+  const { across, part, stage, margin } = place;
   return across
     ? { x: part.x, y: -margin, width: part.width, height: stage.height + 2 * margin }
     : { x: -margin, y: part.y, width: stage.width + 2 * margin, height: part.height };
