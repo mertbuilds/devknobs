@@ -1,5 +1,11 @@
 # changelog
 
+## unreleased
+
+### fixes
+
+- a load devknobs asks for keeps the scroll position: the reload a locale or a device needs, the reload button in the device's browser bars, and a frame a knob brings up. the page, and the copy of it in the device's frame, go back to where they were once they are long enough, also when the host sends them to the top as it mounts. it stops as soon as you scroll, press a key or click, and a load of your own restores nothing
+
 ## 0.1.2
 
 ### iPhone Duo

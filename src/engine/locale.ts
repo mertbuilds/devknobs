@@ -1,6 +1,7 @@
 import type { LocaleValue } from "../types";
 import { realNow } from "./clock";
 import { setDefaultLocale } from "./intl";
+import { keepOwn } from "./scrollkeep";
 import { newer, stamped } from "./stored";
 
 export const LOCALE_PRESETS = [
@@ -290,6 +291,7 @@ function reloadOnce(): boolean {
     // reload, so do not start it.
     return false;
   }
+  keepOwn();
   window.location.reload();
   return true;
 }

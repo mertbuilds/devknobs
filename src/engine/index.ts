@@ -19,6 +19,7 @@ import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
 import { replay as replayAnimations } from "./replay";
 import * as scrollbars from "./scrollbars";
+import { resume as resumeScroll } from "./scrollkeep";
 import * as spacing from "./spacing";
 import * as speed from "./speed";
 import { DEFAULT_STATE, keepPlace as keepPlaceOf, load, merge, resetState, save } from "./store";
@@ -132,6 +133,8 @@ export function start(options: EngineOptions = {}): void {
   if (running) return;
   running = true;
   inFrame = isDevknobsFrame();
+  // For a page with no early script, which takes it first where there is one.
+  resumeScroll();
   const stored = options.persist !== false;
   // The frame shares sessionStorage with the page above, which owns the stored
   // state. It reads it, so the first paint is right, but a save would clobber it.
