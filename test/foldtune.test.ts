@@ -26,9 +26,9 @@ describe("the fold's numbers", () => {
     expect(tune).toEqual(TUNE_DEFAULTS);
     foldTune.get().blurMost = 1;
     expect(tune.blurMost).toBe(TUNE_DEFAULTS.blurMost);
-    // The hinge side all but sharp, and the widest blur three eighths of the 128 css px it was.
+    // The hinge side sharp, at its ends too, and the widest blur three eighths of the 128 css px it was.
     expect(TUNE_DEFAULTS.blurMost).toBe(48);
-    expect(TUNE_DEFAULTS.blurHinge).toBe(0.04);
+    expect([TUNE_DEFAULTS.blurHinge, TUNE_DEFAULTS.edgeHinge]).toEqual([0, 0]);
     expect(TUNE_DEFAULTS.blurRise).toBe(2);
     expect(TUNE_DEFAULTS.blurAngle).toBe(90);
     // No shade over the half that turns: each is a hand's to bring back.
@@ -67,12 +67,12 @@ describe("the fold's numbers", () => {
     const before = tuneChanges();
     foldTune.set("blurMost", 1e6);
     expect(tune.blurMost).toBe(256);
-    foldTune.set("blurHinge", -3);
-    expect(tune.blurHinge).toBe(0);
+    foldTune.set("blurHinge", 3);
+    expect(tune.blurHinge).toBe(1);
     expect(heard).toBe(2);
     expect(tuneChanges()).toBe(before + 2);
     // What changes nothing tells no one: the same value, a key it does not have, what is not a number.
-    foldTune.set("blurHinge", 0);
+    foldTune.set("blurHinge", 1);
     foldTune.set("nothing", 3);
     foldTune.set("blurMost", Number.NaN);
     expect(heard).toBe(2);

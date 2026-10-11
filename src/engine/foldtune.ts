@@ -15,8 +15,8 @@ import { formOf } from "./devices";
 export const TUNE_DEFAULTS = {
   /** The widest the blur gets, in css px at scale 1: at the free edge, the half standing at `blurAngle`. */
   blurMost: 48,
-  /** The blur at the hinge, as a share of the blur at the free edge at the same angle. */
-  blurHinge: 0.04,
+  /** The blur at the hinge, as a share of the blur at the free edge at the same angle. None as it ships: the hinge side is sharp. */
+  blurHinge: 0,
   /** How the blur rises from the hinge to the free edge: 1 evenly, more keeps it low further from the hinge. */
   blurRise: 2,
   /** The hinge's angle the blur is widest at, in degrees: 180 open flat, 90 a right angle, 0 shut. */
@@ -27,8 +27,8 @@ export const TUNE_DEFAULTS = {
   blurHold: 0,
   /** How the blur rises to its peak: 0 by `blurStand`'s power, 1 slow at both ends, as jadon7/iphone-duo's does. */
   blurEase: 0,
-  /** How wide the blur at the picture's ends along the hinge is at the hinge, in widths of the dark past them. */
-  edgeHinge: 0.3,
+  /** How wide the blur at the picture's ends along the hinge is at the hinge, in widths of the dark past them. None as it ships: the hinge side is sharp at its ends too. */
+  edgeHinge: 0,
   /** The same at the free edge. */
   edgeFree: 1,
   /** How far into the picture from an end the blur past it reaches, in widths of that blur. */
@@ -80,7 +80,7 @@ const RANGES: Record<TuneKey, Range> = {
   blurStand: { label: "blur angle falloff", min: 0.2, max: 6, step: 0.05, hint: "How fast the blur fades away from the peak angle: less keeps it blurred over more of the turn." },
   blurHold: { label: "blur hold past peak", min: 0, max: 1, step: 0.01, hint: "How much of the peak blur stays once the half has turned past the peak angle: 0 fades it again, 1 keeps all of it." },
   blurEase: { label: "blur rise shape", min: 0, max: 1, step: 1, hint: "How the blur comes on toward the peak angle: 0 by the angle falloff, 1 eased at both ends as the reference fold does." },
-  edgeHinge: { label: "end blur hinge", min: 0, max: 2, step: 0.05, hint: "Blur at the top and bottom ends of the picture next to the hinge, hiding its line with the dark past it." },
+  edgeHinge: { label: "end blur hinge", min: 0, max: 2, step: 0.05, hint: "Blur at the top and bottom ends of the picture next to the hinge: 0 keeps the hinge side sharp." },
   edgeFree: { label: "end blur edge", min: 0, max: 3, step: 0.05, hint: "The same blur at the top and bottom ends, at the free edge." },
   edgeReach: { label: "end blur reach", min: 0.1, max: 4, step: 0.05, hint: "How far into the picture the blur at its top and bottom ends reaches." },
   blurSpread: { label: "blur softness", min: 0.1, max: 1, step: 0.01, hint: "How far apart the blur's samples are: more is softer, too much shows the samples." },

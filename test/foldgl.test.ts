@@ -55,13 +55,25 @@ describe("the screen's blur", () => {
     }
   });
 
-  test("away from the ends is least at the hinge, under 2 css px at any angle, and never falls toward the free edge", () => {
+  test("is none at the hinge, on either screen at any angle, at its ends and past them too, so the hinge side is as the page is", () => {
+    expect([TUNE_DEFAULTS.blurHinge, TUNE_DEFAULTS.edgeHinge]).toEqual([0, 0]);
+    for (const pane of ["inner", "cover"] as const) {
+      for (const open of HUNDREDTHS) {
+        for (const free of [1, 0.5, 0.1]) {
+          const look = screenLook(open, 40, free, null, pane);
+          expect(look.edge[0]).toBe(0);
+          for (const inside of [-40, -5, 0, 3, DEEP]) expect(blurAt(look, 0, inside)).toBe(0);
+        }
+      }
+    }
+  });
+
+  test("away from the ends rises from none at the hinge, and never falls toward the free edge", () => {
     for (const open of HUNDREDTHS) {
       for (const free of [1, 0.5, 0.1]) {
         const look = screenLook(open, 0, free);
         const hinge = blurAt(look, 0, DEEP);
-        expect(hinge).toBeLessThan(2);
-        expect(hinge).toBeCloseTo(TUNE_DEFAULTS.blurHinge * turnBlur(open), 9);
+        expect(hinge).toBe(0);
         let last = hinge;
         for (const t of HUNDREDTHS) {
           expect(blurAt(look, t, DEEP)).toBeGreaterThanOrEqual(last);
@@ -100,21 +112,25 @@ describe("the screen's blur", () => {
     expect(screenLook(0.6, 12, 0.4).dark).toBe(freeDepth(0.6));
   });
 
-  test("blurs the page into the dark past its ends, as wide as that dark at the free edge, even at the hinge", () => {
+  test("blurs the page at its ends, as wide as the dark past them at the free edge, and less the nearer the hinge", () => {
     const wedge = 40;
     for (const open of [0.95, 0.05]) {
-      // Barely turned, the screen's blur is all but none near the hinge: the ends' is what shows there.
+      // Barely turned, the screen's blur is all but none: the ends' is what shows.
       const look = screenLook(open, wedge);
-      expect(look.edge).toEqual([TUNE_DEFAULTS.edgeHinge * wedge, TUNE_DEFAULTS.edgeFree * wedge]);
-      expect(blurAt(look, 0, -5)).toBeCloseTo(TUNE_DEFAULTS.edgeHinge * wedge);
-      expect(blurAt(look, 0, 0)).toBeCloseTo(TUNE_DEFAULTS.edgeHinge * wedge);
+      expect(look.edge).toEqual([0, TUNE_DEFAULTS.edgeFree * wedge]);
+      expect(blurAt(look, 1, -5)).toBeCloseTo(TUNE_DEFAULTS.edgeFree * wedge);
       expect(blurAt(look, 1, 0)).toBeCloseTo(TUNE_DEFAULTS.edgeFree * wedge);
-      expect(blurAt(look, 0.5, -20)).toBeCloseTo(((TUNE_DEFAULTS.edgeHinge + TUNE_DEFAULTS.edgeFree) / 2) * wedge);
+      expect(blurAt(look, 0.5, -20)).toBeCloseTo((TUNE_DEFAULTS.edgeFree / 2) * wedge);
+      let last = 0;
+      for (const t of HUNDREDTHS) {
+        expect(blurAt(look, t, 0)).toBeGreaterThanOrEqual(last);
+        last = blurAt(look, t, 0);
+      }
       // It eases off into the picture, and is gone as far in as it reaches.
-      const rim = TUNE_DEFAULTS.edgeHinge * wedge;
-      expect(blurAt(look, 0, rim)).toBeLessThan(rim);
-      expect(blurAt(look, 0, rim)).toBeGreaterThan(0);
-      expect(blurAt(look, 0, TUNE_DEFAULTS.edgeReach * rim)).toBe(blurAt(look, 0, DEEP));
+      const rim = TUNE_DEFAULTS.edgeFree * wedge;
+      expect(blurAt(look, 1, rim)).toBeLessThan(rim);
+      expect(blurAt(look, 1, rim)).toBeGreaterThan(blurAt(look, 1, DEEP));
+      expect(blurAt(look, 1, TUNE_DEFAULTS.edgeReach * rim)).toBe(blurAt(look, 1, DEEP));
     }
     // The further the screen reaches past the page, the wider.
     expect(blurAt(screenLook(0.3, 60), 0.2, 0)).toBeGreaterThan(blurAt(screenLook(0.3, 20), 0.2, 0));
@@ -252,6 +268,29 @@ describe("the screen's sharpness", () => {
     const line = (x: number) => (Math.abs(x) < 0.5 ? 1 : 0);
     expect(tapped(line, 0, 0, 2)).toBe(WEIGHTS[0]);
     expect(FRAGMENT).toContain(`float[3](${WEIGHTS.join(", ")});`);
+  });
+
+  test("never darkens by blurring: a point by the picture's end keeps its colour, and only the picture's own outline cuts it", () => {
+    const flat = () => 0.7;
+    /** A picture 100 css px long, its top end at 0: how much of it there is at a point. */
+    const seen = (_x: number, y: number, soft: number) => coverage(y, 100, soft);
+    for (const gap of [0, 0.5, 4, 12, 24]) {
+      // Inside it, however near an end, and however many of its taps fall past that end.
+      for (const y of [1, 3, 20, 50, 97, 99]) expect(tapped(flat, 30, y, gap, seen)).toBeCloseTo(0.7, 12);
+      // Past it, nothing, and on its end half, over a px: the outline is as sharp blurred as not.
+      for (const y of [-1, -30, 101]) expect(tapped(flat, 30, y, gap, seen)).toBe(0);
+      expect(tapped(flat, 30, 0, gap, seen)).toBeCloseTo(0.35, 12);
+    }
+    // What the taps add up to by itself, as it was drawn, is darker there: that is what dividing takes out.
+    const summed = [-2, -1, 0, 1, 2].reduce((sum, down) => sum + 0.7 * coverage(3 + down * 12, 100, 9) * (WEIGHTS[Math.abs(down)] ?? 0), 0);
+    expect(summed).toBeLessThan(0.5);
+    // With all of the picture about a point, nothing changes: the taps' weights add up to 1.
+    const page = (x: number, y: number) => 0.5 + 0.3 * Math.sin(x * 1.7) * Math.cos(y * 0.9);
+    expect(tapped(page, 30, 50, 4, seen)).toBeCloseTo(tapped(page, 30, 50, 4), 12);
+    expect(FRAGMENT).toContain("float share = seen(tap, soft) * WEIGHTS[abs(x)] * WEIGHTS[abs(y)];");
+    expect(FRAGMENT).toContain("sum += textureLod(page, tap / stage, lod).rgb * share;");
+    expect(FRAGMENT).toContain("had += share;");
+    expect(FRAGMENT).toContain("sum = sum / max(had, 0.0001) * seen(pos, 0.5 * px);");
   });
 
   test("takes every px one way through the shader: no tap at a level left to the hardware, and no way out before the last line", () => {

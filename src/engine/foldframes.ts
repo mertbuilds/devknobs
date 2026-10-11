@@ -21,7 +21,6 @@ import {
 } from "./fold";
 import { freeOf, reachOf, screenLook, wedgeOf } from "./foldgl";
 import {
-  creaseOf,
   type Face,
   div,
   type Glued,
@@ -102,7 +101,7 @@ function boxAround(drawn: readonly FoldStill[]): [number, number, number, number
 /**
  * The half that turns as the fold's frames, `found`, laid on the fold: a
  * canvas over where every frame lies in the render, under it the screens
- * with the page glued on, the bend's half on the open one, and under them a
+ * with the page glued on, nothing over them at the hinge, and under them a
  * canvas over where every half that stays lies. Null where there is no
  * canvas to draw on.
  */
@@ -131,7 +130,6 @@ export function shotsOf(layout: FoldLayout, open: Face, closed: Face, pictures: 
   const density = (window.devicePixelRatio || 1) * Math.max(layout.folded.scale, layout.unfolded.scale);
   const inner = gluedOf(open, pictures.open, sides.inner, layout.across, box, margin(open, "inner"), density);
   const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across, box, margin(closed, "cover"), density);
-  inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
   model.append(still.canvas, inner.node, outer.node, canvas);
   const { rect } = screenOf(closed);
   return {
