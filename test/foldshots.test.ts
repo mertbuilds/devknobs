@@ -1,7 +1,8 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, onTestFinished, test } from "bun:test";
 import { bezelMock, bodyOf, foldShots, loadFoldShots, restFoldShots, SHOTS_KEPT } from "../src/engine/bezels";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import {
+  blurWidths,
   FOLD_TIME,
   FOLD_WAIT,
   HINGE_CATCH_UP,
@@ -30,6 +31,7 @@ import {
   watchHinge,
 } from "../src/engine/foldrun";
 import { BLEED, bled } from "../src/engine/foldframes";
+import { type LiveCopies, type LiveCopy, liveCopies, loadLive, placeLive } from "../src/engine/foldlive";
 import { OVER, overOf } from "../src/engine/foldpage";
 import { foldTune, hingeMoved, resetTune, setTune } from "../src/engine/foldtune";
 import { DEFAULT_STATE } from "../src/engine/store";
@@ -48,11 +50,27 @@ class FakeNode {
   /** The letterbox, which is in the page. */
   root = false;
   readonly attributes = new Map<string, string>();
+  /** Set once it may never leave the box it is in, as a frame that did would load its page again. */
+  fixed = false;
+  inert = false;
+  private readonly heard = new Map<string, (() => void)[]>();
   readonly style = {
     setProperty(name: string, value: string): void {
       Reflect.set(this, name, value);
     },
+    removeProperty(name: string): void {
+      Reflect.deleteProperty(this, name);
+    },
   };
+
+  addEventListener(type: string, listener: () => void): void {
+    this.heard.set(type, [...(this.heard.get(type) ?? []), listener]);
+  }
+
+  /** The event `type` comes to the node. */
+  fire(type: string): void {
+    for (const listener of this.heard.get(type) ?? []) listener();
+  }
 
   get isConnected(): boolean {
     for (let node: FakeNode | null = this; node; node = node.parent) if (node.root) return true;
@@ -77,12 +95,12 @@ class FakeNode {
     this.children.unshift(...nodes);
   }
 
-  after(node: FakeNode): void {
+  after(...nodes: FakeNode[]): void {
     const parent = this.parent;
     if (!parent) return;
-    node.remove();
-    node.parent = parent;
-    parent.children.splice(parent.children.indexOf(this) + 1, 0, node);
+    for (const node of nodes) node.remove();
+    for (const node of nodes) node.parent = parent;
+    parent.children.splice(parent.children.indexOf(this) + 1, 0, ...nodes);
   }
 
   insertBefore(node: FakeNode, before: FakeNode | null): FakeNode {
@@ -96,6 +114,7 @@ class FakeNode {
 
   remove(): void {
     if (!this.parent) return;
+    if (this.fixed) moved += 1;
     this.parent.children = this.parent.children.filter((node) => node !== this);
     this.parent = null;
   }
@@ -140,6 +159,26 @@ class FakeNode {
 
 /** Does the browser hold every canvas as another origin's, so none gives its picture out? */
 let tainted = false;
+
+/** How many times a node that may never leave its box was taken out of it. */
+let moved = 0;
+/** How many times the window or the document of a frame with an outside page in it was asked for. */
+let touched = 0;
+
+/** A frame with a page of another origin in it: its window and its document throw when asked for. */
+class FakeFrame extends FakeNode {
+  src = "";
+
+  get contentWindow(): never {
+    touched += 1;
+    throw new Error("SecurityError");
+  }
+
+  get contentDocument(): never {
+    touched += 1;
+    throw new Error("SecurityError");
+  }
+}
 
 /** A frame's picture, which knows its file and whether it was let go of. */
 class FakeBitmap {
@@ -473,6 +512,121 @@ describe("the dark under a turned screen and what cuts its window", () => {
   });
 });
 
+const OUTSIDE = "https://example.com/pricing";
+const GROUND = "rgb(18, 18, 18)";
+/** Marks a frame with an outside page in it, as the frame's own is marked. */
+const OUTSIDE_ATTRIBUTE = "data-devknobs-outside";
+
+
+/** The fake node an element the fold was given is. */
+function fake(node: HTMLElement | undefined): FakeNode | undefined {
+  return node as unknown as FakeNode | undefined;
+}
+
+/** Where the browser leaves the page on a screen: all of it but 24 px at each side. */
+function pageOf(value: ViewportValue): { x: number; y: number; width: number; height: number } {
+  return { x: 24, y: 0, width: Number(value.width) - 48, height: Number(value.height) };
+}
+
+/**
+ * The same frame with an outside page in it, as the frame has one on the
+ * Duo: its own frame out of reach, and a live copy of the page for each
+ * screen, loading, on a layer of their own over the fold's. Nothing of the
+ * copies may leave its box from here on.
+ */
+function outsideOf(open: ViewportValue, shut: ViewportValue): { scene: FoldScene; copies: LiveCopies } {
+  const scene = sceneOf();
+  moved = 0;
+  touched = 0;
+  const own = new FakeFrame();
+  own.setAttribute(OUTSIDE_ATTRIBUTE, OUTSIDE);
+  const copies = liveCopies(new FakeFrame() as unknown as HTMLIFrameElement, new FakeFrame() as unknown as HTMLIFrameElement);
+  placeLive(copies.open, pageOf(open), 1, GROUND, "dark", "");
+  placeLive(copies.closed, pageOf(shut), 1, GROUND, "dark", "");
+  loadLive(copies, OUTSIDE);
+  const over = fake(copies.layer);
+  if (!over) throw new Error("no layer");
+  letterbox.append(over);
+  for (const copy of [copies.open, copies.closed]) {
+    for (const node of [...copy.boxes, copy.ground, copy.page, copy.frame]) (node as unknown as FakeNode).fixed = true;
+  }
+  return {
+    scene: {
+      ...scene,
+      frame: own as unknown as HTMLIFrameElement,
+      place: (layer) => letterbox.insertBefore(layer as unknown as FakeNode, over),
+      live: copies,
+    },
+    copies,
+  };
+}
+
+/** Fold all the way from `from` to `to`, seeing each frame drawn. */
+async function folded(from: ViewportValue, to: ViewportValue, scene: FoldScene, see: () => void = () => {}): Promise<void> {
+  fold(from, to, scene);
+  await Bun.sleep(0);
+  await playing(2000, see);
+  expect(layer()).toBeUndefined();
+}
+
+/** How a fold lays its page in a frame: its place, its model, and each screen's dark window, the cut in it and the page laid flat. */
+interface Laid {
+  place: string;
+  model: string;
+  shown: string;
+  screens: string[][];
+}
+
+/** The fold's own boxes round a screen's page, outermost first: its dark window, the cut in it, the page laid flat, and the screen as it lies. */
+function boxesOf(screen: FakeNode | undefined): (FakeNode | undefined)[] {
+  const cut = screen?.children[0];
+  const flat = cut?.children[0];
+  return [screen, cut, flat, flat?.children[0]];
+}
+
+/** How the fold lays the pictures of a page now, where it draws the frames. */
+function laid(): Laid | null {
+  const node = model();
+  if (!node) return null;
+  const [, inner, outer] = node.children;
+  return {
+    place: style(layer()?.children[0], "transform"),
+    model: style(node, "transform"),
+    shown: style(node, "opacity"),
+    screens: [inner, outer].map((screen) => {
+      const [dark, cut, flat] = boxesOf(screen);
+      return [style(dark, "visibility"), style(dark, "clipPath"), style(cut, "clipPath"), style(flat, "transform")];
+    }),
+  };
+}
+
+/** How the copies of an outside page are laid now, by their own boxes. */
+function laidOf(copies: LiveCopies): Laid {
+  const boxes = (copy: LiveCopy) => copy.boxes.map(fake);
+  const [place, shape] = boxes(copies.open);
+  return {
+    place: style(place, "transform"),
+    model: style(shape, "transform"),
+    shown: style(shape, "opacity"),
+    screens: [copies.open, copies.closed].map((copy) => {
+      const [, , dark, cut, flat] = boxes(copy);
+      return [style(dark, "visibility"), style(dark, "clipPath"), style(cut, "clipPath"), style(flat, "transform")];
+    }),
+  };
+}
+
+/** How far right a cut reaches, in the px its path is in. */
+function rightOf(node: FakeNode | undefined): number {
+  const numbers = (style(node, "clipPath").match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+  return Math.max(...numbers.filter((_, index) => index % 2 === 0));
+}
+
+/** Nothing of a copy ever left its box, which would load its page again, and no one asked for its window or its document. */
+function untouched(): void {
+  expect(moved).toBe(0);
+  expect(touched).toBe(0);
+}
+
 describe("a Duo folding in its frames", () => {
   if (!DUO_FOLD) return;
   const shots = DUO_FOLD;
@@ -631,6 +785,269 @@ describe("a Duo folding in its frames", () => {
     expect(layer()).toBeUndefined();
     expect(drawn.at(-1)).toEqual(OPEN);
     expect(style(unit, "clipPath")).toBe("");
+  });
+
+  test("an outside page: lays each live copy as it lays the picture of a page, frame for frame, both ways and held both ways up", async () => {
+    // A fold has been each way, so each fold here starts as the one before it did.
+    await folded(OPEN, SHUT, sceneOf());
+    for (const [shut, open] of [
+      [SHUT, OPEN],
+      [SHUT_ACROSS, OPEN_UPRIGHT],
+    ] as const) {
+      const own: Laid[][] = [[], []];
+      const outside: Laid[][] = [[], []];
+      const ways = [
+        [shut, open],
+        [open, shut],
+      ] as const;
+      for (const [index, [from, to]] of ways.entries()) {
+        await folded(from, to, sceneOf(), () => {
+          const now = laid();
+          if (now) own[index]?.push(now);
+        });
+      }
+      for (const [index, [from, to]] of ways.entries()) {
+        const { scene, copies } = outsideOf(open, shut);
+        await folded(from, to, scene, () => {
+          const now = laid();
+          if (!now) return;
+          // In the same frame, each copy's boxes are where the fold's own are.
+          expect(laidOf(copies)).toEqual(now);
+          expect(style(fake(copies.closed.boxes[0]), "transform")).toBe(now.place);
+          expect(style(fake(copies.closed.boxes[1]), "transform")).toBe(now.model);
+          outside[index]?.push(now);
+        });
+      }
+      // And the fold lays an outside page exactly as it lays the window's own.
+      expect(outside).toEqual(own);
+      for (const way of outside) {
+        expect(way.length).toBeGreaterThan(20);
+        const facing = way.map((now) => now.screens.map(([visibility]) => visibility === ""));
+        // The open screen's half shows in some frames and the folded screen in others, never both.
+        expect(facing.some(([inner]) => inner)).toBe(true);
+        expect(facing.some(([, outer]) => outer)).toBe(true);
+        expect(facing.some(([inner, outer]) => inner && outer)).toBe(false);
+        for (const now of way) {
+          expect(now.place).toMatch(/^translate\(\S+px, \S+px\) scale\(\S+\)$/);
+          // The page lies flat, by a plain matrix of six numbers: the turned screen is a window onto it, and nothing warps it.
+          for (const [visibility, dark, cut, flat] of now.screens) {
+            if (visibility !== "") continue;
+            expect(flat).toMatch(/^matrix\((-?[\d.e-]+, ){5}-?[\d.e-]+\)$/);
+            expect(dark).toStartWith('path("M');
+            expect(cut).toStartWith('path("M');
+          }
+        }
+      }
+    }
+    untouched();
+  });
+
+  test("an outside page: cuts the copy short of the hinge on the fold's own edge, with none of the fold's dark under that edge and none of its own", async () => {
+    const left = Math.min(...shots.frames.map((one) => one.box[0]));
+    const hinge = shots.open[0] + shots.open[2] / 2 - left;
+    const flat = (overOf(0.5) * shots.open[2]) / 951;
+    let seen = 0;
+    const { scene, copies } = outsideOf(OPEN, SHUT);
+    await folded(OPEN, SHUT, scene, () => {
+      const node = model();
+      if (!node) return;
+      const [, inner] = node.children;
+      const [dark, cut] = boxesOf(inner);
+      // The fold's own window onto the page is not drawn: the copy alone is cut there.
+      expect(style(cut, "display")).toBe("none");
+      const boxes = copies.open.boxes.map(fake);
+      for (const one of boxes) expect(style(one, "background")).toBe("");
+      if (style(inner, "visibility") !== "") return;
+      seen += 1;
+      // The copy ends on the edge the fold's dark window ends on, short of the hinge, over the half that stays.
+      expect(style(boxes[2], "clipPath")).toBe(style(dark, "clipPath"));
+      expect(rightOf(boxes[2])).toBeLessThan(hinge);
+      // The fold's dark ends twice as far short, on an edge of its own, well under the copy's page.
+      const black = Number(/^linear-gradient\(#000, #000\) 0 0 \/ (\S+)px 100% no-repeat$/.exec(style(dark, "background"))?.[1]);
+      expect(black).toBeCloseTo(hinge - 2 * flat, 6);
+      expect(rightOf(boxes[2]) - black).toBeGreaterThan(flat / 2);
+      // The page laid flat is cut at the hinge, and not at its ends, as a picture is.
+      expect([style(boxes[4], "overflowX"), style(boxes[4], "overflowY")]).toEqual(["clip", "visible"]);
+    });
+    expect(seen).toBeGreaterThan(5);
+    untouched();
+  });
+
+  test("an outside page: shows the screen's ground where a copy's page has not loaded, and the page once it has", async () => {
+    const { scene, copies } = outsideOf(OPEN, SHUT);
+    const stage = (copy: LiveCopy) => fake(copy.boxes[5]);
+    for (const copy of [copies.open, copies.closed]) {
+      expect(Reflect.get(copy.frame, "src")).toBe(OUTSIDE);
+      expect(style(fake(copy.frame), "visibility")).toBe("hidden");
+      // All over the screen, and where the page is on it.
+      expect(stage(copy)?.children.slice(0, 2)).toEqual([fake(copy.ground), fake(copy.page)] as FakeNode[]);
+      expect(style(fake(copy.ground), "background")).toBe(GROUND);
+      expect(style(fake(copy.page), "background")).toBe(GROUND);
+      expect(fake(copy.page)?.children).toEqual([fake(copy.frame)] as FakeNode[]);
+    }
+    expect([style(fake(copies.open.page), "left"), style(fake(copies.open.page), "width")]).toEqual(["24px", "903px"]);
+    expect([style(fake(copies.open.frame), "width"), style(fake(copies.open.frame), "height")]).toEqual(["903px", "669px"]);
+    expect([style(fake(copies.closed.frame), "width"), style(fake(copies.closed.frame), "height")]).toEqual(["418px", "678px"]);
+    expect(style(fake(copies.open.frame), "colorScheme")).toBe("dark");
+    fake(copies.open.frame)?.fire("load");
+    fold(OPEN, SHUT, scene);
+    await Bun.sleep(0);
+    let shown = 0;
+    await playing(2000, () => {
+      if (!model()) return;
+      shown += 1;
+      // The one that loaded shows its page, the other the ground still, both through the fold.
+      expect(style(fake(copies.open.frame), "visibility")).toBe("");
+      expect(style(fake(copies.closed.frame), "visibility")).toBe("hidden");
+      expect(style(fake(copies.layer), "visibility")).toBe("visible");
+    });
+    expect(shown).toBeGreaterThan(20);
+    // Loaded again, as a reload has it, its place is the ground's again.
+    loadLive(copies, OUTSIDE);
+    expect(style(fake(copies.open.frame), "visibility")).toBe("hidden");
+    untouched();
+  });
+
+  test("an outside page: blurs the copy from the hinge to the free edge by the fold's own widths, where the browser blurs what is under a box", async () => {
+    Object.defineProperty(globalThis, "CSS", { configurable: true, value: { supports: (name: string) => name === "backdrop-filter" } });
+    onTestFinished(() => {
+      Reflect.deleteProperty(globalThis, "CSS");
+    });
+    const { scene, copies } = outsideOf(OPEN, SHUT);
+    const widths = blurWidths();
+    let most = 0;
+    let blurred = 0;
+    await folded(OPEN, SHUT, scene, () => {
+      const node = model();
+      if (!node) return;
+      const blurs = copies.open.blurs.map(fake);
+      expect(blurs).toHaveLength(widths.length - 1);
+      // Over the page, under the browser's bars and the fold's shades.
+      expect(fake(copies.open.boxes[5])?.children.slice(2, 2 + blurs.length)).toEqual(blurs as FakeNode[]);
+      // Each adds what those under it leave of its width, so all of them come to the widest.
+      const each = blurs.map((blur) => Number(/^blur\((\S+)px\)$/.exec(style(blur, "backdropFilter"))?.[1]));
+      expect(Math.hypot(...each) / 0.4).toBeCloseTo(widths.at(-1) ?? 0, 1);
+      const on = blurs.filter((blur) => style(blur, "display") === "");
+      most = Math.max(most, on.length);
+      if (style(node.children[1], "visibility") !== "" || on.length === 0) return;
+      blurred += 1;
+      for (const blur of on) {
+        // None of it at the hinge, the middle of the open screen, and more toward the free edge at its left.
+        const mask = style(blur, "maskImage");
+        expect(mask).toMatch(/^linear-gradient\(to left, rgba\(0, 0, 0, 0\) (\S+)%, /);
+        expect(Number(/rgba\(0, 0, 0, 0\) (\S+)%/.exec(mask)?.[1])).toBeGreaterThanOrEqual(50);
+        expect(style(blur, "-webkit-mask-image")).toBe(mask);
+      }
+      // A blur that shows nothing is not drawn at all.
+      for (const blur of blurs) if (style(blur, "opacity") === "0") expect(style(blur, "display")).toBe("none");
+    });
+    expect(blurred).toBeGreaterThan(5);
+    expect(most).toBeGreaterThan(1);
+    // At rest there is none.
+    expect(copies.open.blurs).toEqual([]);
+    untouched();
+  });
+
+  test("an outside page: folds unblurred where the browser cannot blur what is under a box", async () => {
+    const { scene, copies } = outsideOf(OPEN, SHUT);
+    let seen = 0;
+    await folded(OPEN, SHUT, scene, () => {
+      if (!model()) return;
+      seen += 1;
+      expect(copies.open.blurs).toEqual([]);
+      expect(copies.closed.blurs).toEqual([]);
+    });
+    expect(seen).toBeGreaterThan(20);
+    expect(drawn.at(-1)).toEqual(SHUT);
+    untouched();
+  });
+
+  test("an outside page: darkens the copy toward its top and bottom ends where the turned screen reaches past them, not at all at the hinge", async () => {
+    const { scene, copies } = outsideOf(OPEN, SHUT);
+    let open = 1;
+    const unwatch = watchHinge((at) => {
+      open = at;
+    });
+    const reaches: number[] = [];
+    await folded(OPEN, SHUT, scene, () => {
+      const node = model();
+      if (!node || style(node.children[1], "visibility") !== "") return;
+      const [top, bottom] = copies.open.ends.map(fake);
+      // Lying flat it reaches past nothing, and nothing is darkened.
+      if (style(top, "display") === "none") {
+        expect(style(bottom, "display")).toBe("none");
+        expect(open).toBeGreaterThan(0.9);
+        return;
+      }
+      const reach = Number.parseFloat(style(top, "height"));
+      reaches.push(reach);
+      expect(reach).toBeGreaterThan(0);
+      expect(style(bottom, "height")).toBe(style(top, "height"));
+      expect([style(top, "top"), style(top, "width"), style(bottom, "bottom")]).toEqual(["0", "100%", "0"]);
+      expect(style(top, "background")).toBe("linear-gradient(to bottom, #000, transparent)");
+      expect(style(bottom, "background")).toBe("linear-gradient(to top, #000, transparent)");
+      // None of it at the hinge, the middle of the open screen, and all of it where the turned screen's free edge is seen.
+      expect(style(top, "maskImage")).toMatch(/^linear-gradient\(to left, transparent 50%, #000 \S+%\)$/);
+      expect(style(bottom, "maskImage")).toBe(style(top, "maskImage"));
+    });
+    unwatch();
+    expect(reaches.length).toBeGreaterThan(5);
+    // Further in as the half stands up.
+    expect(Math.max(...reaches)).toBeGreaterThan(reaches[0] ?? Infinity);
+    untouched();
+  });
+
+  test("an outside page: puts the browser's bars, the fold's shades and the frame of the turning half's case over the copy's page, and takes all of it off once the fold is over", async () => {
+    const { scene, copies } = outsideOf(OPEN, SHUT);
+    const bars = new FakeNode();
+    bars.className = "browser";
+    fake(scene.glass)?.append(bars);
+    let seen = 0;
+    await folded(OPEN, SHUT, scene, () => {
+      const node = model();
+      if (!node) return;
+      seen += 1;
+      const [, inner] = node.children;
+      const [, , flat, stage] = boxesOf(inner);
+      const boxes = copies.open.boxes.map(fake);
+      // The screen as it lies: the ground, the page, the dark at its two ends, and the copy of the bars over them.
+      expect(boxes[5]?.children).toHaveLength(5);
+      expect(stage?.children).toHaveLength(0);
+      // Over it the fold's three shades, each as dark as the fold has its own.
+      const shades = boxes[4]?.children.slice(1) ?? [];
+      const real = flat?.children.slice(1) ?? [];
+      expect(shades).toHaveLength(3);
+      expect(shades.map((shade) => [style(shade, "background"), style(shade, "display")])).toEqual(
+        real.map((shade) => [style(shade, "background"), style(shade, "display")]),
+      );
+      // The frame of the turning half's case, which lies over the fold's screens, lies over both copies, laid as the fold's model is.
+      const [place, shape] = copies.top.map(fake);
+      expect(fake(copies.layer)?.children.at(-1)).toBe(place as FakeNode);
+      expect(shape?.children).toHaveLength(1);
+      expect(shape?.children[0]?.pen?.drawn).toHaveLength(1);
+      expect(node.children.filter((child) => child.pen !== null)).toHaveLength(1);
+      expect([style(place, "transform"), style(shape, "transform"), style(shape, "opacity")]).toEqual([
+        style(layer()?.children[0], "transform"),
+        style(node, "transform"),
+        style(node, "opacity"),
+      ]);
+    });
+    expect(seen).toBeGreaterThan(20);
+    // At rest the copies show nothing, laid nowhere, and stay in the page for the next fold.
+    expect(style(fake(copies.layer), "visibility")).toBe("hidden");
+    expect(fake(copies.top[1])?.children).toEqual([]);
+    for (const copy of [copies.open, copies.closed]) {
+      const boxes = copy.boxes.map(fake);
+      expect(boxes[5]?.children).toHaveLength(4);
+      expect(boxes[4]?.children).toEqual([boxes[5]] as FakeNode[]);
+      for (const one of boxes) {
+        for (const key of ["transform", "clipPath", "opacity", "visibility", "left", "width"]) expect(style(one, key)).toBe("");
+      }
+      expect(fake(copy.frame)?.isConnected).toBe(true);
+    }
+    untouched();
+    // Open again, as the tests after find it.
+    await folded(SHUT, OPEN, sceneOf());
   });
 
   test("draws every layer at the angle of the frame shown, so a slow hand sees nothing move between frames, and all of it at one", async () => {
