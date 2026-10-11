@@ -3,7 +3,7 @@ import * as address from "./address";
 import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
-import { deviceOf, formId, formOf } from "./devices";
+import { deviceOf, formId, formOf, turn } from "./devices";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
 import {
   FRAME_ATTRIBUTE,
@@ -25,6 +25,7 @@ import type { Mock, Rect } from "./mock";
 import { getOutside, landOutside, reloadingOutside } from "./outside";
 import { corners, drawMock, UNDER } from "./mockdraw";
 import { drawnAt, glideFrame, landGlide, placeKey } from "./frameglide";
+import { type LiveCopies, liveCopies, loadLive, placeLive } from "./foldlive";
 import {
   finishFold,
   foldableShown,
@@ -190,6 +191,9 @@ let refusal: HTMLElement | null = null;
 let there: string | null = null;
 /** That page was put there as one that refuses to be framed. */
 let denied = false;
+/** Live copies of an outside page on a foldable, which fold in place of pictures of it, and the page they show. */
+let copies: LiveCopies | null = null;
+let copied: string | null = null;
 /** Turns every knob that keeps the frame up off. The engine hands it in. */
 let exit: (() => void) | null = null;
 /** Puts the window's own page back in the frame. The engine hands it in. */
@@ -367,6 +371,71 @@ function panelWidth(): number {
   return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
 }
 
+/** Where the browser leaves the page in the screen for the knobs `value`, in the screen's css px: all of a screen without one. */
+function pageFor(value: ViewportValue): Rect {
+  const device = formOf(value.device, value.posture);
+  const layout = device ? layoutOf(device.id, value.browser) : null;
+  const min = value.bars === "minimized" || (value.bars === "auto" && browser?.minimized() === true);
+  const edge = value.edgeToEdge;
+  const barred = device && barsOf(device, value.orientation, layout, min, edge) !== null;
+  if (device && barred) return viewportOf(device, value.orientation, layout, min, edge);
+  return { x: 0, y: 0, width: Number(value.width), height: Number(value.height) };
+}
+
+/** The knobs of a foldable folded the other way, as a fold takes it there, or null for a device that does not fold. */
+function foldedOf(value: ViewportValue): ViewportValue | null {
+  const posture = value.posture === "open" ? "closed" : "open";
+  const from = formOf(value.device, value.posture);
+  const to = formOf(value.device, posture);
+  if (!from || !to || !deviceOf(value.device)?.postures) return null;
+  const orientation = value.orientation === "landscape" ? "portrait" : "landscape";
+  const dpr = value.dpr === from.dpr ? to.dpr : value.dpr;
+  return { ...value, ...turn(to, orientation), dpr, posture, orientation };
+}
+
+/** Take the copies of an outside page away. */
+function dropCopies(): void {
+  copies?.layer.remove();
+  copies = null;
+  copied = null;
+}
+
+/** A frame for a copy of the outside page at `outside`, as the frame's own is for it, with no name and no page yet. */
+function copyFrame(outside: string): HTMLIFrameElement {
+  const node = document.createElement("iframe");
+  pointOutside(node, outside);
+  return node;
+}
+
+/**
+ * Keep live copies of an outside page while it shows on a foldable, one laid
+ * out for each of its screens, loaded ahead of a fold, which shows them in
+ * place of the pictures no one can take of that page. They are at the size,
+ * zoom, scheme and filter the frame's own has on that screen, on the
+ * screen's ground. None for the window's own page, for a page that refuses
+ * to be framed, or on a device that does not fold.
+ */
+function keepCopies(): void {
+  const other = there !== null && !denied && !released ? foldedOf(current) : null;
+  if (!frame || !letterbox || !notice || there === null || !other) {
+    dropCopies();
+    return;
+  }
+  if (!copies) {
+    copies = liveCopies(copyFrame(there), copyFrame(there));
+    letterbox.insertBefore(copies.layer, notice);
+  }
+  if (copied !== there) {
+    copied = there;
+    for (const copy of [copies.open, copies.closed]) pointOutside(copy.frame, there);
+    loadLive(copies, there);
+  }
+  const ground = readLook(frame).background;
+  for (const value of [current, other]) {
+    placeLive(copies[value.posture], pageFor(value), zoomFor(value.dpr), ground, frame.style.colorScheme, frame.style.filter);
+  }
+}
+
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
 function showMock(mock: Mock | null, place: Fit): void {
   if (!screen || !glass) return;
@@ -492,6 +561,7 @@ function resize(): void {
   showMock(mock, place);
   screen.style.transform = place.transform === 1 ? "" : `scale(${place.transform})`;
   frame.style.filter = visionFilter(current.vision);
+  keepCopies();
   checkZoom();
   warmFold();
 }
@@ -651,9 +721,11 @@ function foldScene(): FoldScene | null {
   const next = notice;
   return {
     ...scene,
-    place: (layer) => scene.letterbox.insertBefore(layer, next),
+    // Under the copies of an outside page, which show over the fold.
+    place: (layer) => scene.letterbox.insertBefore(layer, copies?.layer ?? next),
     body: bodyFor,
     screenFor,
+    live: copies,
   };
 }
 
@@ -761,6 +833,8 @@ function keep(): void {
   // The next page is the window's own, whatever outside page is in the frame now.
   const look = there === null ? shown : { ...shown, host: window.location.host };
   const key = snapshotKey(current, window);
+  // The next page starts on the window's own, with no copy of an outside one in its drawing.
+  dropCopies();
   keepDrawing({ letterbox, zoom: picker.value, key, css: VIEWPORT_CSS, look });
 }
 
@@ -776,6 +850,8 @@ function onReloading(): void {
   if (frame && there !== null && !denied) {
     loaded = false;
     reloadingOutside();
+    // Its copies load again with it.
+    if (copies) loadLive(copies, there);
   }
   if (!running()) browser?.startLoading(null);
 }
@@ -803,6 +879,13 @@ function showRefusal(): void {
   refusal.classList.toggle("dark", look.dark);
 }
 
+/** Mark a frame as one for the outside page at `outside`: on another origin, with what such a page gets, and no word of where it was asked from. */
+function pointOutside(node: HTMLIFrameElement, outside: string): void {
+  node.setAttribute(OUTSIDE_ATTRIBUTE, outside);
+  node.setAttribute("referrerpolicy", "no-referrer");
+  node.setAttribute("sandbox", OUTSIDE_SANDBOX);
+}
+
 /**
  * Put the page the frame is for in it: an outside page, which nothing reads
  * from then on, or the window's own again. `fresh` is a frame that just came
@@ -811,6 +894,8 @@ function showRefusal(): void {
 function aim(fresh = false): void {
   const { outside, refused } = getOutside();
   if (!frame || released || (!fresh && outside === there && refused === denied)) return;
+  // A fold of an outside page that goes lands at once, as its copies go with the page.
+  if (copies && folding()) finishFold();
   const was = there;
   there = outside;
   denied = outside !== null && refused;
@@ -828,9 +913,7 @@ function aim(fresh = false): void {
       address.unwatch();
       reload.untrack();
     }
-    frame.setAttribute(OUTSIDE_ATTRIBUTE, outside);
-    frame.setAttribute("referrerpolicy", "no-referrer");
-    frame.setAttribute("sandbox", OUTSIDE_SANDBOX);
+    pointOutside(frame, outside);
     if (notice) notice.hidden = true;
     // A page that refuses to be framed is never asked for.
     loaded = denied;
@@ -838,6 +921,7 @@ function aim(fresh = false): void {
   }
   showRefusal();
   if (fresh) return;
+  keepCopies();
   browser?.stopLoading();
   // The bars say where the frame is going at once, over a blank screen until it is there.
   if (!loaded && !running()) browser?.startLoading(readLook(frame));
@@ -955,6 +1039,7 @@ function release(follow: boolean): string {
   address.unwatch();
   reload.untrack();
   browser?.stopLoading();
+  dropCopies();
   clearSnapshot();
   // The window shows its own page again, so its own address and title too.
   address.giveBack(!moved);
@@ -983,6 +1068,7 @@ function teardown(): void {
   frame = null;
   notice = null;
   refusal = null;
+  dropCopies();
   there = null;
   denied = false;
   readout = null;
