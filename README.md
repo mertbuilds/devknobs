@@ -441,10 +441,16 @@ reload of the window is back on your own page.
 what works: the device's size and its fit, its body, the mat, turning, another
 device, the status bar, the browser's bars and the reload button, which asks
 for the address again. the bars are drawn still, with the page's host in the
-address, on white, as the page's scroll and colors cannot be read. the Duo
-folds and unfolds with a dark screen on the half that turns, as there is no
-picture of the page to put there. device pixel ratio and vision are set on
-the frame, so they work too.
+address, on white, as the page's scroll and colors cannot be read. device
+pixel ratio and vision are set on the frame, so they work too.
+
+the Duo folds and unfolds with the page on the half that turns: no picture of
+an outside page can be taken, so two more frames of the same address fold in
+its place, one laid out for each screen, loaded while the page shows on the
+Duo. they take no pointer and no focus, and you end on the one live page.
+the limits: the site loads three times, and the three can differ, in what a
+login, a scroll or anything random shows. a page you scrolled is at its top
+on the half that turns. the blur is the browser's own, close to a picture's.
 
 what does not: every knob that changes the page. color scheme, contrast,
 motion, transparency, text size, spacing, locale, time zone, clock,
