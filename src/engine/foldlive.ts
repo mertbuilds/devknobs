@@ -295,6 +295,7 @@ export function layLive(
   for (const one of copy.ends) for (const key of ["left", "top", "right", "bottom", "width", "height"] as const) one.style[key] = "";
   const along = side.across ? "width" : "height";
   start.style[along] = end.style[along] = "100%";
+  start.style[side.across ? "left" : "top"] = end.style[side.across ? "left" : "top"] = "0";
   start.style[side.across ? "top" : "left"] = "0";
   end.style[side.across ? "bottom" : "right"] = "0";
   start.style.background = `linear-gradient(${side.across ? "to bottom" : "to right"}, #000, transparent)`;

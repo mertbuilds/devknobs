@@ -983,7 +983,7 @@ describe("a Duo folding in its frames", () => {
       reaches.push(reach);
       expect(reach).toBeGreaterThan(0);
       expect(style(bottom, "height")).toBe(style(top, "height"));
-      expect([style(top, "top"), style(top, "width"), style(bottom, "bottom")]).toEqual(["0", "100%", "0"]);
+      expect([style(top, "top"), style(top, "left"), style(top, "width"), style(bottom, "bottom"), style(bottom, "top")]).toEqual(["0", "0", "100%", "0", ""]);
       expect(style(top, "background")).toBe("linear-gradient(to bottom, #000, transparent)");
       expect(style(bottom, "background")).toBe("linear-gradient(to top, #000, transparent)");
       // None of it at the hinge, the middle of the open screen, and all of it where the turned screen's free edge is seen.
