@@ -19,15 +19,28 @@ export function button(className: string, label: string): HTMLButtonElement {
   return node;
 }
 
+/**
+ * Where the lines of a view start. `rows` is on the knob rows' columns, past
+ * the grip's column whether a grip stands in it or not. `flush` is at the
+ * panel's inset, for a view of bars, lists and text. The stylesheet has one
+ * rule for each, which sets where a head, a row and every piece of the kit
+ * in the view start.
+ */
+export const LAYOUTS = ["rows", "flush"] as const;
+export type Layout = (typeof LAYOUTS)[number];
+
+/** Say which layout the lines under a node go by. */
+export function lay(node: HTMLElement, layout: Layout): void {
+  node.setAttribute("data-layout", layout);
+}
+
 /** What a row is built from. Every part but the main and the title may be left out. */
 export interface RowParts {
   /** The row's control: a button, or a plain box where the line itself does nothing. */
   main: HTMLElement;
-  /** A control of its own in the leading slot, as a knob row's grip is. */
+  /** A control of its own in the grip's column, as a knob row's grip is. */
   grip?: HTMLElement;
-  /** A drawing in the leading slot that is part of the main, as a fold's chevron is. */
-  lead?: Element;
-  /** The icon before the title. */
+  /** The icon before the title, where the row's content starts. */
   glyph?: Element;
   title: string;
   /** What the main ends with, in order: the row's value, its key or a control. */
@@ -43,22 +56,17 @@ export interface RowBox {
 }
 
 /**
- * A row: its line, with the leading slot kept in the main's leading padding
- * whether anything stands in it or not, then its icon, its title and what it
- * ends with, and what stands after the main. The knob rows, the actions'
- * rows, the settings and the head of a view are all built here and differ
- * only by what is in their slots, so they line up and take the same styles.
+ * A row: its line, which starts where the layout it is in says, then its
+ * icon, its title and what it ends with, and what stands after the main. The
+ * knob rows, the actions' rows, the settings and the head of a view are all
+ * built here and differ only by what is in their slots, so they line up and
+ * take the same styles.
  */
 export function rowBox(parts: RowParts): RowBox {
-  const { main, grip, lead, glyph } = parts;
+  const { main, grip, glyph } = parts;
   const box = el("div", "row");
   const line = el("div", "line");
   const label = el("span", "row-label", parts.title);
-  if (lead) {
-    const slot = el("span", "lead");
-    slot.append(lead);
-    main.append(slot);
-  }
   if (glyph) main.append(glyph);
   main.append(label, ...(parts.ends ?? []));
   if (grip) {
@@ -72,7 +80,7 @@ export function rowBox(parts: RowParts): RowBox {
 
 /**
  * A title over a run of rows, such as the settings' shortcuts: it starts
- * past the leading slot, over the rows' icons.
+ * where the rows' content does.
  */
 export function rowsLabel(text: string): HTMLElement {
   return el("div", "rows-label", text);

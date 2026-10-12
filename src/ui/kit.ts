@@ -4,7 +4,8 @@
  * here, and adds css only for the cells of its own content. So a view lines
  * up with the panel's rows and cannot drift from them: the stylesheet has one
  * rule for each of these, and a test fails where a view pads, edges or rounds
- * a head, a bar or a row's main for itself.
+ * a head, a bar or a row's main for itself. Where its lines start is the
+ * layout the view names, and no piece here says it again.
  *
  *   toolbar([filterField({ ... }).node, segments({ ... }).node]);
  *   rowBox({ main, glyph, title, ends, after }); sectionFold({ ... }); emptyLine("no requests");
@@ -16,7 +17,7 @@
 import { button, el, field, mark, rowBox } from "./dom";
 import { icon } from "./icons";
 
-export { type RowBox, type RowParts, rowBox, rowButton, rowsLabel } from "./dom";
+export { LAYOUTS, type Layout, type RowBox, type RowParts, rowBox, rowButton, rowsLabel } from "./dom";
 export { type Segments, type SegmentsOptions, segments } from "./radio";
 
 /** What a filter is built from. */
@@ -93,14 +94,14 @@ export interface Fold {
 
 /**
  * A section that folds out under its row, as a knob row's editor does. Its
- * chevron stands in the leading slot, so its label starts where a row's
- * content does.
+ * chevron stands where a row's icon does, so it starts where the view's
+ * lines start.
  */
 export function sectionFold(options: FoldOptions): Fold {
   const main = button("main", "");
   const turn = el("span", "turn");
   turn.append(icon("chevron-left"));
-  const { box, label } = rowBox({ main, lead: turn, title: options.label, ends: options.ends });
+  const { box, label } = rowBox({ main, glyph: turn, title: options.label, ends: options.ends });
   const fold = el("div", "fold");
   const body = el("div", "fold-body");
   fold.append(body);

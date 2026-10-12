@@ -118,6 +118,7 @@ export function createInspector(
     pane.openPane({
       id: STYLES_VIEW,
       title: STYLES_VIEW,
+      layout: "flush",
       actions: [
         {
           label: SELECT,

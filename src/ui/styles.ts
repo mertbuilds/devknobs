@@ -36,6 +36,18 @@
  * Pinned, `data-dock="true"`, the panel is a column from the window's top to
  * its bottom, square, with one hairline on the page's side, as wide as the
  * panel is. Its rules come last, over the floating ones.
+ *
+ * Every line of the panel stands on one set of columns, the `--col-` tokens
+ * on the wrapper, and nothing else says where a line starts or ends. A box
+ * with a ground, a row, a field, a block of code, goes edge to edge. What is
+ * read in it, an icon or a word, starts at `--view-start` and ends
+ * `--view-end` short of the far edge. `data-layout` on a view sets where
+ * that start is: `rows` is past the grip's column, where a knob row's icon
+ * is, and `flush` is the panel's inset. What folds out under a row sits a
+ * row's pad inside it, and brings the start in by as much, so its words are
+ * still at the inset. A head, a row and every piece of the kit read the two
+ * properties, so a view's head starts where its content does whatever the
+ * view holds.
  */
 import { boxTint } from "../grab/colors";
 
@@ -72,6 +84,16 @@ export const CSS = `
   --edge-line: transparent;
   --glide: 220ms;
   --panel-width: 240px;
+  /* The columns: what a row keeps clear inside its edges, an icon's width,
+     the room between an icon and its word, and how far in a line of words
+     starts and ends. The grip's column is an icon wide with the pad on both
+     sides. */
+  --col-pad: 4px;
+  --col-icon: 14px;
+  --col-gap: 8px;
+  --col-inset: 10px;
+  --col-grip: calc(var(--col-pad) * 2 + var(--col-icon));
+  --view-end: var(--col-inset);
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
@@ -136,6 +158,9 @@ export const CSS = `
   }
 }
 .wrap [hidden] { display: none !important; }
+/* Where a view's lines start, by the layout it names. */
+[data-layout="rows"] { --view-start: var(--col-grip); }
+[data-layout="flush"] { --view-start: var(--col-inset); }
 
 button, input, textarea {
   appearance: none;
@@ -295,9 +320,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--col-gap);
   height: 26px;
-  padding: 0 10px;
+  padding: 0 var(--view-end) 0 var(--view-start);
   background: var(--card);
   border-radius: 8px;
   cursor: text;
@@ -310,7 +335,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   flex: none;
   width: 22px;
   height: 22px;
-  margin-right: -6px;
+  margin-right: calc(var(--col-pad) - var(--view-end));
   display: grid;
   place-items: center;
   color: var(--faint);
@@ -325,9 +350,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--col-gap);
   height: 26px;
-  padding: 0 10px 0 22px;
+  padding: 0 var(--view-end) 0 var(--view-start);
   color: var(--faint);
   border-radius: 8px;
   transition: background-color 120ms ease-out, color 120ms ease-out;
@@ -424,7 +449,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .wrap[data-mode="view"] .home:not(.leaving),
 .wrap:not([data-mode="keys"]) .keys:not(.leaving),
 .wrap:not([data-mode="view"]) .view:not(.leaving) { display: none; }
-.empty { padding: 4px 10px; color: var(--faint); }
+.empty { padding: 4px var(--view-end) 4px var(--view-start); color: var(--faint); }
 /* Heard, not seen. */
 .said {
   position: absolute;
@@ -438,16 +463,14 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .rows { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; align-content: start; }
 .row { position: relative; border-radius: 8px; transition: background-color 120ms ease-out; }
 .row:hover, .row.open { background: var(--card); }
-/* The leading slot: a column in the main's leading padding, kept whether
-   anything stands in it or not, so every row's content starts at the same
-   place. A knob row's grip stands in it, and a fold's chevron. It is the
-   one rule that says where the slot is and how wide. 4 in from the row's
-   edges, so 4 round. */
+/* The grip's column, before where the rows' content starts: the grip is an
+   icon wide and stands the row's pad in from its edges, so 4 round. It is
+   the one rule that says where in the column it stands. */
 .lead {
   position: absolute;
   top: 4px;
-  left: 4px;
-  width: 14px;
+  left: var(--col-pad);
+  width: var(--col-icon);
   height: 18px;
   display: grid;
   place-items: center;
@@ -485,8 +508,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 4px 8px 4px 22px;
+  gap: var(--col-gap);
+  padding: 4px var(--view-end) 4px var(--view-start);
   border-radius: 8px;
 }
 /* A title too long for its row is cut short, in the head of a view as in a row. */
@@ -510,12 +533,12 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .row-value.idle { color: var(--faint); }
 .row-value.hot { color: var(--hot); }
 /* The small icon button a row ends with: a row's x, and an action in the
-   head of a view. 2 in from the row's edges, so 6 round. */
+   head of a view. Half the pad in from the row's edges, 2, so 6 round. */
 .row-button {
   flex: none;
   width: 22px;
   height: 22px;
-  margin: 2px;
+  margin: calc(var(--col-pad) / 2);
   display: grid;
   place-items: center;
   color: var(--faint);
@@ -538,19 +561,25 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: grid-template-rows 180ms ease-out;
 }
 .row.open > .fold { grid-template-rows: minmax(0, 1fr); }
+/* The editor and a view's stack sit a row's pad inside it, and what is read
+   in them starts and ends that much less far in, at the inset still. */
+.editor, .stack {
+  --view-start: calc(var(--col-inset) - var(--col-pad));
+  --view-end: calc(var(--col-inset) - var(--col-pad));
+}
 .editor {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  padding: 2px 4px 6px;
+  padding: 2px var(--col-pad) 6px;
   animation: editor-in 140ms ease-out;
 }
 @keyframes editor-in {
   from { opacity: 0; transform: translateY(-2px); }
 }
 .knob { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; }
-.knob-label { padding: 0 6px; font-size: 11px; color: var(--faint); }
+.knob-label { padding: 0 var(--view-end) 0 var(--view-start); font-size: 11px; color: var(--faint); }
 .knob-switch { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .knob-switch .switch { margin-right: 2px; }
 
@@ -738,7 +767,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .fold-slider.held .fold-thumb,
 .fold-slider.following .fold-thumb { transition: none; }
 .extra { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
-.note { padding: 0 6px; font-size: 10.5px; line-height: 1.4; color: var(--faint); }
+.note { padding: 0 var(--view-end) 0 var(--view-start); font-size: 10.5px; line-height: 1.4; color: var(--faint); }
 
 .list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .items {
@@ -786,7 +815,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 4px var(--view-end) 4px var(--view-start);
   white-space: nowrap;
   border-radius: 8px;
   cursor: pointer;
@@ -794,7 +823,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .entry.cursor { background: var(--card); }
 .entry-knob { flex: none; color: var(--faint); }
 /* Past the entry's padding to the right edge the rows' x ends on. */
-.entry .entry-check { margin: 0 -8px 0 auto; }
+.entry .entry-check { margin: 0 calc(var(--col-pad) / 2 - var(--view-end)) 0 auto; }
 .entry-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .entry-name { flex: none; }
 .entry-now {
@@ -805,7 +834,19 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   text-align: right;
   color: var(--faint);
 }
-.group-label { padding: 8px 10px 2px; font-size: 10.5px; color: var(--faint); }
+/* A small quiet label over a run of lines: the search's results, a list's
+   options, a group of a view's content. One rule, so it starts where the
+   lines under it do, and is cut short where it has no room. */
+.group-label {
+  flex: 1;
+  min-width: 0;
+  padding: 8px var(--view-end) 2px var(--view-start);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--faint);
+}
 .group-label:first-child { padding-top: 2px; }
 
 .foot {
@@ -885,15 +926,16 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .hint-key:empty { display: none; }
 
 /* The settings, in place of the rows: the head every view has on top, then
-   each a row as the knob rows are, its grip column empty. Nothing here pads
+   each a row as the knob rows are, its grip column empty, as their layout,
+   rows, says. Nothing here pads
    the head or a row: both are the shared ones. A row has no x after it, so
    the handle's main ends with a switch, and a shortcut's with its key as a
    button that records a new one, an x before it that puts it back. A key it
    cannot take shakes the key and turns it red for a moment; reduced motion
    keeps only the red. */
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
-/* A title over a run of rows, past the leading slot, over the rows' icons. */
-.rows-label { padding: 8px 8px 2px 22px; font-size: 10.5px; color: var(--faint); }
+/* A title over a run of rows, over where their content starts. */
+.rows-label { padding: 8px var(--view-end) 2px var(--view-start); font-size: 10.5px; color: var(--faint); }
 /* An action's key, at the end of its row, as quiet as the footer shows a key. */
 .row-key { flex: none; align-self: center; font-size: 10px; line-height: 1.4; color: var(--faint); }
 .row-control { flex: none; align-self: center; margin-left: auto; }
@@ -940,11 +982,11 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 
 /* A feature's view, in place of the rows as the settings are: the way back
-   on top, a row built and styled as every row is, its chevron where a row's
-   icon is, with the view's title and then its actions, each the button a
-   row's x is. Nothing here says how the
+   on top, a row built and styled as every row is, its chevron where the
+   view's lines start, with the view's title and then its actions, each the
+   button a row's x is. Nothing here says how the
    head is padded, edged or rounded: it differs from a row only by what is in
-   its slots. Its body under that scrolls on its own. The view asks for the panel's tallest and the panel's
+   its slots, and starts where the view's layout says. Its body under that scrolls on its own. The view asks for the panel's tallest and the panel's
    own limit shrinks it to what the window has, so the panel is as tall as it
    gets whatever the view holds. The body is a container, so what a view
    holds can lay itself out by how wide the view is. */
@@ -989,29 +1031,18 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .toolbar > .filter { flex: 1 1 96px; min-width: 0; }
 .toolbar > .seg { flex: none; max-width: 100%; }
-/* A section of a view that folds, a row as the rows are: its chevron in the
-   leading slot, to the side while folded and down while out. */
-.turn { display: grid; }
+/* A section of a view that folds, a row as the rows are: its chevron where
+   a row's icon is, to the side while folded and down while out. */
+.turn { flex: none; align-self: center; display: grid; }
 .turn .glyph { transform: rotate(180deg); transition: transform 120ms ease-out; }
 .row.open > .line .turn .glyph { transform: rotate(270deg); }
 .fold-body { min-height: 0; }
 /* A group of a view's content under a small quiet label, with no fold. Its
-   first line is the label, 8 in as all of a view's text is, and the small
-   controls for what it holds at its far end. */
+   first line is the label, where all of a view's text starts, and the small
+   controls for what it holds at its far end, as tall as the line. */
 .group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .group-head { display: flex; align-items: center; gap: 4px; min-height: 22px; }
-.group-label {
-  flex: 1;
-  min-width: 0;
-  margin: 0 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--faint);
-}
-.group-head > .row-button { margin: 0; }
-.group > .note { padding: 0 8px; }
+.group-head > .row-button { margin-top: 0; margin-bottom: 0; }
 /* Names and their values in two columns, in mono, the names quiet. Both wrap
    anywhere and can be selected. Where the view is under 290 wide, a panel of
    300, a name stands over its value. */
@@ -1020,7 +1051,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   grid-template-columns: fit-content(45%) minmax(0, 1fr);
   gap: 2px 12px;
   margin: 0;
-  padding: 0 8px;
+  padding: 0 var(--view-end) 0 var(--view-start);
   font-family: var(--mono);
   font-size: 11px;
   overflow-wrap: anywhere;
@@ -1036,12 +1067,12 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 /* A block of text as it was written, in mono on the rows' ground. It wraps,
    and with wrapping off it scrolls in itself, so its view never scrolls
-   sideways. A row wide, so 8 round and 8 in. */
+   sideways. A row wide, so 8 round, its text where a view's starts. */
 .code { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 4px; }
 .code-text {
   justify-self: stretch;
   margin: 0;
-  padding: 6px 8px;
+  padding: 6px var(--view-end) 6px var(--view-start);
   font-family: var(--mono);
   font-size: 11px;
   white-space: pre-wrap;
@@ -1067,7 +1098,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   display: flex;
   gap: 2px;
   height: 4px;
-  margin: 4px 8px;
+  margin: 4px var(--view-end) 4px var(--view-start);
   overflow: hidden;
   background: var(--track);
   border-radius: 2px;
@@ -1075,14 +1106,14 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .split-part { flex: 0 0 0; min-width: 1px; background: var(--fg); }
 /* What folds out under a view's row, one thing under another, padded as a
    row's editor is: 4 in from the row's edges, so what it holds is 4 round. */
-.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 2px 4px 6px; }
-/* In a stack the pairs start where its notes do, and a block of code stands
-   on a row: on the panel's ground and 4 round. It stops growing where it
-   would crowd the view, and scrolls from there. */
-.stack .pairs { padding: 0 6px; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 2px var(--col-pad) 6px; }
+/* In a stack a block of code stands on a row: on the panel's ground and 4
+   round, with less over and under it. It stops growing where it would crowd
+   the view, and scrolls from there. */
 .stack .code-text {
   max-height: 240px;
-  padding: 3px 6px;
+  padding-top: 3px;
+  padding-bottom: 3px;
   overflow-y: auto;
   background: var(--bg);
   border-radius: 4px;
@@ -1154,7 +1185,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   display: flex;
   align-items: baseline;
   gap: 4px;
-  padding: 0 10px;
+  padding: 0 var(--view-end) 0 var(--view-start);
   overflow-x: auto;
   scrollbar-width: none;
   font-size: 11px;
@@ -1166,7 +1197,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .css-blocks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 /* Clear of the bar that stays on top, when a block is scrolled to. */
 .css-block {
-  padding: 6px 10px;
+  padding: 6px var(--view-end) 6px var(--view-start);
   background: var(--card);
   border-radius: 8px;
   scroll-margin-top: 32px;
@@ -1233,7 +1264,7 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 6px 10px 0;
+  padding: 6px var(--view-end) 0 var(--view-start);
   font-size: 10.5px;
   color: var(--faint);
   border-radius: 4px;
@@ -1244,11 +1275,17 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
    under, so a line starts at the box's edge and wraps further in. A group's
    name is a label of the panel's, and what a custom property comes to is as
    quiet. */
-.css-applied { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.css-applied {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding-right: var(--view-end);
+  padding-left: var(--view-start);
+}
 .css-applied .css-decl { padding-left: 12px; }
 .css-label { font-size: 10.5px; color: var(--faint); }
 .css-comes { color: var(--faint); }
-.css-hidden { padding: 2px 10px; font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
+.css-hidden { padding: 2px var(--view-end) 2px var(--view-start); font-size: 10.5px; color: var(--faint); overflow-wrap: anywhere; }
 
 /* The element's box, in a fold of the kit's: a picture of the element, so
    its areas are filled, each in the hue the page's own tint of it has, mixed
@@ -1298,11 +1335,11 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   grid-template-rows: minmax(16px, auto) auto 8px;
 }
 .box-model.narrow .bm-v { display: none; }
-.bm-line { display: none; align-items: baseline; gap: 8px; padding: 0 10px; }
+.bm-line { display: none; align-items: baseline; gap: 8px; padding: 0 var(--view-end) 0 var(--view-start); }
 .box-model.narrow .bm-line { display: flex; }
 .bm-line .bm-name { padding: 0; }
 .bm-values { white-space: pre; }
-.bm-facts { display: flex; flex-wrap: wrap; gap: 0 12px; padding: 0 10px; color: var(--faint); }
+.bm-facts { display: flex; flex-wrap: wrap; gap: 0 12px; padding: 0 var(--view-end) 0 var(--view-start); color: var(--faint); }
 
 /* The requests view, in the panel. Its bar, its rows and its
    empty line are the kit's, and what is here is only what stands in them: the
@@ -1321,7 +1358,7 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   flex: none;
   min-width: 20px;
   margin-left: auto;
-  padding: 0 6px 0 2px;
+  padding-right: var(--view-end);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -1367,12 +1404,12 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
 /* One request in full, under the head that is its way back. Its summary and
    its segments are in the kit's bar, so they stay while the rest scrolls, and
    its groups, lists, code and bar are the kit's. What is here is only the
-   cells of the summary and of a stack's frames. Everything starts 8 in, as
+   cells of the summary and of a stack's frames. Everything starts where
    the kit's lists do. The path is the main thing: it has the room, breaks
    anywhere and keeps to two lines, cut in its middle by the view. */
 .req-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
-.req-detail > .note { padding: 4px 8px; }
-.req-sum { flex: 1 1 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 2px 8px; }
+.req-detail > .note { padding-top: 4px; padding-bottom: 4px; }
+.req-sum { flex: 1 1 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 2px var(--view-end) 2px var(--view-start); }
 .req-first, .req-second { display: flex; align-items: baseline; gap: 8px; }
 .req-verb { flex: none; font-size: 10.5px; }
 .req-verb.mark { display: flex; align-self: flex-start; align-items: center; height: 18px; }
@@ -1405,9 +1442,8 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   color: var(--faint);
 }
 .req-body, .req-headers { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.req-body > .note { padding: 0 8px; }
 /* A frame a line: the function in the text's color, then where it is, quiet, which a press copies. */
-.req-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 0 8px; font-family: var(--mono); font-size: 11px; }
+.req-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 0 var(--view-end) 0 var(--view-start); font-family: var(--mono); font-size: 11px; }
 .req-frame { display: flex; align-items: baseline; gap: 8px; }
 .req-fn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .req-where { flex: 0 1 auto; min-width: 32px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); }

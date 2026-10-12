@@ -579,13 +579,13 @@ describe("the simple mode", () => {
     expect(head.tag).toBe("button");
     expect(head.textContent).toBe("inherited");
     expect(head.getAttribute("aria-expanded")).toBe("false");
-    // The fold is the kit's: a row, its chevron in the leading slot, its body under its line.
+    // The fold is the kit's: a row, its chevron where a row's icon is, its body under its line.
     const [fold] = styles(node).find("row");
     expect(styles(node).find("row")).toHaveLength(1);
     expect(fold?.className).toBe("row");
     expect(fold?.children.map((part) => (part as FakeNode).className)).toEqual(["line", "fold"]);
-    expect(head.children.map((part) => (part as FakeNode).className)).toEqual(["lead", "row-label"]);
-    expect(head.find("lead")[0]?.find("turn")).toHaveLength(1);
+    expect(head.children.map((part) => (part as FakeNode).className)).toEqual(["turn", "row-label"]);
+    expect(head.find("lead")).toHaveLength(0);
     expect(fold?.find("fold-body")[0]?.find("css-applied")[0]?.getAttribute("aria-label")).toBe(
       "inherited",
     );

@@ -322,7 +322,7 @@ describe("what the view is built from", () => {
     expect(at.pane.body.one("req-count").textContent).toBe("1 of 2");
   });
 
-  test("a row is built by the row builder: its line, its main, and the leading slot kept by the main's own padding", () => {
+  test("a row is built by the row builder: its line and its main, which starts where the view's lines do by its own padding", () => {
     const at = scene();
     at.add(10, { url: "http://app.test/api/users?page=2" });
     at.requests.toggle();
@@ -335,7 +335,7 @@ describe("what the view is built from", () => {
     // The method stands where a row's icon does, the name is the row's label, and the rest is what it ends with.
     expect(parts(main)).toEqual(["req-method req-post", "row-label req-name", "req-status ok", "req-time"]);
     expect(parts(main?.one("req-name"))).toEqual(["req-path", "req-query"]);
-    // No slot node and no padding of its own: the column is the one every row's main keeps.
+    // No slot node and no padding of its own: where it starts is what every row's main reads.
     expect(box?.find("lead")).toEqual([]);
     const own = [...CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
       .map((match) => ({ selector: (match[1] ?? "").trim(), body: match[2] ?? "" }))

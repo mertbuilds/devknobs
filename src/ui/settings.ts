@@ -1,6 +1,6 @@
 import type { GrabControl } from "../grab/control";
 import { BINDING_WORDS, type LiveKeys, recordStep } from "./bindings";
-import { button, el, mark, rowBox, rowButton, rowsLabel } from "./dom";
+import { button, el, lay, mark, rowBox, rowButton, rowsLabel } from "./dom";
 import { BINDING_ICONS, icon, type IconName } from "./icons";
 import { type Binding, comboLabel, comboSpoken, type Keys } from "./keys";
 import { viewHead } from "./pane";
@@ -75,8 +75,9 @@ export function createSettings(context: SettingsContext): Settings {
   // way back to them, whether the handle shows while the panel is closed,
   // then each binding's key, to set or put back. A key that is not taken
   // shakes its chip and says why in the tooltip. The panel's icons face the
-  // side it is on.
+  // side it is on. Its layout is the knob rows', as a view names its own.
   const keysView = el("div", "keys pane");
+  lay(keysView, "rows");
   keysView.setAttribute("role", "group");
   keysView.setAttribute("aria-label", "settings");
   const head = viewHead();

@@ -12,7 +12,7 @@ import { runAction, stopAction } from "./actions";
 import { type Action, availableActions, type Live } from "./catalog";
 import { readColumn } from "./column";
 import { BINDINGS, createKeys, type LiveKeys } from "./bindings";
-import { button, el } from "./dom";
+import { button, el, lay } from "./dom";
 import { createDrag } from "./drag";
 import { type Command, createFooter, overflowBadge } from "./footer";
 import { icon } from "./icons";
@@ -140,8 +140,10 @@ export function createPanel(options: PanelOptions = {}): Panel {
   handle.title = "drag to move · shift-drag moves the handle";
   const panel = el("div", "panel");
 
-  // A label, so a click anywhere around the field lands in it.
+  // A label, so a click anywhere around the field lands in it. The search
+  // and its results start at the panel's inset, not past the grip's column.
   const head = el("label", "head");
+  lay(head, "flush");
   const searchInput = document.createElement("input");
   searchInput.className = "search";
   searchInput.placeholder = "search knobs";
@@ -170,12 +172,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
   results.id = "devknobs-results";
   results.setAttribute("role", "listbox");
   results.setAttribute("aria-label", "knobs");
+  lay(results, "flush");
   // Says where a row moved to, and why a key was not taken, for assistive tech.
   const said = el("div", "said");
   said.setAttribute("aria-live", "polite");
 
   // The rows view, which the settings and a feature's view slide in over.
   const home = el("div", "home pane");
+  lay(home, "rows");
   home.append(rows, empty, add, head, results);
 
   const footer = createFooter(keys, grab, mac, inspect);

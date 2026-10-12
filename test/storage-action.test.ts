@@ -63,6 +63,7 @@ function view(): PaneView {
   return {
     id: STORAGE_VIEW,
     title: "storage",
+    layout: "flush",
     mount() {
       mounts++;
       return () => {
@@ -185,7 +186,7 @@ describe("the storage action", () => {
     // Another view takes its place.
     action().run();
     await settle();
-    openPane({ id: "other", title: "other", mount() {} });
+    openPane({ id: "other", title: "other", layout: "flush", mount() {} });
     expect(action().state?.()).toBe("off");
     stop?.();
     closePane();

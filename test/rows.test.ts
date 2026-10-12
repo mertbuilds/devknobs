@@ -103,18 +103,16 @@ describe("the row builder", () => {
     expect(label.textContent).toBe("device");
   });
 
-  test("the leading slot is one class, whatever stands in it: a grip beside the main, a chevron in it", () => {
+  test("the grip's column holds a grip beside the main and nothing else: a chevron is a row's icon", () => {
     const grip = node("button", "grip");
     rowBox({ main: node("button", "main"), grip, title: "scheme" });
     const back = node("button", "main");
     const chevron = node("svg", "glyph");
-    rowBox({ main: back, lead: chevron, title: "styles" });
-    const [slot] = fake(back).children;
+    rowBox({ main: back, glyph: chevron, title: "styles" });
     expect(fake(grip).classes()).toContain("lead");
-    expect(slot?.className).toBe("lead");
-    expect(slot?.children).toEqual([fake(chevron)]);
     // The chevron is part of its button: a press on it is a press on the main.
-    expect(parts(back)).toEqual(["lead", "row-label"]);
+    expect(fake(back).children[0]).toBe(fake(chevron));
+    expect(parts(back)).toEqual(["glyph", "row-label"]);
   });
 
   test("a row with nothing leading has no slot node, and the same main: the padding keeps the column", () => {
@@ -124,16 +122,15 @@ describe("the row builder", () => {
     expect(parts(main)).toEqual(["glyph", "row-label"]);
   });
 
-  test("the slot's place and width are said once, for a grip and a chevron alike", () => {
+  test("the grip's place and width are said once, from the columns, and a row's content starts where its layout says", () => {
     const all = rules(CSS);
     const slot = all.filter((rule) => rule.selector === ".lead");
     expect(slot).toHaveLength(1);
-    expect(slot[0]?.body).toMatch(/left:\s*4px/);
-    expect(slot[0]?.body).toMatch(/width:\s*14px/);
+    expect(slot[0]?.body).toMatch(/left:\s*var\(--col-pad\)/);
+    expect(slot[0]?.body).toMatch(/width:\s*var\(--col-icon\)/);
     expect(slot[0]?.body).toMatch(/position:\s*absolute/);
-    // 4 for the slot's left, 14 for the slot, 4 more: where every row's content starts.
     const main = all.find((rule) => rule.selector === ".main");
-    expect(main?.body).toMatch(/padding:\s*4px 8px 4px 22px/);
+    expect(main?.body).toMatch(/padding:\s*4px var\(--view-end\) 4px var\(--view-start\)/);
     const geometry = /(^|[\s;])(width|left|right|position|padding|margin)\s*:/;
     for (const rule of all) {
       const leading = /\.(lead|grip|turn)\b/.test(rule.selector) && rule.selector !== ".lead";
@@ -256,8 +253,8 @@ describe("the settings' head", () => {
     expect(fake(rowsLabel("shortcuts")).className).toBe("rows-label");
     const label = rules(CSS).filter((rule) => /\.rows-label\b/.test(rule.selector));
     expect(label.map((rule) => rule.selector)).toEqual([".rows-label"]);
-    // 22, where the main's padding puts a row's icon.
-    expect(label[0]?.body).toMatch(/padding:\s*8px 8px 2px 22px/);
+    // Where the main's padding puts a row's icon: both read the start of the view's lines.
+    expect(label[0]?.body).toMatch(/padding:\s*8px var\(--view-end\) 2px var\(--view-start\)/);
   });
 
   test("a shortcut ends with its x, the button a row's is, then its key", () => {

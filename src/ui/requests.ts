@@ -207,8 +207,8 @@ export function createRequests(context: RequestsContext = {}): Requests {
 
   /**
    * A row, built as the panel's rows are: the method or the kind's mark where
-   * a row's icon is, the name where its label is, and the status and the time
-   * where it ends.
+   * a row's icon is, at the start of the view's lines, the name where its
+   * label is, and the status and the time where it ends.
    */
   function build(entry: RequestEntry): Row {
     const node = button("main", "");
@@ -346,6 +346,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
   const listView: PaneView = {
     id: REQUESTS_VIEW,
     title: "requests",
+    layout: "flush",
     actions: [
       {
         label: "clear",
@@ -407,6 +408,7 @@ export function createRequests(context: RequestsContext = {}): Requests {
     pane.open({
       id: REQUEST_VIEW,
       title: REQUEST_TITLE,
+      layout: "flush",
       actions: [
         {
           label: "copy as text for AI",

@@ -325,7 +325,7 @@ describe("the ways out of the styles view", () => {
 
   test("another view taking its place ends inspect and takes the box off", async () => {
     await inspecting();
-    openPane({ id: "requests", title: "requests", mount: () => undefined });
+    openPane({ id: "requests", title: "requests", layout: "flush", mount: () => undefined });
     expect(paneView()).toBe("requests");
     expect(on).toBe(false);
     expect(outlined.at(-1)).toBeNull();

@@ -4,14 +4,14 @@
  * the panel is wider and as tall as it gets while it shows. One view shows at
  * a time. To use it:
  *
- *   openPane({ id: "styles", title: "styles", mount, actions, escape, back });
+ *   openPane({ id: "styles", title: "styles", layout: "flush", mount, actions, escape, back });
  *   closePane(); paneView(); showPane(id); retitlePane(id, title); onPane((id) => {});
  *
  * `mount(body)` fills the view's scrolling body, which comes empty, and may
  * return a cleanup that runs once when the view closes or another replaces it.
  */
 
-import { button, el, rowBox, rowButton } from "./dom";
+import { button, el, type Layout, lay, rowBox, rowButton } from "./dom";
 import { icon, type IconName } from "./icons";
 import type { Tips } from "./tooltip";
 
@@ -35,6 +35,11 @@ export interface PaneView {
   id: string;
   /** What the head says, in lower case as the panel's labels are. */
   title: string;
+  /**
+   * Where the view's lines start, the head's included: `rows` for a view of
+   * rows as the knob rows are, `flush` for one of bars, lists and text.
+   */
+  layout: Layout;
   /**
    * Fill the view's body, which scrolls on its own under the head. What it
    * returns runs once, when the view closes or another takes its place.
@@ -171,10 +176,10 @@ export interface ViewHead {
 }
 
 /**
- * The head of a view, and of the settings: a row, built as every row is. Its
- * leading slot stays empty, as a row's with no grip does, so the way back's
- * chevron stands where a row's icon is and the title where a row's name is,
- * and the actions where a row's x is.
+ * The head of a view, and of the settings: a row, built as every row is. The
+ * way back's chevron stands where a row's icon is and the title where a
+ * row's name is, so the head starts where the view's layout has its lines
+ * start, and the actions stand where a row's x is.
  */
 export function viewHead(): ViewHead {
   const back = button("main", "");
@@ -268,6 +273,7 @@ export function createPane(context: PaneContext): Pane {
     body.replaceChildren();
     body.scrollTop = 0;
     shown = view;
+    lay(node, view.layout);
     name(view.title);
     actions.replaceChildren(...(view.actions ?? []).map(actionButton));
     const made = view.mount(body);

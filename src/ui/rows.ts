@@ -38,7 +38,7 @@ export interface RowLine {
 }
 
 /**
- * Build a row's line from its catalog entry: the grip in the leading slot,
+ * Build a row's line from its catalog entry: the grip in its column,
  * its icon and name, what it says, then its x. An action's ends with its key
  * as the footer shows a key, and its x takes it off the list where a knob
  * row's puts its knobs back too.

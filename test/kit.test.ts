@@ -153,7 +153,7 @@ describe("toolbar, emptyLine and sectionFold", () => {
     expect(line.textContent).toBe("no requests yet");
   });
 
-  test("a fold is a row from the builder, its chevron in the leading slot, that folds its body", () => {
+  test("a fold is a row from the builder, its chevron where a row's icon is, that folds its body", () => {
     const heard: boolean[] = [];
     const fold = sectionFold({ label: "inherited", open: false, onToggle: (open) => heard.push(open) });
     const node = fake(fold.node);
@@ -161,8 +161,7 @@ describe("toolbar, emptyLine and sectionFold", () => {
     expect(node.children.map((child) => child.className)).toEqual(["line", "fold"]);
     const [main] = node.find("main");
     expect(main?.tag).toBe("button");
-    expect(main?.children.map((child) => child.className)).toEqual(["lead", "row-label"]);
-    expect(main?.children[0]?.children.map((child) => child.className)).toEqual(["turn"]);
+    expect(main?.children.map((child) => child.className)).toEqual(["turn", "row-label"]);
     expect(main?.attributes.get("aria-expanded")).toBe("false");
     expect(node.children[1]?.inert).toBe(true);
     expect(node.children[1]?.children).toEqual([fake(fold.body)]);
@@ -182,7 +181,7 @@ describe("toolbar, emptyLine and sectionFold", () => {
     const brief = dom.el("span", "row-value idle", "3");
     const fold = sectionFold({ label: "headers", ends: [brief], open: false });
     const [main] = fake(fold.node).find("main");
-    expect(main?.children.map((child) => child.className)).toEqual(["lead", "row-label", "row-value idle"]);
+    expect(main?.children.map((child) => child.className)).toEqual(["turn", "row-label", "row-value idle"]);
   });
 });
 
@@ -192,7 +191,7 @@ describe("what folds out under a view's row", () => {
     const fold = sectionFold({ label: "token", open: false, ends: [size] });
     const [main] = fake(fold.node).find("main");
     expect(fake(fold.main)).toBe(main as ReturnType<typeof fake>);
-    expect(main?.children.map((child) => child.className)).toEqual(["lead", "row-label", "size"]);
+    expect(main?.children.map((child) => child.className)).toEqual(["turn", "row-label", "size"]);
     expect(fake(fold.label).textContent).toBe("token");
   });
 

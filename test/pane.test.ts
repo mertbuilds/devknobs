@@ -223,6 +223,7 @@ function viewOf(id: string, more: Partial<PaneView> = {}) {
   const view: PaneView = {
     id,
     title: id,
+    layout: "flush",
     mount(body) {
       seen.mounts++;
       seen.bodies.push(fake(body).children.length);
@@ -323,7 +324,7 @@ describe("opening a view", () => {
 
   test("takes a view with no cleanup", () => {
     page = build();
-    openPane({ id: "plain", title: "plain", mount: () => {} });
+    openPane({ id: "plain", title: "plain", layout: "flush", mount: () => {} });
     closePane();
     expect(paneView()).toBeNull();
   });
@@ -387,14 +388,14 @@ describe("going back", () => {
 });
 
 describe("the head", () => {
-  test("is a row from the builder every row is from: the slot empty, the way back where a row's icon is, then the title", () => {
+  test("is a row from the builder every row is from: the way back where a row's icon is, then the title", () => {
     page = build();
     openPane(viewOf("styles").view);
     const [head] = page.node.find("view-head");
     expect(head?.className).toBe("row view-head");
     expect(head?.children.map((child) => child.className)).toEqual(["line"]);
     expect(page.back.className).toBe("main");
-    // The leading slot stays empty: the chevron stands where a row's icon is.
+    // The chevron stands where a row's icon is, so the head starts where the view's rows do.
     expect(page.back.children.map((child) => child.tag)).toEqual(["svg", "span"]);
     expect(page.back.children[1]?.className).toBe("row-label");
     expect(page.node.find("lead")).toEqual([]);

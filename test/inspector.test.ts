@@ -391,7 +391,7 @@ describe("the row's way in", () => {
     pick(button);
     closePane();
     inspector?.open();
-    pane.openPane({ id: "other", title: "other", mount: () => undefined });
+    pane.openPane({ id: "other", title: "other", layout: "flush", mount: () => undefined });
     await settle();
     expect(open?.id).toBe("other");
   });
@@ -507,7 +507,7 @@ describe("the pane closing", () => {
   test("another view taking its place does the same", async () => {
     inspect.set(true);
     await settle();
-    pane.openPane({ id: "other", title: "other", mount: () => undefined });
+    pane.openPane({ id: "other", title: "other", layout: "flush", mount: () => undefined });
     expect(on).toBe(false);
     expect(destroyed).toBe(1);
     expect(outlined[outlined.length - 1]).toBeNull();

@@ -278,6 +278,7 @@ export function storageView(options: Partial<StorageDeps> = {}): PaneView {
   return {
     id: STORAGE_VIEW,
     title: "storage",
+    layout: "flush",
     mount,
     actions: [
       { label: "refresh", icon: "refresh-cw", run: () => mounted?.refresh() },

@@ -37,6 +37,7 @@ import { HANDLE_REACH, LIST_MIN, VIEW_WIDTH, WIDTH_MAX, widthIn } from "../src/u
 import { SLIDE } from "../src/ui/slide";
 import { CSS } from "../src/ui/styles";
 import { TIP_GAP, TIP_MARGIN, tipAt } from "../src/ui/tooltip";
+import { path, readSheet } from "./columns";
 
 describe("overflowBadge", () => {
   test("counts while the overflow knob is on", () => {
@@ -1346,12 +1347,14 @@ describe("the requests, at every width the panel takes", () => {
   /**
    * How wide the name's column is in a panel `width` wide: what the fixed
    * ones, the gaps and the padding leave. The padding and the gap are the
-   * ones every row's main has.
+   * ones every row's main has in a view whose lines start at the inset.
    */
   function nameRoom(width: number): number {
     const fixed = px(".req-method", "width") + px(".req-status", "width") + px(".req-time", "width");
-    const [, right, left] = /padding:\s*4px (\d+)px 4px (\d+)px;/.exec(body(".main")) ?? [];
-    return width - AROUND - Number(left) - Number(right) - 3 * px(".main", "gap") - fixed;
+    const sheet = readSheet(CSS);
+    const main = path("wrap", "panel", "body", "view pane data-layout=flush", "view-body", "req-list", "row req-row", "line", "button main");
+    const around = sheet.px(main, "padding-left") + sheet.px(main, "padding-right");
+    return width - AROUND - around - 3 * sheet.px(main, "column-gap") - fixed;
   }
 
   test("the widths are the panel's: 240 at the least, 340 until it is dragged, 720 at the most", () => {
@@ -1372,9 +1375,9 @@ describe("the requests, at every width the panel takes", () => {
   });
 
   test("the name has room at 240, at 340 and at 720, and all of what the panel gains", () => {
-    expect(nameRoom(240)).toBe(56);
-    expect(nameRoom(340)).toBe(156);
-    expect(nameRoom(720)).toBe(536);
+    expect(nameRoom(240)).toBe(66);
+    expect(nameRoom(340)).toBe(166);
+    expect(nameRoom(720)).toBe(546);
     expect(nameRoom(720) - nameRoom(240)).toBe(720 - 240);
   });
 
@@ -1387,9 +1390,9 @@ describe("the requests, at every width the panel takes", () => {
     /** The most the query takes of the name's room. */
     const most = (width: number) => Math.max(nameRoom(width) / 2, nameRoom(width) - 64);
     // At 340 the path keeps its 64, and at 240 it keeps half.
-    expect(most(340)).toBe(92);
-    expect(most(240)).toBe(28);
-    expect(nameRoom(240) - most(240)).toBe(28);
+    expect(most(340)).toBe(102);
+    expect(most(240)).toBe(33);
+    expect(nameRoom(240) - most(240)).toBe(33);
   });
 
   test("the bar wraps where it is narrow: the filter on a line of its own, the count at the far end", () => {
