@@ -64,7 +64,6 @@
 - the back button of the drawn browser's bars leaves an outside page for your own page, as `frame.own()` does, from the refused message too. forward stays off
 - `frame.show(url, { refused: true })` and `frame.refuse()` put a plain message on the device's screen for a site that refuses to be framed, after the host's own check of its headers
 - an outside page is never stored: a reload of the window is back on your own page
-- the Duo folds an outside page with the page on the half that turns and on the other screen, where both were dark: two more frames of the same address, one laid out for each screen, are loaded while the page shows on the Duo, and fold where a picture of your own page does, cut, shaded and blurred toward the free edge as it is. so the site loads three times, and a page you scrolled, logged in to, or that shows something random can differ between them
 
 ### fixes
 

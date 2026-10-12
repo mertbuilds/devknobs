@@ -750,16 +750,10 @@ address, on white, as the page's scroll and colors cannot be read. where your
 own server reads the site's colors, such as its `theme-color`, give them as
 `look` and the device's own screen takes the one for its scheme, in the ink
 that reads on it. one color alone is for both schemes. only a hex or an
-`rgb()` of plain numbers is taken, and anything else counts as none. device
-pixel ratio and vision are set on the frame, so they work too.
-
-the Duo folds and unfolds with the page on the half that turns: no picture of
-an outside page can be taken, so two more frames of the same address fold in
-its place, one laid out for each screen, loaded while the page shows on the
-Duo. they take no pointer and no focus, and you end on the one live page.
-the limits: the site loads three times, and the three can differ, in what a
-login, a scroll or anything random shows. a page you scrolled is at its top
-on the half that turns. the blur is the browser's own, close to a picture's.
+`rgb()` of plain numbers is taken, and anything else counts as none. the Duo
+folds and unfolds with a dark screen on the half that turns, as there is no
+picture of the page to put there. device pixel ratio and vision are set on
+the frame, so they work too.
 
 what does not: every knob that changes the page. color scheme, contrast,
 motion, transparency, text size, spacing, locale, time zone, clock,

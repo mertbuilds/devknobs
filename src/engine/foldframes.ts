@@ -20,7 +20,6 @@ import {
   shownAt,
 } from "./fold";
 import { freeOf, reachOf, screenLook, wedgeOf } from "./foldgl";
-import { liveEnds } from "./foldlive";
 import {
   type Face,
   div,
@@ -222,8 +221,6 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     const span = layout.across ? glued.size.height : glued.size.width;
     const wedge = wedgeOf(opening, glued.pane, picture, span);
     glued.gl?.draw(screenLook(open, wedge, free, own ? glued.pane : null, glued.pane));
-    // A live copy of an outside page goes dark toward the dark past its ends, as far in as the blur there reaches.
-    if (glued.live) liveEnds(glued.live, screenLook(open, wedge, free, null, glued.pane).edge[1], free);
   }
 }
 

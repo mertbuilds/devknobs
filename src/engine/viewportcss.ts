@@ -121,27 +121,6 @@ export const VIEWPORT_CSS = `
   top: 0;
   left: 0;
 }
-/* Copies of an outside page for a foldable's fold, over the fold, which lays
-   them where it has its pictures of a page: they show only while it folds,
-   and never take a pointer. */
-.live {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  visibility: hidden;
-}
-.live > div {
-  position: absolute;
-  top: 0;
-  left: 0;
-  transform-origin: 0 0;
-}
-.live .face, .live .face > div {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
 /* Where a phone's browser leaves the page in its screen. */
 .page.placed { position: absolute; }
 iframe {
