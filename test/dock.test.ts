@@ -52,26 +52,27 @@ describe("dockWidth", () => {
 
 describe("columnEdge", () => {
   test("is what the panel reads of its column on the side asked for, and nothing with no panel", () => {
-    expect(columnEdge("right")).toBeNull();
+    expect(columnEdge("right", 0)).toBeNull();
     const asked: string[] = [];
-    const stop = watchColumn((side) => {
-      asked.push(side);
+    const stop = watchColumn((side, time) => {
+      asked.push(`${side} ${time}`);
       return { cover: side === "left" ? 120 : 96, moving: true };
     });
-    expect(columnEdge("right")).toEqual({ cover: 96, moving: true });
-    expect(columnEdge("left")).toEqual({ cover: 120, moving: true });
-    expect(asked).toEqual(["right", "left"]);
+    expect(columnEdge("right", 16)).toEqual({ cover: 96, moving: true });
+    expect(columnEdge("left", 32)).toEqual({ cover: 120, moving: true });
+    // The frame's time goes with it, so the panel draws the column for that frame.
+    expect(asked).toEqual(["right 16", "left 32"]);
     stop();
-    expect(columnEdge("right")).toBeNull();
+    expect(columnEdge("right", 0)).toBeNull();
   });
 
   test("keeps a later panel's way to read when an earlier one stops", () => {
     const stopFirst = watchColumn(() => ({ cover: 1, moving: false }));
     const stopSecond = watchColumn(() => ({ cover: 2, moving: false }));
     stopFirst();
-    expect(columnEdge("left")?.cover).toBe(2);
+    expect(columnEdge("left", 0)?.cover).toBe(2);
     stopSecond();
-    expect(columnEdge("left")).toBeNull();
+    expect(columnEdge("left", 0)).toBeNull();
   });
 });
 
