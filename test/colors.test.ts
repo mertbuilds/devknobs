@@ -139,7 +139,7 @@ describe("pickColor", () => {
   });
 });
 
-function stubWindow(): {
+function stubWindow(search = ""): {
   local: Map<string, string>;
   fire: (key: string | null) => void;
   listening: () => number;
@@ -159,6 +159,7 @@ function stubWindow(): {
     configurable: true,
     value: {
       localStorage,
+      location: { search },
       addEventListener: (type: string, listener: (event: { key: string | null }) => void) => {
         if (type === "storage") listeners.add(listener);
       },
@@ -233,6 +234,34 @@ describe("createColors", () => {
     expect(colors.get().grab).toEqual(["#ff8c00"]);
     colors.destroy();
     expect(listening()).toBe(0);
+  });
+
+  test("in fresh mode there are a first visit's colors, none, and one added here is not written", () => {
+    const { local } = stubWindow("?devknobs=fresh");
+    const stored = JSON.stringify({ v: COLORS_VERSION, mat: ["#101820"], grab: [] });
+    local.set(COLORS_KEY, stored);
+    const colors = createColors();
+    expect(colors.get()).toEqual(NONE);
+    colors.set("mat", ["#ffd400"]);
+    expect(colors.get().mat).toEqual(["#ffd400"]);
+    expect(local.get(COLORS_KEY)).toBe(stored);
+    colors.set("mat", []);
+    expect(local.get(COLORS_KEY)).toBe(stored);
+    colors.destroy();
+  });
+
+  test("in fresh mode, a color added here holds through what another tab keeps", () => {
+    const { local, fire } = stubWindow("?devknobs=fresh");
+    const colors = createColors();
+    let heard = 0;
+    colors.subscribe(() => heard++);
+    colors.set("grab", ["#ff8c00"]);
+    local.set(COLORS_KEY, JSON.stringify({ grab: ["#101820"] }));
+    fire(COLORS_KEY);
+    fire(null);
+    expect(colors.get().grab).toEqual(["#ff8c00"]);
+    expect(heard).toBe(1);
+    colors.destroy();
   });
 
   test("works without storage, the colors just do not stick", () => {

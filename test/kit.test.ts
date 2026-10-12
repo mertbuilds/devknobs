@@ -329,6 +329,15 @@ describe("what folds out under a view's row", () => {
     expect(own.find((rule) => rule.selector === ".st-key.own")?.body.trim()).toBe("color: var(--faint);");
   });
 
+  test("the swatch list's field is the kit's: its own css is for its swatches, the x and the plus", () => {
+    const own = rules(CSS).filter((rule) => /\.swatch|\.colors\b/.test(rule.selector));
+    expect(own.length).toBeGreaterThan(0);
+    for (const rule of own) expect(rule.selector).not.toMatch(/field/);
+    expect(CSS).not.toContain(".field-color");
+    // A color that does not read shakes the field as a key a shortcut cannot take shakes its chip.
+    expect(rules(CSS).map((rule) => rule.selector)).toContain(".key-set.refused, .field.refused");
+  });
+
   test("nothing in the stylesheet is bold", () => {
     expect(CSS).not.toMatch(/font-weight:\s*(bold|[5-9]00)/);
   });

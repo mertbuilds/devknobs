@@ -19,7 +19,7 @@ import { createColors } from "./colors";
 import { button, el, field, mark, numberField, reveal } from "./dom";
 import { createFoldSlider, type FoldSlider, foldChip } from "./foldslider";
 import { pinPatch, showsLabel } from "./list";
-import { radioGroup, segments as segmentsOf } from "./radio";
+import { segments as segmentsOf } from "./radio";
 import { filterOptions } from "./search";
 import { swatchList } from "./swatches";
 import { createRefusal, type Tips } from "./tooltip";
@@ -131,10 +131,6 @@ export function createEditors(context: EditorsContext): Editors {
     return swatchList(knob, {
       root,
       colors,
-      radio: (of, track, items) => {
-        const show = radioGroup(track, items, (value) => set(of, value));
-        return (state) => show(of.read(state));
-      },
       set,
       reset: (of) => commit(rowOf(of.id).id, of.reset),
       refuse: refusal.refuse,

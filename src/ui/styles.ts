@@ -637,7 +637,6 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   opacity: 0;
   pointer-events: none;
 }
-.field-color { margin: 0 5px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip {

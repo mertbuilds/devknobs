@@ -17,6 +17,7 @@ describe("devknobs' own items", () => {
     expect(isOwn("devknobs")).toBe(true);
     expect(isOwn("devknobs:keys")).toBe(true);
     expect(isOwn("devknobs:storage-presets")).toBe(true);
+    expect(isOwn("devknobs:colors")).toBe(true);
     expect(isOwn("devknobsy")).toBe(false);
     expect(isOwn("my-devknobs")).toBe(false);
   });

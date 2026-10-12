@@ -3,8 +3,10 @@ import { isCustomColor } from "../engine/color";
 import type { CustomColor, DevknobsState } from "../types";
 import type { Knob } from "./catalog";
 import { dropColor, type LiveColors, pickColor } from "./colors";
-import { button, el, field } from "./dom";
+import { button, el } from "./dom";
 import { icon } from "./icons";
+import { textField } from "./kit";
+import { type RadioItem, radioGroup } from "./radio";
 
 /**
  * The one swatch list every color knob is drawn with: the knob's own colors
@@ -17,20 +19,12 @@ import { icon } from "./icons";
 /** What says no to a color that does not read. */
 export const NOT_A_COLOR = "use a hex such as #1e90ff, or rgb()";
 
-/** A swatch of the list: its node and the value it stands for. */
-export interface SwatchItem {
-  node: HTMLButtonElement;
-  value: string;
-}
-
 /** What the swatch list needs from the editors. */
 export interface SwatchesContext {
   /** The panel's shadow root, which knows the focus. */
   root: ShadowRoot;
   /** The colors the user added. */
   colors: LiveColors;
-  /** Make a radio group of the track and its swatches, and hand back what keeps it in step. */
-  radio(knob: Knob, track: HTMLElement, items: SwatchItem[]): (state: DevknobsState) => void;
   /** Set the knob from the panel. */
   set(knob: Knob, value: string): void;
   /** Put the knob back to its default. */
@@ -56,12 +50,13 @@ export function swatchList(
     node.addEventListener("click", () => set(knob, value));
     return node;
   };
-  const items: SwatchItem[] = knob.options.map((option) => {
+  const items: RadioItem[] = knob.options.map((option) => {
     const node = swatch(option.value, option.label, option.swatch ?? "");
     track.append(node);
     return { node, value: option.value };
   });
-  const update = context.radio(knob, track, items);
+  const show = radioGroup(track, items, (value) => set(knob, value));
+  const update = (state: DevknobsState): void => show(knob.read(state));
   const list = knob.custom;
   if (!list) return [track, update];
   /** The colors of the user's own the knob lists, and the way to list others. */
@@ -85,17 +80,21 @@ export function swatchList(
   picker.tabIndex = -1;
   picker.setAttribute("aria-label", `pick a color for ${knob.label}`);
   plus.append(add, picker);
-  const typed = field(
-    "field-color",
-    "#hex or rgb()",
-    `a color for ${knob.label}, as a hex or rgb()`,
-  );
+  // The kit's field, as a view's is: Enter takes what is typed, or says why not.
+  const typed = textField({
+    placeholder: "#hex or rgb()",
+    label: `a color for ${knob.label}, as a hex or rgb()`,
+    onEnter: () => {
+      if (take(typed.value)) done();
+      else context.refuse(typed, NOT_A_COLOR);
+    },
+  });
   typed.hidden = true;
   track.append(plus);
   box.append(track, typed);
 
   /** The swatch that is on, which the tab key stops at. */
-  const onItem = (): SwatchItem | undefined => items.find((item) => item.node.tabIndex === 0);
+  const onItem = (): RadioItem | undefined => items.find((item) => item.node.tabIndex === 0);
 
   /** Whether the focus is on one of `nodes` or in one. */
   const holds = (...nodes: Element[]): boolean =>
@@ -186,14 +185,9 @@ export function swatchList(
   });
   typed.addEventListener("keydown", (event: KeyboardEvent) => {
     // Escape closes the editor, which the panel sees to, and the field with it.
-    if (event.key === "Escape") {
-      typed.hidden = true;
-      typed.value = "";
-    }
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    if (take(typed.value)) done();
-    else context.refuse(typed, NOT_A_COLOR);
+    if (event.key !== "Escape") return;
+    typed.hidden = true;
+    typed.value = "";
   });
 
   colors.subscribe(() => {
