@@ -11,7 +11,7 @@
 - a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept
 - the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
 - grab and replay animations have rows as the knobs do. run one from the search, the add knob list, the footer or its row and its row stays in the list, to drag where you want it. its row runs it, shows its key and whether a mode is on, and its x takes it off and turns the mode off. a key alone lists a mode only while it is on
-- the head of the settings has its way back at the row's leading edge, where a row's grip is, and its title where a row's content starts
+- the head of the settings is the head every view has, and keeps the grip's column empty as a row with no grip does: its way back stands where a row's icon is, and its title where a row's name is
 
 ## 0.1.2
 

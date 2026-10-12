@@ -413,7 +413,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .row:hover, .row.open { background: var(--card); }
 /* The leading slot: a column in the main's leading padding, kept whether
    anything stands in it or not, so every row's content starts at the same
-   place. A knob row's grip stands in it, and a head's way back. It is the
+   place. A knob row's grip stands in it, and a fold's chevron. It is the
    one rule that says where the slot is and how wide. 4 in from the row's
    edges, so 4 round. */
 .lead {
@@ -713,8 +713,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .entry.cursor { background: var(--card); }
 .entry-knob { flex: none; color: var(--faint); }
-/* Past the entry's padding to the right edge the rows' x and the settings'
-   controls end on. */
+/* Past the entry's padding to the right edge the rows' x ends on. */
 .entry .entry-check { margin: 0 -8px 0 auto; }
 .entry-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .entry-name { flex: none; }
@@ -801,21 +800,23 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   border-radius: 4px;
 }
 
-/* The settings, in place of the rows: each a row as the knob rows are, its
-   grip column empty, and the way back on top of them, its chevron where a
-   row's icon is. A row has no x after it, so where a row's x ends, the
-   handle's ends with a switch, and a shortcut's with its key as a button that
-   records a new one, an x before it that puts it back. A key it cannot take
-   shakes the key and turns it red for a moment; reduced motion keeps only the
-   red. The group label sits over the icons, as it does over the results'. */
+/* The settings, in place of the rows: the head every view has on top, then
+   each a row as the knob rows are, its grip column empty. Nothing here pads
+   the head or a row: both are the shared ones. A row has no x after it, so
+   the handle's main ends with a switch, and a shortcut's with its key as a
+   button that records a new one, an x before it that puts it back. A key it
+   cannot take shakes the key and turns it red for a moment; reduced motion
+   keeps only the red. */
 .keys { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
-.keys .group-label { padding-left: 22px; }
-.keys .main { padding-right: 2px; }
+/* A title over a run of rows, past the leading slot, over the rows' icons. */
+.rows-label { padding: 8px 8px 2px 22px; font-size: 10.5px; color: var(--faint); }
 /* An action's key, at the end of its row, as quiet as the footer shows a key. */
 .row-key { flex: none; align-self: center; font-size: 10px; line-height: 1.4; color: var(--faint); }
 .row-control { flex: none; align-self: center; margin-left: auto; }
-.keys .clear { align-self: center; margin: -2px 0 -2px auto; }
-.keys .clear:not([hidden]) + .row-control { margin-left: 0; }
+/* A row's small button inside its main, before what the main ends with,
+   takes no height of its own, so the row is as tall as any. */
+.main > .row-button { align-self: center; margin: -2px 0 -2px auto; }
+.main > .row-button:not([hidden]) + .row-control { margin-left: 0; }
 /* The panel's icons face the side the panel is on. */
 .wrap[data-side="left"] .glyph.sided { transform: scaleX(-1); }
 .key-set {
@@ -855,8 +856,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 
 /* A feature's view, in place of the rows as the settings are: the way back
-   on top, a row built and styled as every row is, with the view's title and
-   then its actions, each the button a row's x is. Nothing here says how the
+   on top, a row built and styled as every row is, its chevron where a row's
+   icon is, with the view's title and then its actions, each the button a
+   row's x is. Nothing here says how the
    head is padded, edged or rounded: it differs from a row only by what is in
    its slots. Its body under that scrolls on its own. The view asks for the panel's tallest and the panel's
    own limit shrinks it to what the window has, so the panel is as tall as it
