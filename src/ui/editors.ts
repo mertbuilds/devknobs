@@ -108,9 +108,9 @@ export function createEditors(context: EditorsContext): Editors {
     track: HTMLElement,
     items: { node: HTMLButtonElement; value: string }[],
   ): Update {
-    // The choices shown, in the order they stand, however deep in the track.
+    // The choices shown, in the order they stand.
     const shown = () =>
-      Array.from(track.querySelectorAll('[role="radio"]')).flatMap((node) => {
+      Array.from(track.children).flatMap((node) => {
         const item = items.find((entry) => entry.node === node);
         return item && !item.node.hidden ? [item] : [];
       });

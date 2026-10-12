@@ -70,6 +70,8 @@ export function swatchList(
 
   /** How many of the swatches are the knob's own, which never go. */
   const own = items.length;
+  /** What stands in the track for the colors of the user's own: each swatch, and its x after it. */
+  let drawn: HTMLElement[] = [];
   const box = el("div", "colors");
   const plus = el("span", "swatch-plus");
   const add = button("swatch swatch-add", "");
@@ -111,11 +113,12 @@ export function swatchList(
   /** Draw the colors of the user's own again, between the knob's own and the plus. */
   function draw(): void {
     const held = items.find((item) => item.node === root.activeElement)?.value;
-    for (const node of Array.from(track.querySelectorAll(".swatch-own"))) node.remove();
+    for (const node of drawn) node.remove();
+    drawn = [];
     items.length = own;
     for (const color of kept()) {
-      const wrap = el("span", "swatch-own");
       const node = swatch(color, color, color);
+      node.classList.add("swatch-own");
       const remove = button("swatch-x", "");
       remove.append(icon("x", 8));
       remove.tabIndex = -1;
@@ -128,8 +131,9 @@ export function swatchList(
         event.preventDefault();
         drop(color);
       });
-      wrap.append(node, remove);
-      plus.before(wrap);
+      // The x stands after its swatch in the track, so every swatch is the radio group's own child.
+      plus.before(node, remove);
+      drawn.push(node, remove);
       items.push({ node, value: color });
     }
     // A swatch drawn again keeps the focus the one before it had.
