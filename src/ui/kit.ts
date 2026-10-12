@@ -10,15 +10,15 @@
  *   toolbar([filterField({ ... }).node, segments({ ... }).node]);
  *   toolbar([toolToggle({ ... }).node, filterField({ ... }).node]);
  *   rowBox({ main, glyph, title, ends, after }); sectionFold({ ... }); emptyLine("no requests");
- *   entryHead({ name: "key", value: "value" }); entryFold({ name, value, end, open }); entryRow({ name, end });
- *   sectionFold({ label, glyph, ends, open }); branch([leaf, leaf]); noteButton("3 hidden", run);
+ *   entryHead({ name: "key", value: "value" }); entryFold({ index, name, value, end, open });
+ *   sectionFold({ label, glyph, ends, open }); branch([node, node]); noteButton("3 hidden", run);
  *   emptyAction("select an element", run);
  *   group({ label, ends }); pairs(lines); codeBlock({ text, lines }); splitBar(shares, label);
  *   stack([noteLine("..."), codeBlock({ text }).node, pairs(lines).node, controls([{ label, run }]).node]);
  *   textField({ ... }); textArea({ ... }); switchLine({ ... }); confirmLine({ ... });
  */
 
-import { button, el, field, mark, type RowBox, rowBox } from "./dom";
+import { button, el, field, mark, rowBox } from "./dom";
 import { type IconName, icon } from "./icons";
 
 export { LAYOUTS, type Layout, type RowBox, type RowParts, rowBox, rowButton, rowsLabel } from "./dom";
@@ -114,6 +114,9 @@ export function emptyAction(text: string, run: () => void): HTMLButtonElement {
   return node;
 }
 
+/** How tall a fold's body may be and still ease out and away, in px. */
+export const FOLD_TALL = 1200;
+
 /** What a fold is built from. */
 export interface FoldOptions {
   label: string;
@@ -123,10 +126,7 @@ export interface FoldOptions {
   onToggle?(open: boolean): void;
   /** What the row's line ends with, as a row's value is. */
   ends?: readonly HTMLElement[];
-  /**
-   * An icon of the row's own, for a node of a tree. It stands where a row's
-   * icon does, and the chevron goes to the end of the line.
-   */
+  /** An icon of the row's own, for a node of a tree. It stands after the chevron, before the label. */
   glyph?: Element;
 }
 
@@ -146,39 +146,47 @@ export interface Fold {
 /**
  * A section that folds out under its row, as a knob row's editor does. Its
  * chevron stands where a row's icon does, so it starts where the view's
- * lines start. With an icon of its own the icon stands there, and the
- * chevron ends the line, so the names of a tree's nodes line up whether a
- * node folds or not.
+ * lines start, and an icon of its own stands after that. The fold eases
+ * out and away, as the stylesheet times it, but one whose body is taller
+ * than `FOLD_TALL` goes at once, as easing it lays the whole of it out
+ * again on every frame.
  */
 export function sectionFold(options: FoldOptions): Fold {
   const main = button("main", "");
   const turn = el("span", "turn");
   turn.append(icon("chevron-left"));
-  const { box, label } = options.glyph
-    ? rowBox({ main, glyph: options.glyph, title: options.label, ends: [...(options.ends ?? []), turn] })
-    : rowBox({ main, glyph: turn, title: options.label, ends: options.ends });
+  const { box, label } = rowBox({ main, glyph: turn, title: options.label, ends: options.ends });
+  if (options.glyph) main.insertBefore(options.glyph, label);
   const fold = el("div", "fold");
   const body = el("div", "fold-body");
   fold.append(body);
   box.append(fold);
   let open = false;
+  /** Whether the fold goes at once: its body is too tall to ease. */
+  let still = false;
   const set = (next: boolean): void => {
     open = next;
-    box.className = next ? "row open" : "row";
+    box.className = `row${next ? " open" : ""}${still ? " still" : ""}`;
     fold.inert = !next;
     main.setAttribute("aria-expanded", next ? "true" : "false");
   };
   main.addEventListener("click", () => {
+    // Folding away, the body is measured as it stands. Folding out, once it is filled.
+    still = body.scrollHeight > FOLD_TALL;
     set(!open);
     options.onToggle?.(open);
+    if (open && body.scrollHeight > FOLD_TALL) {
+      still = true;
+      set(true);
+    }
   });
   set(options.open);
   return { node: box, main, label, body, set };
 }
 
 /**
- * What a node of a tree holds, under the node: its own nodes, a step in, so
- * each starts under the name of the node it is in.
+ * What a node of a tree holds, under the node: its own nodes and lines, a
+ * step in, so each starts under the icon of the node it is in.
  */
 export function branch(children: readonly HTMLElement[]): HTMLElement {
   const node = el("div", "branch");
@@ -236,14 +244,6 @@ export function entryFold(options: EntryOptions & Omit<FoldOptions, "label" | "e
   const fold = sectionFold({ label: options.name, open: options.open, onToggle: options.onToggle });
   entryCells(fold.main, fold.label, options);
   return fold;
-}
-
-/** A line of a table that does nothing: a name, its value and what the line ends with. */
-export function entryRow(options: EntryOptions): RowBox {
-  const main = el("div", "main");
-  const row = rowBox({ main, title: options.name });
-  entryCells(main, row.label, options);
-  return row;
 }
 
 /** A quiet line: a note on what a view shows, or what just happened in it. */

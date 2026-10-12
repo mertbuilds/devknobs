@@ -3,6 +3,7 @@ import * as dom from "../src/ui/dom";
 import {
   AREA_ROWS,
   branch,
+  FOLD_TALL,
   codeBlock,
   confirmLine,
   controls,
@@ -10,7 +11,6 @@ import {
   emptyLine,
   entryFold,
   entryHead,
-  entryRow,
   filterField,
   noteButton,
   noteLine,
@@ -409,19 +409,6 @@ describe("what folds out under a view's row", () => {
     expect(quiet.find("row-label")[0]?.className).toBe("row-label cell-name columned quiet");
   });
 
-  test("a line of a table that does nothing is a row from the builder, with no control in it", () => {
-    const row = entryRow({ name: "GET /p/0", end: "200 · 1 KB" });
-    const node = fake(row.box);
-    expect(node.className).toBe("row");
-    const [main] = node.find("main");
-    expect(main?.tag).toBe("div");
-    expect(main?.children.map((child) => [child.className, child.textContent])).toEqual([
-      ["row-label cell-name", "GET /p/0"],
-      ["cell-end", "200 · 1 KB"],
-    ]);
-    expect(fake(row.label).title).toBe("GET /p/0");
-  });
-
   test("a table's cells set type, color and their share of the line, and no box: every line has the one column", () => {
     const own = rules(CSS).filter((rule) => /\.cell-/.test(rule.selector));
     expect(own.map((rule) => rule.selector)).toEqual([
@@ -486,14 +473,46 @@ describe("what folds out under a view's row", () => {
     expect(rules(CSS).find((rule) => rule.selector === ".cell-index")?.body).toContain("width: calc(var(--col-icon) * 2);");
   });
 
-  test("a fold with an icon of its own has the icon where a row's is, and its chevron at the end of its line", () => {
+  test("a fold with an icon of its own is the one fold line: its chevron first, then the icon, its name, and what it ends with", () => {
     const glyph = dom.el("span", "glyph");
     const value = dom.el("span", "row-value", "1 database");
     const fold = sectionFold({ label: "IndexedDB", glyph, ends: [value], open: false });
     const [main] = fake(fold.node).find("main");
-    expect(main?.children.map((child) => child.className)).toEqual(["glyph", "row-label", "row-value", "turn"]);
+    expect(main?.children.map((child) => child.className)).toEqual(["turn", "glyph", "row-label", "row-value"]);
     main?.fire("click");
     expect(fake(fold.node).className).toBe("row open");
+  });
+
+  test("a fold eases out and away as every fold does, and one whose body is very tall goes at once", () => {
+    const eased = rules(CSS).find((rule) => rule.selector === ".fold");
+    expect(eased?.body).toContain("transition: grid-template-rows 180ms ease-out;");
+    expect(rules(CSS).find((rule) => rule.selector === ".row.still > .fold")?.body.trim()).toBe("transition: none;");
+    expect(FOLD_TALL).toBe(1200);
+    const fold = sectionFold({ label: "events", open: false });
+    const node = fake(fold.node);
+    const [main] = node.find("main");
+    const body = fake(fold.body) as unknown as { scrollHeight: number };
+    body.scrollHeight = 300;
+    main?.fire("click");
+    expect(node.className).toBe("row open");
+    main?.fire("click");
+    expect(node.className).toBe("row");
+    // Filled as it folds out, it is measured once it is filled.
+    const tall = sectionFold({
+      label: "events",
+      open: false,
+      onToggle: () => {
+        (fake(tall.body) as unknown as { scrollHeight: number }).scrollHeight = FOLD_TALL + 1;
+      },
+    });
+    const [press] = fake(tall.node).find("main");
+    press?.fire("click");
+    expect(fake(tall.node).className).toBe("row open still");
+    expect(press?.attributes.get("aria-expanded")).toBe("true");
+    press?.fire("click");
+    expect(fake(tall.node).className).toBe("row still");
+    // Reduced motion times nothing in the panel, a fold included.
+    expect(CSS).toMatch(/prefers-reduced-motion: reduce[\s\S]*?transition: none !important/);
   });
 
   test("a branch holds a node's own nodes a step in, on the tree's ground", () => {
@@ -503,8 +522,9 @@ describe("what folds out under a view's row", () => {
     expect(node.children).toEqual([fake(leaf)]);
     const own = rules(CSS).filter((rule) => /\.branch/.test(rule.selector));
     expect(own.map((rule) => rule.selector)).toEqual([".branch", ".branch .row.open", ".branch .row:hover"]);
-    // The step is an icon and the gap, read from the columns.
-    expect(across(own[0]?.body ?? "")).toEqual([["padding-left", "calc(var(--col-icon) + var(--col-gap))"]]);
+    // The step is the columns' own, said once on the wrapper: an icon and the gap.
+    expect(across(own[0]?.body ?? "")).toEqual([["padding-left", "var(--col-step)"]]);
+    expect(CSS).toContain("--col-step: calc(var(--col-icon) + var(--col-gap));");
     expect(own[1]?.body.trim()).toBe("background: none;");
     expect(own[2]?.body.trim()).toBe("background: var(--track);");
   });

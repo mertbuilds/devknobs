@@ -95,6 +95,9 @@ export const CSS = `
   --col-gap: 8px;
   --col-inset: 10px;
   --col-grip: calc(var(--col-pad) * 2 + var(--col-icon));
+  /* How far in a level of a tree is from the one over it: an icon and the
+     gap, so a node's chevron stands under the icon of the node it is in. */
+  --col-step: calc(var(--col-icon) + var(--col-gap));
   --view-end: var(--col-inset);
   display: flex;
   align-items: flex-start;
@@ -575,6 +578,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: grid-template-rows 180ms ease-out;
 }
 .row.open > .fold { grid-template-rows: minmax(0, 1fr); }
+/* A fold whose body is very tall goes at once, see kit.ts. */
+.row.still > .fold { transition: none; }
 /* The editor and a view's stack sit a row's pad inside it, and what is read
    in them starts and ends that much less far in, at the inset still. */
 .editor, .stack {
@@ -1110,15 +1115,15 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .cells-head > span { font: inherit; color: inherit; }
 .cell-lead { flex: none; width: var(--col-icon); }
-/* What a node of a tree holds: its own nodes, an icon and the gap in, so
-   each starts under the name of the node it is in. A node in there is on
+/* What a node of a tree holds: its own nodes and lines, a step in, so each
+   starts under the icon of the node it is in. A node in there is on
    its tree's ground already: it takes none of its own while folded out, and
    a step darker under the pointer. */
 .branch {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1px;
-  padding-left: calc(var(--col-icon) + var(--col-gap));
+  padding-left: var(--col-step);
 }
 .branch .row.open { background: none; }
 .branch .row:hover { background: var(--track); }
