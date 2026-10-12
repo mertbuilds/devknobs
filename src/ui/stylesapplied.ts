@@ -11,7 +11,7 @@ import type {
   StyleDeclaration,
   VariableValue,
 } from "../styles/types";
-import { callAt } from "./stylesformat";
+import { resolveVars, varReferences } from "../styles/varrefs";
 
 /** What the simple mode says where the element's own blocks set nothing. */
 export const NO_STYLES = "no styles set on this element";
@@ -153,35 +153,6 @@ export function grouped<T extends { declaration: Pick<StyleDeclaration, "name"> 
   });
 }
 
-/** Where the next `var(` of a value starts, from `from` on, or -1 for none. */
-function nextVar(value: string, from: number): number {
-  for (let at = value.indexOf("var(", from); at >= 0; at = value.indexOf("var(", at + 1)) {
-    if (at === 0 || !/[\w-]/.test(value[at - 1] ?? "")) return at;
-  }
-  return -1;
-}
-
-/** A value with each `var()` in it put as what it comes to, or null where one comes to nothing. */
-function substituted(value: string, variables: Record<string, VariableValue>): string | null {
-  let text = "";
-  let at = 0;
-  for (let start = nextVar(value, at); start >= 0; start = nextVar(value, at)) {
-    const call = callAt(value, start);
-    if (!call) return null;
-    const inside = call.slice(4, -1);
-    const comma = inside.indexOf(",");
-    const name = (comma < 0 ? inside : inside.slice(0, comma)).trim();
-    const seen = variables[name]?.value ?? "";
-    // One that is not set comes to its fallback, where it has one.
-    const fallback = comma < 0 ? null : inside.slice(comma + 1).trim();
-    const comes = seen !== "" ? seen : fallback === null ? null : substituted(fallback, variables);
-    if (comes === null) return null;
-    text += value.slice(at, start) + comes;
-    at = start + call.length;
-  }
-  return text + value.slice(at);
-}
-
 /**
  * What a value that reads custom properties comes to for the element, each
  * `var()` put as what the element sees for it, which has the ones it reads in
@@ -192,8 +163,8 @@ export function resolvedValue(
   value: string,
   variables: Record<string, VariableValue>,
 ): string | null {
-  if (nextVar(value, 0) < 0) return null;
-  return substituted(value, variables);
+  if (varReferences(value).length === 0) return null;
+  return resolveVars(value, (name) => variables[name]?.value ?? "");
 }
 
 /** What the simple mode says where a stylesheet could not be read, as its list may miss some. */

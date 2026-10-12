@@ -110,6 +110,7 @@ const page: StylesPage = {
   },
   isColor: (text) => /^#[0-9a-f]{3,8}$/i.test(text) || text === "red",
   box: () => null,
+  variable: () => "",
 };
 
 const tips: Tips = {
@@ -118,7 +119,8 @@ const tips: Tips = {
   hideAfter: () => undefined,
   isFor: () => false,
   tooltip: (node, text) => {
-    tipped.push([fake(node), typeof text === "string" ? text : text()]);
+    const said = typeof text === "string" ? text : text();
+    tipped.push([fake(node), typeof said === "string" ? said : fake(said).textContent]);
   },
   destroy: () => undefined,
 };
@@ -448,7 +450,7 @@ describe("the styles view of an element", () => {
     expect(swatch?.getAttribute("aria-hidden")).toBe("true");
     // Before the value, after the name.
     const order = color?.children.map((child) => (typeof child === "string" ? child : child.className));
-    expect(order).toEqual(["css-name", ": ", "css-swatch", "css-value", ";"]);
+    expect(order).toEqual(["css-name", "css-punct", "css-swatch", "css-value", "css-punct"]);
     expect(margin?.find("css-swatch")).toEqual([]);
   });
 
@@ -462,7 +464,7 @@ describe("the styles view of an element", () => {
     const [name] = node.find("css-var");
     expect(name?.textContent).toBe("--brand");
     expect(name?.tag).toBe("button");
-    expect(tipped).toContainEqual([name as FakeNode, "--brand: #0af"]);
+    expect(name?.tabIndex).toBe(0);
     expect(node.find("css-decl")[0]?.textContent).toBe("color: var(--brand);");
     expect(node.find("css-swatch")[0]?.style.backgroundColor).toBe("#0af");
   });
@@ -488,11 +490,13 @@ describe("the styles view of an element", () => {
     expect(defines?.classList.contains("flash")).toBe(false);
   });
 
-  test("a property no declaration in force reads is plain text", () => {
+  test("a property no declaration in force reads is a piece of its own too, and a click on it goes nowhere", () => {
     answer = () => found([rule(".primary", [declaration("color", "var(--old)", { overridden: true })])]);
     const node = start();
     view?.show(as(save));
-    expect(node.find("css-var")).toEqual([]);
+    const [name] = node.find("css-var");
+    expect(name?.textContent).toBe("--old");
+    expect(name?.listeners.get("click")).toBeUndefined();
     expect(node.find("css-decl")[0]?.textContent).toBe("color: var(--old);");
   });
 

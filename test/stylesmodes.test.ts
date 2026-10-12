@@ -95,6 +95,7 @@ const page: StylesPage = {
   },
   isColor: (text) => /^#[0-9a-f]{3,8}$/i.test(text) || text === "red",
   box: () => null,
+  variable: () => "",
 };
 
 const tips: Tips = {
@@ -449,7 +450,7 @@ describe("the view's chrome", () => {
   test("with the picking handed in, the bar starts with the select button, before the filter and the modes", () => {
     let on = false;
     let key = "Shift C";
-    const told: (() => string)[] = [];
+    const told: (() => string | Node)[] = [];
     const hearing: (() => void)[] = [];
     let presses = 0;
     const telling: Tips = {
@@ -608,12 +609,14 @@ describe("the simple mode", () => {
       ["other", ["cursor: pointer", "--ring: 2px"]],
     ]);
     expect(labels(node)).toEqual(["layout", "size and spacing", "text", "look", "motion", "other"]);
-    for (const gone of ["css-selector", "css-head", "css-source", "css-context", "css-var"]) {
+    for (const gone of ["css-selector", "css-head", "css-source", "css-context"]) {
       expect(node.find(gone)).toEqual([]);
     }
     expect(node.all().filter((one) => one.tag === "s")).toEqual([]);
     expect(node.find("css-decl").every((one) => one.tag === "div")).toBe(true);
-    expect(tipped).toEqual([]);
+    // Only the custom properties have a tooltip: the one a value reads, the one that is set, and the one handed down.
+    expect(tipped.map((one) => one.textContent)).toEqual(["--ink", "--ring", "--ink"]);
+    expect(tipped).toEqual(node.find("css-var"));
   });
 
   test("says nothing of important, and never shows an overridden declaration", () => {

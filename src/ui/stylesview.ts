@@ -33,7 +33,6 @@ import type {
   OwnBlock,
   StyleBlock,
   StyleDeclaration,
-  VariableValue,
 } from "../styles/types";
 import type { BoxRing } from "../grab/boxmodel";
 import type { DevknobsState } from "../types";
@@ -52,6 +51,7 @@ import {
 } from "./stylesapplied";
 import {
   crumbText,
+  declaredIn,
   hiddenLine,
   matchesFilter,
   middle,
@@ -128,6 +128,23 @@ export interface StylesPage {
   isColor(text: string): boolean;
   /** The element's box, or null where it has none to read. */
   box(element: Element): BoxReading | null;
+  /** What an element, or one of its pseudo-elements, sees for a custom property now. Empty for one not set. */
+  variable(element: Element, pseudo: string | null, name: string): string;
+}
+
+/**
+ * A custom property as the element's computed style has it: the computed
+ * value of one `@property` registered, and for any other its text with the
+ * properties it reads in turn put in. It is asked of the element's own
+ * window, the device frame's for a page shown in it.
+ */
+export function readVariable(element: Element, pseudo: string | null, name: string): string {
+  try {
+    const view = element.ownerDocument.defaultView;
+    return view ? view.getComputedStyle(element, pseudo).getPropertyValue(name).trim() : "";
+  } catch {
+    return "";
+  }
 }
 
 function isColor(text: string): boolean {
@@ -145,6 +162,7 @@ const PAGE: StylesPage = {
   subscribe: engine.subscribe,
   isColor,
   box: readBox,
+  variable: readVariable,
 };
 
 export interface StylesView {
@@ -287,6 +305,8 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   let byId = new Map<number, HTMLElement>();
   /** The nodes of the blocks that have a tooltip, which goes when they do. */
   let tipped: HTMLElement[] = [];
+  /** Where each custom property asked about is set, for the inspection shown. */
+  let sources = new Map<string, string | null>();
   let observer: MutationObserver | null = null;
   /** Watches the element's size, which its box goes by, while it is shown. */
   let sizes: ResizeObserver | null = null;
@@ -397,7 +417,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   }
 
   /** Give a node of the blocks a tooltip. */
-  function tip(control: HTMLElement, text: string): void {
+  function tip(control: HTMLElement, text: string | (() => string | Node)): void {
     tips.tooltip(control, text);
     tipped.push(control);
   }
@@ -411,6 +431,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   function clear(text: string, press: string): void {
     dropTips();
     read = null;
+    sources = new Map();
     built = [];
     flat = null;
     byId = new Map();
@@ -497,13 +518,59 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     flashTimer = window.setTimeout(() => block.classList.remove("flash"), FLASH);
   }
 
-  /** A custom property's name in a value: what it resolves to on rest, and its block on a press. */
-  function variable(name: string, value: VariableValue): HTMLElement {
-    const control = button("css-var", name);
-    tip(control, variableTip(name, value));
-    const { definedIn } = value;
-    if (definedIn !== null) control.addEventListener("click", () => flash(definedIn));
+  /** A color's swatch, which stands before what names the color. */
+  function swatchNode(color: string): HTMLElement {
+    const swatch = el("span", "css-swatch");
+    swatch.setAttribute("aria-hidden", "true");
+    swatch.style.backgroundColor = color;
+    return swatch;
+  }
+
+  /** Where a custom property is set, by the inspection shown, found once for each name. */
+  function sourceOfVariable(name: string): string | null {
+    if (!read) return null;
+    let source = sources.get(name);
+    if (source === undefined) {
+      source = declaredIn(read.found, name);
+      sources.set(name, source);
+    }
+    return source;
+  }
+
+  /**
+   * What a custom property's tooltip shows: what the element sees for it as
+   * the tooltip comes up, not as it was when the styles were read, with a
+   * swatch before a color, and under it, quietly, the selector that sets it.
+   */
+  function variableSaid(name: string, fallback: string | null): Node {
+    const element = target;
+    const seen = (one: string): string => (element ? page.variable(element, pseudo, one) : "");
+    const said = variableTip({ name, fallback }, seen, sourceOfVariable(name), page.isColor);
+    const box = el("span", "tip-lines");
+    said.lines.forEach((text, index) => {
+      const row = el("span", "tip-line");
+      if (index === 0 && said.color) row.append(swatchNode(said.color));
+      row.append(text);
+      box.append(row);
+    });
+    if (said.source !== null) box.append(el("span", "tip-line tip-quiet", said.source));
+    return box;
+  }
+
+  /**
+   * A custom property's name, in a value or at the start of its own
+   * declaration: a stop for the tab key that says what the element sees for
+   * it, on rest and on focus.
+   */
+  function variable(name: string, fallback: string | null, className = "css-var"): HTMLButtonElement {
+    const control = button(className, name);
+    tip(control, () => variableSaid(name, fallback));
     return control;
+  }
+
+  /** A mark of the css between a name and a value, as quiet as a label. */
+  function mark(text: string): HTMLElement {
+    return el("span", "css-punct", text);
   }
 
   /** The start of a declaration's line: its name, and a swatch where its value is a color. */
@@ -512,25 +579,42 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     declaration: StyleDeclaration,
     variables: Inspection["variables"],
   ): void {
-    row.append(el("span", "css-name", declaration.name), ": ");
+    const { name } = declaration;
+    row.append(
+      name.startsWith("--") ? variable(name, null, "css-name css-var") : el("span", "css-name", name),
+      mark(": "),
+    );
     const color = swatchOf(declaration, variables, page.isColor);
-    if (!color) return;
-    const swatch = el("span", "css-swatch");
-    swatch.setAttribute("aria-hidden", "true");
-    swatch.style.backgroundColor = color;
-    row.append(swatch);
+    if (color) row.append(swatchNode(color));
+  }
+
+  /**
+   * A declaration's value, each custom property it reads a piece of its own.
+   * With `variables`, a click on one a declaration in force reads goes to
+   * the block that sets it.
+   */
+  function valueNode(declaration: StyleDeclaration, variables?: Inspection["variables"]): HTMLElement {
+    const value = el("span", "css-value");
+    for (const part of valueParts(declaration.value)) {
+      if (part.kind !== "var") {
+        value.append(part.text);
+        continue;
+      }
+      const control = variable(part.text, part.fallback ?? null);
+      const definedIn = variables?.[part.text]?.definedIn ?? null;
+      if (definedIn !== null) control.addEventListener("click", () => flash(definedIn));
+      value.append(control);
+    }
+    return value;
   }
 
   function line(declaration: StyleDeclaration, variables: Inspection["variables"]): Line {
     // Struck through, as a declaration another one overrides is no longer in force.
     const row = el(declaration.overridden ? "s" : "div", "css-decl");
     named(row, declaration, variables);
-    const value = el("span", "css-value");
-    for (const part of valueParts(declaration.value)) {
-      const known = part.kind === "var" ? variables[part.text] : undefined;
-      value.append(known ? variable(part.text, known) : part.text);
-    }
-    row.append(value, declaration.important ? " !important;" : ";");
+    row.append(valueNode(declaration, variables));
+    if (declaration.important) row.append(" !important");
+    row.append(mark(";"));
     return { node: row, declaration };
   }
 
@@ -607,7 +691,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   function appliedLine({ declaration }: Applied, variables: Inspection["variables"]): Line {
     const row = el("div", "css-decl");
     named(row, declaration, variables);
-    row.append(el("span", "css-value", declaration.value));
+    row.append(valueNode(declaration));
     const comes = resolvedValue(declaration.value, variables);
     if (comes !== null) row.append(el("span", "css-comes", ` → ${comes}`));
     return { node: row, declaration };
@@ -738,6 +822,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     drawCrumbs(element);
     drawBox();
     read = { found, element };
+    sources = new Map();
     draw();
   }
 

@@ -110,6 +110,7 @@ const page: StylesPage = {
     boxed.push(target);
     return box(target);
   },
+  variable: () => "",
 };
 
 const tips: Tips = {

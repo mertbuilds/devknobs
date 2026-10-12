@@ -5,10 +5,12 @@
 
 import type {
   HiddenSheet,
+  Inspection,
   RuleOrigin,
   StyleDeclaration,
   VariableValue,
 } from "../styles/types";
+import { resolveVars, varReferences } from "../styles/varrefs";
 
 /** The most characters the view's head, a crumb and a file name show. */
 export const TITLE_MAX = 44;
@@ -65,28 +67,21 @@ export function hiddenLine(hidden: HiddenSheet): string {
   return `rules hidden: ${fileName(hidden.sheet)} (${why})`;
 }
 
-/** What a custom property's tooltip says: what the element sees for it. */
-export function variableTip(name: string, variable: VariableValue): string {
-  return variable.value === "" ? `${name} is not set` : `${name}: ${variable.value}`;
-}
-
 /** A piece of a value: plain text, or the name of a custom property it reads. */
 export interface ValuePart {
   kind: "text" | "var";
   text: string;
+  /** For a name: what its `var()` falls back to, as written, or null for none. */
+  fallback?: string | null;
 }
-
-const VAR = /var\(\s*(--[^\s,)]+)/g;
 
 /** A value in pieces, each name read through `var()` a piece of its own. */
 export function valueParts(value: string): ValuePart[] {
   const parts: ValuePart[] = [];
   let at = 0;
-  for (const match of value.matchAll(VAR)) {
-    const name = match[1] ?? "";
-    const start = match.index + match[0].length - name.length;
+  for (const { at: start, name, fallback } of varReferences(value)) {
     if (start > at) parts.push({ kind: "text", text: value.slice(at, start) });
-    parts.push({ kind: "var", text: name });
+    parts.push({ kind: "var", text: name, fallback });
     at = start + name.length;
   }
   if (at < value.length) parts.push({ kind: "text", text: value.slice(at) });
@@ -167,4 +162,78 @@ export function swatchOf(
   const whole = WHOLE_VAR.exec(declaration.value.trim());
   const value = whole?.[1] ? (variables[whole[1]]?.value ?? "") : declaration.value;
   return colorIn(declaration.name, value, supports);
+}
+
+/** The most characters a custom property's tooltip shows of a value or a selector. */
+export const VAR_MAX = 64;
+
+/** What a custom property's tooltip says when the element sees none. */
+export const NOT_SET = "not set";
+
+/** What a custom property's tooltip says, line by line. */
+export interface VariableTip {
+  /** What the element sees for the property, whole. Empty when it is not set. */
+  value: string;
+  /** The value to paint a swatch with before the first line, where it is a color. */
+  color: string | null;
+  /** The value cut in its middle where it is long, or that it is not set, then what its fallback comes to. */
+  lines: string[];
+  /** Where it is set, to say quietly under the value, or null where that is not known. */
+  source: string | null;
+}
+
+/** Whether a whole value is one color to paint, by the browser's word on it. */
+function isOneColor(value: string, supports: (color: string) => boolean): boolean {
+  return value !== "" && !NO_COLOR.has(value.toLowerCase()) && supports(value);
+}
+
+/**
+ * What the tooltip of a custom property says. `read` is what the element
+ * sees for a name now, empty for one that is not set. A property that is not
+ * set says so, and what the fallback of its `var()` comes to where it has one.
+ */
+export function variableTip(
+  reference: { name: string; fallback?: string | null },
+  read: (name: string) => string,
+  source: string | null,
+  supports: (color: string) => boolean,
+): VariableTip {
+  const value = read(reference.name);
+  if (value !== "") {
+    return {
+      value,
+      color: isOneColor(value, supports) ? value : null,
+      lines: [middle(value, VAR_MAX)],
+      source: source === null ? null : middle(source, VAR_MAX),
+    };
+  }
+  const lines = [NOT_SET];
+  if (reference.fallback != null) {
+    const comes = resolveVars(reference.fallback, read);
+    if (comes === null) lines.push("its fallback is not set either");
+    else if (comes.trim() === "") lines.push("uses fallback, which is empty");
+    else lines.push(`uses fallback: ${middle(comes, VAR_MAX)}`);
+  }
+  return { value: "", color: null, lines, source: null };
+}
+
+/**
+ * Where a custom property the element sees is set: the selector of the rule
+ * whose declaration is in force, the element's own first, then the nearest
+ * ancestor that hands it down. Null where no block shown sets it.
+ */
+export function declaredIn(found: Inspection, name: string): string | null {
+  for (const block of found.blocks) {
+    if (block.kind === "pseudo") continue;
+    const own = block.kind === "inherited" ? block.blocks : [block];
+    for (const one of own) {
+      if (!one.declarations.some((declaration) => declaration.name === name && !declaration.overridden)) continue;
+      if (one.kind === "rule") {
+        const matching = one.selector.filter((part) => part.matches).map((part) => part.text);
+        return matching.length > 0 ? matching.join(", ") : one.selectorText;
+      }
+      return block.kind === "inherited" ? `style of ${crumbText(block.from)}` : "element.style";
+    }
+  }
+  return null;
 }

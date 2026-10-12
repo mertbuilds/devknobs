@@ -380,8 +380,8 @@ export interface Pairs {
 }
 
 /**
- * A list of names and their values in two columns, the names quiet and the
- * values in the text's color, both in mono and wrapping anywhere. Where the
+ * A list of names and their values in two columns, the names in a key's
+ * color and the values in the text's, both in mono and wrapping anywhere. Where the
  * view is narrow a name stands over its value.
  */
 export function pairs(lines: readonly (readonly [name: string, value: string])[]): Pairs {

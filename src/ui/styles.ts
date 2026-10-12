@@ -71,6 +71,7 @@ export const CSS = `
   --lift: 0 1px 2px rgb(0 0 0 / 0.1);
   --hot: #e5484d;
   --ok: #18794e;
+  --key: #1a65ad;
   --req-moved: #9e5c00;
   --req-get: #0b6fc6;
   --req-post: #6550b9;
@@ -125,6 +126,7 @@ export const CSS = `
     --lift: none;
     --hot: #ff6369;
     --ok: #3dd68c;
+    --key: #8cbcec;
     --req-moved: #f1a10d;
     --req-get: #70b8ff;
     --req-post: #baa7ff;
@@ -924,6 +926,9 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .tip.on { opacity: 1; }
 .tip.hot { color: var(--hot); }
+/* A tooltip of more than one line: each on its own, and one said quietly. */
+.tip-line { display: block; }
+.tip-quiet { color: var(--faint); }
 .hint-key {
   box-sizing: border-box;
   min-width: 14px;
@@ -1161,7 +1166,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .group-head { display: flex; align-items: center; gap: 4px; min-height: 22px; }
 .group-head > .row-button { margin-top: 0; margin-bottom: 0; }
-/* Names and their values in two columns, in mono, the names quiet. Both wrap
+/* Names and their values in two columns, in mono, the names a key's color. Both wrap
    anywhere and can be selected. Where the view is under 290 wide, a panel of
    300, a name stands over its value. */
 .pairs {
@@ -1177,7 +1182,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   -webkit-user-select: text;
   cursor: text;
 }
-.pair-name { color: var(--faint); }
+.pair-name { color: var(--key); }
 .pair-value { margin: 0; }
 @container view (max-width: 290px) {
   .pairs { grid-template-columns: minmax(0, 1fr); gap: 0; }
@@ -1358,7 +1363,11 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 /* A declaration that wraps goes on further in than it starts. */
 .css-decl { display: block; padding-left: 24px; text-indent: -12px; text-decoration: none; }
-s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-through; }
+/* A name has the color of a key, its value the text's, and the marks between
+   them are quiet. A declaration that is struck through is quiet all over. */
+.css-name { color: var(--key); }
+.css-punct { color: var(--faint); }
+s.css-decl, s.css-decl .css-var, s.css-decl .css-name { color: var(--faint); text-decoration: line-through; }
 .css-swatch {
   display: inline-block;
   width: 9px;
@@ -1368,15 +1377,16 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   border-radius: 2px;
   box-shadow: inset 0 0 0 1px var(--line);
 }
-/* A custom property's name, which says what it resolves to and goes to where it is set. */
+/* A custom property's name, which says what the element sees for it. It has
+   no line at rest, and one under it while the pointer or the focus is on it. */
 .css-var {
   display: inline;
   white-space: normal;
   text-indent: 0;
-  text-decoration: underline dotted var(--faint);
   text-underline-offset: 2px;
   border-radius: 2px;
 }
+.css-var:hover, .css-var:focus-visible { text-decoration: underline dotted; }
 .css-group {
   justify-self: start;
   max-width: 100%;

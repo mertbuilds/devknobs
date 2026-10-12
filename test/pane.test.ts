@@ -133,7 +133,7 @@ interface Page {
   /** What the panel was asked for, in order: to leave the search and the settings, to open, to draw. */
   asked: string[];
   /** The controls given a tooltip, each with its text, or with what says it as it shows. */
-  tipped: [FakeNode, string | (() => string)][];
+  tipped: [FakeNode, string | (() => string | Node)][];
   tipsHidden: () => number;
   /** Runs as the panel draws, in the place of what a real panel does then. */
   drawing: { run: (() => void) | null };
