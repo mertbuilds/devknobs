@@ -159,6 +159,36 @@ export function onPane(listener: PaneListener): () => void {
   };
 }
 
+/** The head of a view as built. */
+export interface ViewHead {
+  box: HTMLElement;
+  /** The way back: the row's main, with the chevron and the title in it. */
+  back: HTMLButtonElement;
+  /** The node that holds the title. */
+  title: HTMLElement;
+  /** Where the view's actions go, after the main as a row's x is. */
+  actions: HTMLElement;
+}
+
+/**
+ * The head of a view, and of the settings: a row, built as every row is. Its
+ * leading slot stays empty, as a row's with no grip does, so the way back's
+ * chevron stands where a row's icon is and the title where a row's name is,
+ * and the actions where a row's x is.
+ */
+export function viewHead(): ViewHead {
+  const back = button("main", "");
+  const actions = el("div", "view-actions");
+  const { box, label } = rowBox({
+    main: back,
+    glyph: icon("chevron-left"),
+    title: "",
+    after: [actions],
+  });
+  box.className = `${box.className} view-head`;
+  return { box, back, title: label, actions };
+}
+
 /** What has the focus, inside a shadow root too. */
 function focused(): Element | null {
   let at = document.activeElement;
@@ -181,21 +211,10 @@ export function createPane(context: PaneContext): Pane {
 
   const node = el("div", "view pane");
   node.setAttribute("role", "group");
-  // The head is a row, built as every row is: the way back in the leading
-  // slot, where a knob row's grip is, then the title, and the actions where a
-  // row's x is.
-  const back = button("main", "");
+  const { box: head, back, title, actions } = viewHead();
   back.addEventListener("click", leave);
   back.addEventListener("pointerenter", () => shown?.point?.(true));
   back.addEventListener("pointerleave", () => shown?.point?.(false));
-  const actions = el("div", "view-actions");
-  const { box: head, label: title } = rowBox({
-    main: back,
-    lead: icon("chevron-left"),
-    title: "",
-    after: [actions],
-  });
-  head.className = `${head.className} view-head`;
   const body = el("div", "view-body");
   node.append(head, body);
 

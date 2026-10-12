@@ -1,8 +1,9 @@
 import type { GrabControl } from "../grab/control";
 import { BINDING_WORDS, type LiveKeys, recordStep } from "./bindings";
-import { button, el, mark, rowBox, rowButton } from "./dom";
+import { button, el, mark, rowBox, rowButton, rowsLabel } from "./dom";
 import { BINDING_ICONS, icon, type IconName } from "./icons";
 import { type Binding, comboLabel, comboSpoken, type Keys } from "./keys";
+import { viewHead } from "./pane";
 import type { LivePrefs } from "./prefs";
 import { focusOn, type View } from "./slide";
 import { createRefusal, type Tips } from "./tooltip";
@@ -70,15 +71,17 @@ export function createSettings(context: SettingsContext): Settings {
   const { keys, prefs, grab, mac, bindingsHere, keysToggle, said, tips, render, renderKeys } =
     context;
 
-  // The settings, in place of the rows: a way back to them, its chevron in
-  // the leading slot as the head of a view has it, whether the
-  // handle shows while the panel is closed, then each binding's key, to set
-  // or put back. A key that is not taken shakes its chip and says why in the
-  // tooltip. The panel's icons face the side it is on.
+  // The settings, in place of the rows: the head every view has, with the
+  // way back to them, whether the handle shows while the panel is closed,
+  // then each binding's key, to set or put back. A key that is not taken
+  // shakes its chip and says why in the tooltip. The panel's icons face the
+  // side it is on.
   const keysView = el("div", "keys pane");
   keysView.setAttribute("role", "group");
   keysView.setAttribute("aria-label", "settings");
-  const keysBack = button("main", "");
+  const head = viewHead();
+  const keysBack = head.back;
+  head.title.textContent = "settings";
   keysBack.setAttribute("aria-label", "back from settings");
   const handleSwitch = button("switch row-control", "");
   handleSwitch.setAttribute("role", "switch");
@@ -89,14 +92,14 @@ export function createSettings(context: SettingsContext): Settings {
     return glyph;
   };
   keysView.append(
-    rowBox({ main: keysBack, lead: icon("chevron-left"), title: "settings" }).box,
+    head.box,
     rowBox({
       main: el("div", "main"),
       glyph: sided("panel-right"),
       title: "show handle",
       ends: [handleSwitch],
     }).box,
-    el("div", "group-label", "shortcuts"),
+    rowsLabel("shortcuts"),
   );
   const keyViews = new Map<
     Binding,

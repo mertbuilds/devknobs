@@ -25,7 +25,7 @@ export interface RowParts {
   main: HTMLElement;
   /** A control of its own in the leading slot, as a knob row's grip is. */
   grip?: HTMLElement;
-  /** A drawing in the leading slot that is part of the main, as a head's way back is. */
+  /** A drawing in the leading slot that is part of the main, as a fold's chevron is. */
   lead?: Element;
   /** The icon before the title. */
   glyph?: Element;
@@ -68,6 +68,14 @@ export function rowBox(parts: RowParts): RowBox {
   line.append(main, ...(parts.after ?? []));
   box.append(line);
   return { box, label };
+}
+
+/**
+ * A title over a run of rows, such as the settings' shortcuts: it starts
+ * past the leading slot, over the rows' icons.
+ */
+export function rowsLabel(text: string): HTMLElement {
+  return el("div", "rows-label", text);
 }
 
 /**

@@ -16,7 +16,7 @@
 import { button, el, field, mark, rowBox } from "./dom";
 import { icon } from "./icons";
 
-export { type RowBox, type RowParts, rowBox, rowButton } from "./dom";
+export { type RowBox, type RowParts, rowBox, rowButton, rowsLabel } from "./dom";
 export { type Segments, type SegmentsOptions, segments } from "./radio";
 
 /** What a filter is built from. */

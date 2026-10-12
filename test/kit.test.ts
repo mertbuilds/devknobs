@@ -348,7 +348,15 @@ describe("a view's chrome", () => {
   const BOX = /(^|[\s;])(padding|border|outline|box-shadow)(-[a-z-]+)?\s*:/;
 
   /** The rules that may: the shared ones every view and every row goes by. */
-  const SHARED = [".toolbar", ".main", ".keys .main"];
+  const SHARED = [".toolbar", ".main"];
+
+  /** A rule for the settings' pane, `.keys`, and not for the footer's `.keys-toggle`. */
+  const SETTINGS = /\.keys(?![\w-])/;
+
+  /** The shared pieces the settings are built from, which no rule of theirs may name. */
+  const PIECE = /\.(view-head|view-actions|row|line|main|lead|row-label|rows-label|group-label|row-button|row-control|clear)(?![\w-])/;
+
+  const MARGIN = /(^|[\s;])margin(-[a-z-]+)?\s*:/;
 
   /** The rules that name one of the shared pieces of a view's chrome. */
   function naming(piece: RegExp) {
@@ -374,7 +382,25 @@ describe("a view's chrome", () => {
     }
   });
 
+  test("the settings pad, edge and space nothing of their own, and name none of the shared pieces", () => {
+    const own = rules(CSS).filter((rule) => SETTINGS.test(rule.selector));
+    expect(own.map((rule) => rule.selector)).toContain(".keys");
+    for (const rule of own) {
+      expect(rule.selector).not.toMatch(PIECE);
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(BOX);
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(MARGIN);
+    }
+  });
+
   test("the guard reads a rule that breaks it", () => {
+    expect(".keys .main { padding-right: 2px; }").toMatch(SETTINGS);
+    expect(".keys .main { padding-right: 2px; }").toMatch(PIECE);
+    expect(".keys .group-label { padding-left: 22px; }").toMatch(PIECE);
+    expect(".keys .view-head").toMatch(PIECE);
+    expect(".keys .clear { margin: -2px 0 -2px auto; }").toMatch(MARGIN);
+    expect(".keys { padding: 0 4px; }").toMatch(BOX);
+    expect(".keys-toggle { margin-left: auto; }").not.toMatch(SETTINGS);
+    expect(".keys { display: grid; gap: 1px; }").not.toMatch(MARGIN);
     expect(".view-head .main { padding-right: 2px; }").toMatch(BOX);
     expect(".req-bar.toolbar { border-bottom: 1px solid red; }").toMatch(BOX);
     expect(".view-head { border-radius: 4px; outline: 0; }").toMatch(BOX);

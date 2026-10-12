@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { BINDINGS, type LiveKeys } from "../src/ui/bindings";
 import { type Action, actionRow, ROWS, type Row, type RowId } from "../src/ui/catalog";
-import { rowBox, rowButton } from "../src/ui/dom";
+import { rowBox, rowButton, rowsLabel } from "../src/ui/dom";
 import { defaultKeys } from "../src/ui/keys";
+import { viewHead } from "../src/ui/pane";
 import type { LivePrefs } from "../src/ui/prefs";
 import { rowLine } from "../src/ui/rows";
 import { createSettings } from "../src/ui/settings";
@@ -102,7 +103,7 @@ describe("the row builder", () => {
     expect(label.textContent).toBe("device");
   });
 
-  test("the leading slot is one class, whatever stands in it: a grip beside the main, a way back in it", () => {
+  test("the leading slot is one class, whatever stands in it: a grip beside the main, a chevron in it", () => {
     const grip = node("button", "grip");
     rowBox({ main: node("button", "main"), grip, title: "scheme" });
     const back = node("button", "main");
@@ -112,7 +113,7 @@ describe("the row builder", () => {
     expect(fake(grip).classes()).toContain("lead");
     expect(slot?.className).toBe("lead");
     expect(slot?.children).toEqual([fake(chevron)]);
-    // The way back is part of its button: a press on the chevron is a press on the way back.
+    // The chevron is part of its button: a press on it is a press on the main.
     expect(parts(back)).toEqual(["lead", "row-label"]);
   });
 
@@ -123,7 +124,7 @@ describe("the row builder", () => {
     expect(parts(main)).toEqual(["glyph", "row-label"]);
   });
 
-  test("the slot's place and width are said once, for a grip and a way back alike", () => {
+  test("the slot's place and width are said once, for a grip and a chevron alike", () => {
     const all = rules(CSS);
     const slot = all.filter((rule) => rule.selector === ".lead");
     expect(slot).toHaveLength(1);
@@ -222,23 +223,41 @@ describe("a row's line", () => {
 });
 
 describe("the settings' head", () => {
-  test("is a row from the builder: its way back in the leading slot, then its title", () => {
+  test("is the head every view has: the slot empty, its way back where a row's icon is, then its title", () => {
     const view = settings();
     const [head, handle] = view.children;
-    expect(head?.className).toBe("row");
+    expect(head?.className).toBe("row view-head");
     const [line] = head?.children ?? [];
-    expect(parts(line)).toEqual(["main"]);
+    expect(parts(line)).toEqual(["main", "view-actions"]);
     const [back] = line?.children ?? [];
     expect(back?.tag).toBe("button");
-    expect(parts(back)).toEqual(["lead", "row-label"]);
-    expect(parts(back?.children[0])).toEqual(["glyph"]);
+    expect(parts(back)).toEqual(["glyph", "row-label"]);
     expect(back?.children[1]?.textContent).toBe("settings");
+    expect(back?.attributes.get("aria-label")).toBe("back from settings");
     // The rows under it keep the slot empty, and start with their icon.
     expect(parts(handle?.children[0]?.children[0])).toEqual([
       "glyph sided",
       "row-label",
       "switch row-control",
     ]);
+  });
+
+  test("is built as the head of a view is, node for node", () => {
+    /** A node's tag, classes and children, with no text. */
+    const shape = (of: FakeNode): unknown => [of.tag, of.className, of.children.map(shape)];
+    const [head] = settings().children;
+    expect(head ? shape(head) : null).toEqual(shape(fake(viewHead().box)));
+  });
+
+  test("the shortcuts' title is the rows' label, over the rows' icons by the one shared rule", () => {
+    const view = settings();
+    expect(view.children[2]?.className).toBe("rows-label");
+    expect(view.children[2]?.textContent).toBe("shortcuts");
+    expect(fake(rowsLabel("shortcuts")).className).toBe("rows-label");
+    const label = rules(CSS).filter((rule) => /\.rows-label\b/.test(rule.selector));
+    expect(label.map((rule) => rule.selector)).toEqual([".rows-label"]);
+    // 22, where the main's padding puts a row's icon.
+    expect(label[0]?.body).toMatch(/padding:\s*8px 8px 2px 22px/);
   });
 
   test("a shortcut ends with its x, the button a row's is, then its key", () => {
