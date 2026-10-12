@@ -11,7 +11,7 @@ import { type Actions, el, FONT, type Look, MORPH, type Painted, place } from ".
 import { buildChrome, CHROME_CSS } from "./chromedraw";
 import { type Color, luminance, parseColor } from "./color";
 import { give } from "./endroom";
-import { OUTSIDE_ATTRIBUTE, reachable, schemeGiven } from "./frame";
+import { OUTSIDE_ATTRIBUTE, reachable } from "./frame";
 import { baseMatchMedia } from "./matchmedia";
 import type { Rect } from "./mock";
 import { navigationOf } from "./reload";
@@ -76,11 +76,6 @@ function toRgb(color: string): Color | null {
   }
 }
 
-/** The browser's own canvas, which a page that paints no background shows. */
-function canvasOf(dark: boolean): [number, number, number] {
-  return dark ? [18, 18, 18] : [255, 255, 255];
-}
-
 /**
  * The color the page paints its canvas in: the root's background, else the
  * body's, over the browser's own canvas, which is dark only for a page that
@@ -90,7 +85,7 @@ function backgroundOf(doc: Document, view: Window, dark: boolean): [number, numb
   const root = view.getComputedStyle(doc.documentElement);
   const schemes = root.colorScheme ?? "";
   const canvasDark = schemes.includes("dark") && (dark || !schemes.includes("light"));
-  let base = canvasOf(canvasDark);
+  let base: [number, number, number] = canvasDark ? [18, 18, 18] : [255, 255, 255];
   const layers = [doc.body, doc.documentElement].filter((node): node is HTMLElement => !!node);
   for (const node of layers) {
     const color = toRgb(view.getComputedStyle(node).backgroundColor);
@@ -114,8 +109,7 @@ function outsideHost(frame: HTMLIFrameElement): string {
 
 /**
  * What the bars show for the page in the frame, white and empty while it is
- * out of reach. An outside page, which nothing reads, is its own host on the
- * browser's canvas for the scheme it is given, dark or light.
+ * out of reach. An outside page is white too, under its own host.
  */
 export function readLook(frame: HTMLIFrameElement): Look {
   const fallback: Look = {
@@ -126,20 +120,7 @@ export function readLook(frame: HTMLIFrameElement): Look {
     canBack: false,
     canForward: false,
   };
-  if (!reachable(frame)) {
-    const scheme = schemeGiven(frame);
-    const dark = scheme === "dark";
-    const [r, g, b] = canvasOf(dark);
-    // Back leaves an outside page for the window's own.
-    return {
-      ...fallback,
-      background: `rgb(${r}, ${g}, ${b})`,
-      dark,
-      scheme,
-      host: outsideHost(frame),
-      canBack: true,
-    };
-  }
+  if (!reachable(frame)) return { ...fallback, host: outsideHost(frame) };
   try {
     const view = frame.contentWindow;
     const doc = frame.contentDocument;
@@ -235,8 +216,6 @@ function same(a: Rect | null, b: Rect | null): boolean {
  * The page's scroll moves `minimized()`, and `onChange` hears when it does.
  * `onReload` hears the reload button before the page reloads, and `ready`
  * says when the frame's page is in and ready to paint, with no reload on its way.
- * `onOwn` hears the back button of an outside page, which leaves it for the
- * window's own.
  */
 export function createBrowser(
   glass: HTMLElement,
@@ -244,7 +223,6 @@ export function createBrowser(
   onChange: () => void,
   onReload: () => void = () => {},
   ready: () => boolean = () => true,
-  onOwn: () => void = () => {},
 ): BrowserLayer {
   /** Blanks the screen while its page reloads. */
   const blank = el("div", "screenblank");
@@ -266,8 +244,6 @@ export function createBrowser(
   let watched: Document | null = null;
   let href = "";
   let motion: BarsMotion = BARS_START;
-  /** The window's own scheme query, which an outside page's look follows under the system scheme. */
-  let system: MediaQueryList | null = null;
   /** A page is loading, and the bars keep the look they had. */
   let busy = false;
   /** The wait for the reloaded page to paint. */
@@ -279,19 +255,15 @@ export function createBrowser(
     // Heard after the step, so a step taken while the frame is drawn never redraws inside it.
     if (motion.minimized !== before) queueMicrotask(onChange);
   };
-  const onSystem = () => {
-    if (!reachable(frame)) onChange();
-  };
   const onScroll = () => {
     if (!reachable(frame)) return;
     const page = frame.contentWindow;
     if (page) step({ type: "scroll", y: page.scrollY, time: performance.now() });
   };
   const actions: Actions = {
-    // An outside page keeps its history to itself: back leaves it for the window's own page.
+    // An outside page keeps its history to itself.
     back: () => {
       if (reachable(frame)) frame.contentWindow?.history.back();
-      else onOwn();
     },
     forward: () => {
       if (reachable(frame)) frame.contentWindow?.history.forward();
@@ -366,12 +338,10 @@ export function createBrowser(
    * between device pixels at most scales, where its background is drawn into
    * the part of a pixel the page is not, and its stylesheet's white there is a
    * hairline along the edge of a dark page, which comes and goes as the page
-   * is drawn in new layers. A page out of reach keeps the stylesheet's, and an
-   * outside page takes its scheme's canvas.
+   * is drawn in new layers. A page out of reach keeps the stylesheet's.
    */
   const back = () => {
-    const known = reaches(frame) || !reachable(frame);
-    frame.style.background = known ? (look ??= readLook(frame)).background : "";
+    frame.style.background = reaches(frame) ? (look ??= readLook(frame)).background : "";
   };
   const draw = () => {
     const bars = view?.bars ?? null;
@@ -453,21 +423,6 @@ export function createBrowser(
     };
     loadWait = window.requestAnimationFrame(check);
   };
-  /**
-   * Read the look again. A page that is loading keeps the one it had, but an
-   * outside page's is its scheme's alone, so it and the blank screen follow
-   * the scheme at once, and the window's own scheme is watched from then on.
-   */
-  const reread = () => {
-    const outside = !reachable(frame);
-    if (!busy || !look || outside) look = readLook(frame);
-    if (!outside) return;
-    if (busy) blank.style.background = look.background;
-    if (system) return;
-    system = baseMatchMedia("(prefers-color-scheme: dark)");
-    // No listener to add on a list from before Safari 14.
-    system.addEventListener?.("change", onSystem);
-  };
   const read = () => {
     try {
       // The window stays the same across loads, its document does not.
@@ -489,7 +444,7 @@ export function createBrowser(
     } catch {
       query = null;
     }
-    reread();
+    if (!busy || !look) look = readLook(frame);
     draw();
   };
   const browser: BrowserLayer = {
@@ -507,7 +462,7 @@ export function createBrowser(
       const again = view.bars
         ? read
         : () => {
-            reread();
+            if (!busy || !look) look = readLook(frame);
             back();
           };
       again();
@@ -526,8 +481,6 @@ export function createBrowser(
       loadWait = 0;
       clearTimeout(shrinking);
       query?.removeEventListener("change", read);
-      system?.removeEventListener?.("change", onSystem);
-      system = null;
       try {
         if (reachable(frame)) frame.contentWindow?.removeEventListener("scroll", onScroll);
       } catch {

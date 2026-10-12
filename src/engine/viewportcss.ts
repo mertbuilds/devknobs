@@ -144,7 +144,6 @@ iframe {
   color: #6e6e73;
   background: #fff;
 }
-.refused.dark { color: #98989d; }
 .refused[hidden] { display: none; }
 .blocked {
   position: absolute;

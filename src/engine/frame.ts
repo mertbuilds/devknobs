@@ -1,6 +1,5 @@
 import { type BoxRing, RINGS } from "../grab/boxmodel";
 import type { DevknobsState, PanelValue, SchemeValue } from "../types";
-import { baseMatchMedia } from "./matchmedia";
 import { parse } from "./store";
 
 /** Marks the iframe the width knob renders the page in. */
@@ -126,16 +125,6 @@ export function handsSchemeDown(root: Node): boolean {
   }
   probe.remove();
   return schemeHandover;
-}
-
-/**
- * The scheme the page in `frame` is given: the one the frame element carries,
- * else the window's own, which a frame with none follows.
- */
-export function schemeGiven(frame: HTMLIFrameElement): "light" | "dark" {
-  const set = frame.style.colorScheme;
-  if (set === "light" || set === "dark") return set;
-  return baseMatchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 /** The knobs that bring the frame up. */
