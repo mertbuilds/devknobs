@@ -70,6 +70,12 @@
 
 - a load devknobs asks for keeps the scroll position: the reload a locale or a device needs, the reload button in the device's browser bars, and a frame a knob brings up. the page, and the copy of it in the device's frame, go back to where they were once they are long enough, also when the host sends them to the top as it mounts. it stops as soon as you scroll, press a key or click, and a load of your own restores nothing
 
+### colors
+
+- the mat and grab's color take colors of your own: the plus after the swatches opens the browser's color picker, and a hex or `rgb()` can be typed in the field under it. the color shows on the mat, or on grab's box, while you pick it
+- a color of your own is kept per site, up to 8 for the mat and 8 for grab, and the x on its swatch, or delete with the focus on it, takes it off. one the same as a swatch that is there picks that swatch
+- the mat's lines and numbers go dark on a light color such as white or yellow, and the splash, the reload's stand-in and the early script follow any color
+
 ## 0.1.2
 
 ### iPhone Duo

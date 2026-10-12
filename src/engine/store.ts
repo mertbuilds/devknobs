@@ -9,8 +9,9 @@ import type {
   DirValue,
   EdgeValue,
   GeoErrorValue,
+  CustomColor,
   GrabColorValue,
-  MatColorValue,
+  MatColorName,
   MotionValue,
   OnlineValue,
   OrientationValue,
@@ -22,6 +23,7 @@ import type {
   VisionValue,
 } from "../types";
 import { mergeClock } from "./clock";
+import { isCustomColor } from "./color";
 import { deviceOf, formParent, hold, POSTURES, settle } from "./devices";
 import { webStorage } from "./fresh";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
@@ -151,9 +153,9 @@ const VISIONS: VisionValue[] = [
   "blur",
 ];
 
-const MAT_COLORS: MatColorValue[] = ["blue", "green", "magenta", "purple", "red", "graphite"];
+const MAT_COLORS: MatColorName[] = ["blue", "green", "magenta", "purple", "red", "graphite"];
 
-const GRAB_COLORS: GrabColorValue[] = [
+const GRAB_COLORS: Exclude<GrabColorValue, CustomColor>[] = [
   "auto",
   "blue",
   "green",
@@ -169,6 +171,11 @@ function record(value: unknown): Record<string, unknown> {
 
 function oneOf<T extends string>(value: unknown, allowed: T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+/** One of the colors a knob has a name for, or one of the user's own as its hex. */
+function colorOf<T extends string>(value: unknown, named: T[], fallback: T): T | CustomColor {
+  return isCustomColor(value) ? value : oneOf(value, named, fallback);
 }
 
 function text(value: unknown, fallback: string): string {
@@ -325,7 +332,7 @@ export function parse(json: string | null | undefined, place?: string | null): D
     // A session stored before the zoom knob fits the frame, as it did then.
     zoom: zoom === "fit" ? zoom : clampZoom(zoom),
     // A session stored before the mat had colors lies on the blue one.
-    mat: oneOf(state.mat, MAT_COLORS, DEFAULT_STATE.mat),
+    mat: colorOf(state.mat, MAT_COLORS, "blue"),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
     ua: {
       preset: text(ua.preset, DEFAULT_STATE.ua.preset),
@@ -334,7 +341,7 @@ export function parse(json: string | null | undefined, place?: string | null): D
     overflow: bool(state.overflow, DEFAULT_STATE.overflow),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     // A session stored before grab had a color to pick lets grab pick it.
-    grabColor: oneOf(state.grabColor, GRAB_COLORS, DEFAULT_STATE.grabColor),
+    grabColor: colorOf(state.grabColor, GRAB_COLORS, "auto"),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),
       ...placeOf(panel, home),

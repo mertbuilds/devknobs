@@ -1,13 +1,22 @@
 import { layoutOf, layoutOptions, platformOf } from "../engine/browserui";
+import { isCustomColor, parseColor, toHex } from "../engine/color";
 import { DEVICES, deviceOf, formId, formOf, hasTouch, POSTURES } from "../engine/devices";
 import { frameForced, knobFrame } from "../engine/frame";
-import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../engine/matcolors";
+import { isMatName, MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../engine/matcolors";
+import { landSplash } from "../engine/matsplash";
 import { mockOf } from "../engine/mock";
 import { DEFAULT_STATE } from "../engine/store";
 import { GRAB_COLOR_NAMES, GRAB_COLORS } from "../grab/colors";
 import { UA_PRESETS, uaPreset } from "../engine/ua";
 import { percent, ZOOM_MAX, ZOOM_MIN, ZOOM_PRESETS } from "../engine/zoom";
-import type { BarsValue, BrowserValue, DevknobsState, GrabColorValue, VisionValue } from "../types";
+import type {
+  BarsValue,
+  BrowserValue,
+  CustomColor,
+  DevknobsState,
+  GrabColorValue,
+  VisionValue,
+} from "../types";
 import type { Knob, Option } from "./catalog";
 import { flag, nameOf, numberIn, OFF_ON, options, parseUserAgent, UA_ALIASES } from "./knobs";
 
@@ -307,6 +316,12 @@ export const FRAME: Knob = {
   shown: (state) => !frameForced(state),
 };
 
+/** A css `rgb()` as the hex a color of the user's own the same as it has. */
+function hexOf(css: string): CustomColor | undefined {
+  const color = parseColor(css);
+  return color ? toHex(color) : undefined;
+}
+
 /** More words search finds each mat color by. */
 const MAT_ALIASES: Partial<Record<string, readonly string[]>> = {
   green: ["classic"],
@@ -323,11 +338,18 @@ export const MAT: Knob = {
     label: name,
     aliases: MAT_ALIASES[name],
     swatch: matGradient(MAT_COLORS[name].srgb),
+    // A color of the user's own is the top of its mat, so one of the mat's own goes by its top.
+    color: hexOf(MAT_COLORS[name].srgb[0]),
   })),
   aliases: ["background", "cutting mat", "mat color", "letterbox"],
   read: (state) => state.mat,
-  write: (value) => ({ mat: MAT_COLOR_NAMES.find((name) => name === value) ?? DEFAULT_STATE.mat }),
+  write: (value) => ({
+    mat: isMatName(value) || isCustomColor(value) ? value : DEFAULT_STATE.mat,
+  }),
   reset: { mat: DEFAULT_STATE.mat },
+  custom: "mat",
+  // A color still being picked changes many times a second, too fast to splash.
+  land: landSplash,
   // The mat lies around a frame a knob brought up. The value waits for one.
   brief: (state) => (knobFrame(state) ? state.mat : ""),
   shown: knobFrame,
@@ -436,10 +458,12 @@ export const GRAB_COLOR: Knob = {
       value: name,
       label: name,
       swatch: GRAB_COLORS[name].srgb,
+      color: hexOf(GRAB_COLORS[name].srgb),
     })),
   ],
   aliases: ["highlight", "overlay"],
   read: (state) => state.grabColor,
   write: (value) => ({ grabColor: value as GrabColorValue }),
   reset: { grabColor: DEFAULT_STATE.grabColor },
+  custom: "grab",
 };

@@ -586,6 +586,58 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .swatch:hover { box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--faint); }
 .swatch.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--fg); }
 .swatch:focus-visible { outline-offset: 4px; }
+/* Colors of the user's own stand after a knob's own, each with an x on its
+   corner that shows with the pointer or the focus on it, then a plus the
+   size of a swatch. The x stands after its swatch in the track and lies over
+   its corner, its margins taking back the room and the gap it would take. The browser's color input lies unseen under the plus, so
+   its picker opens there, and the field for a color typed out shows under
+   the swatches while one is being added. A color it cannot read shakes it
+   and turns it red, as a key a shortcut cannot take does. */
+.colors { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; }
+.swatch-plus { position: relative; display: flex; }
+.swatch-x {
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+  width: 12px;
+  height: 12px;
+  margin: -5px -5px 0 -15px;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  background: var(--raised);
+  border-radius: 50%;
+  box-shadow: var(--lift);
+  opacity: 0;
+  /* Unseen, it is hidden too, so it takes no press meant for the swatch under it. */
+  visibility: hidden;
+  transition: opacity 120ms ease-out, color 120ms ease-out, visibility 0s linear 120ms;
+}
+.swatch-own:hover + .swatch-x, .swatch-own:focus + .swatch-x, .swatch-x:hover {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 120ms ease-out, color 120ms ease-out;
+}
+.swatch-x:hover { color: var(--fg); }
+.swatch-add {
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  background: var(--track);
+  transition: box-shadow 120ms ease-out, color 120ms ease-out;
+}
+.swatch-add:hover { color: var(--fg); }
+.swatch-pick {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.field-color { margin: 0 5px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip {
@@ -873,7 +925,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   color: var(--faint);
   border-color: var(--faint);
 }
-.key-set.refused {
+.key-set.refused, .field.refused {
   color: var(--hot);
   background: color-mix(in srgb, var(--hot) 8%, transparent);
   border-color: var(--hot);

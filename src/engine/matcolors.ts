@@ -1,4 +1,5 @@
-import type { MatColorValue } from "../types";
+import type { MatColorName } from "../types";
+import { type Color, inkOn, isCustomColor, parseHex } from "./color";
 
 /**
  * A mat's paint: its three stops, a little lighter up top and deeper toward
@@ -18,7 +19,7 @@ export interface MatPaint {
  * Green is the classic cutting mat's, a little lighter, and graphite the
  * dark grey one's, a little darker.
  */
-export const MAT_COLORS: Record<MatColorValue, MatPaint> = {
+export const MAT_COLORS: Record<MatColorName, MatPaint> = {
   blue: {
     srgb: ["rgb(20, 70, 152)", "rgb(12, 48, 114)", "rgb(7, 31, 80)"],
     p3: [
@@ -76,7 +77,7 @@ export const MAT_COLORS: Record<MatColorValue, MatPaint> = {
 };
 
 /** The names of the colors, in the order the panel shows them. */
-export const MAT_COLOR_NAMES: readonly MatColorValue[] = [
+export const MAT_COLOR_NAMES: readonly MatColorName[] = [
   "blue",
   "green",
   "magenta",
@@ -88,4 +89,84 @@ export const MAT_COLOR_NAMES: readonly MatColorValue[] = [
 /** The mat's background: its stops spread from the middle of its top edge. */
 export function matGradient(stops: readonly [string, string, string]): string {
   return `radial-gradient(140% 100% at 50% 0%, ${stops[0]}, ${stops[1]} 60%, ${stops[2]})`;
+}
+
+/** Whether a value names one of the mat's own colors. */
+export function isMatName(value: unknown): value is MatColorName {
+  return MAT_COLOR_NAMES.some((name) => name === value);
+}
+
+/**
+ * How deep each stop of a color of the user's own is, as a share of the color:
+ * the color itself up top and deeper toward the edges, as the mat's own are.
+ */
+const SHADE = [1, 0.82, 0.64] as const;
+
+function rgb(color: Color): string {
+  return `rgb(${Math.round(color.red)}, ${Math.round(color.green)}, ${Math.round(color.blue)})`;
+}
+
+/** A color of the user's own at each stop: itself up top, and deeper toward the edges. */
+function shades(color: Color): [Color, Color, Color] {
+  const shade = (share: number): Color => ({
+    red: color.red * share,
+    green: color.green * share,
+    blue: color.blue * share,
+    alpha: 1,
+  });
+  return [shade(SHADE[0]), shade(SHADE[1]), shade(SHADE[2])];
+}
+
+/** The color a hex of the user's own stands for, or null for anything else. */
+function customColor(mat: string): Color | null {
+  return isCustomColor(mat) ? parseHex(mat) : null;
+}
+
+/** The mat's stops alone, in sRGB and in P3. */
+export type MatStops = Pick<MatPaint, "srgb" | "p3">;
+
+/**
+ * The stops of any color the mat takes, which is all the early script paints:
+ * one of the mat's own by name, one of the user's from its hex, the same in
+ * P3, which a hex does not reach past sRGB, and blue's for anything else.
+ */
+export function matStops(mat: string): MatStops {
+  if (isMatName(mat)) return MAT_COLORS[mat];
+  const color = customColor(mat);
+  if (!color) return MAT_COLORS.blue;
+  const [top, middle, edge] = shades(color);
+  const stops = [rgb(top), rgb(middle), rgb(edge)] as const;
+  return { srgb: stops, p3: stops };
+}
+
+/**
+ * The paint of any color the mat takes. One of the user's own has its lines
+ * and numbers in the ink that reads on all three of its stops, light on a
+ * dark color and dark on a light one.
+ */
+export function matPaint(mat: string): MatPaint {
+  if (isMatName(mat)) return MAT_COLORS[mat];
+  const color = customColor(mat);
+  return color ? { ...matStops(mat), line: rgb(inkOn(color, shades(color))) } : MAT_COLORS.blue;
+}
+
+/** The variables that paint the mat, as the rule of a color of its own sets them. */
+const MAT_VARIABLES = ["--mat", "--mat-p3", "--mat-line"] as const;
+
+/**
+ * Give `node` a color of the mat: `data-mat` names it, and the rule of one of
+ * the mat's own paints it from there. A color of the user's has no rule, so
+ * its paint goes on the node itself. Null takes the color off again.
+ */
+export function putMat(node: HTMLElement | SVGElement, mat: string | null): void {
+  if (mat === null) node.removeAttribute("data-mat");
+  else node.setAttribute("data-mat", mat);
+  if (mat === null || isMatName(mat)) {
+    for (const name of MAT_VARIABLES) node.style.removeProperty(name);
+    return;
+  }
+  const paint = matPaint(mat);
+  node.style.setProperty("--mat", matGradient(paint.srgb));
+  node.style.setProperty("--mat-p3", matGradient(paint.p3));
+  node.style.setProperty("--mat-line", paint.line);
 }

@@ -1,11 +1,11 @@
-import type { GrabColorValue } from "../types";
+import type { GrabColorName, GrabColorValue } from "../types";
 import type { GrabTone } from "./theme";
 
-/** A color grab draws its boxes and its glow in. */
+/** A color grab draws its boxes and its glow in: one it has a name for, or a hex of the user's own. */
 export type GrabColor = Exclude<GrabColorValue, "auto">;
 
-/** Each color as the `--grab` variable takes it, in sRGB and wider in P3. */
-export const GRAB_COLORS: Record<GrabColor, { srgb: string; p3: string }> = {
+/** Each color grab has a name for, as the `--grab` variable takes it, in sRGB and wider in P3. */
+export const GRAB_COLORS: Record<GrabColorName, { srgb: string; p3: string }> = {
   blue: { srgb: "rgb(41, 151, 255)", p3: "color(display-p3 0.2 0.6 1)" },
   green: { srgb: "rgb(48, 209, 88)", p3: "color(display-p3 0.25 0.85 0.4)" },
   // react-grab's own (MIT, Copyright (c) 2025 Aiden Bai)
@@ -16,7 +16,7 @@ export const GRAB_COLORS: Record<GrabColor, { srgb: string; p3: string }> = {
 };
 
 /** The names of the colors, in the order the panel shows them. */
-export const GRAB_COLOR_NAMES = Object.keys(GRAB_COLORS) as GrabColor[];
+export const GRAB_COLOR_NAMES = Object.keys(GRAB_COLORS) as GrabColorName[];
 
 /**
  * The color grab draws in: the one that was picked, whatever the page, or

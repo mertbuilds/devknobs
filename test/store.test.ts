@@ -128,11 +128,24 @@ describe("parse", () => {
     }
   });
 
+  test("keeps a grab color of the user's own, and lets grab pick for one that does not read", () => {
+    expect(parse(JSON.stringify({ grabColor: "#ff8c00" })).grabColor).toBe("#ff8c00");
+    expect(parse(JSON.stringify({ grabColor: "pink" })).grabColor).toBe("pink");
+    for (const grabColor of ["#FF8C00", "#f80", "teal", 7]) {
+      expect(parse(JSON.stringify({ grabColor })).grabColor).toBe("auto");
+    }
+  });
+
   test("lays a session stored before the mat had colors on the blue one, and keeps one stored", () => {
     expect(DEFAULT_STATE.mat).toBe("blue");
     expect(parse(JSON.stringify({ scheme: "dark" })).mat).toBe("blue");
     expect(parse(JSON.stringify({ mat: "pink" })).mat).toBe("blue");
     expect(parse(JSON.stringify({ mat: 3 })).mat).toBe("blue");
+    expect(parse(JSON.stringify({ mat: "#1e90ff" })).mat).toBe("#1e90ff");
+    // Only a hex as the knobs keep it is one of the user's own.
+    for (const mat of ["#1E90FF", "#fff", "#1e90ff;", "rgb(1, 2, 3)"]) {
+      expect(parse(JSON.stringify({ mat })).mat).toBe("blue");
+    }
     for (const color of MAT_COLOR_NAMES) {
       expect(parse(JSON.stringify({ mat: color })).mat).toBe(color);
     }

@@ -23,6 +23,7 @@ import {
   type ZoomAction,
 } from "./frame";
 import { drawMat } from "./mat";
+import { putMat } from "./matcolors";
 import { landSplash, spreadMat } from "./matsplash";
 import { createNotice } from "./notice";
 import type { Mock, Rect } from "./mock";
@@ -722,7 +723,7 @@ function resize(): void {
   // A device turning is drawn the way it ends up once it is there.
   if (released || turning() || folding()) return;
   readout.hidden = !hasStrip(current);
-  letterbox.setAttribute("data-mat", current.mat);
+  putMat(letterbox, current.mat);
   makeRoom();
   const size = stageSize();
   const aside = asideOf(current.panel);

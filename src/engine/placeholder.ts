@@ -3,7 +3,7 @@ import type { Look } from "./browserkit";
 import type { Docked } from "./dock";
 import { needsFrame, plainFrame } from "./frame";
 import { webStorage } from "./fresh";
-import { MAT_COLORS, matGradient } from "./matcolors";
+import { matGradient, matStops } from "./matcolors";
 import { newer, stamped } from "./stored";
 
 /**
@@ -44,7 +44,7 @@ export function coverCss(mat: MatColorValue | null): string {
   const hide = `html{overflow:hidden!important}
 body>:not([data-devknobs]){content-visibility:hidden!important}`;
   if (!mat) return hide;
-  const paint = MAT_COLORS[mat];
+  const paint = matStops(mat);
   return `${hide}
 html::after{content:"";position:fixed;inset:0;z-index:${Z_INDEX - 1};background:${matGradient(paint.srgb)};pointer-events:none}
 @media (color-gamut:p3){html::after{background:${matGradient(paint.p3)}}}`;

@@ -1,6 +1,7 @@
 import * as engine from "../engine";
 import { DEFAULT_STATE } from "../engine/store";
-import type { DevknobsState, DevknobsStatePatch } from "../types";
+import type { CustomColor, DevknobsState, DevknobsStatePatch } from "../types";
+import type { ColorList } from "./colors";
 import {
   BARS,
   BROWSER,
@@ -99,6 +100,8 @@ export interface Option {
   group?: string;
   /** What a swatch is painted with, as a css background. */
   swatch?: string;
+  /** The color a swatch stands for, which one of the user's own the same as it picks. */
+  color?: CustomColor;
 }
 
 /** What changes without a knob moving. */
@@ -185,6 +188,10 @@ export interface Knob {
    * does: such a value puts the knob off nothing, and its row's `×` puts it back.
    */
   base?(state: DevknobsState): string | undefined;
+  /** The list of colors of the user's own its swatches take, each one a value as its hex. */
+  custom?: ColorList;
+  /** Show the value it has at once, with no way there, as a color still being picked asks. */
+  land?(): void;
 }
 
 /** The rows of knobs. */
