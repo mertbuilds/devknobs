@@ -4,6 +4,7 @@ import { type KeyAction, needsFrame, readMessage } from "../engine/frame";
 import { onCount, overflowCount } from "../engine/overflow";
 import { isMac } from "../engine/ua";
 import { setDockWidth, watchColumn } from "../engine/dock";
+import { still } from "../engine/morphrun";
 import { frameWindow, panelSized, zoomKey } from "../engine/width";
 import type { GrabControl } from "../grab/control";
 import type { InspectControl } from "../grab/inspect";
@@ -12,6 +13,7 @@ import { runAction, stopAction } from "./actions";
 import { type Action, availableActions, type Live } from "./catalog";
 import { readColumn } from "./column";
 import { BINDINGS, createKeys, type LiveKeys } from "./bindings";
+import { createDockSlide } from "./dockslide";
 import { button, el, lay } from "./dom";
 import { createDrag } from "./drag";
 import { type Command, createFooter, overflowBadge } from "./footer";
@@ -84,7 +86,9 @@ export const HOST_STYLE = "position:fixed;top:0;z-index:2147483646;pointer-event
  * height, as wide as the panel is, and the engine puts the page in a frame
  * beside it. Open, the column has no handle: its edge changes its width as a
  * floating panel's does, and two controls by the pin take it to the other
- * side and close it.
+ * side and close it. Closing, the column slides all the way off first and
+ * the handle comes in after it, so nothing but the column ever stands
+ * between the page and the window's edge.
  *
  * The panel lists the knobs that are off their default or were set from it,
  * one row each, in the order they were added or dragged to, and a row opens
@@ -249,10 +253,28 @@ export function createPanel(options: PanelOptions = {}): Panel {
     sized: panelSized,
   });
   const requests = createRequests({ said });
-  // The frame follows a pinned panel's column where it shows, as it slides and glides.
-  const stopColumn = watchColumn((at) =>
-    readColumn(wrap, panel, at, document.documentElement.clientWidth || window.innerWidth),
-  );
+  // A pinned panel's column slides here, a frame at a time, and its handle after it.
+  const dockSlide = createDockSlide({
+    wrap,
+    panel,
+    clock: () => performance.now(),
+    still,
+    frame: (run) => window.requestAnimationFrame(run),
+    drop: (id) => window.cancelAnimationFrame(id),
+  });
+  // The frame follows a pinned panel's column where it shows, as it slides and
+  // glides. The column is drawn for the frame first, so the edge read is the
+  // one that shows.
+  const stopColumn = watchColumn((at, time) => {
+    const sliding = dockSlide.draw(time);
+    const edge = readColumn(
+      wrap,
+      panel,
+      at,
+      document.documentElement.clientWidth || window.innerWidth,
+    );
+    return sliding ? { ...edge, moving: true } : edge;
+  });
 
   // The strip comes last, so the tab key reaches it after all the panel holds.
   // The tooltip sits in the wrapper it is placed in, as the panel places the strip.
@@ -307,6 +329,12 @@ export function createPanel(options: PanelOptions = {}): Panel {
     const handleShown = prefs.get().handle;
     wrap.dataset.handle = handleShown ? "shown" : "hidden";
     settings.drawHandle(handleShown);
+    dockSlide.aim({
+      docked: state.panel.docked,
+      side: state.panel.side,
+      open,
+      handle: handleShown,
+    });
     panel.toggleAttribute("inert", !open);
     handle.setAttribute("aria-expanded", open ? "true" : "false");
     footer.drawPin(state.panel.docked);
@@ -643,6 +671,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       window.removeEventListener("blur", onBlur);
       resizes.disconnect();
       stopColumn();
+      dockSlide.destroy();
       document.removeEventListener("DOMContentLoaded", attach);
       host.remove();
     },

@@ -7,7 +7,11 @@ import type { SideValue } from "../types";
  * its glide included, so the page's edge and the column's are one.
  */
 
-/** What moves the column across: the wrapper's open and close slide and its glide, and the panel's width. */
+/**
+ * What moves the column across by the stylesheet: a floating wrapper's slide,
+ * the wrapper's glide, and the panel's width. A pinned column's own slide is
+ * the panel's to say.
+ */
 const SLIDES = ["transform", "translate"];
 const GROWS = ["width"];
 

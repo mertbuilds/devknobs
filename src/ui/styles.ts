@@ -35,7 +35,8 @@
  *
  * Pinned, `data-dock="true"`, the panel is a column from the window's top to
  * its bottom, square, with one hairline on the page's side, as wide as the
- * panel is. Its rules come last, over the floating ones.
+ * panel is. Its rules come last, over the floating ones. Its slide is not the
+ * stylesheet's: the panel draws the column each frame, and the handle after.
  *
  * Every line of the panel stands on one set of columns, the `--col-` tokens
  * on the wrapper, and nothing else says where a line starts or ends. A box
@@ -1505,10 +1506,49 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
   max-height: 40vh;
   max-height: 40dvh;
 }
+/* The pinned column slides by the panel alone, where the panel puts it each
+   frame: out, sliding off its edge by whole px, or away, all the way off it.
+   The wrapper stays where it is, still the box the handle and the tooltip
+   are placed in, so the handle does not ride the column. The panel shows for
+   as long as it is not away, and not by the clock, so the page's frame
+   always has the edge that shows to keep to. */
+.wrap[data-dock="true"],
+.wrap[data-dock="true"][data-side="left"],
+.wrap[data-dock="true"][data-handle="hidden"][data-open="false"],
+.wrap[data-dock="true"][data-handle="hidden"][data-open="false"][data-side="left"] {
+  visibility: visible;
+  transform: translateX(0);
+}
+.wrap[data-dock="true"] .panel { visibility: visible; }
+.wrap[data-dock="true"][data-column="sliding"] .panel { transform: translateX(var(--column-away, 0px)); }
+.wrap[data-dock="true"][data-column="away"] .panel { transform: translateX(100%); }
+.wrap[data-dock="true"][data-column="away"][data-side="left"] .panel { transform: translateX(-100%); }
+/* Away and closed it hides, so a drag of the handle carries none of it into
+   the window. One that opens shows from the start, to take the focus. */
+.wrap[data-dock="true"][data-open="false"][data-column="away"] .panel { visibility: hidden; }
 /* Open, the pinned panel shows no handle: its edge on the page's side is the
    strip that changes its width, and the controls by the pin close it and
-   take it across. Closed, the handle is as ever, at the window's edge. */
-.wrap[data-dock="true"][data-open="true"] .handle { display: none; }
+   take it across. Closed, the handle sits at the window's edge, over the
+   page and out of the column's flow, so it takes no room from either. It
+   comes in from the edge once the column is away, and goes off it under the
+   column that comes out, and takes no pointer on its way. */
+.wrap[data-dock="true"] .handle { display: none; }
+.wrap[data-dock="true"]:is([data-handle-at="edge"], [data-handle-at="sliding"]) .handle {
+  display: flex;
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin: 0;
+}
+.wrap[data-dock="true"][data-side="left"]:is([data-handle-at="edge"], [data-handle-at="sliding"]) .handle {
+  right: auto;
+  left: 0;
+}
+.wrap[data-dock="true"][data-handle-at="sliding"] .handle {
+  z-index: 0;
+  transform: translateX(calc(100% * var(--handle-away, 0)));
+  pointer-events: none;
+}
 /* Down a pinned panel the hairline runs the window's height, as its border does. */
 .wrap[data-dock="true"] .sizer::after { top: 0; bottom: 0; }
 /* While it is dragged the strip covers the window, so every move of the drag

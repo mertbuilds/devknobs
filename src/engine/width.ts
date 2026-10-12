@@ -439,7 +439,7 @@ function step(time: number): void {
   now.slow = now.seen !== null && time - now.seen > RIDE_SLOW ? now.slow + 1 : 0;
   now.seen = time;
   const side = current.panel.side;
-  const edge = letterbox && !released && now.slow < 2 ? columnEdge(side) : null;
+  const edge = letterbox && !released && now.slow < 2 ? columnEdge(side, time) : null;
   if (!letterbox || !edge?.moving) {
     endRide();
     resize();

@@ -333,11 +333,10 @@ describe("the pinned panel's styles", () => {
   });
 
   test("show no handle on the open column: its edge is the strip that changes its width", () => {
-    expect(CSS).toContain('.wrap[data-dock="true"][data-open="true"] .handle { display: none; }');
+    // The column has none of its own: one shows only where the panel says it is at the edge or on its way.
+    expect(CSS).toContain('.wrap[data-dock="true"] .handle { display: none; }');
     // Nothing of the edge that closed the panel on a click is left.
-    expect(CSS.match(/\[data-dock="true"\]\[data-open="true"\][^{]*\.handle/g)).toHaveLength(1);
-    // Closed, no rule of the pinned panel touches the handle: it is the handle as ever.
-    expect(CSS).not.toContain('.wrap[data-dock="true"] .handle');
+    expect(CSS).not.toMatch(/\[data-dock="true"\]\[data-open="true"\][^{]*\.handle/);
     // The strip is the one every panel has, its hairline the column's height.
     expect(rule(".sizer")).toContain("cursor: ew-resize");
     expect(CSS).toContain('.wrap[data-dock="true"] .sizer::after { top: 0; bottom: 0; }');
