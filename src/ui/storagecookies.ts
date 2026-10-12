@@ -11,7 +11,7 @@ import {
 import { preview, relative, sizeLabel } from "../storage/format";
 import { parseEntries } from "../storage/web";
 import { el } from "./dom";
-import { controls, emptyLine, entryFold, type Fold, noteLine, pairs, stack } from "./kit";
+import { controls, emptyLine, entryFold, entryHead, type Fold, noteLine, pairs, stack } from "./kit";
 import {
   askIn,
   counted,
@@ -24,9 +24,10 @@ import {
 } from "./storageparts";
 
 /**
- * The cookies the page can read, in the storage view: a row a cookie, which
- * folds out to what the browser tells of it. The line about HttpOnly is
- * always on top, so a cookie that is missing here is no puzzle.
+ * The cookies the page can read, in the storage view: a row a cookie, its
+ * name and its value each on a column under the table's head, which folds
+ * out to what the browser tells of it. The line about HttpOnly always ends
+ * the list, so a cookie that is missing here is no puzzle.
  */
 
 /** Where two cookies of a name are told apart: by their path and domain. */
@@ -43,6 +44,7 @@ export function cookieFields(cookie: Cookie, now: number): [string, string][] {
   if (cookie.expires !== null) {
     fields.push(["expires", `${new Date(cookie.expires).toISOString()}, ${relative(cookie.expires, now)}`]);
   } else if (cookie.placed) fields.push(["expires", "with the session"]);
+  fields.push(["size", sizeLabel(cookie.size)]);
   if (cookie.secure !== null) fields.push(["secure", cookie.secure ? "yes" : "no"]);
   if (cookie.sameSite !== null) fields.push(["sameSite", cookie.sameSite]);
   return fields;
@@ -58,9 +60,11 @@ export function cookieSection(shell: Shell): Section {
   const { site } = shell;
   const node = el("div", "st-list");
   const adding = el("div", "st-list");
+  const head = entryHead({ name: "name", value: "value" });
   const list = el("div", "st-list");
   const foot = el("div", "st-list");
-  node.append(stack([noteLine(HTTP_ONLY_NOTE)]), adding, list, foot);
+  // A page cannot tell which cookies are HttpOnly: it is said once, where the list ends.
+  node.append(adding, head, list, foot, noteLine(HTTP_ONLY_NOTE));
 
   let cookies: Cookie[] = [];
   let error: string | null = null;
@@ -82,6 +86,7 @@ export function cookieSection(shell: Shell): Section {
       return view.fold.node;
     });
     views = next;
+    head.hidden = nodes.length === 0;
     sync(list, nodes);
     if (error !== null) foot.replaceChildren(noteLine(error));
     else if (matching.length === 0) {

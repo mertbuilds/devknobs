@@ -12,7 +12,7 @@ import {
   writeWeb,
 } from "../storage/web";
 import { el } from "./dom";
-import { controls, emptyLine, entryFold, type Fold, noteLine, stack } from "./kit";
+import { controls, emptyLine, entryFold, entryHead, type Fold, noteLine, stack } from "./kit";
 import {
   askIn,
   counted,
@@ -28,8 +28,8 @@ import {
 
 /**
  * `localStorage` or `sessionStorage` in the storage view: a row a key, its
- * key and its value each on a column, which folds out to the whole value and
- * its controls. The list reads again on the
+ * key and its value each on a column under the table's head, which folds out
+ * to the whole value and its controls. The list reads again on the
  * view's tick and draws only the rows that changed.
  */
 
@@ -47,9 +47,10 @@ export function webSection(shell: Shell, kind: WebKind): Section {
   const { site } = shell;
   const node = el("div", "st-list");
   const adding = el("div", "st-list");
+  const head = entryHead({ name: "key", value: "value" });
   const list = el("div", "st-list");
   const foot = el("div", "st-list");
-  node.append(adding, list, foot);
+  node.append(adding, head, list, foot);
 
   let items: WebItem[] = [];
   let error: string | null = null;
@@ -72,6 +73,7 @@ export function webSection(shell: Shell, kind: WebKind): Section {
       return view.fold.node;
     });
     views = next;
+    head.hidden = nodes.length === 0;
     sync(list, nodes);
     if (error !== null) foot.replaceChildren(noteLine(error));
     else if (matching.length === 0) {
@@ -195,6 +197,14 @@ export function webSection(shell: Shell, kind: WebKind): Section {
       fold.set(true);
       askIn(shell, fold.body, `delete ${key}?`, "delete", drop, fill);
     }
+
+    // A double click on the row is the way to edit its value, as in the browser's own tools.
+    fold.main.addEventListener("dblclick", () => {
+      if (closeEdit) return;
+      open.add(key);
+      fold.set(true);
+      guard("edit", edit);
+    });
 
     if (open.has(key)) fill();
     return { item, fold, remove };

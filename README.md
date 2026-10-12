@@ -529,18 +529,23 @@ what it records, and what it cannot:
 ## storage
 
 the storage action (`⇧S`, or search for storage, data, application, cookies)
-shows what the page keeps in the browser, in the panel. it opens on a list of
-the stores, a row each with what the store holds: how many items and how
-much, or that it has none. a row opens its store on a page of its own, with a
-filter, the store's own controls under it, and its rows. the way back in the
-head, and escape, go back to the list, and the view opens again on the store
-it last showed:
+shows what the page keeps in the browser, in the panel, laid out as the
+browsers' own tools lay it out. it opens on a tree of the stores, a node each
+with what the store holds: how many items and how much, or that it has none.
+IndexedDB folds out to its databases and a database to its object stores, and
+cache storage to its caches. a node that holds a table opens it on a page of
+its own, which slides in over the tree: a filter, the store's own controls
+under it, and its lines under a head that names their columns. the way back
+in the head, and escape, go back to the tree. the view opens again on the page
+it last showed, with the nodes that were folded out still so, until the page
+reloads:
 
 - `local storage` and `session storage`: every key of `localStorage` and
   `sessionStorage`, its key and a one-line preview of its value each on a
   column, and its size. a row folds out to the whole value,
   laid out as json only where that changes nothing of it, with copy value,
-  edit, duplicate and delete. add takes `key=value`, a line each, or a json
+  edit, duplicate and delete. a double click on a row edits its value. add
+  takes `key=value`, a line each, or a json
   object of several keys. the list follows other tabs through the `storage`
   event and the page's own writes by reading again once a second, only while
   the store is in sight
@@ -548,14 +553,20 @@ it last showed:
   expiry, secure and sameSite the cookie store knows. edit and delete write
   `document.cookie` at the cookie's own path and domain, and where those are
   not told, try the page's path, its folders and `/`. a cookie that could not
-  be changed says so
-- `IndexedDB`: the databases `indexedDB.databases()` lists, a database's object
-  stores (key path, auto increment, indexes, record count) and a store's
-  records, fifty at a time. read only: a whole database can be deleted, a
-  record cannot be changed
-- `cache storage`: the caches of Cache Storage, and a cache's requests with the
-  response's status, type and size, a hundred at a time. read only
-- `presets`: named sets of values to put back into the page, see below
+  be changed says so. a page cannot read cookies marked HttpOnly, and the
+  list ends by saying so
+- `IndexedDB`: the databases `indexedDB.databases()` lists, each with its
+  version, and a database's object stores with their record counts. an
+  object store's page has its key path, auto increment and indexes, and its
+  records numbered from 0, fifty at a time. read only: a whole database can
+  be deleted from its node, a record cannot be changed
+- `cache storage`: the caches of Cache Storage, each with how many requests
+  it holds. a cache's page has its requests numbered from 0 with the
+  response's status, a hundred at a time, and a row folds out to the method,
+  address, type and size. read only
+- `presets`: named sets of values to put back into the page, see below. they
+  stand last in the tree under `devknobs`, as they are its own and not the
+  page's
 
 a store that can be emptied has clear among its controls, after one question.
 the head of the view has refresh and clear site data: one question that lists what goes, with counts, then local and

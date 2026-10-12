@@ -22,6 +22,7 @@ import {
   controls,
   emptyLine,
   entryFold,
+  entryHead,
   noteLine,
   segments,
   stack,
@@ -108,8 +109,9 @@ export function presetSection(shell: Shell): Section {
   const node = el("div", "st-list");
   const top = el("div", "st-list");
   const making = el("div", "st-list");
+  const head = entryHead({ name: "name", value: "holds" });
   const list = el("div", "st-list");
-  node.append(top, making, list);
+  node.append(top, making, head, list);
 
   let presets: Preset[] = [];
   let read = false;
@@ -294,6 +296,7 @@ export function presetSection(shell: Shell): Section {
   function draw(): void {
     if (!canKeep()) {
       top.replaceChildren(stack([noteLine(FRESH_PRESETS)]));
+      head.hidden = true;
       list.replaceChildren();
       shell.counted();
       return;
@@ -301,6 +304,7 @@ export function presetSection(shell: Shell): Section {
     top.replaceChildren(stack([noteLine(onLoadLine(presets))]));
     const matching = filterPresets(presets, shell.query());
     mains = [];
+    head.hidden = matching.length === 0;
     if (matching.length === 0) {
       list.replaceChildren(emptyLine(presets.length === 0 ? "no presets yet" : "nothing matches"));
     } else list.replaceChildren(...matching.map(row));

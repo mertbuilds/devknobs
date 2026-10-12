@@ -326,6 +326,43 @@ for (const layout of LAYOUTS) {
   });
 }
 
+describe("the storage view", () => {
+  const pane = view("flush");
+  const body = [...pane, "view-body"];
+  const chevron = left(...pane, "row view-head", "line", "button main");
+  /** The tree, and the lists a table's page is in. */
+  const tree = [...body, "st-list"];
+  const table = [...body, "st-list", "st-list"];
+  const node = ["row", "fold", "fold-body", "branch"];
+
+  test("is flush on both its levels, so the head's chevron stands at the inset and never moves between them", () => {
+    const source = readFileSync(join(import.meta.dir, "..", "src", "ui", "storageview.ts"), "utf8");
+    expect(source.match(/layout: "(\w+)"/g)).toEqual(['layout: "flush"', 'layout: "flush"']);
+    expect(chevron).toBe(INSET);
+  });
+
+  test("the head's chevron, a node's icon in the tree and a line's chevron in a table all start at the one x", () => {
+    const xs = {
+      "the head's chevron": chevron,
+      "a store's icon": left(...tree, ...MAIN),
+      "the presets' icon, under their label": left(...tree, "group", ...MAIN),
+      "the presets' label": left(...tree, "group", "group-head", "span group-label"),
+      "a line's chevron, in a table": left(...table, ...MAIN),
+      "a table's head": left(...table.slice(0, -1), "cells-head"),
+      "the line that ends a list": left(...tree, "button note note-button"),
+    };
+    for (const [name, x] of Object.entries(xs)) expect([name, x]).toEqual([name, INSET]);
+    // A name is an icon and the gap on, in the head as in every line.
+    expect(chevron + ICON + GAP).toBe(32);
+  });
+
+  test("a database's icon starts under IndexedDB's name, and an object store's under its database's", () => {
+    expect(left(...tree, ...node, ...MAIN)).toBe(chevron + ICON + GAP);
+    expect(left(...tree, ...node, ...node, ...MAIN)).toBe(chevron + (ICON + GAP) * 2);
+    expect(left(...tree, ...node, ...node, "stack", "chips")).toBe(chevron + (ICON + GAP) * 2 - INSET + PAD);
+  });
+});
+
 describe("the settings", () => {
   test("are on the knob rows' columns: the head's chevron, a row's icon and the shortcuts' title all start past the grip's", () => {
     const chevron = left(...KEYS, "row view-head", "line", "button main");

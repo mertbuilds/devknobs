@@ -10,7 +10,7 @@ import { errorLine, type Site } from "./site";
  * says nothing when it refuses one.
  */
 
-/** What the cookies page always says on top. */
+/** What the cookies page always says where its list ends. */
 export const HTTP_ONLY_NOTE = "cookies marked HttpOnly are not shown: a page cannot read them";
 
 /** One cookie. A field the browser does not tell is null. */

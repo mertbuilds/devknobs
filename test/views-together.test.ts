@@ -9,7 +9,7 @@ import { ACTIONS, type Action, availableActions } from "../src/ui/catalog";
 import { createRequests, REQUESTS_VIEW, type Requests } from "../src/ui/requests";
 import { stage } from "../src/ui/stage";
 import { createStorageControl, STORAGE_VIEW, type StorageControl } from "../src/ui/storageaction";
-import { POLL_MS, storageView, storeViewId } from "../src/ui/storageview";
+import { pageId, POLL_MS, storageView } from "../src/ui/storageview";
 import { type FakePane, fakeDocument, fakePane, leaveDocument } from "./requests-dom";
 import { LOADED, manual } from "./requests-fakes";
 import { type FakeSite, fakeSite, settle } from "./storage-fakes";
@@ -159,13 +159,13 @@ describe("storage's two levels in the panel", () => {
     await settle();
   }
 
-  test("a store's page takes the list's place under the store's name, and escape and the way back go up one level, not out", async () => {
+  test("a store's page takes the tree's place under the store's name, on the same columns, and escape and the way back go up one level, not out", async () => {
     await showStorage(at);
     expect(at.pane.title()).toBe("storage");
-    expect(at.pane.node.getAttribute("data-layout")).toBe("rows");
-    await openStore("IndexedDB");
-    expect(at.pane.view()).toBe(storeViewId("indexeddb"));
-    expect(at.pane.title()).toBe("IndexedDB");
+    expect(at.pane.node.getAttribute("data-layout")).toBe("flush");
+    await openStore("local storage");
+    expect(at.pane.view()).toBe(pageId({ kind: "local" }));
+    expect(at.pane.title()).toBe("local storage");
     expect(at.pane.node.getAttribute("data-layout")).toBe("flush");
     expect(actionOf("storage").state?.()).toBe("on");
     at.pane.escape();
@@ -188,7 +188,7 @@ describe("storage's two levels in the panel", () => {
     expect(live(at)).toEqual([]);
     at.storage.toggle();
     await settle();
-    expect(at.pane.view()).toBe(storeViewId("session"));
+    expect(at.pane.view()).toBe(pageId({ kind: "session" }));
     at.pane.escape();
     expect(at.pane.view()).toBe(STORAGE_VIEW);
   });
