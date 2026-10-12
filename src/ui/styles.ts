@@ -1109,6 +1109,42 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   color: var(--faint);
 }
 .cell-end { flex: none; margin-left: auto; font-size: 10px; color: var(--faint); }
+/* A line's number, on a narrow column of its own before the name, two icons
+   wide in a head as in a line, whatever type each is set in. */
+.cell-index {
+  flex: none;
+  width: calc(var(--col-icon) * 2);
+  overflow: hidden;
+  font: 11px/1.5 var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--faint);
+}
+/* The head of a table: a line laid out as a row's is, with the room of a
+   row's chevron left empty, so each of its words stands over its column. The
+   words are small and quiet, and nothing is drawn around or under them. */
+.cells-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--col-gap);
+  padding: 2px var(--view-end) 2px var(--view-start);
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.cells-head > span { font: inherit; color: inherit; }
+.cell-lead { flex: none; width: var(--col-icon); }
+/* What a node of a tree holds: its own nodes, an icon and the gap in, so
+   each starts under the name of the node it is in. A node in there is on
+   its tree's ground already: it takes none of its own while folded out, and
+   a step darker under the pointer. */
+.branch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  padding-left: calc(var(--col-icon) + var(--col-gap));
+}
+.branch .row.open { background: none; }
+.branch .row:hover { background: var(--track); }
 /* A note that is a control: a line wide, with room over and under it to
    press, and in the text's color under the pointer. */
 .note-button { display: block; width: 100%; padding-top: 4px; padding-bottom: 4px; transition: color 120ms ease-out; }

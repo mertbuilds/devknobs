@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as dom from "../src/ui/dom";
 import {
   AREA_ROWS,
+  branch,
   codeBlock,
   confirmLine,
   controls,
   emptyAction,
   emptyLine,
   entryFold,
+  entryHead,
   entryRow,
   filterField,
   noteButton,
@@ -428,6 +430,8 @@ describe("what folds out under a view's row", () => {
       ".cell-name.quiet",
       ".cell-value",
       ".cell-end",
+      ".cell-index",
+      ".cell-lead",
     ]);
     for (const rule of own) {
       expect(`${rule.selector} {${rule.body}}`).not.toMatch(/(^|[\s;])(padding|border|outline|box-shadow|background|font-weight)(-[a-z-]+)?\s*:/);
@@ -438,6 +442,71 @@ describe("what folds out under a view's row", () => {
     expect(own.find((rule) => rule.selector === ".cell-name.quiet")?.body.trim()).toBe("color: var(--faint);");
     // What a line ends with is pushed to the far end, and by no length.
     expect(across(own.find((rule) => rule.selector === ".cell-end")?.body ?? "")).toEqual([["margin-left", "auto"]]);
+  });
+
+  test("a line's number stands on a column of its own, before its name", () => {
+    const fold = entryFold({ index: "0", name: "1", value: "{}", open: false });
+    const [main] = fake(fold.node).find("main");
+    expect(main?.children.map((child) => [child.className, child.textContent])).toEqual([
+      ["turn", ""],
+      ["cell-index", "0"],
+      ["row-label cell-name columned", "1"],
+      ["cell-value", "{}"],
+    ]);
+  });
+
+  test("the head of a table has a word over each column its lines have, and the room of their chevron empty", () => {
+    const pairs: [Parameters<typeof entryHead>[0], Parameters<typeof entryFold>[0]][] = [
+      [{ name: "key", value: "value" }, { name: "token", value: "abc", open: false }],
+      [{ index: "#", name: "key", value: "value" }, { index: "0", name: "1", value: "{}", open: false }],
+      [{ index: "#", name: "name", end: "status" }, { index: "0", name: "/p/0", end: "200", open: false }],
+    ];
+    for (const [head, line] of pairs) {
+      const node = fake(entryHead(head));
+      expect(node.className).toBe("cells-head");
+      expect(node.attributes.get("aria-hidden")).toBe("true");
+      const cells = node.children.map((child) => child.className);
+      const [main] = fake(entryFold(line).node).find("main");
+      // Cell for cell the same columns: only the chevron's room and the row's label differ in name.
+      expect(cells).toEqual(
+        (main?.children ?? []).map((child) => child.className.replace(/^turn$/, "cell-lead").replace("row-label ", "")),
+      );
+    }
+    expect(fake(entryHead({ name: "key", value: "value" })).children.map((child) => child.textContent)).toEqual(["", "key", "value"]);
+    const own = rules(CSS).filter((rule) => /\.cells-head/.test(rule.selector));
+    expect(own.map((rule) => rule.selector)).toEqual([".cells-head", ".cells-head > span"]);
+    // No ground, no line under it, nothing drawn round it, and no weight.
+    for (const rule of own) {
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(/(^|[\s;])(border|outline|box-shadow|background|font-weight)(-[a-z-]+)?\s*:/);
+    }
+    // Its words take the head's small quiet type, whatever a line's cell is set in.
+    expect(own[1]?.body.trim()).toBe("font: inherit; color: inherit;");
+    // The chevron's room is an icon wide, and a number's column is said once, by the columns.
+    expect(rules(CSS).find((rule) => rule.selector === ".cell-lead")?.body.trim()).toBe("flex: none; width: var(--col-icon);");
+    expect(rules(CSS).find((rule) => rule.selector === ".cell-index")?.body).toContain("width: calc(var(--col-icon) * 2);");
+  });
+
+  test("a fold with an icon of its own has the icon where a row's is, and its chevron at the end of its line", () => {
+    const glyph = dom.el("span", "glyph");
+    const value = dom.el("span", "row-value", "1 database");
+    const fold = sectionFold({ label: "IndexedDB", glyph, ends: [value], open: false });
+    const [main] = fake(fold.node).find("main");
+    expect(main?.children.map((child) => child.className)).toEqual(["glyph", "row-label", "row-value", "turn"]);
+    main?.fire("click");
+    expect(fake(fold.node).className).toBe("row open");
+  });
+
+  test("a branch holds a node's own nodes a step in, on the tree's ground", () => {
+    const leaf = rowBox({ main: dom.button("main", ""), title: "carts" }).box;
+    const node = fake(branch([leaf]));
+    expect(node.className).toBe("branch");
+    expect(node.children).toEqual([fake(leaf)]);
+    const own = rules(CSS).filter((rule) => /\.branch/.test(rule.selector));
+    expect(own.map((rule) => rule.selector)).toEqual([".branch", ".branch .row.open", ".branch .row:hover"]);
+    // The step is an icon and the gap, read from the columns.
+    expect(across(own[0]?.body ?? "")).toEqual([["padding-left", "calc(var(--col-icon) + var(--col-gap))"]]);
+    expect(own[1]?.body.trim()).toBe("background: none;");
+    expect(own[2]?.body.trim()).toBe("background: var(--track);");
   });
 
   test("a note that is a control is a button with the note's line, and runs on a press", () => {
@@ -573,7 +642,7 @@ describe("a view's chrome", () => {
   ];
 
   /** The head, the kit's pieces and a row's parts: what a view is built from. */
-  const KIT = /\.(view-head|view-actions|view-body|row|line|main|lead|grip|turn|row-label|row-value|row-button|row-control|row-key|rows-label|toolbar|tool|filter|empty|note|note-button|cell-name|cell-value|cell-end|group|group-head|group-label|pairs|pair-name|pair-value|code|code-text|split|stack|ask|fold|fold-body|add|head|entry|editor|knob-label)(?![\w-])/;
+  const KIT = /\.(view-head|view-actions|view-body|row|line|main|lead|grip|turn|row-label|row-value|row-button|row-control|row-key|rows-label|toolbar|tool|filter|empty|note|note-button|cell-name|cell-value|cell-end|cell-index|cell-lead|cells-head|branch|group|group-head|group-label|pairs|pair-name|pair-value|code|code-text|split|stack|ask|fold|fold-body|add|head|entry|editor|knob-label)(?![\w-])/;
 
   /** A view's own root, and the panes: where a view could pad all it holds at once. */
   const VIEW = /\.(keys|home|body|pane|view|view-body|styles|css-blocks|req-detail|req-list|req-body|req-headers|st-list)(?![\w-])|#|data-layout/;

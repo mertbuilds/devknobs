@@ -56,6 +56,7 @@ const LINES: Record<string, string[]> = {
   "sectionFold, its chevron": MAIN,
   "entryFold, its chevron": MAIN,
   "entryRow, its name": ["row", "line", "div main", "span row-label cell-name"],
+  "entryHead, the room of a line's chevron": ["cells-head", "span cell-lead"],
   emptyLine: ["empty"],
   "emptyAction, a button": ["button empty empty-action"],
   noteLine: ["note"],
@@ -218,6 +219,43 @@ for (const layout of LAYOUTS) {
       }
     });
 
+    test("the head of a table is on its lines' columns: the same start, the same gap, and each cell as wide as the line's", () => {
+      for (const root of ROOTS) {
+        const head = [...body, ...root, "cells-head"];
+        const main = [...body, ...root, ...MAIN];
+        expect(boxLeft(...head)).toBe(0);
+        expect(left(...head)).toBe(left(...main));
+        expect(right(...head)).toBe(right(...main));
+        expect(sheet.px(path(...head), "column-gap")).toBe(sheet.px(path(...main), "column-gap"));
+        // The chevron's room is an icon wide, as the chevron is drawn.
+        expect(sheet.px(path(...head, "span cell-lead"), "width")).toBe(ICON);
+        expect(Number(fake(icon("chevron-left")).attributes.get("width"))).toBe(ICON);
+        // A number's column is as wide in the head as in a line.
+        expect(sheet.px(path(...head, "span cell-index"), "width")).toBe(ICON * 2);
+        expect(sheet.px(path(...main, "span cell-index"), "width")).toBe(ICON * 2);
+        for (const cell of ["span cell-index", "span cell-name columned", "span cell-value", "span cell-end"]) {
+          expect([cell, left(...head, cell)]).toEqual([cell, left(...main, cell.replace("cell-name", "row-label cell-name"))]);
+        }
+      }
+    });
+
+    test("a tree's nodes step in an icon and the gap a level, so each starts under the name of the node it is in", () => {
+      const STEP = ICON + GAP;
+      const node = ["row", "fold", "fold-body", "branch"];
+      const top = left(...body, ...MAIN);
+      expect(top).toBe(at);
+      // A node's name is an icon and the gap past its icon: where the nodes in it start.
+      expect(boxLeft(...body, ...node, "row")).toBe(STEP);
+      expect(left(...body, ...node, ...MAIN)).toBe(top + STEP);
+      expect(left(...body, ...node, "row", "line", "div main")).toBe(top + STEP);
+      expect(left(...body, ...node, ...node, ...MAIN)).toBe(top + STEP * 2);
+      // What a node says of itself in its branch starts with its nodes, and all of it ends where the tree does.
+      expect(left(...body, ...node, "empty")).toBe(top + STEP);
+      expect(left(...body, ...node, "note")).toBe(top + STEP);
+      expect(right(...body, ...node, ...MAIN)).toBe(INSET);
+      expect(right(...body, ...node, ...node, ...MAIN)).toBe(INSET);
+    });
+
     test("what folds out under a row sits the pad in, and its words at the inset, whatever the layout", () => {
       for (const holder of [["stack"], ["row", "fold", "fold-body", "stack"], ["st-list", "row", "fold", "fold-body", "stack"]]) {
         const stack = [...body, ...holder];
@@ -238,7 +276,7 @@ for (const layout of LAYOUTS) {
     test("every line ends the inset short of the far edge, and a small button half the pad short of it", () => {
       expect(right(...head, "button main")).toBe(INSET);
       expect(right(...body, ...MAIN)).toBe(INSET);
-      for (const name of ["emptyLine", "noteLine", "noteButton", "rowsLabel", "pairs", "codeBlock, its text"]) {
+      for (const name of ["entryHead, the room of a line's chevron", "emptyLine", "noteLine", "noteButton", "rowsLabel", "pairs", "codeBlock, its text"]) {
         expect([name, right(...body, ...(LINES[name] ?? []))]).toEqual([name, INSET]);
       }
       expect(boxRight(...body, "split")).toBe(INSET);

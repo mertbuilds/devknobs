@@ -10,7 +10,8 @@
  *   toolbar([filterField({ ... }).node, segments({ ... }).node]);
  *   toolbar([toolToggle({ ... }).node, filterField({ ... }).node]);
  *   rowBox({ main, glyph, title, ends, after }); sectionFold({ ... }); emptyLine("no requests");
- *   entryFold({ name, value, end, open }); entryRow({ name, end }); noteButton("3 hidden", run);
+ *   entryHead({ name: "key", value: "value" }); entryFold({ name, value, end, open }); entryRow({ name, end });
+ *   sectionFold({ label, glyph, ends, open }); branch([leaf, leaf]); noteButton("3 hidden", run);
  *   emptyAction("select an element", run);
  *   group({ label, ends }); pairs(lines); codeBlock({ text, lines }); splitBar(shares, label);
  *   stack([noteLine("..."), codeBlock({ text }).node, pairs(lines).node, controls([{ label, run }]).node]);
@@ -122,6 +123,11 @@ export interface FoldOptions {
   onToggle?(open: boolean): void;
   /** What the row's line ends with, as a row's value is. */
   ends?: readonly HTMLElement[];
+  /**
+   * An icon of the row's own, for a node of a tree. It stands where a row's
+   * icon does, and the chevron goes to the end of the line.
+   */
+  glyph?: Element;
 }
 
 export interface Fold {
@@ -140,13 +146,17 @@ export interface Fold {
 /**
  * A section that folds out under its row, as a knob row's editor does. Its
  * chevron stands where a row's icon does, so it starts where the view's
- * lines start.
+ * lines start. With an icon of its own the icon stands there, and the
+ * chevron ends the line, so the names of a tree's nodes line up whether a
+ * node folds or not.
  */
 export function sectionFold(options: FoldOptions): Fold {
   const main = button("main", "");
   const turn = el("span", "turn");
   turn.append(icon("chevron-left"));
-  const { box, label } = rowBox({ main, glyph: turn, title: options.label, ends: options.ends });
+  const { box, label } = options.glyph
+    ? rowBox({ main, glyph: options.glyph, title: options.label, ends: [...(options.ends ?? []), turn] })
+    : rowBox({ main, glyph: turn, title: options.label, ends: options.ends });
   const fold = el("div", "fold");
   const body = el("div", "fold-body");
   fold.append(body);
@@ -166,8 +176,20 @@ export function sectionFold(options: FoldOptions): Fold {
   return { node: box, main, label, body, set };
 }
 
+/**
+ * What a node of a tree holds, under the node: its own nodes, a step in, so
+ * each starts under the name of the node it is in.
+ */
+export function branch(children: readonly HTMLElement[]): HTMLElement {
+  const node = el("div", "branch");
+  node.append(...children);
+  return node;
+}
+
 /** What a line of a table is built from. */
 export interface EntryOptions {
+  /** The line's number in the table, on a narrow column before the name. */
+  index?: string;
   /** What the line is of: a key, a name. Cut short where it is long, and whole in its tooltip. */
   name: string;
   /** What it holds, on one line. With one, the name stands on a column every line of the table has. */
@@ -178,15 +200,31 @@ export interface EntryOptions {
   quiet?: boolean;
 }
 
-/** Make a row's label the name of a line of a table, and say what the line ends with. */
-function entryCells(label: HTMLElement, options: EntryOptions): HTMLElement[] {
+/** Make a row's label the name of a line of a table, with the line's other cells around it. */
+function entryCells(main: HTMLElement, label: HTMLElement, options: EntryOptions): void {
   const columned = options.value !== undefined;
   label.className = `${label.className} cell-name${columned ? " columned" : ""}${options.quiet ? " quiet" : ""}`;
   label.title = options.name;
-  const ends: HTMLElement[] = [];
-  if (options.value !== undefined) ends.push(el("span", "cell-value", options.value));
-  if (options.end !== undefined && options.end !== "") ends.push(el("span", "cell-end", options.end));
-  return ends;
+  if (options.index !== undefined) main.insertBefore(el("span", "cell-index", options.index), label);
+  if (options.value !== undefined) main.append(el("span", "cell-value", options.value));
+  if (options.end !== undefined && options.end !== "") main.append(el("span", "cell-end", options.end));
+}
+
+/**
+ * The head of a table: what each column of its lines is, in small quiet
+ * words, on the columns `entryFold` puts its cells on. It takes the options
+ * a line does, each saying its column's name, and leaves the room of a
+ * line's chevron empty. It has no ground and no line under it.
+ */
+export function entryHead(options: EntryOptions): HTMLElement {
+  const node = el("div", "cells-head");
+  node.setAttribute("aria-hidden", "true");
+  node.append(el("span", "cell-lead"));
+  if (options.index !== undefined) node.append(el("span", "cell-index", options.index));
+  node.append(el("span", `cell-name${options.value !== undefined ? " columned" : ""}`, options.name));
+  if (options.value !== undefined) node.append(el("span", "cell-value", options.value));
+  if (options.end !== undefined && options.end !== "") node.append(el("span", "cell-end", options.end));
+  return node;
 }
 
 /**
@@ -196,7 +234,7 @@ function entryCells(label: HTMLElement, options: EntryOptions): HTMLElement[] {
  */
 export function entryFold(options: EntryOptions & Omit<FoldOptions, "label" | "ends">): Fold {
   const fold = sectionFold({ label: options.name, open: options.open, onToggle: options.onToggle });
-  fold.main.append(...entryCells(fold.label, options));
+  entryCells(fold.main, fold.label, options);
   return fold;
 }
 
@@ -204,7 +242,7 @@ export function entryFold(options: EntryOptions & Omit<FoldOptions, "label" | "e
 export function entryRow(options: EntryOptions): RowBox {
   const main = el("div", "main");
   const row = rowBox({ main, title: options.name });
-  main.append(...entryCells(row.label, options));
+  entryCells(main, row.label, options);
   return row;
 }
 
