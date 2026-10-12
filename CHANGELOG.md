@@ -55,13 +55,6 @@
 - the table has two switches for finding what draws a line, `shadeOn` and `blurOn`, and `grain`, the fine noise WebGL2 adds to a shade it draws
 - three more switches for finding what draws a line: `backTint` makes the black under the half that turns magenta, `frameOn` leaves out the pictures of the case, `stillOn` hides the half that stays
 
-### device frame
-
-- `frame.show(url)` shows a page from another origin in the device, at its size, in its body and bars, and `frame.own()` puts your own page back. only `http` and `https` addresses are taken. `frame.get()` and `frame.subscribe()` say what the frame shows and when it loaded
-- an outside page is a frame only: turning, folding, another device, the mat and the reload button work, and the bars are drawn still with the page's host. knobs that change the page do not reach it, and the panel says so in one line
-- `frame.show(url, { refused: true })` and `frame.refuse()` put a plain message on the device's screen for a site that refuses to be framed, after the host's own check of its headers
-- an outside page is never stored: a reload of the window is back on your own page
-
 ### fixes
 
 - a load devknobs asks for keeps the scroll position: the reload a locale or a device needs, the reload button in the device's browser bars, and a frame a knob brings up. the page, and the copy of it in the device's frame, go back to where they were once they are long enough, also when the host sends them to the top as it mounts. it stops as soon as you scroll, press a key or click, and a load of your own restores nothing

@@ -210,7 +210,7 @@ describe("copyPage", () => {
     const { doc } = pageOf([loaded("Inter")], [rule(INTER)]);
     const inert = { importNode: node, createElement: node };
     Object.assign(doc, { documentElement: node(), implementation: { createHTMLDocument: () => inert } });
-    const frame = { contentDocument: doc, hasAttribute: () => false } as unknown as HTMLIFrameElement;
+    const frame = { contentDocument: doc } as unknown as HTMLIFrameElement;
     copyPage(frame);
     expect(styles).toBe(INTER);
     await settle();
