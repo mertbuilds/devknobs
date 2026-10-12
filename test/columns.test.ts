@@ -55,7 +55,6 @@ const LINES: Record<string, string[]> = {
   "rowBox, a list's row": ["row", "line", "div main"],
   "sectionFold, its chevron": MAIN,
   "entryFold, its chevron": MAIN,
-  "entryRow, its name": ["row", "line", "div main", "span row-label cell-name"],
   "entryHead, the room of a line's chevron": ["cells-head", "span cell-lead"],
   emptyLine: ["empty"],
   "emptyAction, a button": ["button empty empty-action"],
@@ -87,6 +86,8 @@ describe("the columns", () => {
   test("are said once, on the wrapper: the pad, an icon, the gap, the inset, and the grip's column from them", () => {
     expect({ PAD, ICON, GAP, INSET, GRIP }).toEqual({ PAD: 4, ICON: 14, GAP: 8, INSET: 10, GRIP: 22 });
     expect(GRIP).toBe(PAD + ICON + PAD);
+    // A level of a tree is an icon and the gap in.
+    expect(token("--col-step")).toBe(ICON + GAP);
     const setting = rules(CSS).filter((rule) => /(^|[\s;])--col-[\w-]+\s*:/.test(rule.body));
     expect(setting.map((rule) => rule.selector)).toEqual([".wrap"]);
   });
@@ -330,36 +331,78 @@ describe("the storage view", () => {
   const pane = view("flush");
   const body = [...pane, "view-body"];
   const chevron = left(...pane, "row view-head", "line", "button main");
-  /** The tree, and the lists a table's page is in. */
+  const STEP = token("--col-step");
   const tree = [...body, "st-list"];
-  const table = [...body, "st-list", "st-list"];
+  /** What a node holds, under it. */
   const node = ["row", "fold", "fold-body", "branch"];
+  /** A table under a node: the lists its head and its lines are in. */
+  const table = ["st-list"];
+  const lines = ["st-list", "st-list"];
+  /** The levels of the tree, each as the path to what is under a node of the level over it. */
+  const levels = {
+    "a store, a top node": tree,
+    "a store's table, a database, a cache": [...tree, ...node],
+    "an object store, under its database": [...tree, ...node, ...node, "st-list"],
+    "an object store's table": [...tree, ...node, ...node, "st-list", ...node],
+  };
 
-  test("is flush on both its levels, so the head's chevron stands at the inset and never moves between them", () => {
+  test("is one flush view, so the head's chevron stands at the inset", () => {
     const source = readFileSync(join(import.meta.dir, "..", "src", "ui", "storageview.ts"), "utf8");
-    expect(source.match(/layout: "(\w+)"/g)).toEqual(['layout: "flush"', 'layout: "flush"']);
+    expect(source.match(/layout: "(\w+)"/g)).toEqual(['layout: "flush"']);
     expect(chevron).toBe(INSET);
+    expect(STEP).toBe(ICON + GAP);
   });
 
-  test("the head's chevron, a node's icon in the tree and a line's chevron in a table all start at the one x", () => {
-    const xs = {
-      "the head's chevron": chevron,
-      "a store's icon": left(...tree, ...MAIN),
-      "the presets' icon, under their label": left(...tree, "group", ...MAIN),
-      "the presets' label": left(...tree, "group", "group-head", "span group-label"),
-      "a line's chevron, in a table": left(...table, ...MAIN),
-      "a table's head": left(...table.slice(0, -1), "cells-head"),
-      "the line that ends a list": left(...tree, "button note note-button"),
-    };
-    for (const [name, x] of Object.entries(xs)) expect([name, x]).toEqual([name, INSET]);
-    // A name is an icon and the gap on, in the head as in every line.
-    expect(chevron + ICON + GAP).toBe(32);
+  test("the head's chevron and a top node's chevron start at the one x, and each level is a step in from the one over it", () => {
+    const xs = Object.entries(levels).map(([name, at]) => [name, left(...at, ...MAIN)]);
+    expect(xs).toEqual([
+      ["a store, a top node", chevron],
+      ["a store's table, a database, a cache", chevron + STEP],
+      ["an object store, under its database", chevron + STEP * 2],
+      ["an object store's table", chevron + STEP * 3],
+    ]);
+    expect(xs.map(([, x]) => x)).toEqual([10, 32, 54, 76]);
+    // A node's chevron stands under the icon of the node it is in.
+    expect(chevron + ICON + GAP).toBe(left(...levels["a store's table, a database, a cache"], ...MAIN));
+    // The presets' node is a top node, under its label.
+    expect(left(...tree, "group", ...MAIN)).toBe(chevron);
+    expect(left(...tree, "group", "group-head", "span group-label")).toBe(chevron);
+    expect(left(...tree, "group", "st-list", "note")).toBe(chevron);
   });
 
-  test("a database's icon starts under IndexedDB's name, and an object store's under its database's", () => {
-    expect(left(...tree, ...node, ...MAIN)).toBe(chevron + ICON + GAP);
-    expect(left(...tree, ...node, ...node, ...MAIN)).toBe(chevron + (ICON + GAP) * 2);
-    expect(left(...tree, ...node, ...node, "stack", "chips")).toBe(chevron + (ICON + GAP) * 2 - INSET + PAD);
+  test("the cells of a nested table line up with its own head, and its controls and its last line start with them", () => {
+    for (const under of [levels["a store's table, a database, a cache"], levels["an object store's table"]]) {
+      const head = [...under, ...table, "cells-head"];
+      const main = [...under, ...lines, ...MAIN];
+      expect(left(...head)).toBe(left(...main));
+      expect(right(...head)).toBe(right(...main));
+      for (const cell of ["span cell-index", "span cell-name columned", "span cell-value", "span cell-end"]) {
+        expect([cell, left(...head, cell)]).toEqual([cell, left(...main, cell.replace("cell-name", "row-label cell-name"))]);
+      }
+      // A chip's word is its own 6 in, so the store's controls read from where the lines' chevrons are.
+      expect(boxLeft(...under, "stack", "chips")).toBe(left(...main) - INSET + PAD);
+      expect(left(...under, "st-list", "button note note-button")).toBe(left(...main));
+      expect(left(...under, "ask", "stack", "ask", "note")).toBe(left(...main));
+    }
+  });
+
+  test("in a panel 320 wide a line of the deepest table still has room for its key and its value", () => {
+    // The panel's padding and its border on the page's side leave the view this much.
+    const VIEW = 320 - 4 * 2 - 1;
+    /** What a line has for its cells: the view, less where its content starts and where it ends. */
+    const room = (at: string[]): number => VIEW - left(...at, ...lines, ...MAIN) - INSET;
+    /** The key's column: its share of the line, with its floor and its ceiling. */
+    const key = (width: number): number => Math.min(Math.max(72, width * 0.38), 200);
+    const web = room(levels["a store's table, a database, a cache"]);
+    const records = room(levels["an object store's table"]);
+    expect([web, records]).toEqual([269, 225]);
+    // A key and its value, after the chevron: the value has what the key and the gaps leave.
+    const webValue = web - (ICON + GAP) - key(web) - GAP;
+    // A record has its number's column too.
+    const recordValue = records - (ICON + GAP) - (ICON * 2 + GAP) - key(records) - GAP;
+    expect([Math.round(key(web)), Math.round(webValue)]).toEqual([102, 137]);
+    expect([Math.round(key(records)), Math.round(recordValue)]).toEqual([86, 74]);
+    expect(recordValue).toBeGreaterThanOrEqual(72);
   });
 });
 

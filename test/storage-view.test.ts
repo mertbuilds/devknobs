@@ -5,10 +5,11 @@ import { NO_LIST } from "../src/storage/idb";
 import { PRESETS_KEY } from "../src/storage/onload";
 import { loadPresets, type Preset, savePresets } from "../src/storage/presets";
 import type { PaneView } from "../src/ui/pane";
-import { isStorageView, STORAGE_VIEW } from "../src/ui/storageaction";
+import { STORAGE_VIEW } from "../src/ui/storageaction";
+import type { StorageMemory } from "../src/ui/storageparts";
 import { FRESH_PRESETS } from "../src/ui/storagepresets";
 import { CACHE_NOTE, RECORDS_NOTE } from "../src/ui/storagedeep";
-import { NODE_ICONS, NOT_READ, OWN_GROUP, pageId, pageTitle, POLL_MS, STORAGE_KINDS, storageView } from "../src/ui/storageview";
+import { cacheKey, databaseKey, NODE_ICONS, NOT_READ, OWN_GROUP, POLL_MS, STORAGE_KINDS, storeKey, storageView } from "../src/ui/storageview";
 import { NOT_JSON } from "../src/ui/storageweb";
 import { FakeNode, focused, leave, page } from "./kit-dom";
 import { type FakeSite, fakeSite, named, type SiteOptions, settle } from "./storage-fakes";
@@ -23,23 +24,34 @@ interface Tick {
 /** The view, mounted over a fake page, with what it asked of the page. */
 interface Shown {
   site: FakeSite;
+  /** All the view holds. */
+  root: FakeNode;
+  /** The node last picked, with the table under it, or all the view holds before any was. */
   body: FakeNode;
   copied: string[];
   ticks: Tick[];
+  /** What the view keeps from one showing to the next. */
+  memory: StorageMemory;
   /** Fire the storage event of another tab. */
   storage(): void;
   visible: boolean;
   escape(): boolean;
   /** Press one of the head's actions. */
   head(label: string): void;
-  /** The level that shows: the list of the stores, or the page of one. */
   view(): PaneView;
-  /** Take the head's way back, from a store's page to the list. */
-  back(): void;
   close(): void;
 }
 
-function show(options: SiteOptions & { search?: string } = {}, site = fakeSite(options)): Shown {
+/** A view that has been shown before with nothing folded out, so nothing folds out by itself. */
+function memoryOf(...expanded: string[]): StorageMemory {
+  return { expanded: new Set(expanded), seeded: true };
+}
+
+function show(
+  options: SiteOptions & { search?: string } = {},
+  site = fakeSite(options),
+  memory: StorageMemory = memoryOf(),
+): Shown {
   // devknobs keeps its presets in the page's own localStorage, through its gateway.
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -56,11 +68,14 @@ function show(options: SiteOptions & { search?: string } = {}, site = fakeSite(o
     },
   });
   const listeners = new Set<() => void>();
+  const root = new FakeNode("div");
   const shown: Shown = {
     site,
-    body: new FakeNode("div"),
+    root,
+    body: root,
     copied: [],
     ticks: [],
+    memory,
     storage: () => {
       for (const listener of [...listeners]) listener();
     },
@@ -72,22 +87,9 @@ function show(options: SiteOptions & { search?: string } = {}, site = fakeSite(o
       action.run();
     },
     view: () => view,
-    back() {
-      if (!view.back) throw new Error("no way back but to the rows");
-      view.back();
-    },
     close: () => {},
   };
-  let cleanup: (() => void) | null = null;
-  /** As the pane does it: the view that leaves is cleaned up, and the next one fills an empty body. */
-  const open = (next: PaneView): void => {
-    cleanup?.();
-    shown.body.replaceChildren();
-    view = next;
-    const made = next.mount(shown.body as unknown as HTMLElement);
-    cleanup = typeof made === "function" ? made : null;
-  };
-  let view = storageView({
+  const view = storageView({
     site,
     copy: async (text) => {
       shown.copied.push(text);
@@ -106,28 +108,33 @@ function show(options: SiteOptions & { search?: string } = {}, site = fakeSite(o
     },
     visible: () => shown.visible,
     now: () => 1_000_000,
-    open,
+    memory,
   });
-  open(view);
+  const cleanup = view.mount(root as unknown as HTMLElement);
   shown.close = () => {
-    cleanup?.();
-    cleanup = null;
+    if (typeof cleanup === "function") cleanup();
   };
   return shown;
 }
 
+/** Whether a row is a line of a table, and not a node of the tree. */
+function isLine(box: FakeNode): boolean {
+  return box.find("row-label")[0]?.classes().includes("cell-name") ?? false;
+}
+
 /** The nodes of the tree that show, as their boxes: a node folded away hides the ones under it. */
-function stores(shown: Shown, root: FakeNode = shown.body): FakeNode[] {
+function stores(shown: Shown, root: FakeNode = shown.root): FakeNode[] {
   return root.children.flatMap((child) => {
     if (!child.classes().includes("row")) return stores(shown, child);
-    const under = child.className === "row open" ? child.children.slice(1).flatMap((fold) => stores(shown, fold)) : [];
+    if (isLine(child)) return [];
+    const under = child.classes().includes("open") ? child.children.slice(1).flatMap((fold) => stores(shown, fold)) : [];
     return [child, ...under];
   });
 }
 
 /** A node of the tree, by its name. */
 function store(shown: Shown, label: string): FakeNode {
-  const found = shown.body.find("row").find((box) => box.find("row-label")[0]?.textContent === label);
+  const found = shown.root.find("row").find((box) => !isLine(box) && box.find("row-label")[0]?.textContent === label);
   if (!found) throw new Error(`no node ${label}`);
   return found;
 }
@@ -142,45 +149,52 @@ function names(shown: Shown): string[] {
   return stores(shown).map((box) => box.find("row-label")[0]?.textContent ?? "");
 }
 
-/** Back to the tree, from a table's page. */
-function toTree(shown: Shown): void {
-  if (shown.view().id !== STORAGE_VIEW) shown.back();
+function isOut(shown: Shown, label: string): boolean {
+  return store(shown, label).classes().includes("open");
 }
 
-/** Fold a node of the tree out, where it is not: the tree keeps what was folded out before. */
+/** Fold a node of the tree out, where it is not. */
 async function unfold(shown: Shown, label: string): Promise<void> {
   await settle();
-  const box = store(shown, label);
-  if (box.className !== "row open") box.find("main")[0]?.fire("click");
+  if (!isOut(shown, label)) store(shown, label).find("main")[0]?.fire("click");
   await settle();
 }
 
 /** Fold a node of the tree away, where it is out. */
 function foldAway(shown: Shown, label: string): void {
-  const box = store(shown, label);
-  if (box.className === "row open") box.find("main")[0]?.fire("click");
+  if (isOut(shown, label)) store(shown, label).find("main")[0]?.fire("click");
 }
 
-/** Show a store's table, by its node in the tree, going back to the tree first from another page. */
+/** Fold a store's node out, and look at it and its table from here on. */
 async function pick(shown: Shown, label: string): Promise<void> {
-  toTree(shown);
-  store(shown, label).find("main")[0]?.fire("click");
-  await settle();
+  await unfold(shown, label);
+  shown.body = store(shown, label);
 }
 
-/** Show an object store's table, by its node under its database. */
+/** Fold an object store's node out, under its database. */
 async function pickStore(shown: Shown, database: string, name: string): Promise<void> {
-  toTree(shown);
   await unfold(shown, "IndexedDB");
   await unfold(shown, database);
   await pick(shown, name);
 }
 
-/** Show a cache's table, by its node. */
+/** Fold a cache's node out. */
 async function pickCache(shown: Shown, name: string): Promise<void> {
-  toTree(shown);
   await unfold(shown, "cache storage");
   await pick(shown, name);
+}
+
+/** What is under the node picked: its controls, what it says, and its table. */
+function under(shown: Shown): FakeNode {
+  const [branch] = shown.body.find("branch");
+  if (!branch) throw new Error("the node is folded away");
+  return branch;
+}
+
+/** The store's own controls, the first line under its node, or an empty line where it has none. */
+function bar(shown: Shown): FakeNode {
+  const [first] = under(shown).children;
+  return first?.className === "stack" && first.children[0]?.className === "chips" ? first : new FakeNode("div");
 }
 
 /** The head of the table that shows, as what it says over each column, or null where it is hidden. */
@@ -190,18 +204,16 @@ function tableHead(shown: Shown): string[] | null {
   return head.children.map((cell) => cell.textContent);
 }
 
-/** The bar of a store's page. */
-function bar(shown: Shown): FakeNode {
-  const [node] = shown.body.children;
-  if (!node || node.className !== "toolbar") throw new Error("no bar");
-  return node;
-}
-
-/** A control of the question asked in place, by what it says, not the bar's of the same name. */
-function answer(shown: Shown, label: string): FakeNode {
-  const [asked] = shown.body.find("ask");
+/** A control of the question asked in place, by what it says, not the store's own of the same name. */
+function answer(shown: Shown, label: string, root: FakeNode = shown.body): FakeNode {
+  const asked = root.find("ask").find((node) => node.find("chip").length > 0);
   if (!asked) throw new Error("nothing asked");
   return chip(asked, label);
+}
+
+/** What the view says and asks for all of it, over the tree. */
+function over(shown: Shown): FakeNode {
+  return shown.root.children[1] as FakeNode;
 }
 
 /** The line a list ends with while it has some of devknobs' own. */
@@ -220,14 +232,14 @@ function chips(root: FakeNode): string[] {
   return root.find("chip").map((node) => node.textContent);
 }
 
-/** The rows of the list that shows, as their boxes. */
+/** The lines of the table that shows, as their boxes. */
 function rows(shown: Shown): FakeNode[] {
-  return shown.body.find("row").filter((row) => row.find("turn").length > 0);
+  return shown.body.find("row").filter(isLine);
 }
 
-/** A row by its label. */
+/** A line by its label. */
 function row(shown: Shown, label: string): FakeNode {
-  const found = shown.body.find("row").find((box) => box.find("row-label")[0]?.textContent === label);
+  const found = rows(shown).find((box) => box.find("row-label")[0]?.textContent === label);
   if (!found) throw new Error(`no row ${label}: ${labels(shown).join(", ")}`);
   return found;
 }
@@ -248,18 +260,13 @@ function boxChip(shown: Shown, label: string): FakeNode {
   return chip(box, label);
 }
 
-/** What the section that shows says in its quiet lines, without the view's own line over it. */
-function said(shown: Shown): string[] {
-  return notes(shown.body.children[2] ?? shown.body);
-}
-
 /** The quiet lines under a node, without the ones that are controls. */
 function notes(root: FakeNode): string[] {
   return root.find("note").filter((node) => node.tag !== "button").map((node) => node.textContent);
 }
 
 function filterOf(shown: Shown): FakeNode {
-  const [filter] = shown.body.find("filter");
+  const [filter] = shown.root.find("filter");
   if (!filter) throw new Error("no filter");
   return filter;
 }
@@ -302,21 +309,25 @@ function deep(options: SiteOptions = {}): FakeSite {
   return site;
 }
 
-/** The view on its tree, whichever page it showed last, with every node folded away. */
-async function listed(options: SiteOptions & { search?: string } = {}, site?: FakeSite): Promise<Shown> {
-  const shown = show(options, site);
-  toTree(shown);
+/** The view, with what it read as it opened in. */
+async function listed(
+  options: SiteOptions & { search?: string } = {},
+  site?: FakeSite,
+  memory?: StorageMemory,
+): Promise<Shown> {
+  const shown = show(options, site, memory);
   await settle();
-  for (const label of names(shown).reverse()) foldAway(shown, label);
   return shown;
 }
 
 describe("the tree of stores", () => {
-  test("has a node a store, by its full name, with its icon where the head's chevron is", async () => {
+  test("is the whole view: a filter, then a node a store, each a fold with its chevron where the head's is", async () => {
     const shown = await listed();
     expect(shown.view()).toMatchObject({ id: STORAGE_VIEW, title: "storage", layout: "flush" });
+    // Nothing in it opens another page: it is under no view, and its way back is the panel's.
     expect(shown.view().back).toBeUndefined();
-    expect(shown.view().under).toBeUndefined();
+    expect(Object.keys(shown.view()).sort()).toEqual(["actions", "escape", "id", "layout", "mount", "title"]);
+    expect(shown.view().actions?.map((action) => action.label)).toEqual(["refresh", "clear site data"]);
     expect(STORAGE_KINDS.map((kind) => [kind.value, kind.label, kind.icon])).toEqual([
       ["local", "local storage", "table-2"],
       ["session", "session storage", "table-2"],
@@ -327,26 +338,23 @@ describe("the tree of stores", () => {
     ]);
     expect(NODE_ICONS).toEqual({ database: "database", store: "table-2", cache: "file" });
     expect(names(shown)).toEqual(STORAGE_KINDS.map((kind) => kind.label));
-    const shape = (label: string) => store(shown, label).find("main")[0]?.children.map((child) => child.className);
-    // A node that holds a table: its icon, its name, what it holds.
-    for (const label of ["local storage", "session storage", "cookies", "presets"]) {
-      expect([label, shape(label)]).toEqual([label, ["glyph", "row-label", "row-value idle"]]);
-      expect(store(shown, label).children.map((child) => child.className)).toEqual(["line"]);
+    // Every node is the one line: its chevron, its icon, its name, and what it holds at the end.
+    for (const box of stores(shown)) {
+      const [main] = box.find("main");
+      expect(main?.tag).toBe("button");
+      expect(main?.children.map((child) => child.className)).toEqual(["turn", "glyph", "row-label", "row-value idle"]);
+      expect(main?.attributes.get("aria-expanded")).toBe("false");
     }
-    // A node that holds nodes has its icon in the same place, and its chevron at the end of its line.
-    for (const label of ["IndexedDB", "cache storage"]) {
-      expect([label, shape(label)]).toEqual([label, ["glyph", "row-label", "row-value idle", "turn"]]);
-      expect(store(shown, label).find("main")[0]?.attributes.get("aria-expanded")).toBe("false");
-    }
-    // No bar, no segments and no filter: the tree is rows alone.
-    expect(shown.body.find("toolbar")).toEqual([]);
-    expect(shown.body.find("seg")).toEqual([]);
-    expect(shown.body.find("filter")).toEqual([]);
+    const [first] = shown.root.children;
+    expect(first?.className).toBe("toolbar");
+    expect(first?.children.map((child) => child.className)).toEqual(["field filter"]);
+    expect(filterOf(shown).placeholder).toBe("filter storage");
+    expect(shown.root.find("seg")).toEqual([]);
   });
 
   test("the presets stand last, under a small label of their own, as they are devknobs' and not the page's", async () => {
     const shown = await listed();
-    const [group] = shown.body.find("group");
+    const [group] = shown.root.find("group");
     expect(OWN_GROUP).toBe("devknobs");
     expect(group?.attributes.get("aria-label")).toBe(OWN_GROUP);
     expect(group?.find("group-label")[0]?.textContent).toBe(OWN_GROUP);
@@ -371,7 +379,7 @@ describe("the tree of stores", () => {
     for (const box of stores(shown)) expect(box.find("row-value")[0]?.className).toBe("row-value");
   });
 
-  test("a store with nothing says so quietly, as a row's value at its default is, and still opens", async () => {
+  test("a store with nothing says so quietly, as a row's value at its default is, and still folds out", async () => {
     const shown = await listed({ local: { devknobs: "{}" } });
     expect(stores(shown).map((box) => box.find("row-value")[0]?.textContent)).toEqual([
       "no items",
@@ -382,11 +390,15 @@ describe("the tree of stores", () => {
       "no presets",
     ]);
     for (const box of stores(shown)) expect(box.find("row-value")[0]?.className).toBe("row-value idle");
-    await unfold(shown, "IndexedDB");
-    await unfold(shown, "cache storage");
-    expect(shown.body.find("empty").map((line) => line.textContent)).toEqual(["no databases", "no caches"]);
-    await pick(shown, "cookies");
-    expect(shown.view().id).toBe(pageId({ kind: "cookies" }));
+    for (const label of names(shown)) await unfold(shown, label);
+    expect(shown.root.find("empty").map((line) => line.textContent)).toEqual([
+      "nothing in localStorage",
+      "nothing in sessionStorage",
+      "no cookies a page can read",
+      "no databases",
+      "no caches",
+      "no presets yet",
+    ]);
   });
 
   test("a store that cannot be read says so, with why in its tooltip, and under it once it is folded out", async () => {
@@ -400,6 +412,31 @@ describe("the tree of stores", () => {
     expect(store(shown, "IndexedDB").find("row-value")[0]?.className).toBe("row-value idle");
     await unfold(shown, "IndexedDB");
     expect(notes(store(shown, "IndexedDB"))).toEqual([NO_LIST]);
+    await unfold(shown, "cache storage");
+    expect(notes(store(shown, "cache storage"))).toEqual(["Cache Storage needs a secure page (https or localhost)"]);
+  });
+
+  test("a node folded away builds nothing under it, and one folded out is taken down as it folds away", async () => {
+    const site = deep({ local: ITEMS });
+    const shown = await listed({}, site);
+    // Nothing but the six nodes, the filter and the line on the presets.
+    expect(shown.root.find("row")).toHaveLength(6);
+    expect(shown.root.find("branch")).toEqual([]);
+    expect(shown.root.find("cells-head")).toEqual([]);
+    await pick(shown, "local storage");
+    expect(labels(shown)).toEqual(["token", "user"]);
+    foldAway(shown, "local storage");
+    expect(store(shown, "local storage").find("fold-body")[0]?.children).toEqual([]);
+    await pickStore(shown, "shop", "events");
+    expect(rows(shown)).toHaveLength(50);
+    foldAway(shown, "IndexedDB");
+    expect(store(shown, "IndexedDB").find("fold-body")[0]?.children).toEqual([]);
+    expect(shown.root.find("row")).toHaveLength(6);
+    // The nodes under it come back as they were left.
+    await unfold(shown, "IndexedDB");
+    await settle();
+    expect(isOut(shown, "shop")).toBe(true);
+    expect(isOut(shown, "events")).toBe(true);
   });
 
   test("IndexedDB folds out to its databases, a database to its object stores, each a node a step in", async () => {
@@ -411,7 +448,7 @@ describe("the tree of stores", () => {
     const idb = store(shown, "IndexedDB");
     expect(idb.find("fold-body")[0]?.children.map((child) => child.className)).toEqual(["branch"]);
     const shop = store(shown, "shop");
-    expect(shop.find("main")[0]?.children.map((child) => child.className)).toEqual(["glyph", "row-label", "row-value", "turn"]);
+    expect(shop.find("main")[0]?.children.map((child) => child.className)).toEqual(["turn", "glyph", "row-label", "row-value"]);
     expect(holds(shown, "shop")).toBe("version 3");
     // No database is read before its node is folded out.
     expect(site.idb.connections).toEqual([]);
@@ -420,7 +457,9 @@ describe("the tree of stores", () => {
     expect(shop.find("fold-body")[0]?.children.map((child) => child.className)).toEqual(["branch"]);
     expect(holds(shown, "carts")).toBe("1 record");
     expect(holds(shown, "events")).toBe("120 records");
-    expect(store(shown, "carts").find("main")[0]?.children.map((child) => child.className)).toEqual(["glyph", "row-label", "row-value"]);
+    expect(store(shown, "carts").find("main")[0]?.children.map((child) => child.className)).toEqual(["turn", "glyph", "row-label", "row-value"]);
+    // No record is read before its store's node is folded out.
+    expect(shown.root.find("cell-index")).toEqual([]);
     await unfold(shown, "logs");
     expect(store(shown, "logs").find("empty")[0]?.textContent).toBe("no object stores");
     expect(site.idb.openNow()).toEqual([]);
@@ -429,45 +468,50 @@ describe("the tree of stores", () => {
   test("cache storage folds out to its caches, each saying how many requests it holds, with none of them read", async () => {
     const site = deep();
     const shown = await listed({}, site);
-    expect(store(shown, "cache storage").find("branch")[0]?.find("row-label").map((label) => label.textContent)).toEqual(["pages"]);
-    expect(holds(shown, "pages")).toBe("");
     await unfold(shown, "cache storage");
     expect(names(shown).slice(-3)).toEqual(["cache storage", "pages", "presets"]);
     expect(holds(shown, "pages")).toBe("240 requests");
     expect(site.cached.matches).toBe(0);
   });
 
-  test("the nodes folded out stay so while the page is, as the page last shown does", async () => {
-    const first = await listed({}, deep());
+  test("the first time, the first store with something in it is folded out, and after that the nodes are as they were left", async () => {
+    const memory: StorageMemory = { expanded: new Set(), seeded: false };
+    const site = deep({ local: { devknobs: "{}" }, session: { step: "2" } });
+    const first = await listed({}, site, memory);
+    expect(stores(first).filter((box) => box.classes().includes("open")).map((box) => box.find("row-label")[0]?.textContent)).toEqual(["session storage"]);
+    expect([...memory.expanded]).toEqual(["session"]);
+    foldAway(first, "session storage");
     await unfold(first, "IndexedDB");
     await unfold(first, "shop");
     first.close();
-    const again = show({}, deep());
-    await settle();
-    expect(store(again, "IndexedDB").className).toBe("row open");
-    expect(store(again, "shop").className).toBe("row open");
+    expect([...memory.expanded]).toEqual(["indexeddb", databaseKey("shop")]);
+    const again = await listed({}, site, memory);
+    expect(isOut(again, "session storage")).toBe(false);
+    expect(isOut(again, "IndexedDB")).toBe(true);
+    expect(isOut(again, "shop")).toBe(true);
     expect(names(again)).toContain("carts");
-    expect(store(again, "cache storage").className).toBe("row");
-    foldAway(again, "shop");
     again.close();
-    const last = show({}, deep());
-    await settle();
-    expect(store(last, "shop").className).toBe("row");
-    expect(names(last)).not.toContain("carts");
+    // With nothing in any store nothing folds out, and a tree left all folded away stays so.
+    const bare = await listed({}, fakeSite(), { expanded: new Set(), seeded: false });
+    expect(stores(bare).some((box) => box.classes().includes("open"))).toBe(false);
+    const left = await listed({}, deep({ local: ITEMS }), memoryOf());
+    expect(stores(left).some((box) => box.classes().includes("open"))).toBe(false);
+    expect([storeKey("shop", "carts"), cacheKey("pages")]).toEqual(["store:shop/carts", "cache:pages"]);
   });
 
-  test("a whole database can be deleted from its node, after one question in the view", async () => {
+  test("a whole database can be deleted from its node, after one question in the node", async () => {
     const site = deep();
     const shown = await listed({}, site);
     await unfold(shown, "IndexedDB");
-    await unfold(shown, "shop");
-    chip(store(shown, "shop"), "delete database").fire("click");
+    await pick(shown, "shop");
+    chip(shown.body, "delete database").fire("click");
     expect(notes(shown.body)[0]).toBe("delete the database shop? the page may need a reload after");
+    expect(notes(over(shown))).toEqual([]);
     expect(focused()).toBe(answer(shown, "delete"));
     expect(site.idb.data.has("shop")).toBe(true);
     expect(shown.escape()).toBe(true);
     expect(site.idb.data.has("shop")).toBe(true);
-    chip(store(shown, "shop"), "delete database").fire("click");
+    chip(shown.body, "delete database").fire("click");
     answer(shown, "delete").fire("click");
     await settle();
     expect(site.idb.data.has("shop")).toBe(false);
@@ -480,11 +524,11 @@ describe("the tree of stores", () => {
     site.idb.held.add("shop");
     const shown = await listed({}, site);
     await unfold(shown, "IndexedDB");
-    await unfold(shown, "shop");
-    chip(store(shown, "shop"), "delete database").fire("click");
+    await pick(shown, "shop");
+    chip(shown.body, "delete database").fire("click");
     answer(shown, "delete").fire("click");
     await settle(1100);
-    expect(notes(shown.body)).toContain(
+    expect(notes(shown.root)).toContain(
       "shop is held open by the page: it goes once the page lets go, or on reload",
     );
   });
@@ -500,20 +544,22 @@ describe("the tree of stores", () => {
     expect(site.idb.openNow()).toEqual([]);
   });
 
-  test("under the presets a quiet line says which apply on load", async () => {
+  test("under the presets a quiet line says which apply on load, folded out or not", async () => {
     const site = fakeSite();
     const shown = await listed({}, site);
-    expect(notes(shown.body)).toEqual(["no preset applies on load"]);
+    expect(notes(shown.root)).toEqual(["no preset applies on load"]);
     savePresets([{ ...PRESET, onLoad: true }]);
     shown.head("refresh");
     await settle();
-    expect(notes(shown.body)).toEqual(["applies on every load of this page: logged in"]);
+    expect(notes(shown.root)).toEqual(["applies on every load of this page: logged in"]);
+    await unfold(shown, "presets");
+    expect(notes(shown.root)).toEqual(["applies on every load of this page: logged in"]);
     const fresh = await listed({ search: "?devknobs=fresh" });
-    expect(notes(fresh.body)).toEqual([FRESH_PRESETS]);
+    expect(notes(fresh.root)).toEqual([FRESH_PRESETS]);
     expect(holds(fresh, "presets")).toBe(NOT_READ);
   });
 
-  test("stays live: the web storages and the cookies on a tick, the databases and caches on refresh", async () => {
+  test("stays live: the summaries on a tick, the databases and caches on refresh, and only the tables that are out are read", async () => {
     const site = deep({ local: { a: "1" } });
     const shown = await listed({}, site);
     const live = shown.ticks.filter((tick) => !tick.stopped);
@@ -526,9 +572,17 @@ describe("the tree of stores", () => {
     expect(holds(shown, "local storage")).toBe("2 items · 3 B");
     expect(holds(shown, "cookies")).toBe("1 cookie · 5 B");
     expect(holds(shown, "IndexedDB")).toBe("1 database");
+    // No database is opened by a tick, a table of records out or not.
+    await pickStore(shown, "shop", "carts");
+    const opened = site.idb.connections.length;
+    live[0]?.run();
+    await settle();
+    expect(site.idb.connections.length).toBe(opened);
+    expect(shown.ticks).toHaveLength(1);
     shown.head("refresh");
     await settle();
     expect(holds(shown, "IndexedDB")).toBe("2 databases");
+    expect(site.idb.connections.length).toBeGreaterThan(opened);
     // Out of sight it reads nothing, and another tab's write is heard.
     shown.visible = false;
     site.localStorage.calls = 0;
@@ -543,8 +597,8 @@ describe("the tree of stores", () => {
   });
 
   test("the keys: arrows move over the nodes that show, into a node folded out and past one folded away", async () => {
-    const shown = await listed({}, deep());
-    const [list] = shown.body.find("st-list");
+    const shown = await listed({}, deep({ local: { a: "1" } }));
+    const [list] = shown.root.find("st-list");
     const main = (label: string): FakeNode => store(shown, label).find("main")[0] as FakeNode;
     expect(main("cookies").fire("keydown", { key: "ArrowDown" }, list).prevented).toBe(true);
     expect(focused()).toBe(main("IndexedDB"));
@@ -564,16 +618,21 @@ describe("the tree of stores", () => {
     expect(focused()).toBe(main("cache storage"));
     // No node of the tree can be deleted by a key.
     expect(main("shop").fire("keydown", { key: "Delete" }, list).prevented).toBe(false);
+    // A table's own lines have the keys of their table.
+    await pick(shown, "local storage");
+    const line = row(shown, "a").find("main")[0];
+    line?.fire("keydown", { key: "Delete" }, list);
+    expect(notes(row(shown, "a"))).toEqual(["delete a?"]);
   });
 
-  test("clear site data asks in the tree, keeps devknobs' own, and the nodes say what is left", async () => {
+  test("clear site data asks over the tree, keeps devknobs' own, and the nodes say what is left", async () => {
     const site = deep({ local: ITEMS });
     const shown = await listed({}, site);
     shown.head("clear site data");
     await settle();
-    expect(notes(shown.body)[0]).toBe(
+    expect(notes(over(shown))).toEqual([
       "clear site data? 2 local, 1 database, 1 cache. devknobs' own items are kept",
-    );
+    ]);
     expect(focused()?.textContent).toBe("clear site data");
     expect(shown.escape()).toBe(true);
     expect(site.localStorage.map.size).toBe(4);
@@ -584,99 +643,60 @@ describe("the tree of stores", () => {
     answer(shown, "clear site data").fire("click");
     await settle(20);
     expect(site.localStorage.all()).toEqual({ devknobs: "{}", "devknobs:keys": "{}" });
-    expect(notes(shown.body)[0]).toBe("cleared 2 local, 1 database, 1 cache");
+    expect(notes(over(shown))).toEqual(["cleared 2 local, 1 database, 1 cache"]);
     expect(holds(shown, "local storage")).toBe("no items");
     expect(holds(shown, "IndexedDB")).toBe("no databases");
-    expect(chips(shown.body)).toEqual(["reload the page"]);
+    expect(chips(shown.root)).toEqual(["reload the page"]);
   });
 });
 
-describe("a table's page", () => {
-  test("is a view of its own, a step inside the tree, under the store's full name, whose way back is the tree", async () => {
-    const shown = await listed({ local: ITEMS });
-    for (const kind of ["local", "session", "cookies", "presets"] as const) {
-      const label = STORAGE_KINDS.find((entry) => entry.value === kind)?.label ?? "";
-      await pick(shown, label);
-      expect(shown.view()).toMatchObject({ id: `${STORAGE_VIEW}:${kind}`, title: label, layout: "flush", under: STORAGE_VIEW });
-      expect(pageId({ kind })).toBe(shown.view().id);
-      expect(isStorageView(shown.view().id)).toBe(true);
-      expect(shown.view().actions?.map((action) => action.label)).toEqual(["refresh", "clear site data"]);
-    }
-    expect(isStorageView(STORAGE_VIEW)).toBe(true);
-    expect(isStorageView("storages")).toBe(false);
-    expect(isStorageView(null)).toBe(false);
-    await pick(shown, "cookies");
-    // Escape takes nothing back here, so the panel takes the way back: to the tree, on the node it left.
-    expect(shown.escape()).toBe(false);
-    shown.back();
-    expect(shown.view().id).toBe(STORAGE_VIEW);
-    expect(focused()).toBe(store(shown, "cookies").find("main")[0] ?? null);
-    expect(stores(shown)).toHaveLength(6);
-  });
-
-  test("an object store's page is named by its database and itself, and a cache's by the cache", async () => {
-    const shown = await listed({}, deep());
-    await pickStore(shown, "shop", "carts");
-    const carts = { kind: "indexeddb", database: "shop", store: "carts" } as const;
-    expect(shown.view()).toMatchObject({ id: pageId(carts), title: "shop / carts", layout: "flush", under: STORAGE_VIEW });
-    expect(pageId(carts)).toBe("storage:indexeddb:shop/carts");
-    expect(pageTitle(carts)).toBe("shop / carts");
-    expect(isStorageView(shown.view().id)).toBe(true);
-    // The way back finds the node again once the tree has read its databases.
-    shown.back();
-    expect(shown.view().id).toBe(STORAGE_VIEW);
-    await settle();
-    expect(focused()).toBe(store(shown, "carts").find("main")[0] ?? null);
-    await pickCache(shown, "pages");
-    expect(shown.view()).toMatchObject({ id: "storage:cache:pages", title: "pages", layout: "flush", under: STORAGE_VIEW });
-    shown.back();
-    await settle();
-    expect(focused()).toBe(store(shown, "pages").find("main")[0] ?? null);
-  });
-
-  test("has the filter on a line of its own, then the store's own controls, in the kit's bar", async () => {
-    const shown = await listed({ local: ITEMS }, deep({ local: ITEMS }));
+describe("a table under its node", () => {
+  test("starts with the store's own controls, on a line of their own, a step in", async () => {
+    const shown = await listed({}, deep({ local: ITEMS }));
     const lines: [string, () => Promise<void>, string[]][] = [
       ["local storage", () => pick(shown, "local storage"), ["add", "clear", "save as preset"]],
       ["session storage", () => pick(shown, "session storage"), ["add", "clear", "save as preset"]],
       ["cookies", () => pick(shown, "cookies"), ["add", "clear", "save as preset"]],
-      ["shop / carts", () => pickStore(shown, "shop", "carts"), []],
+      ["carts", () => pickStore(shown, "shop", "carts"), []],
       ["pages", () => pickCache(shown, "pages"), []],
       ["presets", () => pick(shown, "presets"), ["save current as preset", "new preset", "import"]],
     ];
     for (const [label, open, controls] of lines) {
       await open();
-      const classes = bar(shown).children.map((child) => child.className);
-      expect([label, classes]).toEqual([label, controls.length > 0 ? ["field filter", "chips"] : ["field filter"]]);
       expect([label, chips(bar(shown))]).toEqual([label, controls]);
-      expect(filterOf(shown).attributes.get("aria-label")).toBe(`filter ${label}`);
-      // No segments switch the store, and no control of the bar is for the list.
-      expect(bar(shown).find("seg")).toEqual([]);
+      // All of it is in the node's branch: its controls, what it says, its table, and the line on devknobs' own.
+      const classes = under(shown).children.map((child) => child.className);
+      expect([label, classes]).toEqual([label, [...(controls.length > 0 ? ["stack"] : []), "ask", "st-list", "st-list"]]);
     }
-    await pick(shown, "local storage");
+    // The head has no control of a store's: only the two for the whole view.
+    expect(shown.view().actions?.map((action) => action.label)).toEqual(["refresh", "clear site data"]);
+    // And the bar over the tree has the filter alone.
+    expect(shown.root.children[0]?.find("chip")).toEqual([]);
   });
 
-  test("the view opens again on the page it last showed, with the tree one step back", async () => {
-    const first = await listed({}, deep());
-    await pick(first, "cookies");
-    first.close();
-    const again = show();
+  test("what a store asks and says is in its own node, next to what it is about, and not over the tree", async () => {
+    const shown = await listed({ local: ITEMS, session: { step: "2" } });
+    await pick(shown, "session storage");
+    await pick(shown, "local storage");
+    chip(bar(shown), "clear").fire("click");
+    expect(notes(shown.body)).toEqual(["clear 2 items?"]);
+    expect(notes(over(shown))).toEqual([]);
+    expect(notes(store(shown, "session storage"))).toEqual([]);
+    answer(shown, "cancel").fire("click");
+    chip(bar(shown), "add").fire("click");
+    expect(shown.body.find("field-area")).toHaveLength(1);
+    expect(store(shown, "session storage").find("field-area")).toEqual([]);
+    expect(shown.escape()).toBe(true);
+    toggle(row(shown, "token"));
+    chip(row(shown, "token"), "copy value").fire("click");
     await settle();
-    expect(again.view().id).toBe(pageId({ kind: "cookies" }));
-    again.back();
-    expect(again.view().id).toBe(STORAGE_VIEW);
-    again.close();
-    // Left on the tree, it opens on the tree.
-    expect(show().view().id).toBe(STORAGE_VIEW);
-    const deeper = await listed({}, deep());
-    await pickStore(deeper, "shop", "events");
-    deeper.close();
-    const back = show({}, deep());
-    await settle();
-    expect(back.view().title).toBe("shop / events");
-    expect(labels(back).slice(0, 2)).toEqual(["0", "1"]);
-    back.back();
-    back.close();
+    expect(notes(shown.body)).toEqual(["copied token"]);
+    expect(notes(over(shown))).toEqual([]);
+    // A node that folds away takes its question with it.
+    chip(bar(shown), "clear").fire("click");
+    foldAway(shown, "local storage");
+    expect(shown.escape()).toBe(false);
+    expect(shown.site.localStorage.map.size).toBe(4);
   });
 
   test("a key and its value stand on the same two columns in every row, under a head that names them", async () => {
@@ -699,11 +719,9 @@ describe("a table's page", () => {
       ["cell-name columned", "key"],
       ["cell-value", "value"],
     ]);
-    // The head goes with the lines: a table with none to show has no head.
-    type(shown, "zzz");
-    expect(tableHead(shown)).toBeNull();
-    type(shown, "");
-    expect(tableHead(shown)).toEqual(["", "key", "value"]);
+    // The head and the lines are in the one list, so they are on the one set of columns.
+    const table = under(shown).children[2];
+    expect(table?.children.map((child) => child.className)).toEqual(["st-list", "cells-head", "st-list", "st-list"]);
   });
 
   test("each table's head names its own columns", async () => {
@@ -721,7 +739,128 @@ describe("a table's page", () => {
     expect(tableHead(shown)).toEqual(["", "#", "name", "status"]);
     await pick(shown, "presets");
     expect(tableHead(shown)).toEqual(["", "name", "holds"]);
-    await pick(shown, "local storage");
+  });
+});
+
+describe("the filter over the tree", () => {
+  /** The stores that are cheap to read, each with whether it is out and whether it is said quietly. */
+  function state(shown: Shown): Record<string, string> {
+    return Object.fromEntries(
+      ["local storage", "session storage", "cookies", "presets"].map((label) => [
+        label,
+        `${isOut(shown, label) ? "out" : "away"}${store(shown, label).find("row-value")[0]?.classes().includes("idle") ? ", quiet" : ""}`,
+      ]),
+    );
+  }
+
+  function site(): FakeSite {
+    const made = deep({ local: { token: "abc", theme: "DARK" }, session: { step: "2", token2: "x" } });
+    made.jar.put({ name: "sid", value: "1" });
+    return made;
+  }
+
+  test("a store with lines it keeps folds out to those alone, one with none folds away, quiet, and its summary stays what it holds", async () => {
+    const shown = await listed({}, site(), memoryOf("cookies"));
+    savePresets([PRESET]);
+    shown.head("refresh");
+    await settle();
+    expect(state(shown)).toEqual({ "local storage": "away", "session storage": "away", cookies: "out", presets: "away" });
+    type(shown, "TOK");
+    await settle();
+    expect(state(shown)).toEqual({
+      "local storage": "out",
+      "session storage": "out",
+      cookies: "away, quiet",
+      presets: "away, quiet",
+    });
+    shown.body = store(shown, "local storage");
+    expect(labels(shown)).toEqual(["token"]);
+    shown.body = store(shown, "session storage");
+    expect(labels(shown)).toEqual(["token2"]);
+    // The summaries are what the stores hold, not what the filter keeps.
+    expect(holds(shown, "local storage")).toBe("2 items · 7 B");
+    expect(holds(shown, "cookies")).toBe("1 cookie · 4 B");
+    // The value is matched as the key is.
+    type(shown, "dark");
+    await settle();
+    expect(state(shown)).toMatchObject({ "local storage": "out", "session storage": "away, quiet" });
+    // Cleared, every node is as the user left it.
+    type(shown, "");
+    await settle();
+    expect(state(shown)).toEqual({ "local storage": "away", "session storage": "away", cookies: "out", presets: "away" });
+    expect([...shown.memory.expanded]).toEqual(["cookies"]);
+  });
+
+  test("a store whose own name is what matches stays as the user left it, with all its lines", async () => {
+    const shown = await listed({}, site(), memoryOf("local"));
+    type(shown, "local stor");
+    await settle();
+    expect(state(shown)).toEqual({
+      "local storage": "out",
+      "session storage": "away, quiet",
+      cookies: "away, quiet",
+      presets: "away, quiet",
+    });
+    shown.body = store(shown, "local storage");
+    expect(labels(shown)).toEqual(["token", "theme"]);
+    // An object store's name, and its database's, do the same for its records.
+    type(shown, "");
+    await pickStore(shown, "shop", "events");
+    type(shown, "shop");
+    expect(rows(shown).filter((box) => !box.hidden)).toHaveLength(50);
+    type(shown, "events");
+    expect(rows(shown).filter((box) => !box.hidden)).toHaveLength(50);
+  });
+
+  test("a press on a node while a filter is on is the user's word on it, and the next letter is the filter's again", async () => {
+    const shown = await listed({}, site());
+    type(shown, "tok");
+    await settle();
+    await pick(shown, "cookies");
+    expect(isOut(shown, "cookies")).toBe(true);
+    expect(shown.body.find("empty")[0]?.textContent).toBe("nothing matches");
+    expect([...shown.memory.expanded]).toEqual(["cookies"]);
+    type(shown, "toke");
+    expect(isOut(shown, "cookies")).toBe(false);
+    type(shown, "");
+    expect(isOut(shown, "cookies")).toBe(true);
+  });
+
+  test("the databases, the caches and their tables stay as the user left them, and a table that is read a page at a time is filtered over what is read", async () => {
+    const shown = await listed({}, site());
+    await pickStore(shown, "shop", "events");
+    type(shown, '"at":49');
+    expect(isOut(shown, "IndexedDB")).toBe(true);
+    expect(rows(shown).filter((box) => !box.hidden).map((box) => box.find("row-label")[0]?.textContent)).toEqual(["49"]);
+    // The way to read on stays, as there may be more to find.
+    expect(notes(shown.body)).toContain("50 of 120");
+    type(shown, "zzz");
+    expect(shown.body.find("empty")[0]?.textContent).toBe("nothing matches");
+    expect(tableHead(shown)).toBeNull();
+    expect(chips(shown.body)).toEqual(["show 50 more"]);
+    chip(shown.body, "show 50 more").fire("click");
+    await settle();
+    expect(rows(shown)).toHaveLength(100);
+    expect(rows(shown).filter((box) => !box.hidden)).toEqual([]);
+    type(shown, "");
+    expect(rows(shown).filter((box) => !box.hidden)).toHaveLength(100);
+    expect(tableHead(shown)).toEqual(["", "#", "key", "value"]);
+  });
+
+  test("escape closes an open box first, then empties the filter, and then is the panel's", async () => {
+    const shown = await listed({}, site(), memoryOf("local"));
+    type(shown, "tok");
+    await settle();
+    shown.body = store(shown, "local storage");
+    toggle(row(shown, "token"));
+    chip(row(shown, "token"), "edit").fire("click");
+    expect(shown.escape()).toBe(true);
+    expect(row(shown, "token").find("field-area")).toEqual([]);
+    expect(filterOf(shown).value).toBe("tok");
+    expect(shown.escape()).toBe(true);
+    expect(filterOf(shown).value).toBe("");
+    expect(labels(shown)).toEqual(["token", "theme"]);
+    expect(shown.escape()).toBe(false);
   });
 });
 
@@ -734,27 +873,24 @@ describe("local and session storage", () => {
     expect(user.find("row-label")[0]?.className).toBe("row-label cell-name columned");
     expect(user.find("cell-value")[0]?.textContent).toBe('{"id":1,"tags":["a"]}');
     expect(user.find("cell-end")[0]?.textContent).toBe("21 B");
-    expect(filterOf(shown).placeholder).toBe("filter 2 items");
     await pick(shown, "session storage");
     expect(labels(shown)).toEqual(["step"]);
-    expect(filterOf(shown).placeholder).toBe("filter 1 item");
   });
 
   test("devknobs' own show once asked for, told by their fainter key alone", async () => {
     const shown = show({ local: ITEMS });
     await pick(shown, "local storage");
-    // The line is the last of the page, a quiet button, and no control of the bar.
+    // The line is the last under the node, a quiet button, and none of the store's controls.
     const line = ownLine(shown);
     expect(line?.tag).toBe("button");
     expect(line?.className).toBe("note note-button");
     expect(line?.textContent).toBe("2 hidden (devknobs' own)");
-    expect(shown.body.children[shown.body.children.length - 1]?.children).toEqual([line as FakeNode]);
+    expect(under(shown).children[under(shown).children.length - 1]?.children).toEqual([line as FakeNode]);
     expect(chips(bar(shown))).toEqual(["add", "clear", "save as preset"]);
     line?.fire("click");
     expect(ownLine(shown)).toBe(line as FakeNode);
     expect(labels(shown)).toEqual(["token", "user", "devknobs", "devknobs:keys"]);
     expect(row(shown, "devknobs").find("row-label")[0]?.className).toBe("row-label cell-name columned quiet");
-    expect(filterOf(shown).placeholder).toBe("filter 4 items");
     expect(ownLine(shown)?.textContent).toBe("hide devknobs' own");
     ownLine(shown)?.fire("click");
     expect(labels(shown)).toEqual(["token", "user"]);
@@ -998,9 +1134,12 @@ describe("local and session storage", () => {
     expect(labels(shown)).toEqual(["theme"]);
     type(shown, "TOK");
     expect(labels(shown)).toEqual(["Token"]);
+    // With nothing the filter keeps, the node folds away, and builds no line.
     type(shown, "zzz");
-    expect(shown.body.find("empty")[0]?.textContent).toBe("nothing matches");
-    // Escape clears the filter before it leaves the view.
+    expect(isOut(shown, "local storage")).toBe(false);
+    expect(rows(shown)).toEqual([]);
+    expect(holds(shown, "local storage")).toBe("3 items · 8 B");
+    // Escape clears the filter before it leaves the view, and the node is as it was left.
     expect(shown.escape()).toBe(true);
     expect(labels(shown)).toEqual(["Token", "theme", "other"]);
     expect(shown.escape()).toBe(false);
@@ -1081,27 +1220,35 @@ describe("local and session storage", () => {
 });
 
 describe("staying live", () => {
-  test("the tick runs once a second while a live store shows, and stops with its page and the view", async () => {
+  test("one tick runs once a second for the whole view, whatever is folded out, and stops with the view", async () => {
     const shown = show({}, deep({ local: ITEMS }));
-    await pick(shown, "local storage");
-    const live = shown.ticks.filter((tick) => !tick.stopped);
-    expect(live).toHaveLength(1);
-    expect(live[0]?.ms).toBe(POLL_MS);
+    await settle();
     expect(POLL_MS).toBe(1000);
-    const still: [string, () => Promise<void>][] = [
-      ["an object store", () => pickStore(shown, "shop", "carts")],
-      ["a cache", () => pickCache(shown, "pages")],
-      ["presets", () => pick(shown, "presets")],
-    ];
-    for (const [label, open] of still) {
-      await open();
-      expect([label, shown.ticks.filter((tick) => !tick.stopped)]).toEqual([label, []]);
-    }
-    await pick(shown, "session storage");
-    expect(shown.ticks.filter((tick) => !tick.stopped)).toHaveLength(1);
+    expect(shown.ticks.map((tick) => [tick.ms, tick.stopped])).toEqual([[POLL_MS, false]]);
+    await pick(shown, "local storage");
+    await pickStore(shown, "shop", "carts");
+    await pickCache(shown, "pages");
+    await pick(shown, "presets");
+    foldAway(shown, "local storage");
+    expect(shown.ticks.map((tick) => [tick.ms, tick.stopped])).toEqual([[POLL_MS, false]]);
     shown.close();
-    expect(shown.ticks.filter((tick) => !tick.stopped)).toEqual([]);
-    await pick(show(), "local storage");
+    expect(shown.ticks.map((tick) => tick.stopped)).toEqual([true]);
+  });
+
+  test("the tick reads a table only while its node is folded out", async () => {
+    const site = fakeSite({ local: { a: "1" } });
+    const shown = show({}, site);
+    await pick(shown, "local storage");
+    const [tick] = shown.ticks;
+    site.localStorage.setItem("b", "2");
+    tick?.run();
+    expect(labels(shown)).toEqual(["a", "b"]);
+    foldAway(shown, "local storage");
+    site.localStorage.setItem("c", "3");
+    tick?.run();
+    // Its summary is still read, and no line is built.
+    expect(holds(shown, "local storage")).toBe("3 items · 3 B");
+    expect(shown.root.find("cell-name")).toEqual([]);
   });
 
   test("a write by the page shows on the next tick, and rows that did not change are left as they are", async () => {
@@ -1168,7 +1315,6 @@ describe("staying live", () => {
     const open = factory?.open;
     const shown = show({}, site);
     for (const label of ["local storage", "session storage", "cookies", "presets"]) await pick(shown, label);
-    toTree(shown);
     await unfold(shown, "IndexedDB");
     await unfold(shown, "cache storage");
     await pick(shown, "local storage");
@@ -1193,10 +1339,11 @@ describe("cookies", () => {
     await pick(shown, "cookies");
     expect(notes(shown.body)[0]).toBe(HTTP_ONLY_NOTE);
     expect(labels(shown)).toEqual(["theme"]);
-    const section = shown.body.children[2];
+    const section = under(shown).children[2];
     expect(section?.children[section.children.length - 1]?.textContent).toBe(HTTP_ONLY_NOTE);
     expect(notes(shown.body)).toEqual([HTTP_ONLY_NOTE]);
-    type(shown, "nothing like it");
+    type(shown, "dar");
+    expect(labels(shown)).toEqual(["theme"]);
     expect(notes(shown.body)).toEqual([HTTP_ONLY_NOTE]);
   });
 
@@ -1236,7 +1383,6 @@ describe("cookies", () => {
       "strict",
     ]);
     expect(chips(sid)).toEqual(["copy value", "edit", "delete"]);
-    expect(filterOf(shown).placeholder).toBe("filter 1 cookie");
   });
 
   test("without one, a row says only what is known, and says so", async () => {
@@ -1307,11 +1453,17 @@ describe("cookies", () => {
     ]);
   });
 
-  test("where the browser says when cookies change it is heard, and no tick runs", async () => {
+  test("where the browser says when cookies change it is heard, and the tick does not read their table", async () => {
     const site = fakeSite({ cookieStore: true });
     const shown = show({}, site);
     await pick(shown, "cookies");
-    expect(shown.ticks.filter((tick) => !tick.stopped)).toEqual([]);
+    site.jar.put({ name: "early", value: "1" });
+    shown.ticks[0]?.run();
+    await settle();
+    // The tick read the summary, and left the table to what the browser says.
+    expect(holds(shown, "cookies")).toBe("1 cookie · 6 B");
+    expect(labels(shown)).toEqual([]);
+    site.jar.cookies.length = 0;
     const store = site.jar.store();
     expect(store.listeners.size).toBe(0);
     site.jar.put({ name: "late", value: "1" });
@@ -1369,7 +1521,6 @@ describe("an object store's table", () => {
       "indexes",
       "byUser",
     ]);
-    expect(filterOf(shown).placeholder).toBe("filter 1 record");
     const record = row(shown, "1");
     expect(record.find("main")[0]?.children.map((child) => [child.className, child.textContent])).toEqual([
       ["turn", ""],
@@ -1380,7 +1531,6 @@ describe("an object store's table", () => {
     toggle(record);
     expect(record.find("code-text")[0]?.textContent).toBe('{\n  "id": 1,\n  "when": Date 1970-01-01T00:00:00.000Z\n}');
     await pickStore(shown, "shop", "events");
-    expect(filterOf(shown).placeholder).toBe("filter 120 records");
     expect(rows(shown)).toHaveLength(50);
     expect(rows(shown).slice(0, 3).map((box) => box.find("cell-index")[0]?.textContent)).toEqual(["0", "1", "2"]);
     expect(notes(shown.body)).toEqual([RECORDS_NOTE, "50 of 120"]);
@@ -1432,12 +1582,12 @@ describe("an object store's table", () => {
     expect(site.idb.connections.flatMap((connection) => connection.modes).every((mode) => mode === "readonly")).toBe(true);
   });
 
-  test("is not read on a tick: only when its page shows, and on refresh", async () => {
+  test("is not read on a tick: only when its node folds out, and on refresh", async () => {
     const site = deep();
     const shown = show({}, site);
     await pickStore(shown, "shop", "carts");
-    expect(shown.ticks.filter((tick) => !tick.stopped)).toEqual([]);
     const before = site.idb.connections.length;
+    shown.ticks[0]?.run();
     await settle(20);
     expect(site.idb.connections.length).toBe(before);
     shown.head("refresh");
@@ -1446,17 +1596,29 @@ describe("an object store's table", () => {
     expect(labels(shown)).toEqual(["1"]);
   });
 
-  test("a store that is gone, or a database that cannot be read, says so in one line", async () => {
+  test("a database that can no longer be read says so in one line under its node, in place of its stores", async () => {
     const site = deep();
     const shown = show({}, site);
     await pickStore(shown, "shop", "carts");
     site.idb.modes.set("shop", "fail");
     shown.head("refresh");
     await settle();
-    expect(notes(shown.body)).toEqual([RECORDS_NOTE, "cannot open shop: UnknownError"]);
-    expect(rows(shown)).toEqual([]);
-    expect(tableHead(shown)).toBeNull();
+    expect(notes(store(shown, "shop"))).toEqual(["cannot open shop: UnknownError"]);
+    expect(names(shown)).not.toContain("carts");
+    expect(shown.root.find("cell-index")).toEqual([]);
     expect(site.idb.openNow()).toEqual([]);
+  });
+
+  test("a refresh leaves a table that is out as it is where its database's stores are the same", async () => {
+    const site = deep();
+    const shown = show({}, site);
+    await pickStore(shown, "shop", "events");
+    const node = store(shown, "events");
+    shown.head("refresh");
+    await settle();
+    expect(store(shown, "events")).toBe(node);
+    expect(isOut(shown, "events")).toBe(true);
+    expect(rows(shown)).toHaveLength(50);
   });
 
   test("the tree says plainly where the browser cannot list databases", async () => {
@@ -1473,7 +1635,6 @@ describe("a cache's table", () => {
     const shown = show({}, site);
     await pickCache(shown, "pages");
     expect(notes(shown.body)).toEqual([CACHE_NOTE, "100 of 240"]);
-    expect(filterOf(shown).placeholder).toBe("filter 240 requests");
     const lines = rows(shown);
     expect(lines).toHaveLength(100);
     expect(lines[0]?.find("main")[0]?.children.map((child) => [child.className, child.textContent])).toEqual([
@@ -1508,16 +1669,17 @@ describe("a cache's table", () => {
     expect(site.cached.matches).toBe(240);
   });
 
-  test("a cache that is gone is said so, and never made by looking", async () => {
+  test("a cache that is gone leaves the tree on refresh, and is never made by looking", async () => {
     const site = deep();
     const shown = show({}, site);
     await pickCache(shown, "pages");
     site.cached.caches.delete("pages");
     shown.head("refresh");
     await settle();
-    expect(notes(shown.body)).toEqual([CACHE_NOTE, "there is no cache pages"]);
+    expect(names(shown)).not.toContain("pages");
+    expect(store(shown, "cache storage").find("empty")[0]?.textContent).toBe("no caches");
     expect(site.cached.caches.has("pages")).toBe(false);
-    expect(rows(shown)).toEqual([]);
+    expect(shown.root.find("cell-index")).toEqual([]);
   });
 
   test("the tree says where there is none to read", async () => {
@@ -1543,11 +1705,13 @@ describe("clear site data", () => {
     await pick(shown, "local storage");
     shown.head("clear site data");
     await settle();
-    expect(notes(shown.body)).toContain(
+    // It is for all of the view, so it is asked over the tree, and not in a store's node.
+    expect(notes(over(shown))).toEqual([
       "clear site data? 2 local, 1 session, 2 cookies, 2 databases, 1 cache. devknobs' own items are kept",
-    );
-    expect(chips(shown.body).slice(-2)).toEqual(["clear site data", "cancel"]);
-    chip(shown.body, "cancel").fire("click");
+    ]);
+    expect(notes(shown.body)).toEqual([]);
+    expect(chips(over(shown))).toEqual(["clear site data", "cancel"]);
+    chip(over(shown), "cancel").fire("click");
     expect(site.localStorage.map.size).toBe(4);
     expect(site.idb.deletes).toEqual([]);
   });
@@ -1558,16 +1722,16 @@ describe("clear site data", () => {
     await pick(shown, "local storage");
     shown.head("clear site data");
     await settle();
-    chip(shown.body, "clear site data").fire("click");
+    chip(over(shown), "clear site data").fire("click");
     await settle(20);
     expect(site.localStorage.all()).toEqual({ devknobs: "{}", "devknobs:keys": "{}" });
     expect(site.sessionStorage.all()).toEqual({ "devknobs:locale-owner": "x" });
     expect(site.jar.cookies).toEqual([]);
     expect(site.idb.data.size).toBe(0);
     expect(site.cached.caches.size).toBe(0);
-    expect(notes(shown.body)).toContain("cleared 2 local, 1 session, 2 cookies, 2 databases, 1 cache");
+    expect(notes(over(shown))).toContain("cleared 2 local, 1 session, 2 cookies, 2 databases, 1 cache");
     expect(site.reloads).toBe(0);
-    chip(shown.body, "reload the page").fire("click");
+    chip(over(shown), "reload the page").fire("click");
     expect(site.reloads).toBe(1);
     expect(labels(shown)).toEqual([]);
   });
@@ -1579,10 +1743,10 @@ describe("clear site data", () => {
     ownLine(shown)?.fire("click");
     shown.head("clear site data");
     await settle();
-    expect(notes(shown.body)).toContain(
+    expect(notes(over(shown))).toContain(
       "clear site data? 4 local, 2 session, 2 cookies, 2 databases, 1 cache, devknobs' own items too",
     );
-    chip(shown.body, "clear site data").fire("click");
+    chip(over(shown), "clear site data").fire("click");
     await settle(20);
     expect(site.localStorage.all()).toEqual({});
     expect(site.sessionStorage.all()).toEqual({});
@@ -1638,8 +1802,9 @@ describe("presets", () => {
     await pick(shown, "presets");
     expect(labels(shown)).toEqual(["logged in", "empty cart"]);
     expect(row(shown, "logged in").find("cell-value")[0]?.textContent).toBe("1 local, 1 session, 1 cookie");
-    expect(notes(shown.body)[0]).toBe("no preset applies on load");
-    expect(filterOf(shown).placeholder).toBe("filter 2 presets");
+    // The line on what applies on load is the tree's, under the node, and not said again in it.
+    expect(notes(shown.body)).toEqual([]);
+    expect(notes(shown.root)).toEqual(["no preset applies on load"]);
     type(shown, "CART");
     expect(labels(shown)).toEqual(["empty cart"]);
     type(shown, "");
@@ -1791,7 +1956,7 @@ describe("presets", () => {
     expect(row(shown, "logged in").find("cell-end")).toEqual([]);
     control?.fire("click");
     expect(loadPresets().map((preset) => preset.onLoad)).toEqual([true, false]);
-    expect(said(shown)[0]).toBe("applies on every load of this page: logged in");
+    expect(notes(shown.root).pop()).toBe("applies on every load of this page: logged in");
     expect(row(shown, "logged in").find("cell-end")[0]?.textContent).toBe("on load");
     expect(row(shown, "other").find("cell-end")).toEqual([]);
     expect(notes(shown.body)).toContain("logged in is set on every load of this page, until it is turned off");
@@ -1806,14 +1971,15 @@ describe("presets", () => {
     expect(loadPresets()[0]).toMatchObject({ onLoad: true, clearFirst: true });
     row(shown, "logged in").find("switch")[0]?.fire("click");
     expect(loadPresets()[0]?.onLoad).toBe(false);
-    expect(said(shown)[0]).toBe("no preset applies on load");
+    expect(notes(shown.root).pop()).toBe("no preset applies on load");
   });
 
   test("in fresh mode the section says presets are not kept, and nothing is written", async () => {
     const site = fakeSite({ local: { a: "1" } });
     const shown = show({ search: "?devknobs=fresh" }, site);
     await pick(shown, "presets");
-    expect(notes(shown.body)).toEqual([FRESH_PRESETS]);
+    expect(notes(shown.root)).toEqual([FRESH_PRESETS]);
+    expect(rows(shown)).toEqual([]);
     expect(FRESH_PRESETS).toBe("fresh mode: presets are not read or kept");
     expect(chips(shown.body)).toEqual(["save current as preset"]);
     chip(shown.body, "save current as preset").fire("click");

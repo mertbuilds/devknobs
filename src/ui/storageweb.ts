@@ -248,13 +248,11 @@ export function webSection(shell: Shell, kind: WebKind): Section {
   return {
     node,
     live: true,
-    noun: ["item", "items"],
     refresh,
     filter() {
       limit = ROW_CHUNK;
       if (read) draw();
     },
-    count: () => (read ? filterItems(items, "", shell.own()).length : null),
     controls: () => [{ label: "add", run: add }],
     hidden: () => items.filter((item) => item.own).length,
     clear() {

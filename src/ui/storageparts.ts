@@ -10,7 +10,6 @@ import {
   stack,
   textArea,
 } from "./kit";
-import type { PaneView } from "./pane";
 
 /**
  * What the storage view's sections share: what they need from the view, the
@@ -30,8 +29,16 @@ export interface StorageDeps {
   /** Whether the view is in sight. A view out of sight reads nothing on its tick. */
   visible(): boolean;
   now(): number;
-  /** Show a view in the panel, in place of the one that is open: the way from the stores to one of them, and back. */
-  open(view: PaneView): void;
+  /** What the view keeps while the page is: a test hands in its own. */
+  memory: StorageMemory;
+}
+
+/** What the storage view keeps from one showing to the next, until the page reloads. */
+export interface StorageMemory {
+  /** The nodes of the tree that are folded out, each by its key. */
+  expanded: Set<string>;
+  /** Whether the view chose what to fold out as it first showed. */
+  seeded: boolean;
 }
 
 /** What a section needs from the view around it. */
@@ -42,9 +49,9 @@ export interface Shell {
   copy(text: string, what: string): void;
   /** Whether devknobs' own items show, and so go with a clear. */
   own(): boolean;
-  /** Say something on the view's quiet line, with a control after it where one is handed in. */
+  /** Say something on the node's quiet line, with a control after it where one is handed in. */
   say(lines: string | readonly string[], control?: ControlOption): void;
-  /** Ask a question in place, over the view's rows. */
+  /** Ask a question in place, in the node it is about. */
   ask(text: string, confirm: string, run: () => void): void;
   /**
    * Put something in the place a question is asked in, instead of what is
@@ -54,11 +61,11 @@ export interface Shell {
   put(build: (close: () => void) => { node: HTMLElement; focus?: HTMLElement }): void;
   /** Something escape takes back is open. Returns the way to say it closed. */
   hold(cancel: () => void): () => void;
-  /** What the filter says. */
+  /** What the filter says, for this node: nothing where the node's own name is what it matches. */
   query(): string;
-  /** The section's count changed. */
+  /** The section drew again: what it shows, and how many of devknobs' own it leaves out, may have changed. */
   counted(): void;
-  /** The view wrote to the page's storage: every section reads again. */
+  /** The view wrote to the page's storage: what is cheap to read is read again. */
   touched(): void;
 }
 
@@ -67,14 +74,10 @@ export interface Section {
   node: HTMLElement;
   /** Whether the view reads it again on its tick. */
   live: boolean;
-  /** What its items are called, one and many. */
-  noun: readonly [one: string, many: string];
   /** Read again, and draw what changed. */
   refresh(): void | Promise<void>;
   /** Draw for what the filter says now. */
   filter(): void;
-  /** How many items it has, null before it is known. */
-  count(): number | null;
   /** The controls it adds to the view's line of them. */
   controls?(): ControlOption[];
   /** How many of devknobs' own items it has, which it leaves out until asked. A kind with none to tell has none. */

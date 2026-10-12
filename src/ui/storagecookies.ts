@@ -238,12 +238,10 @@ export function cookieSection(shell: Shell): Section {
   return {
     node,
     live: !heard,
-    noun: ["cookie", "cookies"],
     refresh,
     filter() {
       if (read) draw();
     },
-    count: () => (read ? cookies.length : null),
     controls: () => [{ label: "add", run: add }],
     clear() {
       if (cookies.length === 0) {

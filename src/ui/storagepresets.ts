@@ -34,15 +34,15 @@ import { askIn, counted, editBox, rowKeys, type Section, type Shell } from "./st
 /**
  * Presets in the storage view: named sets of values to put into the page's
  * storage, kept by devknobs for this origin. One marked "apply on load" is
- * set on every load of the page, and the section says which are on its first
- * line, as the list of the stores does under its rows, so what changes the
- * page's data is never out of sight.
+ * set on every load of the page, and the tree says which are under the
+ * presets' node, folded out or not, so what changes the page's data is never
+ * out of sight.
  */
 
 /** What the section says where presets cannot be kept. */
 export const FRESH_PRESETS = "fresh mode: presets are not read or kept";
 
-/** Which presets apply on load, as the section's first line says it. */
+/** Which presets apply on load, as the line under the presets' node says it. */
 export function onLoadLine(presets: readonly Preset[]): string {
   const names = presets.filter((preset) => preset.onLoad).map((preset) => preset.name);
   return names.length > 0
@@ -107,11 +107,10 @@ export async function savePreset(shell: Shell, query: string): Promise<void> {
 export function presetSection(shell: Shell): Section {
   const { site } = shell;
   const node = el("div", "st-list");
-  const top = el("div", "st-list");
   const making = el("div", "st-list");
   const head = entryHead({ name: "name", value: "holds" });
   const list = el("div", "st-list");
-  node.append(top, making, head, list);
+  node.append(making, head, list);
 
   let presets: Preset[] = [];
   let read = false;
@@ -295,13 +294,11 @@ export function presetSection(shell: Shell): Section {
 
   function draw(): void {
     if (!canKeep()) {
-      top.replaceChildren(stack([noteLine(FRESH_PRESETS)]));
       head.hidden = true;
       list.replaceChildren();
       shell.counted();
       return;
     }
-    top.replaceChildren(stack([noteLine(onLoadLine(presets))]));
     const matching = filterPresets(presets, shell.query());
     mains = [];
     head.hidden = matching.length === 0;
@@ -352,12 +349,10 @@ export function presetSection(shell: Shell): Section {
   return {
     node,
     live: false,
-    noun: ["preset", "presets"],
     refresh,
     filter() {
       if (read) draw();
     },
-    count: () => (read ? presets.length : null),
     controls(): ControlOption[] {
       if (!canKeep()) return [];
       return [

@@ -534,16 +534,25 @@ what it records, and what it cannot:
 ## storage
 
 the storage action (`⇧S`, or search for storage, data, application, cookies)
-shows what the page keeps in the browser, in the panel, laid out as the
-browsers' own tools lay it out. it opens on a tree of the stores, a node each
-with what the store holds: how many items and how much, or that it has none.
-IndexedDB folds out to its databases and a database to its object stores, and
-cache storage to its caches. a node that holds a table opens it on a page of
-its own, which slides in over the tree: a filter, the store's own controls
-under it, and its lines under a head that names their columns. the way back
-in the head, and escape, go back to the tree. the view opens again on the page
-it last showed, with the nodes that were folded out still so, until the page
-reloads:
+shows what the page keeps in the browser, in the panel, as one tree laid out
+as the browsers' own tools lay it out. a node is a store with what it holds:
+how many items and how much, or that it has none. a node folds out in place
+to its table: the store's own controls on the first line, then a line an item
+under a head that names the columns. IndexedDB folds out to its databases, a
+database to its object stores and an object store to its records, and cache
+storage to its caches and a cache to its requests. nothing opens another
+page. what a store asks and says is in its own node. a node folded away
+builds none of its lines, and only the tables that are out are read again.
+the first time, the first store with something in it is folded out; after
+that the nodes are as you left them, until the page reloads.
+
+one filter over the tree is for every table at once. a store with lines it
+keeps folds out to those alone, and a store with none folds away, quiet; its
+summary stays what it holds. a store whose own name matches keeps all its
+lines. empty the filter and every node is as you left it. the databases, the
+caches and their tables stay as you left them, and a table read a page at a
+time is filtered over what is read, with the way to read on kept. escape
+closes an open box, then empties the filter, then leaves the view:
 
 - `local storage` and `session storage`: every key of `localStorage` and
   `sessionStorage`, its key and a one-line preview of its value each on a
@@ -553,7 +562,7 @@ reloads:
   takes `key=value`, a line each, or a json
   object of several keys. the list follows other tabs through the `storage`
   event and the page's own writes by reading again once a second, only while
-  the store is in sight
+  its node is folded out
 - `cookies`: what `document.cookie` gives, and in Chromium the path, domain,
   expiry, secure and sameSite the cookie store knows. edit and delete write
   `document.cookie` at the cookie's own path and domain, and where those are
@@ -562,11 +571,11 @@ reloads:
   list ends by saying so
 - `IndexedDB`: the databases `indexedDB.databases()` lists, each with its
   version, and a database's object stores with their record counts. an
-  object store's page has its key path, auto increment and indexes, and its
+  object store folds out to its key path, auto increment and indexes, and its
   records numbered from 0, fifty at a time. read only: a whole database can
   be deleted from its node, a record cannot be changed
 - `cache storage`: the caches of Cache Storage, each with how many requests
-  it holds. a cache's page has its requests numbered from 0 with the
+  it holds. a cache folds out to its requests numbered from 0 with the
   response's status, a hundred at a time, and a row folds out to the method,
   address, type and size. read only
 - `presets`: named sets of values to put back into the page, see below. they

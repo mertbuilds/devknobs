@@ -18,7 +18,7 @@ import type { Section, Shell } from "./storageparts";
 /**
  * One object store of IndexedDB, and one cache of Cache Storage, in the
  * storage view: a table each, its lines numbered from 0, read a page at a
- * time. Both are read when their page shows and when refresh is pressed,
+ * time. Both are read when their node folds out and when refresh is pressed,
  * never on a tick, and what is read is read only. No database is held open,
  * see idb.ts.
  */
@@ -102,13 +102,16 @@ export function recordSection(shell: Shell, database: string, storeName: string)
     head.hidden = kept === 0;
     if (error !== null) foot.replaceChildren(stack([noteLine(error)]));
     else if (lines.length === 0) foot.replaceChildren(emptyLine("no records"));
-    else if (kept === 0) foot.replaceChildren(emptyLine("nothing matches"));
     else {
       const total = info?.count ?? null;
       const more = total === null ? !ended : lines.length < total;
       const left = total === null ? RECORD_PAGE : Math.min(RECORD_PAGE, total - lines.length);
       const said = total === null ? `${lines.length} read` : `${lines.length} of ${total}`;
-      foot.replaceChildren(...(more && !ended ? [readOn(said, left, () => void next(asked))] : []));
+      // The filter is over what is read, so the way to read on stays with it.
+      foot.replaceChildren(
+        ...(kept === 0 ? [emptyLine("nothing matches")] : []),
+        ...(more && !ended ? [readOn(said, left, () => void next(asked))] : []),
+      );
     }
     shell.counted();
   }
@@ -129,7 +132,6 @@ export function recordSection(shell: Shell, database: string, storeName: string)
   return {
     node,
     live: false,
-    noun: ["record", "records"],
     async refresh() {
       const mine = ++asked;
       const got = await readDatabase(site, database);
@@ -160,7 +162,6 @@ export function recordSection(shell: Shell, database: string, storeName: string)
     filter() {
       if (read) draw();
     },
-    count: () => (read && error === null ? (info?.count ?? lines.length) : null),
     destroy() {
       asked++;
     },
@@ -187,11 +188,13 @@ export function cacheSection(shell: Shell, name: string): Section {
     head.hidden = kept === 0;
     if (error !== null) foot.replaceChildren(stack([noteLine(error)]));
     else if (lines.length === 0) foot.replaceChildren(emptyLine("no requests"));
-    else if (kept === 0) foot.replaceChildren(emptyLine("nothing matches"));
-    else if (lines.length >= total) foot.replaceChildren();
     else {
       const left = Math.min(CACHE_PAGE, total - lines.length);
-      foot.replaceChildren(readOn(`${lines.length} of ${total}`, left, () => void next(asked)));
+      // The filter is over what is read, so the way to read on stays with it.
+      foot.replaceChildren(
+        ...(kept === 0 ? [emptyLine("nothing matches")] : []),
+        ...(left > 0 ? [readOn(`${lines.length} of ${total}`, left, () => void next(asked))] : []),
+      );
     }
     shell.counted();
   }
@@ -235,7 +238,6 @@ export function cacheSection(shell: Shell, name: string): Section {
   return {
     node,
     live: false,
-    noun: ["request", "requests"],
     async refresh() {
       const mine = ++asked;
       // Opening a cache makes one, so a cache that is gone is never opened.
@@ -255,7 +257,6 @@ export function cacheSection(shell: Shell, name: string): Section {
     filter() {
       if (read) draw();
     },
-    count: () => (read && error === null ? total : null),
     destroy() {
       asked++;
     },
