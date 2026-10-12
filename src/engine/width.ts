@@ -597,12 +597,6 @@ function dropCopies(): void {
   copied = null;
 }
 
-/** Load the outside page in its copies: loads of devknobs' own, which the log of requests leaves out. */
-function loadCopies(live: LiveCopies, outside: string): void {
-  [live.open, live.closed].forEach(() => hushOnce(outside));
-  loadLive(live, outside);
-}
-
 /** A frame for a copy of the outside page at `outside`, as the frame's own is for it, with no name and no page yet. */
 function copyFrame(outside: string): HTMLIFrameElement {
   const node = document.createElement("iframe");
@@ -631,7 +625,7 @@ function keepCopies(): void {
   if (copied !== there) {
     copied = there;
     for (const copy of [copies.open, copies.closed]) pointOutside(copy.frame, there);
-    loadCopies(copies, there);
+    loadLive(copies, there);
   }
   const ground = readLook(frame).background;
   for (const value of [current, other]) {
@@ -1079,7 +1073,7 @@ function onReloading(): void {
     loaded = false;
     reloadingOutside();
     // Its copies load again with it.
-    if (copies) loadCopies(copies, there);
+    if (copies) loadLive(copies, there);
   }
   if (!running()) browser?.startLoading(null);
 }

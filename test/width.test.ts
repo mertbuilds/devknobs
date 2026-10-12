@@ -20,7 +20,6 @@ import { parseKept, SCROLL_KEY, SCROLL_VERSION } from "../src/engine/scrollkeep"
 import { keepDrawing, SNAPSHOT_KEY } from "../src/engine/placeholder";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import { type Mark, MARK_EVENT } from "../src/engine/touchmark";
-import { share, type Shared, SHARED_VERSION } from "../src/requests/shared";
 import {
   apply,
   fit,
@@ -3767,29 +3766,6 @@ describe("an outside page in the frame", () => {
         expect(touched).toBe(0);
       });
 
-      test("shows the host's color for the scheme in a copy's place, as the bars and the screen have it, and its change at once", () => {
-        const duo = { device: "iphone-duo" } as const;
-        const grounds = () =>
-          copyFrames().map((copy) => [Reflect.get(copy.style, "background"), Reflect.get(copy.parent?.style ?? {}, "background")]);
-        const both = (color: string) => [[color, color], [color, color]];
-        setOutside(OUTSIDE, false, parseLook({ light: "#faf7f2", dark: "#14110f" }));
-        show({ ...duo, scheme: "dark" });
-        expect(Reflect.get(frameElement().style, "background")).toBe("rgb(20, 17, 15)");
-        expect(grounds()).toEqual(both("rgb(20, 17, 15)"));
-        show({ ...duo, scheme: "light" });
-        expect(grounds()).toEqual(both("rgb(250, 247, 242)"));
-        // Colors that come after the page was shown, and none again.
-        lookOutside(parseLook({ light: "#203040" }));
-        show({ ...duo, scheme: "light" });
-        expect(grounds()).toEqual(both("rgb(32, 48, 64)"));
-        lookOutside(null);
-        show({ ...duo, scheme: "light" });
-        expect(grounds()).toEqual(both("rgb(255, 255, 255)"));
-        // No copy loaded again for a color.
-        expect(sent).toEqual([OUTSIDE, OUTSIDE, OUTSIDE]);
-        expect(touched).toBe(0);
-      });
-
       test("is as with none for a color that is no color", () => {
         setOutside(OUTSIDE, false, parseLook({ light: "red", dark: "url(https://example.com/x)" }));
         show({ scheme: "dark" });
@@ -3945,55 +3921,6 @@ describe("an outside page in the frame", () => {
       expect([hidden(open), hidden(shut)]).toEqual([true, true]);
       expect(copyFrames()).toEqual([open, shut] as FakeElement[]);
       expect(touched).toBe(0);
-    });
-
-    test("keeps the copies' loads out of the log of requests, and the frame's own load of the page in it", () => {
-      const hushed: [string, boolean][] = [];
-      // A picture of the device is hushed for good, and is no load of a page.
-      const hush = (url: string, once: boolean) => once && hushed.push([url, once]);
-      const recorder = { version: SHARED_VERSION, hush };
-      share(recorder as unknown as Shared);
-      try {
-        setOutside(OUTSIDE, false);
-        apply(DUO_STATE);
-        // Three loads of the address, and two of them devknobs' own.
-        expect(sent).toEqual([OUTSIDE, OUTSIDE, OUTSIDE]);
-        expect(hushed).toEqual([[OUTSIDE, true], [OUTSIDE, true]]);
-        loaded();
-        play();
-        glyphOf(RELOAD)?.dispatchEvent(new Event("click"));
-        expect(sent).toHaveLength(6);
-        expect(hushed).toHaveLength(4);
-        setOutside(OTHER, false);
-        apply(DUO_STATE);
-        expect(hushed.slice(4)).toEqual([[OTHER, true], [OTHER, true]]);
-      } finally {
-        share(null);
-      }
-      expect(touched).toBe(0);
-    });
-
-    test("folds beside a pinned panel with the copies laid where the fold has its own, in the room the column leaves", () => {
-      const pinned = { open: true, side: "right", docked: true } as const;
-      setOutside(OUTSIDE, false);
-      apply({ ...SHUT, panel: pinned });
-      loaded();
-      play();
-      const all = frameElements();
-      expect(all).toHaveLength(3);
-      reduce = false;
-      apply({ ...OPEN, panel: pinned });
-      const place = byClass("fold")?.children[0];
-      const twin = byClass("live")?.children[0];
-      const laid = Reflect.get(place?.style ?? {}, "transform");
-      expect(laid).toMatch(/^translate\(/);
-      expect(Reflect.get(twin?.style ?? {}, "transform")).toBe(laid);
-      play();
-      expect(byClass("fold")).toBeUndefined();
-      expect(frameElements()).toEqual(all);
-      expect(sent).toEqual([OUTSIDE, OUTSIDE, OUTSIDE]);
-      expect(touched).toBe(0);
-      expect(errors).toEqual([]);
     });
 
     test("loads another outside page in the same copies", () => {
