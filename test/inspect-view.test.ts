@@ -170,9 +170,9 @@ async function inspecting(): Promise<void> {
   inspect.set(true);
 }
 
-/** The select button in the view's head. */
+/** The select button the view's bar starts with. */
 function select(): PanelNode {
-  return one("view-action");
+  return one("tool");
 }
 
 /**
@@ -393,17 +393,32 @@ describe("the styles view and the requests view, one in the other's place", () =
   });
 });
 
-describe("the select button in the view's head", () => {
-  test("is the head's one action, pressed while the picking is on", async () => {
+describe("the select button the view's bar starts with", () => {
+  test("is the first control of the bar, the kit's toggle, pressed while the picking is on", async () => {
     inspect.set(true);
     await settle();
-    expect(node.find("view-action")).toHaveLength(1);
-    expect(select().className).toBe("row-button view-action");
+    expect(node.find("tool")).toHaveLength(1);
+    expect(one("toolbar").children[0]).toBe(select());
+    expect(select().tag).toBe("button");
+    expect(select().className).toBe("tool on");
     expect(select().attributes.get("aria-label")).toBe("select an element");
     expect(select().attributes.get("aria-pressed")).toBe("true");
     pick(save);
+    expect(select().className).toBe("tool");
     expect(select().attributes.get("aria-pressed")).toBe("false");
     expect(one("css-selector").textContent).toBe(".primary");
+    expect(one("toolbar").children.map((part) => (part as PanelNode).className)).toEqual(["tool", "field filter"]);
+  });
+
+  test("is no action of the head, which holds the way back alone", async () => {
+    inspect.set(true);
+    await settle();
+    expect(node.find("view-action")).toEqual([]);
+    expect(one("view-actions").children).toEqual([]);
+    // The tab key comes to the way back, then to the bar, where the button is first.
+    const stops = node.all().filter((part) => part.tag === "button" || part.tag === "input");
+    expect(stops.indexOf(one("main"))).toBe(0);
+    expect(stops.indexOf(select())).toBeLessThan(stops.indexOf(filter()));
   });
 
   test("starts the picking again with a click, and ends it with the next, the element kept", async () => {
@@ -486,7 +501,10 @@ describe("the page with the styles view open", () => {
     expect(one("empty").textContent).toBe(GONE);
     expect(one("empty").hidden).toBe(false);
     expect(inspector?.picked()).toBeNull();
-    expect(node.find("view-action")).toHaveLength(1);
+    // The bar stays for the button alone.
+    expect(one("toolbar").hidden).toBe(false);
+    expect(select().hidden).toBe(false);
+    expect(filter().hidden).toBe(true);
     expect(select().attributes.get("aria-pressed")).toBe("false");
   });
 });

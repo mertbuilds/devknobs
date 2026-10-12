@@ -231,6 +231,19 @@ for (const layout of LAYOUTS) {
       expect(boxRight(...body, "group", "group-head", "button row-button req-copy")).toBe(action);
     });
 
+    test("the toggle a bar starts with has its icon where the view's lines start, the pad clear on each side of it", () => {
+      for (const root of ROOTS) {
+        const tool = [...body, ...root, "toolbar", "button tool"];
+        const width = sheet.px(path(...tool), "width");
+        expect(width).toBe(ICON + PAD * 2);
+        // The icon is centered in the button, so it starts half of what the button has over it in.
+        expect([root.join(" "), boxLeft(...tool) + (width - ICON) / 2]).toEqual([root.join(" "), at]);
+        expect(boxLeft(...tool)).toBe(at - PAD);
+      }
+      // The same place the head's chevron starts at.
+      expect(boxLeft(...body, "styles", "toolbar", "button tool") + PAD).toBe(left(...head, "button main"));
+    });
+
     test("the views' own lines start and end with the kit's: the crumbs, a css block, the box's facts, a request's summary", () => {
       const styles = [...body, "styles"];
       const blocks = [...styles, "css-blocks"];

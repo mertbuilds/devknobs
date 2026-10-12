@@ -444,6 +444,74 @@ describe("the view's chrome", () => {
     ]);
   });
 
+  test("with the picking handed in, the bar starts with the select button, before the filter and the modes", () => {
+    let on = false;
+    let key = "Shift C";
+    const told: (() => string)[] = [];
+    const hearing: (() => void)[] = [];
+    let presses = 0;
+    const telling: Tips = {
+      ...tips,
+      tooltip: (control, text) => {
+        tipped.push(fake(control));
+        told.push(typeof text === "string" ? () => text : text);
+      },
+    };
+    view = createStylesView(
+      {
+        tips: telling,
+        title: () => undefined,
+        outline: () => undefined,
+        mode,
+        select: {
+          label: "select an element",
+          hint: () => key,
+          on: () => on,
+          run: () => presses++,
+          watch: (listener) => {
+            hearing.push(listener);
+            return () => void hearing.splice(hearing.indexOf(listener), 1);
+          },
+        },
+      },
+      page,
+    );
+    const node = fake(view.node);
+    const [bar] = node.find("toolbar");
+    const [button] = node.find("tool");
+    expect(bar?.children.map((part) => (part as FakeNode).className)).toEqual(["tool", "field filter", "seg"]);
+    // The kit's toggle, with no class of the view's own.
+    expect(button?.tag).toBe("button");
+    expect(button?.getAttribute("aria-label")).toBe("select an element");
+    expect(button?.getAttribute("aria-pressed")).toBe("false");
+    expect(tipped).toEqual([button as FakeNode]);
+    expect(told[0]?.()).toBe("select an element · Shift C");
+    key = "Alt I";
+    expect(told[0]?.()).toBe("select an element · Alt I");
+    key = "";
+    expect(told[0]?.()).toBe("select an element");
+    // With no element the bar is the button alone, and all of it with one.
+    expect(node.shown("toolbar")).toHaveLength(1);
+    expect(node.shown("tool")).toHaveLength(1);
+    expect(node.shown("filter")).toEqual([]);
+    expect(node.shown("seg")).toEqual([]);
+    view.show(as(save));
+    expect(node.shown("tool")).toHaveLength(1);
+    expect(node.shown("filter")).toHaveLength(1);
+    expect(node.shown("seg")).toHaveLength(1);
+    // A press only asks, and the button is on as the picking says, however that changed.
+    button?.fire("click");
+    expect(presses).toBe(1);
+    expect(button?.getAttribute("aria-pressed")).toBe("false");
+    on = true;
+    for (const listener of [...hearing]) listener();
+    expect(button?.getAttribute("aria-pressed")).toBe("true");
+    expect(button?.className).toBe("tool on");
+    view.destroy();
+    view = null;
+    expect(hearing).toEqual([]);
+  });
+
   test("before a pick hides the crumbs with the bar, and shows both with an element", () => {
     const node = start();
     expect(node.shown("crumbs")).toEqual([]);

@@ -6,12 +6,13 @@
  * hands down. That is its advanced mode. Its simple mode lists only what
  * applies to the element, with no rule around it, and what it inherits folded
  * under that. In both modes the element's box heads the styles, in a fold of
- * its own. Its bar, filter, modes, folds and empty lines are the kit's, and
- * only the crumbs, the box and the css are its own. Nothing of it is drawn on
+ * its own. Its bar starts with the select button, which turns the picking on
+ * and off. Its bar, toggle, filter, modes, folds and empty lines are the
+ * kit's, and only the crumbs, the box and the css are its own. Nothing of it is drawn on
  * the page, but for a box on the element a crumb or the box's diagram stands
  * for, while the pointer is on that. To use it:
  *
- *   const view = createStylesView({ tips, title, outline, held, area, mode, box });
+ *   const view = createStylesView({ tips, title, outline, held, area, mode, box, select });
  *   body.append(view.node); view.show(element); view.destroy();
  *
  * The view is built once for each inspection, and the filter only hides what
@@ -36,7 +37,7 @@ import type { BoxRing } from "../grab/boxmodel";
 import type { DevknobsState } from "../types";
 import { type BoxReading, createBoxDiagram, readBox } from "./boxdiagram";
 import { button, el } from "./dom";
-import { emptyLine, type Fold, filterField, sectionFold, segments, toolbar } from "./kit";
+import { emptyLine, type Fold, filterField, sectionFold, segments, toolbar, toolToggle } from "./kit";
 import type { StylesMode } from "./prefs";
 import {
   type Applied,
@@ -90,6 +91,22 @@ export interface StylesContext {
   area?(ring: BoxRing | null): void;
   /** Whether the box starts folded out, and where the way the user leaves it is kept. */
   box?: { get(): boolean; set(open: boolean): void };
+  /**
+   * The picking, for the select button the bar starts with, which stays with
+   * no element shown. Without it the bar has no such button.
+   */
+  select?: {
+    /** What the button is called. */
+    label: string;
+    /** What its tooltip says after the label: the key that does the same, as it is now. */
+    hint?(): string;
+    /** Whether the picking is on. */
+    on(): boolean;
+    /** The button was pressed. */
+    run(): void;
+    /** Hear the picking go on or off, however it did. Returns the way to stop. */
+    watch(listener: () => void): () => void;
+  };
 }
 
 /** The modes in the order their control has them. */
@@ -206,8 +223,22 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
         onChange: setMode,
       })
     : null;
-  // Stays on top while the blocks scroll under it.
-  const bar = toolbar(modes ? [filter.node, modes.node] : [filter.node]);
+  const { select } = context;
+  const picker = select
+    ? toolToggle({
+        label: select.label,
+        icon: "square-dashed-mouse-pointer",
+        on: select.on(),
+        onPress: select.run,
+      })
+    : null;
+  if (select && picker) {
+    tips.tooltip(picker.node, () => [select.label, select.hint?.()].filter(Boolean).join(" · "));
+  }
+  /** Stops hearing the picking go on and off. */
+  const unpick = select && picker ? select.watch(() => picker.set(select.on())) : null;
+  // Stays on top while the blocks scroll under it. The select button is first, at its left start.
+  const bar = toolbar([picker?.node, filter.node, modes?.node].filter((part) => part != null));
   const diagram = createBoxDiagram((ring) => context.area?.(ring));
   const box = sectionFold({
     label: "box",
@@ -354,9 +385,16 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     blocks.replaceChildren();
     crumbs.replaceChildren();
     crumbs.hidden = true;
-    bar.hidden = true;
+    fill(false);
     drawBox();
     say(text);
+  }
+
+  /** With no element the bar keeps only its select button, and goes where it has none. */
+  function fill(full: boolean): void {
+    filter.node.hidden = !full;
+    if (modes) modes.node.hidden = !full;
+    bar.hidden = !full && !picker;
   }
 
   /** A crumb or a heading that shows something else when pressed. */
@@ -670,7 +708,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       pseudos = found.blocks.flatMap((block) => (block.kind === "pseudo" ? [block.pseudo] : []));
     }
     crumbs.hidden = false;
-    bar.hidden = false;
+    fill(true);
     context.title(middle(`${found.target.label}${found.target.pseudo ?? ""}`, TITLE_MAX));
     drawCrumbs(element);
     drawBox();
@@ -740,6 +778,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       clearTimeout(flashTimer);
       unwatch();
       unsubscribe();
+      unpick?.();
       fitter?.disconnect();
       point(null);
       context.area?.(null);

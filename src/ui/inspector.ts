@@ -1,10 +1,10 @@
 /**
  * Inspect, as the panel runs it. Picking is a mode, as in a browser's own
- * tools: it goes on from the select button in the view's head, from inspect's
- * key, or with the view opened on no element, and a pick or escape ends it,
- * with nothing left drawn on the page. The element picked stays in the styles
- * view, and is kept while the view is closed, so the view opens on it again.
- * Going back from the view or another view taking its place ends the picking.
+ * tools: it goes on from the select button the view's bar starts with, from
+ * inspect's key, or with the view opened on no element, and a pick or escape
+ * ends it, with nothing left drawn on the page. The element picked stays in
+ * the styles view, and is kept while the view is closed, so the view opens on
+ * it again. Going back from the view or another view taking its place ends the picking.
  * The view only points at the page: an element is boxed there while the
  * pointer is on what stands for it, and never under the picking's own box.
  * The view and the engine under it load the first time they are asked for.
@@ -119,16 +119,6 @@ export function createInspector(
       id: STYLES_VIEW,
       title: STYLES_VIEW,
       layout: "flush",
-      actions: [
-        {
-          label: SELECT,
-          icon: "square-dashed-mouse-pointer",
-          run: toggle,
-          hint: context.key,
-          pressed: () => inspect.isOn(),
-          watch: (listener) => inspect.subscribe(() => listener()),
-        },
-      ],
       mount(body) {
         const made = make({
           tips,
@@ -136,6 +126,13 @@ export function createInspector(
           outline: point,
           held: hold,
           area: inspect.area,
+          select: {
+            label: SELECT,
+            hint: context.key,
+            on: () => inspect.isOn(),
+            run: toggle,
+            watch: (listener) => inspect.subscribe(() => listener()),
+          },
           ...(prefs && {
             mode: { get: () => prefs.get().stylesMode, set: prefs.setStylesMode },
             box: { get: () => prefs.get().stylesBox, set: prefs.setStylesBox },

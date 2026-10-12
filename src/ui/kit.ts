@@ -8,6 +8,7 @@
  * layout the view names, and no piece here says it again.
  *
  *   toolbar([filterField({ ... }).node, segments({ ... }).node]);
+ *   toolbar([toolToggle({ ... }).node, filterField({ ... }).node]);
  *   rowBox({ main, glyph, title, ends, after }); sectionFold({ ... }); emptyLine("no requests");
  *   group({ label, ends }); pairs(lines); codeBlock({ text, lines }); splitBar(shares, label);
  *   stack([noteLine("..."), codeBlock({ text }).node, pairs(lines).node, controls([{ label, run }]).node]);
@@ -15,7 +16,7 @@
  */
 
 import { button, el, field, mark, rowBox } from "./dom";
-import { icon } from "./icons";
+import { type IconName, icon } from "./icons";
 
 export { LAYOUTS, type Layout, type RowBox, type RowParts, rowBox, rowButton, rowsLabel } from "./dom";
 export { type Segments, type SegmentsOptions, segments } from "./radio";
@@ -61,6 +62,38 @@ export function toolbar(children: readonly HTMLElement[]): HTMLElement {
   const node = el("div", "toolbar");
   node.append(...children);
   return node;
+}
+
+/** What a bar's toggle is built from. */
+export interface ToolOptions {
+  /** What it does, in a word or two: its name for assistive tech. */
+  label: string;
+  icon: IconName;
+  /** Whether it starts on. */
+  on: boolean;
+  /** It was pressed. The caller says whether it is on from there. */
+  onPress(): void;
+}
+
+export interface Tool {
+  node: HTMLButtonElement;
+  /** Show whether it is on. */
+  set(on: boolean): void;
+}
+
+/**
+ * The small icon button a bar starts with, a toggle: it goes first in the
+ * bar, and its icon stands where the view's lines start. On, it has the
+ * ground the segment that is on has.
+ */
+export function toolToggle(options: ToolOptions): Tool {
+  const node = button("tool", "");
+  node.append(icon(options.icon));
+  node.setAttribute("aria-label", options.label);
+  node.addEventListener("click", () => options.onPress());
+  const set = (on: boolean): void => mark(node, on);
+  set(options.on);
+  return { node, set };
 }
 
 /** A line that says a list has nothing to show. */

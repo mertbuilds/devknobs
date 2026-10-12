@@ -385,7 +385,7 @@ edge for another width.
 picking is a mode, as in the browsers' own tools. a click picks the element
 and ends the picking: nothing is left drawn on the page, and the page takes
 clicks again. the element stays in the styles view. to pick another, press
-the select button in the view's head, the dashed square with a pointer, or
+the select button at the left of the view's bar, the dashed square with a pointer, or
 `⇧C` again. the button is pressed while the picking is on, and `⇧C` while
 picking stops it. escape ends the picking and keeps the element shown, the
 next escape clears the filter if it has text, and the next goes back to the
