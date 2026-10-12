@@ -402,6 +402,19 @@ describe("the head", () => {
     expect(page.title.textContent).toBe("styles");
   });
 
+  test("the view's root says the layout the view names, so the head and the body start in one place", () => {
+    page = build();
+    openPane(viewOf("styles").view);
+    expect(page.node.attributes.get("data-layout")).toBe("flush");
+    // The head and the body are both under the root that says it.
+    expect(page.node.children.map((child) => child.className)).toEqual(["row view-head", "view-body"]);
+    openPane(viewOf("keys", { layout: "rows" }).view);
+    expect(page.node.attributes.get("data-layout")).toBe("rows");
+    // A view that goes keeps its layout while it slides away.
+    closePane();
+    expect(page.node.attributes.get("data-layout")).toBe("rows");
+  });
+
   test("takes the focus on the row's main, the button a knob row's ring is drawn on", () => {
     page = build();
     openPane(viewOf("styles").view);

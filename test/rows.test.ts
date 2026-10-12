@@ -220,9 +220,11 @@ describe("a row's line", () => {
 });
 
 describe("the settings' head", () => {
-  test("is the head every view has: the slot empty, its way back where a row's icon is, then its title", () => {
+  test("is the head every view has: its way back where a row's icon is, then its title, on the knob rows' layout", () => {
     const view = settings();
     const [head, handle] = view.children;
+    // The settings name their layout as a view does, on their own root.
+    expect(view.attributes.get("data-layout")).toBe("rows");
     expect(head?.className).toBe("row view-head");
     const [line] = head?.children ?? [];
     expect(parts(line)).toEqual(["main", "view-actions"]);
@@ -231,7 +233,7 @@ describe("the settings' head", () => {
     expect(parts(back)).toEqual(["glyph", "row-label"]);
     expect(back?.children[1]?.textContent).toBe("settings");
     expect(back?.attributes.get("aria-label")).toBe("back from settings");
-    // The rows under it keep the slot empty, and start with their icon.
+    // The rows under it have no grip, and start with their icon.
     expect(parts(handle?.children[0]?.children[0])).toEqual([
       "glyph sided",
       "row-label",

@@ -21,6 +21,7 @@ import {
 } from "../src/ui/kit";
 import * as radio from "../src/ui/radio";
 import { CSS } from "../src/ui/styles";
+import { across, literal } from "./columns";
 import { fake, focused, leave, page, rules } from "./kit-dom";
 
 const KINDS = [
@@ -389,6 +390,110 @@ describe("a view's chrome", () => {
       expect(`${rule.selector} {${rule.body}}`).not.toMatch(BOX);
       expect(`${rule.selector} {${rule.body}}`).not.toMatch(MARGIN);
     }
+  });
+
+  /**
+   * The rules that write a length across out: each is the inside of one
+   * control or one cell, never where a line of the panel starts or ends. A
+   * rule that is not here reads the columns, `--col-` and `--view-`.
+   */
+  const INSIDE = [
+    // The wrapper's handle and the panel's own frame, with the pixel its edge's border takes.
+    ".handle",
+    '.wrap[data-side="left"] .handle',
+    '.wrap[data-float="true"][data-open="false"] .handle',
+    '.wrap[data-float="true"][data-open="false"][data-side="left"] .handle',
+    ".panel",
+    '.wrap[data-float="true"] .panel',
+    '.wrap[data-float="true"][data-side="left"] .panel',
+    // The space between an entry's icon and its name.
+    ".entry .glyph",
+    // The editors' controls: a switch, segments, swatches, chips, fields and a list's options.
+    ".knob-switch .switch",
+    ".seg",
+    ".seg-item",
+    ".swatches",
+    ".swatch-x",
+    ".chip",
+    ".field",
+    ".chip-field",
+    ".field-route",
+    ".field-ua",
+    ".items",
+    ".item",
+    ".item::before",
+    // The footer, the tooltip and a key's chip.
+    ".foot",
+    ".tip",
+    ".hint-key",
+    ".key-set",
+    // A text box of a view.
+    ".field-area",
+    // A declaration's hanging indent and swatch, and the cells of the box's diagram.
+    ".css-decl",
+    ".css-swatch",
+    ".css-applied .css-decl",
+    ".bm-name",
+    ".bm-v",
+    ".bm-content",
+  ];
+
+  /** The head, the kit's pieces and a row's parts: what a view is built from. */
+  const KIT = /\.(view-head|view-actions|view-body|row|line|main|lead|grip|turn|row-label|row-value|row-button|row-control|row-key|rows-label|toolbar|filter|empty|note|group|group-head|group-label|pairs|pair-name|pair-value|code|code-text|split|stack|ask|fold|fold-body|add|head|entry|editor|knob-label)(?![\w-])/;
+
+  /** A view's own root, and the panes: where a view could pad all it holds at once. */
+  const VIEW = /\.(keys|home|body|pane|view|view-body|styles|css-blocks|req-detail|req-list|req-body|req-headers|st-list)(?![\w-])|#|data-layout/;
+
+  test("no rule writes out where a line starts or ends: a length across is the columns', or the inside of a control", () => {
+    const written = rules(CSS).filter((rule) => across(rule.body).some(([, value]) => literal(value)));
+    expect(written.map((rule) => rule.selector)).toEqual(INSIDE);
+    // None of those places a head, a piece of the kit or a part of a row.
+    for (const selector of INSIDE) expect(selector.split(" ").pop()).not.toMatch(KIT);
+  });
+
+  test("a view's own root, a pane and a layout pad and space nothing across, so a view cannot move its lines", () => {
+    const own = rules(CSS).filter((rule) => VIEW.test(rule.selector));
+    expect(own.map((rule) => rule.selector)).toContain(".styles");
+    expect(own.map((rule) => rule.selector)).toContain(".req-detail > .note");
+    for (const rule of own) expect([rule.selector, across(rule.body)]).toEqual([rule.selector, []]);
+  });
+
+  test("a piece of the kit is placed by its one rule: no rule for it inside a view or another piece sets it across", () => {
+    for (const rule of rules(CSS)) {
+      if (across(rule.body).length === 0) continue;
+      const parts = rule.selector.split(",").map((part) => part.trim());
+      for (const part of parts) {
+        const last = part.split(/[\s>+~]+/).pop() ?? "";
+        // A rule may place a piece only by naming it alone, or the small button a row ends with by where it stands.
+        if (!KIT.test(last) || last === part) continue;
+        expect(PLACED).toContain(part);
+      }
+    }
+  });
+
+  /** The rules that place a kit piece by where it stands, with no length of their own. */
+  const PLACED = [
+    ".main > .row-button",
+    ".main > .row-button:not([hidden]) + .row-control",
+  ];
+
+  test("the guards read a rule that breaks them", () => {
+    expect(literal("6px")).toBe(true);
+    expect(literal("calc(var(--view-start) - 1px)")).toBe(true);
+    expect(literal("var(--view-start)")).toBe(false);
+    expect(literal("calc(var(--col-pad) / 2)")).toBe(false);
+    expect(literal("0")).toBe(false);
+    expect(literal("auto")).toBe(false);
+    expect(across("padding: 4px 8px 4px 22px;")).toEqual([["padding-right", "8px"], ["padding-left", "22px"]]);
+    expect(across("margin: 0 8px;")).toEqual([["margin-right", "8px"], ["margin-left", "8px"]]);
+    expect(across("padding-top: 4px; padding-bottom: 4px;")).toEqual([]);
+    expect(across("text-indent: -12px; padding-inline: 4px; inset-inline-start: 2px;")).toHaveLength(3);
+    expect(".storage .main").toMatch(KIT);
+    expect(".req-detail > .note").toMatch(VIEW);
+    expect("#styles .row").toMatch(VIEW);
+    expect('[data-layout="flush"] .empty').toMatch(VIEW);
+    expect(".st-size").not.toMatch(VIEW);
+    expect(".keys-toggle").not.toMatch(VIEW);
   });
 
   test("the guard reads a rule that breaks it", () => {
