@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { FRAME_NAME } from "../src/engine/frame";
 import { createGrab, type GrabControl } from "../src/grab/control";
-import { createInspect, type InspectControl, type LoadInspect } from "../src/grab/inspect";
+import {
+  createInspect,
+  type InspectControl,
+  type LoadInspect,
+  oneAtATime,
+} from "../src/grab/inspect";
 import type { ModeOptions } from "../src/grab/mode";
+import { withShift } from "../src/ui/keys";
 
 const ORIGIN = "http://localhost:3000";
 const HELD = Symbol.for("devknobs.inspected");
@@ -71,6 +77,21 @@ function message(data: object, source: unknown): void {
   window.dispatchEvent(Object.assign(new Event("message"), { data, origin: ORIGIN, source }));
 }
 
+/** Shift and c pressed off any field, as inspect's key is by default. */
+function shiftC(patch: Partial<KeyboardEvent> = {}): Event {
+  return Object.assign(new Event("keydown", { cancelable: true }), {
+    key: "C",
+    code: "KeyC",
+    shiftKey: true,
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    repeat: false,
+    composedPath: () => [{ tagName: "DIV", isContentEditable: false }],
+    ...patch,
+  });
+}
+
 async function settle(): Promise<void> {
   await Bun.sleep(0);
 }
@@ -125,9 +146,33 @@ describe("inspect's control", () => {
     expect(purpose?.label(button)).toEqual({ tag: "styles", name: "button#save.primary" });
     purpose?.pick(button);
     expect(picked).toEqual([button]);
-    // The mode is still the one that started: a pick ends nothing.
-    expect(modes.map((mode) => mode.stopped)).toEqual([false]);
+    // The mode ends itself with the pick, and inspect is off with it.
+    modes[0]?.options.onExit();
+    expect(control.isOn()).toBe(false);
+  });
+
+  test("its key turns the picking on, and pressed again while it picks, off", async () => {
+    setWindow("");
+    control = createInspect({ key: () => withShift("c") }, load, () => null);
+    const heard: boolean[] = [];
+    control.subscribe((on) => heard.push(on));
+    const first = shiftC();
+    window.dispatchEvent(first);
+    expect(first.defaultPrevented).toBe(true);
     expect(control.isOn()).toBe(true);
+    await settle();
+    expect(modes).toHaveLength(1);
+    window.dispatchEvent(shiftC({ repeat: true }));
+    expect(control.isOn()).toBe(true);
+    window.dispatchEvent(shiftC());
+    expect(control.isOn()).toBe(false);
+    expect(modes[0]?.stopped).toBe(true);
+    // After a pick ended the mode, the key starts another.
+    window.dispatchEvent(shiftC());
+    await settle();
+    modes[1]?.options.onExit();
+    window.dispatchEvent(shiftC());
+    expect(heard).toEqual([true, false, true, false, true]);
   });
 
   test("in the frame, goes on and off by its own name and not by grab's", async () => {
@@ -153,7 +198,65 @@ describe("inspect's control", () => {
   });
 });
 
+describe("grab and inspect", () => {
+  test("are on one at a time: either going on ends the other", async () => {
+    setWindow("");
+    grab = createGrab({}, load);
+    control = createInspect({ key: () => withShift("c") }, load, () => null);
+    const stop = oneAtATime(grab, control);
+    control.set(true);
+    await settle();
+    grab.set(true);
+    expect(control.isOn()).toBe(false);
+    expect(grab.isOn()).toBe(true);
+    await settle();
+    // Inspect's mode is stopped, and the one mode left is grab's.
+    expect(modes.map((mode) => [mode.options.purpose !== undefined, mode.stopped])).toEqual([
+      [true, true],
+      [false, false],
+    ]);
+    control.set(true);
+    expect(grab.isOn()).toBe(false);
+    expect(control.isOn()).toBe(true);
+    await settle();
+    expect(modes[1]?.stopped).toBe(true);
+    stop();
+    grab.set(true);
+    expect(control.isOn()).toBe(true);
+  });
+
+  test("grab is as it was: a pick of inspect's ends inspect alone, and grab's key still starts grab", async () => {
+    setWindow("");
+    grab = createGrab({}, load);
+    control = createInspect({ key: () => withShift("c") }, load, () => null);
+    oneAtATime(grab, control);
+    window.dispatchEvent(shiftC());
+    await settle();
+    modes[0]?.options.onExit();
+    expect(control.isOn()).toBe(false);
+    expect(grab.isOn()).toBe(false);
+    window.dispatchEvent(shiftC({ key: "G", code: "KeyG" }));
+    expect(grab.isOn()).toBe(true);
+    expect(control.isOn()).toBe(false);
+  });
+});
+
 describe("a pick in the frame", () => {
+  test("ends the mode there, and the page above hears the pick and then that inspect is off", async () => {
+    setWindow(FRAME_NAME);
+    control = createInspect({}, load, () => null);
+    control.set(true);
+    await settle();
+    modes[0]?.options.purpose?.pick(element(document));
+    modes[0]?.options.onExit();
+    expect(control.isOn()).toBe(false);
+    expect(posted).toEqual([
+      { source: "devknobs", type: "inspect", on: true },
+      { source: "devknobs", type: "picked" },
+      { source: "devknobs", type: "inspect", on: false },
+    ]);
+  });
+
   test("is held on the frame's window, and the page above is told there is one", async () => {
     setWindow(FRAME_NAME);
     control = createInspect({}, load, () => null);
@@ -236,6 +339,16 @@ describe("the outline", () => {
     Reflect.set(window, HELD, null);
     message({ source: "devknobs", type: "outline" }, parent);
     expect(boxed).toEqual([button, null]);
+  });
+
+  test("an area said before the outline loaded is the one it draws", async () => {
+    setWindow("");
+    control = createInspect({}, load, () => null);
+    control.outline(element(document));
+    control.area("padding");
+    expect(areas).toEqual([]);
+    await settle();
+    expect(areas).toEqual(["padding"]);
   });
 
   test("one area of the box goes to the outline here, and to the frame's where it is up", async () => {

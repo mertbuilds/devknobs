@@ -75,6 +75,8 @@ let calls: string[];
 let knobs: ((state: DevknobsState) => void)[];
 let titles: string[];
 let outlined: (Element | null)[];
+/** What the view said it holds, in order. */
+let held: (Element | null)[];
 let tipped: [FakeNode, string][];
 let view: StylesView | null = null;
 
@@ -116,7 +118,7 @@ const tips: Tips = {
   hideAfter: () => undefined,
   isFor: () => false,
   tooltip: (node, text) => {
-    tipped.push([fake(node), text]);
+    tipped.push([fake(node), typeof text === "string" ? text : text()]);
   },
   destroy: () => undefined,
 };
@@ -127,6 +129,7 @@ function start(): FakeNode {
       tips,
       title: (text) => titles.push(text),
       outline: (target) => outlined.push(target),
+      held: (target) => held.push(target),
     },
     page,
   );
@@ -171,6 +174,7 @@ beforeEach(() => {
   knobs = [];
   titles = [];
   outlined = [];
+  held = [];
   tipped = [];
   FakeObserver.made = [];
   answer = () => found([rule(".primary", [declaration("color", "red")])]);
@@ -210,11 +214,12 @@ describe("the styles view before a pick", () => {
 });
 
 describe("the styles view of an element", () => {
-  test("names the element in the pane's head, and boxes it", () => {
+  test("names the element in the pane's head, says it holds it, and draws nothing on the page", () => {
     start();
     view?.show(as(save));
     expect(titles).toEqual(["button#save.primary"]);
-    expect(outlined).toEqual([as(save)]);
+    expect(held).toEqual([as(save)]);
+    expect(outlined).toEqual([]);
     expect(asked).toEqual([{ element: as(save), pseudo: undefined }]);
   });
 
@@ -246,12 +251,49 @@ describe("the styles view of an element", () => {
     expect(crumbs.every((crumb) => crumb.tag === "button")).toBe(true);
   });
 
-  test("a click on a crumb inspects that ancestor, and the box goes with it", () => {
+  test("a crumb boxes its element on the page while the pointer is on it, and only then", () => {
+    const node = start();
+    view?.show(as(save));
+    const [, , third, last] = node.find("crumb");
+    third?.fire("pointerenter");
+    expect(outlined).toEqual([as(app)]);
+    third?.fire("pointerleave");
+    expect(outlined).toEqual([as(app), null]);
+    last?.fire("pointerenter");
+    last?.fire("pointerleave");
+    expect(outlined).toEqual([as(app), null, as(save), null]);
+  });
+
+  test("a crumb that goes while the pointer is on it takes its box with it", () => {
+    const node = start();
+    view?.show(as(save));
+    node.find("crumb")[2]?.fire("pointerenter");
+    // The click shows the ancestor, and the crumbs are drawn again under the pointer.
+    node.find("crumb")[2]?.fire("click");
+    expect(outlined).toEqual([as(app), null]);
+    view?.refresh();
+    expect(outlined).toEqual([as(app), null]);
+  });
+
+  test("the view going takes off a box it had on the page, and takes none off where it had none", () => {
+    start();
+    view?.show(as(save));
+    view?.destroy();
+    expect(outlined).toEqual([]);
+    const node = start();
+    view?.show(as(save));
+    node.find("crumb")[3]?.fire("pointerenter");
+    view?.destroy();
+    expect(outlined).toEqual([as(save), null]);
+  });
+
+  test("a click on a crumb inspects that ancestor, which the view then holds", () => {
     const node = start();
     view?.show(as(save));
     node.find("crumb")[2]?.fire("click");
     expect(asked[1]).toEqual({ element: as(app), pseudo: undefined });
-    expect(outlined).toEqual([as(save), as(app)]);
+    expect(held).toEqual([as(save), as(app)]);
+    expect(outlined).toEqual([]);
     expect(node.find("crumb").map((crumb) => crumb.textContent)).toEqual([
       "html",
       "body",
@@ -548,7 +590,8 @@ describe("the styles view of an element", () => {
     view?.show(null);
     expect(note(node)).toBe(EMPTY);
     expect(node.find("css-block")).toEqual([]);
-    expect(outlined).toEqual([as(save), null]);
+    expect(held).toEqual([as(save), null]);
+    expect(outlined).toEqual([]);
     expect(titles[titles.length - 1]).toBe("styles");
   });
 });
@@ -759,7 +802,7 @@ describe("the styles view keeping up", () => {
 });
 
 describe("an element that left the page", () => {
-  test("is said in the pane, its box taken off, and nothing is watched or read any more", () => {
+  test("is said in the pane, is held no more, and nothing is watched or read any more", () => {
     const node = start();
     view?.show(as(save));
     const watching = observer();
@@ -769,7 +812,8 @@ describe("an element that left the page", () => {
     expect(note(node)).toBe(GONE);
     expect(node.find("css-block")).toEqual([]);
     expect(node.shown("toolbar")).toEqual([]);
-    expect(outlined).toEqual([as(save), null]);
+    expect(held).toEqual([as(save), null]);
+    expect(outlined).toEqual([]);
     expect(watching.connected).toBe(false);
     expect(asked).toHaveLength(1);
     view?.refresh();
@@ -782,7 +826,7 @@ describe("an element that left the page", () => {
     doc.defaultView = null;
     view?.refresh();
     expect(note(node)).toBe(GONE);
-    expect(outlined).toEqual([as(save), null]);
+    expect(held).toEqual([as(save), null]);
   });
 });
 

@@ -16,6 +16,7 @@ import { type Command, createFooter, overflowBadge } from "./footer";
 import { icon } from "./icons";
 import { createInspector } from "./inspector";
 import {
+  comboLabel,
   comboSpoken,
   escapeStep,
   isSearchKey,
@@ -504,10 +505,13 @@ export function createPanel(options: PanelOptions = {}): Panel {
   const stopPrefs = prefs.subscribe(render);
   const stopGrab = grab?.subscribe(palette.onGrab);
   const stopInspect = inspect?.subscribe(onInspect);
-  // A mode that goes on or off, by its key too, shows on its row.
-  const stopModes = actionsHere.flatMap((action) => action.watch?.(render) ?? []);
   // After the palette's, so the view takes the focus the palette let go of.
-  const inspector = inspect ? createInspector({ inspect, tips, prefs }) : null;
+  const inspector = inspect
+    ? createInspector({ inspect, tips, prefs, key: () => comboLabel(keys.get().inspect, mac) })
+    : null;
+  stage.inspector = inspector;
+  // A mode that goes on or off, by its key too, shows on its row, as the element inspect holds does.
+  const stopModes = actionsHere.flatMap((action) => action.watch?.(render) ?? []);
   const stopCount = onCount(render);
   window.addEventListener("keydown", onKeydown, true);
   window.addEventListener("pointerdown", onPointerDown, true);
@@ -543,6 +547,7 @@ export function createPanel(options: PanelOptions = {}): Panel {
       for (const stop of stopModes) stop();
       if (stage.grab === grab) stage.grab = null;
       if (stage.inspect === inspect) stage.inspect = null;
+      if (stage.inspector === inspector) stage.inspector = null;
       stopCount();
       clearInterval(ticker);
       tips.destroy();

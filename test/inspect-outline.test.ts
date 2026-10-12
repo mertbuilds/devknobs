@@ -71,12 +71,24 @@ describe("the outline", () => {
   test("its layer draws the element's box, one area alone when told, and all four again", () => {
     const { made, make } = layers();
     const outline = createOutline(make);
-    // With no element boxed there is no layer to tell.
-    outline.area("margin");
     outline.show(button);
     expect(made[0]?.model).toBe(true);
     outline.area("padding");
     outline.area(null);
     expect(made[0]?.areas).toEqual(["padding", null]);
+  });
+
+  test("an area said with no element boxed is the one the next box is drawn with", () => {
+    const { made, make } = layers();
+    const outline = createOutline(make);
+    outline.area("margin");
+    expect(made).toHaveLength(0);
+    outline.show(button);
+    expect(made[0]?.areas).toEqual(["margin"]);
+    // A box that comes and goes, as one the pointer passes over does, starts from what was last said.
+    outline.area(null);
+    outline.show(null);
+    outline.show(link);
+    expect(made[1]?.areas).toEqual([]);
   });
 });

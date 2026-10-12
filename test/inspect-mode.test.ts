@@ -179,14 +179,28 @@ describe("the mode with inspect's purpose", () => {
     expect(asked).toEqual([[false, true]]);
   });
 
-  test("stays on after a pick, so the next click picks another", () => {
+  test("ends with the pick: its layer goes, and the next click is the page's own", () => {
+    inspect(50);
+    const first = click(50);
+    expect(picks).toEqual([as(a)]);
+    expect(first.defaultPrevented).toBe(true);
+    expect(exits).toBe(1);
+    expect(overlays).toBe(0);
+    const second = click(150);
+    expect(picks).toEqual([as(a)]);
+    expect(second.defaultPrevented).toBe(false);
+    expect(exits).toBe(1);
+  });
+
+  test("once it ended, the pointer boxes nothing more", () => {
     inspect(50);
     click(50);
-    click(150);
-    click(250);
-    expect(picks).toEqual([as(a), as(b), as(c)]);
-    expect(exits).toBe(0);
-    expect(overlays).toBe(1);
+    const drawn = draws.length;
+    window.dispatchEvent(
+      Object.assign(new Event("pointermove"), { isPrimary: true, clientX: 250, clientY: 10 }),
+    );
+    jest.advanceTimersByTime(1000);
+    expect(draws).toHaveLength(drawn);
   });
 
   test("works out no context for a copy, however long the pointer rests", () => {
@@ -204,10 +218,10 @@ describe("the mode with inspect's purpose", () => {
     expect(draws.every((draw) => draw.picked.length === 0)).toBe(true);
     window.dispatchEvent(Object.assign(new Event("keyup"), { key: "Shift" }));
     expect(copies).toBe(0);
-    expect(exits).toBe(0);
+    expect(exits).toBe(1);
   });
 
-  test("enter picks the boxed element and stays on, and c does nothing", () => {
+  test("enter picks the boxed element and ends the mode, and c does nothing", () => {
     inspect(150);
     const letter = press("c");
     expect(picks).toEqual([]);
@@ -215,7 +229,8 @@ describe("the mode with inspect's purpose", () => {
     const enter = press("Enter");
     expect(picks).toEqual([as(b)]);
     expect(enter.defaultPrevented).toBe(true);
-    expect(exits).toBe(0);
+    expect(exits).toBe(1);
+    expect(overlays).toBe(0);
     expect(copies).toBe(0);
   });
 
@@ -246,15 +261,14 @@ describe("the mode with inspect's purpose", () => {
     expect(draws[draws.length - 1]?.element).toBe(as(b));
   });
 
-  test("escape ends the mode and goes no further, so the pane is not closed with it", () => {
+  test("escape ends the mode with nothing picked, and goes no further, so the pane is not closed with it", () => {
     inspect(50);
-    click(50);
     const escape = press("Escape");
     expect(exits).toBe(1);
     expect(escape.stopped).toBe(true);
     expect(overlays).toBe(0);
     click(150);
-    expect(picks).toEqual([as(a)]);
+    expect(picks).toEqual([]);
   });
 });
 

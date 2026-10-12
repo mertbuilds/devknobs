@@ -249,7 +249,12 @@ export interface Action {
   watch?(listener: () => void): () => void;
   /** False where the page has nothing for the action to act on. */
   available?(): boolean;
+  /** What its row says in place of on and off, where there is more to say. Empty with nothing. */
+  value?(): string;
 }
+
+/** What inspect's row says while the picking is on. */
+export const PICKING = "picking";
 
 /**
  * Every action, in the order the browse list shows them. A new one is an
@@ -277,11 +282,22 @@ export const ACTIONS: readonly Action[] = [
     aliases: ["styles", "css", "rules", "cascade", "stylesheet"],
     icon: "braces",
     binding: "inspect",
-    run: () => stage.inspect?.set(!stage.inspect.isOn()),
+    // The picking is the mode, and a pick ends it. The row opens the view,
+    // and picks for one that holds no element.
+    run: () => stage.inspector?.open(),
     state: () => (stage.inspect ? (stage.inspect.isOn() ? "on" : "off") : null),
     off: () => stage.inspect?.set(false),
-    watch: (listener) => stage.inspect?.subscribe(() => listener()) ?? (() => {}),
+    watch: (listener) => {
+      const stops = [
+        stage.inspect?.subscribe(() => listener()),
+        stage.inspector?.subscribe(listener),
+      ];
+      return () => {
+        for (const stop of stops) stop?.();
+      };
+    },
     available: () => stage.inspect !== null,
+    value: () => (stage.inspect?.isOn() ? PICKING : (stage.inspector?.picked() ?? "")),
   },
   {
     id: "replay",

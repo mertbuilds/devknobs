@@ -83,6 +83,8 @@ let boxed: Element[];
 let box: (element: Element) => BoxReading | null;
 let inspected: number;
 let areas: (BoxRing | null)[];
+/** What the view boxed on the page, in order. */
+let outlined: (Element | null)[];
 let knobs: ((state: DevknobsState) => void)[];
 let view: StylesView | null = null;
 
@@ -129,7 +131,7 @@ function start(doors: Doors = {}): FakeNode {
     {
       tips,
       title: () => undefined,
-      outline: () => undefined,
+      outline: (target) => outlined.push(target),
       area: (ring) => areas.push(ring),
       ...doors,
     },
@@ -172,6 +174,7 @@ beforeEach(() => {
   boxed = [];
   inspected = 0;
   areas = [];
+  outlined = [];
   knobs = [];
   box = () => reading(8);
   FakeObserver.made = [];
@@ -263,6 +266,20 @@ describe("the box in the styles view", () => {
     node.find("bm-margin")[0]?.fire("pointerleave");
     node.find("bm-position")[0]?.fire("pointerleave");
     expect(areas).toEqual(["padding", "border", "margin", null, null]);
+  });
+
+  test("the diagram boxes its element on the page while the pointer is on it, and only then", () => {
+    const node = start();
+    view?.show(as(save));
+    expect(outlined).toEqual([]);
+    const [diagram] = node.find("box-model");
+    diagram?.fire("pointerenter");
+    expect(outlined).toEqual([as(save)]);
+    node.find("bm-padding")[0]?.fire("pointerenter");
+    node.find("bm-padding")[0]?.fire("pointerleave");
+    expect(outlined).toEqual([as(save)]);
+    diagram?.fire("pointerleave");
+    expect(outlined).toEqual([as(save), null]);
   });
 
   test("the view going puts all four areas back", () => {

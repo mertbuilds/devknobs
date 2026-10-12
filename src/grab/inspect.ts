@@ -13,10 +13,28 @@ export type LoadInspect = () => Promise<
 export interface InspectControl extends GrabControl {
   /** Hear each element inspect picks, here or in the frame. Returns the way to stop. */
   onPick(listener: (element: Element) => void): () => void;
-  /** Keep a quiet box on an element, in the frame's page too, or with null take it off. */
+  /** Put a quiet box on an element, in the frame's page too, or with null take it off. */
   outline(element: Element | null): void;
   /** Tint one area of the outlined element's box alone, or with null all four again. */
   area(ring: BoxRing | null): void;
+}
+
+/**
+ * Grab and inspect are the same picking with another end, so one of the two
+ * is on at a time: either going on ends the other. Returns the way to stop.
+ */
+export function oneAtATime(grab: GrabControl, inspect: GrabControl): () => void {
+  const stops = [
+    grab.subscribe((on) => {
+      if (on) inspect.set(false);
+    }),
+    inspect.subscribe((on) => {
+      if (on) grab.set(false);
+    }),
+  ];
+  return () => {
+    for (const stop of stops) stop();
+  };
 }
 
 /**
@@ -43,8 +61,8 @@ function held(view: Window): Element | null {
 
 /**
  * Inspect's switch: grab's own, with its key, its hold and its way into the
- * frame, where a pick copies nothing and is handed to whoever listens on the
- * page above. The label says `styles` before the element, so the two modes
+ * frame, where a pick copies nothing, is handed to whoever listens on the
+ * page above, and ends the mode. The label says `styles` before the element, so the two modes
  * are told apart. The element picked is the live one, the frame's too, so the
  * page above reads its rules itself and keeps them to edit later. `frameOf`
  * is the frame's window while it is up, for a test to stand in for.
@@ -59,6 +77,8 @@ export function createInspect(
   let outliner: Outline | null = null;
   /** The element to box on this page, kept while the outline loads. */
   let boxed: Element | null = null;
+  /** The area to tint alone, kept for an outline that loads after it was said. */
+  let tinted: BoxRing | null = null;
   let destroyed = false;
 
   function pick(element: Element): void {
@@ -93,6 +113,7 @@ export function createInspect(
       if (destroyed) return;
       outliner ??= createOutline();
       outliner.show(boxed);
+      if (tinted) outliner.area(tinted);
     });
   }
 
@@ -115,6 +136,11 @@ export function createInspect(
   function area(ring: BoxRing | null): void {
     const view = inFrame ? null : frameOf();
     if (view) post(view, { source: "devknobs", type: "area", ring });
+    tint(ring);
+  }
+
+  function tint(ring: BoxRing | null): void {
+    tinted = ring;
     outliner?.area(ring);
   }
 
@@ -122,7 +148,7 @@ export function createInspect(
     if (inFrame) {
       const message = readMessage(event, window.parent, window.location.origin);
       if (message?.type === "outline") box(held(window));
-      else if (message?.type === "area") outliner?.area(message.ring);
+      else if (message?.type === "area") tint(message.ring);
       return;
     }
     const view = frameOf();

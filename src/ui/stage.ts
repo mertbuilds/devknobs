@@ -1,4 +1,5 @@
 import type { GrabControl } from "../grab/control";
+import type { Inspector } from "./inspector";
 
 /**
  * What the actions act on, on this page. The catalog says what an action does,
@@ -10,6 +11,8 @@ export interface Stage {
   grab: GrabControl | null;
   /** Inspect's switch, where there is one. */
   inspect: GrabControl | null;
+  /** Inspect's view in the panel and the element it holds, while there is a panel. */
+  inspector: Pick<Inspector, "open" | "picked" | "subscribe"> | null;
 }
 
-export const stage: Stage = { grab: null, inspect: null };
+export const stage: Stage = { grab: null, inspect: null, inspector: null };

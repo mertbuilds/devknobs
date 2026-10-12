@@ -6,7 +6,7 @@ import { LOCALE_PRESETS } from "./engine/locale";
 import { TIME_ZONE_PRESETS } from "./engine/time";
 import { UA_PRESETS } from "./engine/ua";
 import { createGrab, type GrabControl } from "./grab/control";
-import { createInspect, type InspectControl } from "./grab/inspect";
+import { createInspect, type InspectControl, oneAtATime } from "./grab/inspect";
 import type { GrabOptions, GrabPayload } from "./grab/types";
 import { claim, free, superseded } from "./instance";
 import type { GrabColorValue } from "./types";
@@ -124,13 +124,7 @@ export function mount(options: MountOptions = {}): void {
   // Inspect is the same picking with another end, so one of the two is on at a time.
   const inspect = createInspect({ key: () => (live.recording ? null : live.get().inspect) });
   inspectControl = inspect;
-  const grab = grabControl;
-  grab?.subscribe((on) => {
-    if (on) inspect.set(false);
-  });
-  inspect.subscribe((on) => {
-    if (on) grab?.set(false);
-  });
+  if (grabControl) oneAtATime(grabControl, inspect);
   if (isDevknobsFrame()) {
     stopKeys = forwardKeys(live.get, () => engine.getState().panel.open);
     return;

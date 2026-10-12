@@ -5,7 +5,7 @@
  * a time. To use it:
  *
  *   openPane({ id: "styles", title: "styles", mount, actions, escape });
- *   closePane(); paneView(); retitlePane(id, title); onPane((id) => {});
+ *   closePane(); paneView(); showPane(id); retitlePane(id, title); onPane((id) => {});
  *
  * `mount(body)` fills the view's scrolling body, which comes empty, and may
  * return a cleanup that runs once when the view closes or another replaces it.
@@ -21,6 +21,12 @@ export interface PaneAction {
   label: string;
   icon: IconName;
   run(): void;
+  /** What its tooltip says after the label, such as the key that runs it, read as the tooltip shows. */
+  hint?(): string;
+  /** Whether a toggle is on. An action that is no toggle has none. */
+  pressed?(): boolean;
+  /** Hear a toggle go on or off, however it did. Returns the way to stop. */
+  watch?(listener: () => void): () => void;
 }
 
 /** What a feature shows in the panel. */
@@ -41,6 +47,11 @@ export interface PaneView {
    * clear a filter of its own, say, and the view stays open.
    */
   escape?(): boolean;
+  /**
+   * The pointer came onto the head's line, or left it. A view that shows
+   * something of the page points at it there for as long.
+   */
+  point?(over: boolean): void;
 }
 
 /** Hears the id of the view that opened, or null when the view closed. */
@@ -74,6 +85,8 @@ export interface Pane {
   /** Close the view for what the panel shows next, which draws itself and takes the focus. */
   drop(): void;
   retitle(id: string, title: string): void;
+  /** Bring the open view `id` back in sight, from a closed panel, the search or the settings. */
+  show(id: string): void;
   /** The id of the open view, also while a closed panel or the settings hide it. */
   view(): string | null;
   /** Give the focus to the view's head, and say whether there is a view to take it. */
@@ -113,6 +126,14 @@ export function closePane(): void {
 /** The id of the open view, or null with none. */
 export function paneView(): string | null {
   return shell?.view() ?? null;
+}
+
+/**
+ * Bring the open view `id` back in sight: open the panel where it is closed,
+ * and leave the search and the settings. Nothing happens for any other view.
+ */
+export function showPane(id: string): void {
+  shell?.show(id);
 }
 
 /** Change what the head says for the open view `id`. Nothing happens for any other. */
@@ -159,6 +180,8 @@ export function createPane(context: PaneContext): Pane {
   // row's x is.
   const back = button("main", "");
   back.addEventListener("click", close);
+  back.addEventListener("pointerenter", () => shown?.point?.(true));
+  back.addEventListener("pointerleave", () => shown?.point?.(false));
   const actions = el("div", "view-actions");
   const { box: head, label: title } = rowBox({
     main: back,
@@ -172,6 +195,8 @@ export function createPane(context: PaneContext): Pane {
 
   let shown: PaneView | null = null;
   let cleanup: (() => void) | null = null;
+  /** The ways to stop hearing the open view's toggles. */
+  let watches: (() => void)[] = [];
   /** What had the focus when the view opened. */
   let opener: Element | null = null;
 
@@ -188,8 +213,15 @@ export function createPane(context: PaneContext): Pane {
 
   function actionButton(action: PaneAction): HTMLButtonElement {
     const control = rowButton("view-action", icon(action.icon), action.label);
-    tips.tooltip(control, action.label);
+    const { hint, pressed } = action;
+    const told = hint ? () => [action.label, hint()].filter(Boolean).join(" · ") : action.label;
+    tips.tooltip(control, told);
     control.addEventListener("click", () => action.run());
+    if (pressed) {
+      const mark = (): void => control.setAttribute("aria-pressed", pressed() ? "true" : "false");
+      mark();
+      if (action.watch) watches.push(action.watch(mark));
+    }
     return control;
   }
 
@@ -199,6 +231,7 @@ export function createPane(context: PaneContext): Pane {
     const done = cleanup;
     cleanup = null;
     shown = null;
+    for (const stop of watches.splice(0)) stop();
     done?.();
   }
 
@@ -253,6 +286,12 @@ export function createPane(context: PaneContext): Pane {
     },
     retitle(id: string, text: string): void {
       if (shown?.id === id) name(text);
+    },
+    show(id: string): void {
+      if (shown?.id !== id) return;
+      context.uncover();
+      context.openPanel();
+      context.render();
     },
     view: () => shown?.id ?? null,
     focus(): boolean {
