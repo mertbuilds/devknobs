@@ -9,18 +9,10 @@
  *
  * `mount(body)` fills the view's scrolling body, which comes empty, and may
  * return a cleanup that runs once when the view closes or another replaces it.
- *
- * A view that names another as the one it is `under` is a step inside it:
- * opened from that one it pushes in from the right under the head, which
- * stays, and that one opened from it pops back, as the panel's own views do.
- * What the view that left showed rides out as it was, and is gone once the
- * slide lands. Any other change of view, and every one where nothing
- * animates, is at once.
  */
 
 import { button, el, type Layout, lay, rowBox, rowButton } from "./dom";
 import { icon, type IconName } from "./icons";
-import { SLIDE } from "./slide";
 import type { Tips } from "./tooltip";
 
 /** A small icon button in the view's head, such as copy or clear. */
@@ -67,11 +59,6 @@ export interface PaneView {
    */
   back?(): void;
   /**
-   * The id of the view this one is a step inside. Opened from that view it
-   * slides in over it, and that view opened from this one slides back.
-   */
-  under?: string;
-  /**
    * The pointer came onto the head's line, or left it. A view that shows
    * something of the page points at it there for as long.
    */
@@ -83,20 +70,6 @@ export type PaneListener = (view: string | null) => void;
 
 /** How wide the panel is while a view shows, until the user drags its edge, in px. */
 export const PANE_WIDTH = 340;
-
-/** How long past its time a slide between a view and one inside it lands without its end, in ms. */
-export const NEST_LATE = 500;
-
-/** How a view takes another's place: pushed in over the one it is under, popped back to it, or at once. */
-export type Nest = "push" | "pop" | null;
-
-/** The slide from the view `from` to the view `to`, by which of them is a step inside the other. */
-export function nestOf(from: PaneView | null, to: PaneView): Nest {
-  if (!from) return null;
-  if (to.under === from.id) return "push";
-  if (from.under === to.id) return "pop";
-  return null;
-}
 
 /** What the view needs from the panel. */
 export interface PaneContext {
@@ -111,8 +84,6 @@ export interface PaneContext {
   uncover(): void;
   /** Draw the whole panel again. */
   render(): void;
-  /** Run something in `ms`. Returns the way to call it off. A test hands in its own clock. */
-  after?(ms: number, run: () => void): () => void;
 }
 
 /** The view as the panel drives it. */
@@ -251,15 +222,6 @@ export function createPane(context: PaneContext): Pane {
   back.addEventListener("pointerleave", () => shown?.point?.(false));
   const body = el("div", "view-body");
   node.append(head, body);
-  body.addEventListener("animationend", (event: AnimationEvent) => {
-    if (event.target === body) land();
-  });
-  const after =
-    context.after ??
-    ((ms: number, run: () => void) => {
-      const timer = setTimeout(run, ms);
-      return () => clearTimeout(timer);
-    });
 
   let shown: PaneView | null = null;
   let cleanup: (() => void) | null = null;
@@ -267,57 +229,6 @@ export function createPane(context: PaneContext): Pane {
   let watches: (() => void)[] = [];
   /** What had the focus when the view opened. */
   let opener: Element | null = null;
-
-  /** What the view that left showed, while it slides out. */
-  let gone: HTMLElement | null = null;
-  /** Calls off the landing of a slide that never said it ended. */
-  let late: (() => void) | null = null;
-
-  /**
-   * Whether the body animates as the view is marked now: the stylesheet
-   * times it only while a slide is named, and times nothing under reduced
-   * motion, where a slide would only leave both views up for its length.
-   */
-  function animates(): boolean {
-    if (typeof getComputedStyle !== "function") return false;
-    return getComputedStyle(body).animationDuration.split(",").some((time) => parseFloat(time) > 0);
-  }
-
-  /** A slide on its way lands at once: what left is gone, and the body rests. */
-  function land(): void {
-    if (!gone) return;
-    late?.();
-    late = null;
-    gone.remove();
-    gone = null;
-    node.removeAttribute("data-nest");
-  }
-
-  /**
-   * Start the slide to the view that is about to mount: what the body shows
-   * moves to a box of its own over the body's place, scrolled as it was, and
-   * the body comes empty. Says whether it slides.
-   */
-  function slide(step: Nest): boolean {
-    if (!step) return false;
-    node.setAttribute("data-nest", step);
-    if (!animates()) {
-      node.removeAttribute("data-nest");
-      return false;
-    }
-    const left = el("div", "view-body view-gone");
-    const at = body.scrollTop;
-    left.style.top = `${body.offsetTop}px`;
-    left.style.height = `${body.offsetHeight}px`;
-    left.inert = true;
-    left.append(...Array.from(body.children));
-    body.replaceChildren();
-    node.append(left);
-    left.scrollTop = at;
-    gone = left;
-    late = after(SLIDE + NEST_LATE, land);
-    return true;
-  }
 
   function holdsFocus(): boolean {
     const at = root.activeElement;
@@ -356,16 +267,10 @@ export function createPane(context: PaneContext): Pane {
 
   function open(view: PaneView): void {
     if (shown?.id === view.id) return;
-    const step = nestOf(shown, view);
-    // A slide still on its way lands first, and the next one starts from rest.
-    if (gone) {
-      land();
-      body.getBoundingClientRect();
-    }
     // A view that takes another's place keeps what opened the first.
     if (shown) unmount();
     else opener = focused();
-    if (!slide(step)) body.replaceChildren();
+    body.replaceChildren();
     body.scrollTop = 0;
     shown = view;
     lay(node, view.layout);
@@ -388,7 +293,6 @@ export function createPane(context: PaneContext): Pane {
   function close(): void {
     if (!shown) return;
     const inside = holdsFocus();
-    land();
     unmount();
     context.render();
     // Under the settings or in a closed panel nothing slides, and it is gone at once.
@@ -413,7 +317,6 @@ export function createPane(context: PaneContext): Pane {
     close,
     drop(): void {
       if (!shown) return;
-      land();
       unmount();
       opener = null;
       emit(null);
@@ -439,7 +342,6 @@ export function createPane(context: PaneContext): Pane {
       if (!shown) body.replaceChildren();
     },
     destroy(): void {
-      land();
       if (shown) {
         unmount();
         emit(null);
