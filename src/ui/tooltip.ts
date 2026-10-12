@@ -36,16 +36,19 @@ export function tipAt(
 
 /** The shared tooltip, and the controls it shows for. */
 export interface Tips {
-  /** Show the tooltip over a control now, red with `hot`. */
-  show(node: HTMLElement, text: string, hot?: boolean): void;
+  /** Show the tooltip over a control now, red with `hot`. What it says is words, or a node built for it. */
+  show(node: HTMLElement, text: string | Node, hot?: boolean): void;
   /** Hide the tooltip, and say whether one showed. */
   hide(): boolean;
   /** Hide the tooltip once a while has passed, in ms. */
   hideAfter(delay: number): void;
   /** Whether the tooltip shows, or is about to, for a control. */
   isFor(node: HTMLElement): boolean;
-  /** Give an icon-only control a tooltip, its words asked for each time where they change. */
-  tooltip(node: HTMLElement, text: string | (() => string)): void;
+  /**
+   * Give a control a tooltip, its words asked for each time it shows where
+   * they change. What is asked for may be a node, for more than one line of words.
+   */
+  tooltip(node: HTMLElement, text: string | (() => string | Node)): void;
   destroy(): void;
 }
 
@@ -55,10 +58,11 @@ export function createTips(tip: HTMLElement, wrap: HTMLElement): Tips {
   let tipFor: HTMLElement | null = null;
   let tipTimer = 0;
 
-  function showTip(node: HTMLElement, text: string, hot = false): void {
+  function showTip(node: HTMLElement, text: string | Node, hot = false): void {
     clearTimeout(tipTimer);
     tipFor = node;
-    tip.textContent = text;
+    if (typeof text === "string") tip.textContent = text;
+    else tip.replaceChildren(text);
     tip.classList.toggle("hot", hot);
     const place = tipAt(
       node.getBoundingClientRect(),
@@ -86,7 +90,7 @@ export function createTips(tip: HTMLElement, wrap: HTMLElement): Tips {
    * once when the keys bring the focus to it. A press, leaving or escape
    * hides it, and a pressed control keeps it hidden until the pointer leaves.
    */
-  function tooltip(node: HTMLElement, text: string | (() => string)): void {
+  function tooltip(node: HTMLElement, text: string | (() => string | Node)): void {
     const words = () => (typeof text === "string" ? text : text());
     let pressed = false;
     node.addEventListener("pointerenter", () => {

@@ -255,7 +255,8 @@ export function fakePane(): FakePane {
     hideAfter: () => {},
     isFor: () => false,
     tooltip: (_node, text) => {
-      tipped.push(typeof text === "string" ? text : text());
+      const said = typeof text === "string" ? text : text();
+      tipped.push(typeof said === "string" ? said : (said.textContent ?? ""));
     },
     destroy: () => {},
   };
