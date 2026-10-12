@@ -1004,6 +1004,7 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
    gets whatever the view holds. The body is a container, so what a view
    holds can lay itself out by how wide the view is. */
 .view {
+  position: relative;
   flex: 0 1 auto;
   min-height: 0;
   height: 672px;
@@ -1023,6 +1024,33 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
+}
+/* A view a step inside another slides as the panel's views do, under the
+   head, which stays: it pushes in from the right and pushes what the other
+   showed out to the left, by the body's width and the 4px out to the border,
+   and pops back the same way, with the panel's curve and time. What left
+   rides in a box of its own over the body's place, where the pane puts it,
+   and is taken away as the slide lands. data-nest names the slide, and is
+   there only while it runs. Reduced motion leaves no time on it, and the
+   pane swaps the two at once. */
+.view[data-nest] { clip-path: inset(0 -4px); }
+.view[data-nest] > .view-body { animation: 500ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.view[data-nest="push"] > .view-body { animation-name: nest-from-right; }
+.view[data-nest="push"] > .view-gone { animation-name: nest-to-left; }
+.view[data-nest="pop"] > .view-body { animation-name: nest-from-left; }
+.view[data-nest="pop"] > .view-gone { animation-name: nest-to-right; }
+.view-gone { position: absolute; left: 0; width: 100%; overflow: hidden; }
+@keyframes nest-from-right {
+  from { transform: translateX(calc(100% + 4px)); }
+}
+@keyframes nest-from-left {
+  from { transform: translateX(calc(-100% - 4px)); }
+}
+@keyframes nest-to-left {
+  to { transform: translateX(calc(-100% - 4px)); }
+}
+@keyframes nest-to-right {
+  to { transform: translateX(calc(100% + 4px)); }
 }
 
 /* What a view builds its chrome from, see kit.ts. The bar stays over what

@@ -3,6 +3,8 @@ import { modeOf } from "../src/ui/palette";
 import {
   closePane,
   createPane,
+  NEST_LATE,
+  nestOf,
   onPane,
   openPane,
   PANE_WIDTH,
@@ -12,6 +14,7 @@ import {
   retitlePane,
   showPane,
 } from "../src/ui/pane";
+import { SLIDE } from "../src/ui/slide";
 import { CSS } from "../src/ui/styles";
 import type { Tips } from "../src/ui/tooltip";
 import { rules } from "./kit-dom";
@@ -28,10 +31,15 @@ class FakeNode {
   type = "";
   tabIndex = 0;
   scrollTop = 0;
+  offsetTop = 0;
+  offsetHeight = 0;
+  inert = false;
   isConnected = true;
   /** Whether it takes room on the page. */
   shows = true;
   shadowRoot = null;
+  style: Record<string, string> = {};
+  parent: FakeNode | null = null;
   children: FakeNode[] = [];
   attributes = new Map<string, string>();
   listeners = new Map<string, Set<Listener>>();
@@ -41,12 +49,31 @@ class FakeNode {
 
   constructor(readonly tag: string) {}
 
+  /** A node stands in one place: appended here, it leaves where it stood. */
   append(...nodes: FakeNode[]): void {
-    this.children.push(...nodes);
+    for (const node of nodes) {
+      node.remove();
+      node.parent = this;
+      this.children.push(node);
+    }
   }
 
   replaceChildren(...nodes: FakeNode[]): void {
-    this.children = [...nodes];
+    for (const child of [...this.children]) child.remove();
+    this.append(...nodes);
+  }
+
+  remove(): void {
+    if (this.parent) this.parent.children = this.parent.children.filter((child) => child !== this);
+    this.parent = null;
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+
+  getBoundingClientRect(): Record<string, number> {
+    return {};
   }
 
   contains(node: FakeNode): boolean {
@@ -63,8 +90,8 @@ class FakeNode {
     this.listeners.set(type, set);
   }
 
-  fire(type: string): void {
-    for (const listener of [...(this.listeners.get(type) ?? [])]) listener({ target: this });
+  fire(type: string, target: FakeNode = this): void {
+    for (const listener of [...(this.listeners.get(type) ?? [])]) listener({ target });
   }
 
   focus(): void {
@@ -117,7 +144,14 @@ interface Page {
   storage: () => number;
 }
 
-function build(options: { open?: boolean } = {}): Page {
+/** Something the pane asked to run later. */
+interface Later {
+  ms: number;
+  run(): void;
+  off: boolean;
+}
+
+function build(options: { open?: boolean; later?: Later[] } = {}): Page {
   let storage = 0;
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -182,6 +216,15 @@ function build(options: { open?: boolean } = {}): Page {
       asked.push("render");
       drawing.run?.();
     },
+    after: options.later
+      ? (ms, run) => {
+          const later: Later = { ms, run, off: false };
+          options.later?.push(later);
+          return () => {
+            later.off = true;
+          };
+        }
+      : undefined,
   });
   const node = fake(pane.node);
   const [back] = node.find("main");
@@ -246,7 +289,7 @@ beforeEach(() => {
 afterEach(() => {
   page?.pane.destroy();
   page = null;
-  for (const name of ["window", "document", "HTMLElement"]) {
+  for (const name of ["window", "document", "HTMLElement", "getComputedStyle"]) {
     Reflect.deleteProperty(globalThis, name);
   }
 });
@@ -638,6 +681,200 @@ describe("a view one step inside another", () => {
     closePane();
     expect(went).toEqual([]);
     expect(paneView()).toBeNull();
+  });
+});
+
+describe("a view under another slides in over it", () => {
+  /** Whether the stylesheet times the slide: it does not under reduced motion. */
+  function motion(on: boolean): void {
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      configurable: true,
+      value: () => ({ animationDuration: on ? "0.5s" : "0s" }),
+    });
+  }
+
+  /** A list, and a detail a step inside it, whose way back opens the list again. */
+  function nested() {
+    const list = viewOf("stores");
+    const detail = viewOf("store", { under: "stores", back: () => openPane(list.view) });
+    return { list, detail };
+  }
+
+  /** What rides out, where there is something. */
+  function gone(at: Page): FakeNode | undefined {
+    return at.node.find("view-gone")[0];
+  }
+
+  test("which way is told by which view is under the other, and no other change of view slides", () => {
+    const { list, detail } = nested();
+    expect(nestOf(list.view, detail.view)).toBe("push");
+    expect(nestOf(detail.view, list.view)).toBe("pop");
+    expect(nestOf(null, list.view)).toBeNull();
+    expect(nestOf(list.view, viewOf("other").view)).toBeNull();
+    expect(nestOf(detail.view, viewOf("other", { under: "elsewhere" }).view)).toBeNull();
+  });
+
+  test("it pushes in: what the first showed rides out in a box of its own, scrolled as it was, and the body comes empty", () => {
+    const later: Later[] = [];
+    page = build({ later });
+    motion(true);
+    const { list, detail } = nested();
+    openPane(list.view);
+    expect(page.node.attributes.has("data-nest")).toBe(false);
+    const [first] = page.body.children;
+    page.body.scrollTop = 120;
+    page.body.offsetTop = 30;
+    page.body.offsetHeight = 400;
+    openPane(detail.view);
+    expect(page.node.attributes.get("data-nest")).toBe("push");
+    const left = gone(page);
+    expect(left?.className).toBe("view-body view-gone");
+    expect(left?.children).toEqual([first as FakeNode]);
+    expect(left?.inert).toBe(true);
+    expect(left?.scrollTop).toBe(120);
+    expect(left?.style).toEqual({ top: "30px", height: "400px" });
+    // The head is the pane's own and stays: only the body's place holds two.
+    expect(page.node.children.map((child) => child.className)).toEqual(["row view-head", "view-body", "view-body view-gone"]);
+    expect(detail.seen.bodies).toEqual([0]);
+    expect(page.body.children).toHaveLength(1);
+    expect(page.body.scrollTop).toBe(0);
+    expect(list.seen.cleanups).toBe(1);
+    expect(page.title.textContent).toBe("store");
+    expect(active).toBe(page.back);
+    expect(later.map((each) => each.ms)).toEqual([SLIDE + NEST_LATE]);
+  });
+
+  test("it lands as the body's own animation ends: what left is gone, and the slide is named no more", () => {
+    const later: Later[] = [];
+    page = build({ later });
+    motion(true);
+    const { list, detail } = nested();
+    openPane(list.view);
+    openPane(detail.view);
+    // One of something in the view ending is not the slide's.
+    page.body.fire("animationend", page.body.children[0]);
+    expect(gone(page)).toBeDefined();
+    page.body.fire("animationend");
+    expect(gone(page)).toBeUndefined();
+    expect(page.node.attributes.has("data-nest")).toBe(false);
+    expect(later[0]?.off).toBe(true);
+    expect(page.body.children).toHaveLength(1);
+    expect(paneView()).toBe("store");
+  });
+
+  test("with no end said, it lands a while after it should have", () => {
+    const later: Later[] = [];
+    page = build({ later });
+    motion(true);
+    const { list, detail } = nested();
+    openPane(list.view);
+    openPane(detail.view);
+    later[0]?.run();
+    expect(gone(page)).toBeUndefined();
+    expect(page.node.attributes.has("data-nest")).toBe(false);
+  });
+
+  test("the way back and escape pop it: the view inside rides out, and the focus goes as it does today", () => {
+    const later: Later[] = [];
+    page = build({ later });
+    motion(true);
+    const { list, detail } = nested();
+    openPane(list.view);
+    openPane(detail.view);
+    page.body.fire("animationend");
+    const [inside] = page.body.children;
+    page.pane.escape();
+    expect(paneView()).toBe("stores");
+    expect(page.node.attributes.get("data-nest")).toBe("pop");
+    expect(gone(page)?.children).toEqual([inside as FakeNode]);
+    expect(list.seen.bodies).toEqual([0, 0]);
+    expect(active).toBe(page.back);
+    page.body.fire("animationend");
+    expect(gone(page)).toBeUndefined();
+  });
+
+  test("turned round on its way it lands first, so only one view ever rides out", () => {
+    const later: Later[] = [];
+    page = build({ later });
+    motion(true);
+    const { list, detail } = nested();
+    openPane(list.view);
+    openPane(detail.view);
+    const [inside] = page.body.children;
+    page.back.fire("click");
+    expect(page.node.find("view-gone")).toHaveLength(1);
+    expect(gone(page)?.children).toEqual([inside as FakeNode]);
+    expect(page.node.attributes.get("data-nest")).toBe("pop");
+    expect(later.map((each) => each.off)).toEqual([true, false]);
+    openPane(detail.view);
+    expect(page.node.find("view-gone")).toHaveLength(1);
+    expect(page.node.attributes.get("data-nest")).toBe("push");
+    expect(paneView()).toBe("store");
+    expect(page.body.children).toHaveLength(1);
+    expect(later.map((each) => each.off)).toEqual([true, true, false]);
+  });
+
+  test("the view closing mid slide, for the rows or for what the panel shows next, lands it", () => {
+    for (const leave of [() => closePane(), () => page?.pane.drop(), () => page?.pane.destroy()]) {
+      const later: Later[] = [];
+      page = build({ later });
+      motion(true);
+      const { list, detail } = nested();
+      openPane(list.view);
+      openPane(detail.view);
+      leave();
+      expect(gone(page)).toBeUndefined();
+      expect(page.node.attributes.has("data-nest")).toBe(false);
+      expect(later[0]?.off).toBe(true);
+      expect(paneView()).toBeNull();
+      expect(detail.seen.cleanups).toBe(1);
+      page.pane.destroy();
+    }
+  });
+
+  test("where nothing animates the two swap at once, as views did before", () => {
+    const later: Later[] = [];
+    page = build({ later });
+    motion(false);
+    const { list, detail } = nested();
+    openPane(list.view);
+    openPane(detail.view);
+    expect(gone(page)).toBeUndefined();
+    expect(page.node.attributes.has("data-nest")).toBe(false);
+    expect(later).toEqual([]);
+    expect(detail.seen.bodies).toEqual([0]);
+    expect(page.body.children).toHaveLength(1);
+  });
+
+  test("a view that is under no other swaps at once, motion or not", () => {
+    const later: Later[] = [];
+    page = build({ later });
+    motion(true);
+    openPane(viewOf("requests").view);
+    openPane(viewOf("styles").view);
+    expect(gone(page)).toBeUndefined();
+    expect(later).toEqual([]);
+  });
+
+  test("the stylesheet slides the two by the panel's own time and curve, and only while a slide is named", () => {
+    const sheet = rules(CSS);
+    const timed = sheet.find((rule) => rule.selector === ".view[data-nest] > .view-body");
+    expect(timed?.body.trim()).toBe("animation: 500ms cubic-bezier(0.32, 0.72, 0, 1) both;");
+    expect(SLIDE).toBe(500);
+    const panel = sheet.find((rule) => rule.selector === ".body[data-slide] > .pane");
+    expect(panel?.body).toContain("500ms cubic-bezier(0.32, 0.72, 0, 1)");
+    const named = sheet.filter((rule) => rule.selector.includes("data-nest=")).map((rule) => [rule.selector, rule.body.trim()]);
+    expect(named).toEqual([
+      ['.view[data-nest="push"] > .view-body', "animation-name: nest-from-right;"],
+      ['.view[data-nest="push"] > .view-gone', "animation-name: nest-to-left;"],
+      ['.view[data-nest="pop"] > .view-body', "animation-name: nest-from-left;"],
+      ['.view[data-nest="pop"] > .view-gone', "animation-name: nest-to-right;"],
+    ]);
+    for (const name of ["nest-from-right", "nest-from-left", "nest-to-left", "nest-to-right"]) {
+      expect(CSS).toContain(`@keyframes ${name}`);
+    }
+    // Reduced motion times nothing in the panel, so the pane finds no time and swaps.
+    expect(CSS).toMatch(/prefers-reduced-motion: reduce[\s\S]*?animation: none !important/);
   });
 });
 
