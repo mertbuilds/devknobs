@@ -12,7 +12,7 @@ import {
   writeWeb,
 } from "../storage/web";
 import { el } from "./dom";
-import { controls, emptyLine, type Fold, noteLine, sectionFold, stack } from "./kit";
+import { controls, emptyLine, entryFold, type Fold, noteLine, stack } from "./kit";
 import {
   askIn,
   counted,
@@ -27,8 +27,9 @@ import {
 } from "./storageparts";
 
 /**
- * `localStorage` or `sessionStorage` in the storage view: a row a key, which
- * folds out to the whole value and its controls. The list reads again on the
+ * `localStorage` or `sessionStorage` in the storage view: a row a key, its
+ * key and its value each on a column, which folds out to the whole value and
+ * its controls. The list reads again on the
  * view's tick and draws only the rows that changed.
  */
 
@@ -107,10 +108,13 @@ export function webSection(shell: Shell, kind: WebKind): Section {
 
   function build(item: WebItem): RowView {
     const { key } = item;
-    const fold = sectionFold({
-      label: key,
+    const fold = entryFold({
+      name: key,
+      value: preview(item.value),
+      end: sizeLabel(item.size),
+      // One of devknobs' own is told by its fainter key alone.
+      quiet: item.own,
       open: open.has(key),
-      ends: [el("span", "st-preview", preview(item.value)), el("span", "st-size", sizeLabel(item.size))],
       onToggle(out) {
         if (out) {
           open.add(key);
@@ -121,7 +125,6 @@ export function webSection(shell: Shell, kind: WebKind): Section {
         }
       },
     });
-    fold.label.className = `${fold.label.className} st-key${item.own ? " own" : ""}`;
 
     /** Closes the row's text box, while it is open: a row folded away keeps none. */
     let closeEdit: (() => void) | null = null;
@@ -243,6 +246,7 @@ export function webSection(shell: Shell, kind: WebKind): Section {
     },
     count: () => (read ? filterItems(items, "", shell.own()).length : null),
     controls: () => [{ label: "add", run: add }],
+    hidden: () => items.filter((item) => item.own).length,
     clear() {
       const count = filterItems(items, "", shell.own()).length;
       if (count === 0) {

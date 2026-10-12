@@ -4,8 +4,10 @@ import { RENDER_LIMIT } from "../src/storage/format";
 import { NO_LIST } from "../src/storage/idb";
 import { PRESETS_KEY } from "../src/storage/onload";
 import { loadPresets, type Preset, savePresets } from "../src/storage/presets";
+import type { PaneView } from "../src/ui/pane";
+import { isStorageView, STORAGE_VIEW } from "../src/ui/storageaction";
 import { FRESH_PRESETS } from "../src/ui/storagepresets";
-import { POLL_MS, STORAGE_KINDS, storageView } from "../src/ui/storageview";
+import { NOT_READ, POLL_MS, STORAGE_KINDS, storageView, storeViewId } from "../src/ui/storageview";
 import { NOT_JSON } from "../src/ui/storageweb";
 import { FakeNode, focused, leave, page } from "./kit-dom";
 import { type FakeSite, fakeSite, named, type SiteOptions, settle } from "./storage-fakes";
@@ -29,6 +31,10 @@ interface Shown {
   escape(): boolean;
   /** Press one of the head's actions. */
   head(label: string): void;
+  /** The level that shows: the list of the stores, or the page of one. */
+  view(): PaneView;
+  /** Take the head's way back, from a store's page to the list. */
+  back(): void;
   close(): void;
 }
 
@@ -64,9 +70,23 @@ function show(options: SiteOptions & { search?: string } = {}, site = fakeSite(o
       if (!action) throw new Error(`no head action ${label}`);
       action.run();
     },
+    view: () => view,
+    back() {
+      if (!view.back) throw new Error("no way back but to the rows");
+      view.back();
+    },
     close: () => {},
   };
-  const view = storageView({
+  let cleanup: (() => void) | null = null;
+  /** As the pane does it: the view that leaves is cleaned up, and the next one fills an empty body. */
+  const open = (next: PaneView): void => {
+    cleanup?.();
+    shown.body.replaceChildren();
+    view = next;
+    const made = next.mount(shown.body as unknown as HTMLElement);
+    cleanup = typeof made === "function" ? made : null;
+  };
+  let view = storageView({
     site,
     copy: async (text) => {
       shown.copied.push(text);
@@ -85,20 +105,57 @@ function show(options: SiteOptions & { search?: string } = {}, site = fakeSite(o
     },
     visible: () => shown.visible,
     now: () => 1_000_000,
+    open,
   });
-  const cleanup = view.mount(shown.body as unknown as HTMLElement);
+  open(view);
   shown.close = () => {
-    if (typeof cleanup === "function") cleanup();
+    cleanup?.();
+    cleanup = null;
   };
   return shown;
 }
 
-/** Show a kind, by its segment. */
+/** The rows of the list of stores, as their boxes. */
+function stores(shown: Shown): FakeNode[] {
+  return shown.body.find("row").filter((box) => box.find("turn").length === 0);
+}
+
+/** A store's row in the list of them, by its name. */
+function store(shown: Shown, label: string): FakeNode {
+  const found = stores(shown).find((box) => box.find("row-label")[0]?.textContent === label);
+  if (!found) throw new Error(`no store ${label}`);
+  return found;
+}
+
+/** What a store's row says the store holds. */
+function holds(shown: Shown, label: string): string {
+  return store(shown, label).find("row-value")[0]?.textContent ?? "";
+}
+
+/** Show a store, by its row in the list, going back to the list first from another store's page. */
 async function pick(shown: Shown, label: string): Promise<void> {
-  const item = shown.body.find("seg-item").find((node) => node.textContent === label);
-  if (!item) throw new Error(`no segment ${label}`);
-  item.fire("click");
+  if (shown.view().id !== STORAGE_VIEW) shown.back();
+  store(shown, label).find("main")[0]?.fire("click");
   await settle();
+}
+
+/** The bar of a store's page. */
+function bar(shown: Shown): FakeNode {
+  const [node] = shown.body.children;
+  if (!node || node.className !== "toolbar") throw new Error("no bar");
+  return node;
+}
+
+/** A control of the question asked in place, by what it says, not the bar's of the same name. */
+function answer(shown: Shown, label: string): FakeNode {
+  const [asked] = shown.body.find("ask");
+  if (!asked) throw new Error("nothing asked");
+  return chip(asked, label);
+}
+
+/** The line a list ends with while it has some of devknobs' own. */
+function ownLine(shown: Shown): FakeNode | undefined {
+  return shown.body.find("note-button")[0];
 }
 
 /** A small text control, by what it says. */
@@ -145,8 +202,9 @@ function said(shown: Shown): string[] {
   return notes(shown.body.children[2] ?? shown.body);
 }
 
+/** The quiet lines under a node, without the ones that are controls. */
 function notes(root: FakeNode): string[] {
-  return root.find("note").map((node) => node.textContent);
+  return root.find("note").filter((node) => node.tag !== "button").map((node) => node.textContent);
 }
 
 function filterOf(shown: Shown): FakeNode {
@@ -175,10 +233,37 @@ afterEach(() => {
 
 const ITEMS = { token: "abc", user: '{"id":1,"tags":["a"]}', devknobs: "{}", "devknobs:keys": "{}" };
 
-describe("the storage view", () => {
-  test("has one segment a kind, and a filter, in the kit's bar", async () => {
-    const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+/** A page with a database of two stores and two caches. */
+function deep(options: SiteOptions = {}): FakeSite {
+  const site = fakeSite(options);
+  site.idb.add("shop", 3, {
+    carts: { keyPath: "id", autoIncrement: true, indexes: ["byUser"], records: [[1, { id: 1, when: new Date(0) }]] },
+    events: { records: Array.from({ length: 120 }, (_, at): [unknown, unknown] => [at, { at }]) },
+  });
+  site.cached.caches.set(
+    "pages",
+    Array.from({ length: 240 }, (_, at) => ({
+      url: `https://app.example.com/p/${at}`,
+      type: "text/html; charset=utf-8",
+      length: "1024",
+    })),
+  );
+  return site;
+}
+
+/** The view on its list of stores, whichever store it showed last. */
+async function listed(options: SiteOptions & { search?: string } = {}, site?: FakeSite): Promise<Shown> {
+  const shown = show(options, site);
+  if (shown.view().id !== STORAGE_VIEW) shown.back();
+  await settle();
+  return shown;
+}
+
+describe("the list of stores", () => {
+  test("has a row a store, by its full name, with its icon, on the knob rows' columns", async () => {
+    const shown = await listed();
+    expect(shown.view()).toMatchObject({ id: STORAGE_VIEW, title: "storage", layout: "rows" });
+    expect(shown.view().back).toBeUndefined();
     expect(STORAGE_KINDS.map((kind) => kind.value)).toEqual([
       "local",
       "session",
@@ -187,52 +272,257 @@ describe("the storage view", () => {
       "cache",
       "presets",
     ]);
-    const [bar] = shown.body.children;
-    expect(bar?.className).toBe("toolbar");
-    expect(bar?.children.map((child) => child.className)).toEqual(["seg", "field filter"]);
-    expect(shown.body.find("seg-item").filter((item) => item.classes().includes("on")).map((item) => item.textContent)).toEqual(["local"]);
+    expect(stores(shown).map((box) => box.find("row-label")[0]?.textContent)).toEqual([
+      "local storage",
+      "session storage",
+      "cookies",
+      "IndexedDB",
+      "cache storage",
+      "presets",
+    ]);
+    for (const box of stores(shown)) {
+      const [main] = box.find("main");
+      expect(main?.tag).toBe("button");
+      expect(main?.children.map((child) => child.className)).toEqual(["glyph", "row-label", "row-value idle"]);
+    }
+    // No bar, no segments and no filter: the list is rows alone.
+    expect(shown.body.find("toolbar")).toEqual([]);
+    expect(shown.body.find("seg")).toEqual([]);
+    expect(shown.body.find("filter")).toEqual([]);
   });
 
-  test("opens on the kind it last showed", async () => {
-    const first = show();
+  test("a row says what its store holds: how many and how much, without devknobs' own", async () => {
+    const site = deep({ local: ITEMS, session: { step: "2" } });
+    site.jar.put({ name: "theme", value: "dark" });
+    site.jar.put({ name: "sid", value: "1" });
+    const shown = await listed({}, site);
+    savePresets([PRESET]);
+    shown.head("refresh");
+    await settle();
+    expect(holds(shown, "local storage")).toBe("2 items · 24 B");
+    expect(holds(shown, "session storage")).toBe("1 item · 1 B");
+    expect(holds(shown, "cookies")).toBe("2 cookies · 13 B");
+    expect(holds(shown, "IndexedDB")).toBe("1 database");
+    expect(holds(shown, "cache storage")).toBe("1 cache");
+    expect(holds(shown, "presets")).toBe("1 preset");
+    for (const box of stores(shown)) expect(box.find("row-value")[0]?.className).toBe("row-value");
+  });
+
+  test("a store with nothing says so quietly, as a row's value at its default is", async () => {
+    const shown = await listed({ local: { devknobs: "{}" } });
+    expect(stores(shown).map((box) => box.find("row-value")[0]?.textContent)).toEqual([
+      "no items",
+      "no items",
+      "no cookies",
+      "no databases",
+      "no caches",
+      "no presets",
+    ]);
+    for (const box of stores(shown)) expect(box.find("row-value")[0]?.className).toBe("row-value idle");
+  });
+
+  test("a store that cannot be read says so, with why in its tooltip", async () => {
+    const shown = await listed({}, { ...deep({ listable: false }), isSecureContext: false } as FakeSite);
+    expect(holds(shown, "IndexedDB")).toBe(NOT_READ);
+    expect(store(shown, "IndexedDB").find("row-value")[0]?.title).toBe(NO_LIST);
+    expect(holds(shown, "cache storage")).toBe(NOT_READ);
+    expect(store(shown, "cache storage").find("row-value")[0]?.title).toBe(
+      "Cache Storage needs a secure page (https or localhost)",
+    );
+    expect(store(shown, "IndexedDB").find("row-value")[0]?.className).toBe("row-value idle");
+  });
+
+  test("under the rows a quiet line says which presets apply on load", async () => {
+    const site = fakeSite();
+    const shown = await listed({}, site);
+    expect(notes(shown.body)).toEqual(["no preset applies on load"]);
+    expect(shown.body.children[2]?.find("note")).toHaveLength(1);
+    savePresets([{ ...PRESET, onLoad: true }]);
+    shown.head("refresh");
+    await settle();
+    expect(notes(shown.body)).toEqual(["applies on every load of this page: logged in"]);
+    const fresh = await listed({ search: "?devknobs=fresh" });
+    expect(notes(fresh.body)).toEqual([FRESH_PRESETS]);
+    expect(holds(fresh, "presets")).toBe(NOT_READ);
+  });
+
+  test("stays live: the web storages and the cookies on a tick, the databases and caches on refresh", async () => {
+    const site = deep({ local: { a: "1" } });
+    const shown = await listed({}, site);
+    const live = shown.ticks.filter((tick) => !tick.stopped);
+    expect(live.map((tick) => tick.ms)).toEqual([POLL_MS]);
+    site.localStorage.setItem("b", "22");
+    site.jar.put({ name: "late", value: "1" });
+    site.idb.add("later", 1, {});
+    live[0]?.run();
+    await settle();
+    expect(holds(shown, "local storage")).toBe("2 items · 3 B");
+    expect(holds(shown, "cookies")).toBe("1 cookie · 5 B");
+    expect(holds(shown, "IndexedDB")).toBe("1 database");
+    shown.head("refresh");
+    await settle();
+    expect(holds(shown, "IndexedDB")).toBe("2 databases");
+    // Out of sight it reads nothing, and another tab's write is heard.
+    shown.visible = false;
+    site.localStorage.calls = 0;
+    live[0]?.run();
+    expect(site.localStorage.calls).toBe(0);
+    site.sessionStorage.map.set("from-another-tab", "1");
+    shown.storage();
+    await settle();
+    expect(holds(shown, "session storage")).toBe("1 item · 1 B");
+    shown.close();
+    expect(shown.ticks.filter((tick) => !tick.stopped)).toEqual([]);
+  });
+
+  test("the keys: arrows move over the rows, and enter opens one as its line is a button", async () => {
+    const shown = await listed();
+    const [list] = shown.body.find("st-list");
+    const mains = stores(shown).map((box) => box.find("main")[0]);
+    expect(mains[0]?.fire("keydown", { key: "ArrowDown" }, list).prevented).toBe(true);
+    expect(focused()).toBe(mains[1] ?? null);
+    // No row of the list can be deleted.
+    expect(mains[1]?.fire("keydown", { key: "Delete" }, list).prevented).toBe(false);
+  });
+
+  test("clear site data asks in the list, keeps devknobs' own, and the rows say what is left", async () => {
+    const site = deep({ local: ITEMS });
+    const shown = await listed({}, site);
+    shown.head("clear site data");
+    await settle();
+    expect(notes(shown.body)[0]).toBe(
+      "clear site data? 2 local, 1 database, 1 cache. devknobs' own items are kept",
+    );
+    expect(focused()?.textContent).toBe("clear site data");
+    expect(shown.escape()).toBe(true);
+    expect(site.localStorage.map.size).toBe(4);
+    // With nothing left to take back, escape is the panel's.
+    expect(shown.escape()).toBe(false);
+    shown.head("clear site data");
+    await settle();
+    answer(shown, "clear site data").fire("click");
+    await settle(20);
+    expect(site.localStorage.all()).toEqual({ devknobs: "{}", "devknobs:keys": "{}" });
+    expect(notes(shown.body)[0]).toBe("cleared 2 local, 1 database, 1 cache");
+    expect(holds(shown, "local storage")).toBe("no items");
+    expect(holds(shown, "IndexedDB")).toBe("no databases");
+    expect(chips(shown.body)).toEqual(["reload the page"]);
+  });
+});
+
+describe("a store's page", () => {
+  test("is a view of its own, under the store's full name, whose way back is the list", async () => {
+    const shown = await listed({ local: ITEMS });
+    for (const kind of STORAGE_KINDS) {
+      await pick(shown, kind.label);
+      expect(shown.view()).toMatchObject({ id: storeViewId(kind.value), title: kind.label, layout: "flush" });
+      expect(isStorageView(shown.view().id)).toBe(true);
+      expect(shown.view().actions?.map((action) => action.label)).toEqual(["refresh", "clear site data"]);
+    }
+    expect(isStorageView(STORAGE_VIEW)).toBe(true);
+    expect(isStorageView("storages")).toBe(false);
+    expect(isStorageView(null)).toBe(false);
+    await pick(shown, "cookies");
+    // Escape takes nothing back here, so the panel takes the way back: to the list, on the row it left.
+    expect(shown.escape()).toBe(false);
+    shown.back();
+    expect(shown.view().id).toBe(STORAGE_VIEW);
+    expect(focused()).toBe(store(shown, "cookies").find("main")[0] ?? null);
+    expect(stores(shown)).toHaveLength(6);
+  });
+
+  test("has the filter on a line of its own, then the store's own controls, in the kit's bar", async () => {
+    const shown = await listed({ local: ITEMS });
+    const lines: Record<string, string[]> = {
+      "local storage": ["add", "clear", "save as preset"],
+      "session storage": ["add", "clear", "save as preset"],
+      cookies: ["add", "clear", "save as preset"],
+      IndexedDB: [],
+      "cache storage": [],
+      presets: ["save current as preset", "new preset", "import"],
+    };
+    for (const [label, controls] of Object.entries(lines)) {
+      await pick(shown, label);
+      const classes = bar(shown).children.map((child) => child.className);
+      expect([label, classes]).toEqual([label, controls.length > 0 ? ["field filter", "chips"] : ["field filter"]]);
+      expect([label, chips(bar(shown))]).toEqual([label, controls]);
+      expect(filterOf(shown).attributes.get("aria-label")).toBe(`filter ${label}`);
+      // No segments switch the store, and no control of the bar is for the list.
+      expect(bar(shown).find("seg")).toEqual([]);
+    }
+    await pick(shown, "local storage");
+  });
+
+  test("the view opens again on the store it last showed, with the list one step back", async () => {
+    const first = await listed();
     await pick(first, "cookies");
     first.close();
     const again = show();
     await settle();
-    expect(again.body.find("seg-item").find((item) => item.classes().includes("on"))?.textContent).toBe("cookies");
-    await pick(again, "local");
+    expect(again.view().id).toBe(storeViewId("cookies"));
+    again.back();
+    expect(again.view().id).toBe(STORAGE_VIEW);
+    again.close();
+    // Left on the list, it opens on the list.
+    expect(show().view().id).toBe(STORAGE_VIEW);
+  });
+
+  test("a key and its value stand on the same two columns in every row, the key whole in its tooltip", async () => {
+    const long = "a-very-long-key-that-will-not-fit-the-column-it-stands-on";
+    const shown = await listed({ local: { [long]: "1", b: "2" } });
+    await pick(shown, "local storage");
+    for (const box of rows(shown)) {
+      const [main] = box.find("main");
+      expect(main?.children.map((child) => child.className)).toEqual([
+        "turn",
+        "row-label cell-name columned",
+        "cell-value",
+        "cell-end",
+      ]);
+    }
+    expect(row(shown, long).find("row-label")[0]?.title).toBe(long);
   });
 });
 
 describe("local and session storage", () => {
   test("a row a key: the key, a one-line preview and the size, devknobs' own hidden", async () => {
     const shown = show({ local: ITEMS, session: { step: "2" } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     expect(labels(shown)).toEqual(["token", "user"]);
     const user = row(shown, "user");
-    expect(user.find("row-label")[0]?.className).toBe("row-label st-key");
-    expect(user.find("st-preview")[0]?.textContent).toBe('{"id":1,"tags":["a"]}');
-    expect(user.find("st-size")[0]?.textContent).toBe("21 B");
+    expect(user.find("row-label")[0]?.className).toBe("row-label cell-name columned");
+    expect(user.find("cell-value")[0]?.textContent).toBe('{"id":1,"tags":["a"]}');
+    expect(user.find("cell-end")[0]?.textContent).toBe("21 B");
     expect(filterOf(shown).placeholder).toBe("filter 2 items");
-    await pick(shown, "session");
+    await pick(shown, "session storage");
     expect(labels(shown)).toEqual(["step"]);
     expect(filterOf(shown).placeholder).toBe("filter 1 item");
   });
 
   test("devknobs' own show once asked for, told by their fainter key alone", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
-    chip(shown.body, "show devknobs' own").fire("click");
+    await pick(shown, "local storage");
+    // The line is the last of the page, a quiet button, and no control of the bar.
+    const line = ownLine(shown);
+    expect(line?.tag).toBe("button");
+    expect(line?.className).toBe("note note-button");
+    expect(line?.textContent).toBe("2 hidden (devknobs' own)");
+    expect(shown.body.children[shown.body.children.length - 1]?.children).toEqual([line as FakeNode]);
+    expect(chips(bar(shown))).toEqual(["add", "clear", "save as preset"]);
+    line?.fire("click");
+    expect(ownLine(shown)).toBe(line as FakeNode);
     expect(labels(shown)).toEqual(["token", "user", "devknobs", "devknobs:keys"]);
-    expect(row(shown, "devknobs").find("row-label")[0]?.className).toBe("row-label st-key own");
+    expect(row(shown, "devknobs").find("row-label")[0]?.className).toBe("row-label cell-name columned quiet");
     expect(filterOf(shown).placeholder).toBe("filter 4 items");
-    chip(shown.body, "hide devknobs' own").fire("click");
+    expect(ownLine(shown)?.textContent).toBe("hide devknobs' own");
+    ownLine(shown)?.fire("click");
     expect(labels(shown)).toEqual(["token", "user"]);
+    expect(ownLine(shown)?.textContent).toBe("2 hidden (devknobs' own)");
   });
 
   test("a row folds out in place to the whole value, json laid out where that loses nothing", async () => {
     const shown = show({ local: { ...ITEMS, big: '{"id":12345678901234567890}' } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const user = row(shown, "user");
     expect(user.find("code")).toEqual([]);
     toggle(user);
@@ -246,7 +536,7 @@ describe("local and session storage", () => {
 
   test("nothing is copied by itself: the copy control and a click on the value are the ways out", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const user = row(shown, "user");
     toggle(user);
     expect(shown.copied).toEqual([]);
@@ -260,7 +550,7 @@ describe("local and session storage", () => {
 
   test("edit turns the value into a text box, and save writes it", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const token = row(shown, "token");
     toggle(token);
     chip(token, "edit").fire("click");
@@ -272,13 +562,13 @@ describe("local and session storage", () => {
     box.value = "xyz";
     chip(token, "save").fire("click");
     expect(shown.site.localStorage.getItem("token")).toBe("xyz");
-    expect(row(shown, "token").find("st-preview")[0]?.textContent).toBe("xyz");
+    expect(row(shown, "token").find("cell-value")[0]?.textContent).toBe("xyz");
     expect(row(shown, "token").find("code-text")[0]?.textContent).toBe("xyz");
   });
 
   test("enter with meta or ctrl saves, and a bare enter is a new line", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const token = row(shown, "token");
     toggle(token);
     chip(token, "edit").fire("click");
@@ -292,7 +582,7 @@ describe("local and session storage", () => {
 
   test("cancel, and escape, leave the value as it was, and escape does not close the view", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const token = row(shown, "token");
     toggle(token);
     chip(token, "edit").fire("click");
@@ -312,7 +602,7 @@ describe("local and session storage", () => {
 
   test("json that no longer parses is still saved, as text, and a quiet line says so", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const user = row(shown, "user");
     toggle(user);
     chip(user, "edit").fire("click");
@@ -325,7 +615,7 @@ describe("local and session storage", () => {
 
   test("plain text saved over plain text says nothing", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const token = row(shown, "token");
     toggle(token);
     chip(token, "edit").fire("click");
@@ -336,7 +626,7 @@ describe("local and session storage", () => {
 
   test("a full storage is a line under the box, which stays as typed", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const token = row(shown, "token");
     toggle(token);
     chip(token, "edit").fire("click");
@@ -349,7 +639,7 @@ describe("local and session storage", () => {
 
   test("delete removes the key at once", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const token = row(shown, "token");
     toggle(token);
     chip(token, "delete").fire("click");
@@ -359,8 +649,8 @@ describe("local and session storage", () => {
 
   test("one of devknobs' own asks once before it is edited or deleted", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
-    chip(shown.body, "show devknobs' own").fire("click");
+    await pick(shown, "local storage");
+    ownLine(shown)?.fire("click");
     const own = row(shown, "devknobs");
     toggle(own);
     chip(own, "delete").fire("click");
@@ -380,7 +670,7 @@ describe("local and session storage", () => {
 
   test("duplicate adds the key again as a copy", async () => {
     const shown = show({ local: { token: "abc", "token copy": "x" } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const token = row(shown, "token");
     toggle(token);
     chip(token, "duplicate").fire("click");
@@ -390,7 +680,7 @@ describe("local and session storage", () => {
 
   test("add takes key=value lines, or a json object of several keys", async () => {
     const shown = show({ session: {} });
-    await pick(shown, "session");
+    await pick(shown, "session storage");
     chip(shown.body, "add").fire("click");
     const box = area(shown.body);
     box.value = "nope";
@@ -410,31 +700,32 @@ describe("local and session storage", () => {
     expect(shown.site.sessionStorage.all()).toEqual({ a: "1", b: "two", c: "3", d: '{"e":1}' });
   });
 
-  test("clear asks once, in the view, with the count", async () => {
+  test("clear is the bar's, and asks once, in the view, with the count", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
-    shown.head("clear what shows");
+    await pick(shown, "local storage");
+    chip(bar(shown), "clear").fire("click");
     expect(notes(shown.body)).toContain("clear 2 items?");
-    expect(focused()?.textContent).toBe("clear");
-    chip(shown.body, "cancel").fire("click");
+    expect(focused()).toBe(answer(shown, "clear"));
+    answer(shown, "cancel").fire("click");
     expect(notes(shown.body)).not.toContain("clear 2 items?");
     expect(shown.site.localStorage.map.size).toBe(4);
-    shown.head("clear what shows");
+    chip(bar(shown), "clear").fire("click");
     expect(shown.escape()).toBe(true);
     expect(shown.site.localStorage.map.size).toBe(4);
-    shown.head("clear what shows");
-    chip(shown.body, "clear").fire("click");
+    chip(bar(shown), "clear").fire("click");
+    answer(shown, "clear").fire("click");
     // devknobs' own stay.
     expect(shown.site.localStorage.all()).toEqual({ devknobs: "{}", "devknobs:keys": "{}" });
     expect(labels(shown)).toEqual([]);
     expect(shown.body.find("empty")[0]?.textContent).toBe("nothing in localStorage");
-    shown.head("clear what shows");
+    expect(ownLine(shown)?.textContent).toBe("2 hidden (devknobs' own)");
+    chip(bar(shown), "clear").fire("click");
     expect(notes(shown.body)).toEqual(["nothing to clear in localStorage"]);
   });
 
   test("the filter matches the key or the value, over the data", async () => {
     const shown = show({ local: { Token: "abc", theme: "DARK", other: "x" } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     type(shown, "dark");
     expect(labels(shown)).toEqual(["theme"]);
     type(shown, "TOK");
@@ -450,7 +741,7 @@ describe("local and session storage", () => {
   test("a long list is built two hundred rows at a time", async () => {
     const many = Object.fromEntries(Array.from({ length: 450 }, (_, at) => [`key-${at}`, `v${at}`]));
     const shown = show({ local: many });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     expect(rows(shown)).toHaveLength(200);
     expect(notes(shown.body)).toContain("200 of 450");
     chip(shown.body, "show 200 more").fire("click");
@@ -467,7 +758,7 @@ describe("local and session storage", () => {
     const long = "x".repeat(RENDER_LIMIT + 10);
     const huge = "y".repeat(1_000_001);
     const shown = show({ local: { long, huge } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const first = row(shown, "long");
     toggle(first);
     expect(first.find("code-text")[0]?.textContent.length).toBe(RENDER_LIMIT);
@@ -492,15 +783,15 @@ describe("local and session storage", () => {
       },
     });
     const shown = show({}, site);
-    await pick(shown, "local");
-    await pick(shown, "session");
+    await pick(shown, "local storage");
+    await pick(shown, "session storage");
     expect(notes(shown.body)).toEqual(["cannot read sessionStorage: the browser blocks storage on this page"]);
     expect(rows(shown)).toEqual([]);
   });
 
   test("the keys: arrows move over the rows, and delete asks in place", async () => {
     const shown = show({ local: { a: "1", b: "2", c: "3" } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const [list] = shown.body.find("st-list").filter((node) => node.children.some((child) => child.className === "row"));
     const mains = rows(shown).map((box) => box.find("main")[0]);
     expect(mains[0]?.fire("keydown", { key: "ArrowDown" }, list).prevented).toBe(true);
@@ -522,28 +813,27 @@ describe("local and session storage", () => {
 });
 
 describe("staying live", () => {
-  test("the tick runs once a second while a live segment shows, and stops with the segment and the view", async () => {
+  test("the tick runs once a second while a live store shows, and stops with its page and the view", async () => {
     const shown = show({ local: ITEMS });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const live = shown.ticks.filter((tick) => !tick.stopped);
     expect(live).toHaveLength(1);
     expect(live[0]?.ms).toBe(POLL_MS);
     expect(POLL_MS).toBe(1000);
-    await pick(shown, "idb");
-    expect(shown.ticks.filter((tick) => !tick.stopped)).toEqual([]);
-    await pick(shown, "cache");
-    await pick(shown, "presets");
-    expect(shown.ticks.filter((tick) => !tick.stopped)).toEqual([]);
-    await pick(shown, "session");
+    for (const label of ["IndexedDB", "cache storage", "presets"]) {
+      await pick(shown, label);
+      expect([label, shown.ticks.filter((tick) => !tick.stopped)]).toEqual([label, []]);
+    }
+    await pick(shown, "session storage");
     expect(shown.ticks.filter((tick) => !tick.stopped)).toHaveLength(1);
     shown.close();
     expect(shown.ticks.filter((tick) => !tick.stopped)).toEqual([]);
-    await pick(shown, "local");
+    await pick(show(), "local storage");
   });
 
   test("a write by the page shows on the next tick, and rows that did not change are left as they are", async () => {
     const shown = show({ local: { a: "1", b: "2" } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const before = rows(shown);
     const [tick] = shown.ticks.filter((entry) => !entry.stopped);
     tick?.run();
@@ -556,12 +846,12 @@ describe("staying live", () => {
     expect(labels(shown)).toEqual(["a", "b", "c"]);
     expect(rows(shown)[0]).toBe(before[0] as FakeNode);
     expect(rows(shown)[1]).not.toBe(before[1]);
-    expect(row(shown, "b").find("st-preview")[0]?.textContent).toBe("changed");
+    expect(row(shown, "b").find("cell-value")[0]?.textContent).toBe("changed");
   });
 
   test("a view out of sight reads nothing on its tick", async () => {
     const shown = show({ local: { a: "1" } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const [tick] = shown.ticks.filter((entry) => !entry.stopped);
     shown.visible = false;
     shown.site.localStorage.calls = 0;
@@ -574,7 +864,7 @@ describe("staying live", () => {
 
   test("another tab's write is heard through the storage event", async () => {
     const shown = show({ local: { a: "1" } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     shown.site.localStorage.map.set("from-another-tab", "1");
     shown.storage();
     expect(labels(shown)).toEqual(["a", "from-another-tab"]);
@@ -586,7 +876,7 @@ describe("staying live", () => {
 
   test("a box being typed in is not drawn over by a tick", async () => {
     const shown = show({ local: { a: "1" } });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     const a = row(shown, "a");
     toggle(a);
     chip(a, "edit").fire("click");
@@ -595,7 +885,7 @@ describe("staying live", () => {
     shown.ticks.find((tick) => !tick.stopped)?.run();
     expect(area(row(shown, "a")).value).toBe("typing");
     chip(a, "cancel").fire("click");
-    expect(row(shown, "a").find("st-preview")[0]?.textContent).toBe("page wrote");
+    expect(row(shown, "a").find("cell-value")[0]?.textContent).toBe("page wrote");
   });
 
   test("the page's storage is never wrapped or patched", async () => {
@@ -604,7 +894,8 @@ describe("staying live", () => {
     const factory = site.indexedDB;
     const open = factory?.open;
     const shown = show({}, site);
-    for (const kind of ["local", "session", "cookies", "idb", "cache", "presets", "local"]) await pick(shown, kind);
+    for (const kind of STORAGE_KINDS) await pick(shown, kind.label);
+    await pick(shown, "local storage");
     shown.close();
     expect([site.localStorage.setItem, site.localStorage.getItem, site.localStorage.removeItem]).toEqual(methods);
     expect(Object.keys(site.localStorage)).toEqual(["map", "refuse", "calls"]);
@@ -644,7 +935,7 @@ describe("cookies", () => {
     const shown = show({}, site);
     await pick(shown, "cookies");
     const sid = row(shown, "sid");
-    expect(sid.find("st-preview")[0]?.textContent).toBe("abc");
+    expect(sid.find("cell-value")[0]?.textContent).toBe("abc");
     toggle(sid);
     const [list] = sid.find("pairs");
     expect(list?.tag).toBe("dl");
@@ -690,7 +981,7 @@ describe("cookies", () => {
     chip(sid, "save").fire("click");
     await settle();
     expect(site.jar.writes).toEqual(["sid=new; path=/shop; domain=example.com; samesite=lax"]);
-    expect(row(shown, "sid").find("st-preview")[0]?.textContent).toBe("new");
+    expect(row(shown, "sid").find("cell-value")[0]?.textContent).toBe("new");
     toggle(row(shown, "sid"));
     toggle(row(shown, "sid"));
     chip(row(shown, "sid"), "delete").fire("click");
@@ -774,47 +1065,29 @@ describe("cookies", () => {
     site.jar.write = (text) => {
       if (!text.startsWith("b=")) write(text);
     };
-    shown.head("clear what shows");
+    chip(bar(shown), "clear").fire("click");
     expect(notes(shown.body)).toContain("clear 2 cookies?");
-    chip(shown.body, "clear").fire("click");
+    answer(shown, "clear").fire("click");
     await settle();
     expect(labels(shown)).toEqual(["b"]);
     expect(notes(shown.body)).toContain("1 cookie could not be removed: set on another path or domain");
   });
 });
 
-/** A page with a database of two stores and two caches. */
-function deep(options: SiteOptions = {}): FakeSite {
-  const site = fakeSite(options);
-  site.idb.add("shop", 3, {
-    carts: { keyPath: "id", autoIncrement: true, indexes: ["byUser"], records: [[1, { id: 1, when: new Date(0) }]] },
-    events: { records: Array.from({ length: 120 }, (_, at): [unknown, unknown] => [at, { at }]) },
-  });
-  site.cached.caches.set(
-    "pages",
-    Array.from({ length: 240 }, (_, at) => ({
-      url: `https://app.example.com/p/${at}`,
-      type: "text/html; charset=utf-8",
-      length: "1024",
-    })),
-  );
-  return site;
-}
-
 describe("indexeddb", () => {
   test("lists the databases, a database's stores, and a store's first fifty records", async () => {
     const shown = show({}, deep());
-    await pick(shown, "idb");
+    await pick(shown, "IndexedDB");
     expect(notes(shown.body)).toEqual([
       "read only: a whole database can be deleted, its records cannot be changed",
     ]);
     const shop = row(shown, "shop");
-    expect(shop.find("st-size")[0]?.textContent).toBe("version 3");
+    expect(shop.find("cell-end")[0]?.textContent).toBe("version 3");
     expect(filterOf(shown).placeholder).toBe("filter 1 database");
     toggle(shop);
     await settle();
     const carts = row(shown, "carts");
-    expect(carts.find("st-size")[0]?.textContent).toBe("1 record");
+    expect(carts.find("cell-end")[0]?.textContent).toBe("1 record");
     expect(carts.find("pairs")[0]?.children.map((child) => child.textContent)).toEqual([
       "key path",
       "id",
@@ -826,11 +1099,11 @@ describe("indexeddb", () => {
     toggle(carts);
     await settle();
     const record = row(shown, "1");
-    expect(record.find("st-preview")[0]?.textContent).toBe('{"id":1, "when":Date 1970-01-01T00:00:00.000Z}');
+    expect(record.find("cell-value")[0]?.textContent).toBe('{"id":1, "when":Date 1970-01-01T00:00:00.000Z}');
     toggle(record);
     expect(record.find("code-text")[0]?.textContent).toBe('{\n  "id": 1,\n  "when": Date 1970-01-01T00:00:00.000Z\n}');
     const events = row(shown, "events");
-    expect(events.find("st-size")[0]?.textContent).toBe("120 records");
+    expect(events.find("cell-end")[0]?.textContent).toBe("120 records");
     toggle(events);
     await settle();
     expect(events.find("row")).toHaveLength(51);
@@ -846,21 +1119,21 @@ describe("indexeddb", () => {
 
   test("is read only: no control edits or clears a record", async () => {
     const shown = show({}, deep());
-    await pick(shown, "idb");
+    await pick(shown, "IndexedDB");
     toggle(row(shown, "shop"));
     await settle();
     toggle(row(shown, "carts"));
     await settle();
     toggle(row(shown, "1"));
     expect(chips(shown.body)).toEqual(["copy value", "delete database"]);
-    shown.head("clear what shows");
-    expect(notes(shown.body)).toContain("IndexedDB is cleared with clear site data");
+    // The store has no clear of its own: it goes with clear site data, in the head.
+    expect(chips(bar(shown))).toEqual([]);
   });
 
   test("never keeps a database open, whatever was looked at", async () => {
     const site = deep();
     const shown = show({}, site);
-    await pick(shown, "idb");
+    await pick(shown, "IndexedDB");
     toggle(row(shown, "shop"));
     await settle();
     toggle(row(shown, "events"));
@@ -878,7 +1151,7 @@ describe("indexeddb", () => {
   test("is not read on a tick: only when its segment shows, and on refresh", async () => {
     const site = deep();
     const shown = show({}, site);
-    await pick(shown, "idb");
+    await pick(shown, "IndexedDB");
     expect(shown.ticks.filter((tick) => !tick.stopped)).toEqual([]);
     site.idb.add("later", 1, {});
     expect(labels(shown)).toEqual(["shop"]);
@@ -889,7 +1162,7 @@ describe("indexeddb", () => {
 
   test("says plainly where the browser cannot list databases", async () => {
     const shown = show({}, deep({ listable: false }));
-    await pick(shown, "idb");
+    await pick(shown, "IndexedDB");
     expect(notes(shown.body)).toEqual([NO_LIST]);
     expect(rows(shown)).toEqual([]);
   });
@@ -898,7 +1171,7 @@ describe("indexeddb", () => {
     const site = deep();
     site.idb.modes.set("shop", "fail");
     const shown = show({}, site);
-    await pick(shown, "idb");
+    await pick(shown, "IndexedDB");
     toggle(row(shown, "shop"));
     await settle();
     expect(notes(row(shown, "shop"))).toEqual(["cannot open shop: UnknownError"]);
@@ -908,7 +1181,7 @@ describe("indexeddb", () => {
   test("a whole database can be deleted, after one question in place", async () => {
     const site = deep();
     const shown = show({}, site);
-    await pick(shown, "idb");
+    await pick(shown, "IndexedDB");
     toggle(row(shown, "shop"));
     await settle();
     chip(row(shown, "shop"), "delete database").fire("click");
@@ -925,7 +1198,7 @@ describe("cache storage", () => {
   test("lists the caches, and a cache's first hundred requests with what the response says", async () => {
     const site = deep();
     const shown = show({}, site);
-    await pick(shown, "cache");
+    await pick(shown, "cache storage");
     expect(notes(shown.body)).toEqual(["read only"]);
     const pages = row(shown, "pages");
     toggle(pages);
@@ -933,7 +1206,7 @@ describe("cache storage", () => {
     const lines = pages.find("row").slice(1);
     expect(lines).toHaveLength(100);
     expect(lines[0]?.find("row-label")[0]?.textContent).toBe("GET /p/0");
-    expect(lines[0]?.find("st-size")[0]?.textContent).toBe("200 · text/html · 1 KB");
+    expect(lines[0]?.find("cell-end")[0]?.textContent).toBe("200 · text/html · 1 KB");
     expect(notes(pages)).toEqual(["100 of 240"]);
     chip(pages, "show 100 more").fire("click");
     await settle();
@@ -947,7 +1220,7 @@ describe("cache storage", () => {
 
   test("says where there is none to read", async () => {
     const shown = show({}, { ...fakeSite(), isSecureContext: false } as FakeSite);
-    await pick(shown, "cache");
+    await pick(shown, "cache storage");
     expect(notes(shown.body)).toEqual(["Cache Storage needs a secure page (https or localhost)"]);
   });
 });
@@ -965,7 +1238,7 @@ describe("clear site data", () => {
   test("asks once, with what will go and how many, and that devknobs' own are kept", async () => {
     const site = full();
     const shown = show({}, site);
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     shown.head("clear site data");
     await settle();
     expect(notes(shown.body)).toContain(
@@ -980,7 +1253,7 @@ describe("clear site data", () => {
   test("clears every kind in one go, keeps devknobs' own, and offers a reload it does not do itself", async () => {
     const site = full();
     const shown = show({}, site);
-    await pick(shown, "local");
+    await pick(shown, "local storage");
     shown.head("clear site data");
     await settle();
     chip(shown.body, "clear site data").fire("click");
@@ -1000,8 +1273,8 @@ describe("clear site data", () => {
   test("with devknobs' own showing, the question says they go too, and they do", async () => {
     const site = full();
     const shown = show({}, site);
-    await pick(shown, "local");
-    chip(shown.body, "show devknobs' own").fire("click");
+    await pick(shown, "local storage");
+    ownLine(shown)?.fire("click");
     shown.head("clear site data");
     await settle();
     expect(notes(shown.body)).toContain(
@@ -1017,7 +1290,7 @@ describe("clear site data", () => {
     const site = full();
     site.idb.held.add("shop");
     const shown = show({}, site);
-    await pick(shown, "idb");
+    await pick(shown, "IndexedDB");
     toggle(row(shown, "shop"));
     await settle();
     chip(row(shown, "shop"), "delete database").fire("click");
@@ -1044,8 +1317,8 @@ describe("presets", () => {
     site.jar.put({ name: "token3", value: "c" });
     site.jar.put({ name: "theme", value: "dark" });
     const shown = show({}, site);
-    await pick(shown, "local");
-    chip(shown.body, "show devknobs' own").fire("click");
+    await pick(shown, "local storage");
+    ownLine(shown)?.fire("click");
     type(shown, "token");
     chip(shown.body, "save as preset").fire("click");
     await settle();
@@ -1072,20 +1345,20 @@ describe("presets", () => {
     expect(notes(shown.body)).toContain("kept the preset tokens: 1 local, 1 session, 1 cookie");
   });
 
-  test("the segment lists them with their counts, and the filter matches their names", async () => {
+  test("their page lists them with what each holds, and the filter matches their names", async () => {
     const shown = show({ local: ITEMS });
     savePresets([PRESET, { ...PRESET, name: "empty cart", cookies: [] }]);
     await pick(shown, "presets");
     expect(labels(shown)).toEqual(["logged in", "empty cart"]);
-    expect(row(shown, "logged in").find("st-size")[0]?.textContent).toBe("1 local, 1 session, 1 cookie");
+    expect(row(shown, "logged in").find("cell-value")[0]?.textContent).toBe("1 local, 1 session, 1 cookie");
     expect(notes(shown.body)[0]).toBe("no preset applies on load");
     expect(filterOf(shown).placeholder).toBe("filter 2 presets");
     type(shown, "CART");
     expect(labels(shown)).toEqual(["empty cart"]);
     type(shown, "");
     toggle(row(shown, "logged in"));
-    expect(chips(row(shown, "logged in"))).toEqual(["apply", "edit", "export", "delete"]);
-    expect(chips(shown.body).slice(0, 3)).toEqual(["new preset", "import", "save as preset"]);
+    expect(chips(row(shown, "logged in"))).toEqual(["apply", "rename", "edit", "export", "delete"]);
+    expect(chips(bar(shown))).toEqual(["save current as preset", "new preset", "import"]);
   });
 
   test("apply adds to what is there by default", async () => {
@@ -1177,6 +1450,35 @@ describe("presets", () => {
     expect(labels(shown)).toEqual(["logged in", "logged in 2", "new preset"]);
   });
 
+  test("rename is a field in the row, which keeps what the preset holds and when it applies", async () => {
+    const shown = show();
+    savePresets([{ ...PRESET, onLoad: true }, { ...PRESET, name: "other" }]);
+    await pick(shown, "presets");
+    toggle(row(shown, "logged in"));
+    chip(row(shown, "logged in"), "rename").fire("click");
+    const [name] = row(shown, "logged in").find("field-line");
+    expect(focused()).toBe(name ?? null);
+    expect(name?.value).toBe("logged in");
+    expect(chips(row(shown, "logged in"))).toEqual(["rename", "cancel"]);
+    if (name) name.value = "  ";
+    chip(row(shown, "logged in"), "rename").fire("click");
+    expect(notes(row(shown, "logged in"))).toEqual(["the preset needs a name"]);
+    // Escape takes the field back, and the row is as it was.
+    expect(shown.escape()).toBe(true);
+    expect(chips(row(shown, "logged in"))).toEqual(["apply", "rename", "edit", "export", "delete"]);
+    chip(row(shown, "logged in"), "rename").fire("click");
+    const [again] = row(shown, "logged in").find("field-line");
+    // A name another preset has gets a number.
+    if (again) again.value = "other";
+    again?.fire("keydown", { key: "Enter" });
+    expect(loadPresets()).toEqual([
+      { ...PRESET, name: "other 2", onLoad: true },
+      { ...PRESET, name: "other" },
+    ]);
+    expect(labels(shown)).toEqual(["other 2", "other"]);
+    expect(row(shown, "other 2").className).toBe("row open");
+  });
+
   test("delete asks once in place", async () => {
     const shown = show();
     savePresets([PRESET]);
@@ -1199,12 +1501,12 @@ describe("presets", () => {
     expect(control?.attributes.get("role")).toBe("switch");
     expect(control?.attributes.get("aria-label")).toBe("apply on load");
     expect(control?.attributes.get("aria-checked")).toBe("false");
-    expect(row(shown, "logged in").find("row-value")).toEqual([]);
+    expect(row(shown, "logged in").find("cell-end")).toEqual([]);
     control?.fire("click");
     expect(loadPresets().map((preset) => preset.onLoad)).toEqual([true, false]);
     expect(said(shown)[0]).toBe("applies on every load of this page: logged in");
-    expect(row(shown, "logged in").find("row-value")[0]?.textContent).toBe("on");
-    expect(row(shown, "other").find("row-value")).toEqual([]);
+    expect(row(shown, "logged in").find("cell-end")[0]?.textContent).toBe("on load");
+    expect(row(shown, "other").find("cell-end")).toEqual([]);
     expect(notes(shown.body)).toContain("logged in is set on every load of this page, until it is turned off");
     // Clear first is offered once it applies on load, and is off.
     const switches = row(shown, "logged in").find("switch");
@@ -1226,11 +1528,11 @@ describe("presets", () => {
     await pick(shown, "presets");
     expect(notes(shown.body)).toEqual([FRESH_PRESETS]);
     expect(FRESH_PRESETS).toBe("fresh mode: presets are not read or kept");
-    expect(chips(shown.body)).toEqual(["save as preset"]);
-    chip(shown.body, "save as preset").fire("click");
+    expect(chips(shown.body)).toEqual(["save current as preset"]);
+    chip(shown.body, "save current as preset").fire("click");
     await settle();
     expect(shown.body.find("field-line")).toEqual([]);
     expect(site.localStorage.all()).toEqual({ a: "1" });
-    await pick(shown, "local");
+    await pick(shown, "local storage");
   });
 });

@@ -21,8 +21,8 @@ import {
   type ControlOption,
   controls,
   emptyLine,
+  entryFold,
   noteLine,
-  sectionFold,
   segments,
   stack,
   switchLine,
@@ -34,7 +34,8 @@ import { askIn, counted, editBox, rowKeys, type Section, type Shell } from "./st
  * Presets in the storage view: named sets of values to put into the page's
  * storage, kept by devknobs for this origin. One marked "apply on load" is
  * set on every load of the page, and the section says which are on its first
- * line, so what changes the page's data is never out of sight.
+ * line, as the list of the stores does under its rows, so what changes the
+ * page's data is never out of sight.
  */
 
 /** What the section says where presets cannot be kept. */
@@ -135,13 +136,11 @@ export function presetSection(shell: Shell): Section {
 
   function row(preset: Preset): HTMLElement {
     const { name } = preset;
-    const fold = sectionFold({
-      label: name,
+    const fold = entryFold({
+      name,
+      value: presetCounts(preset),
+      end: preset.onLoad ? "on load" : "",
       open: open.has(name),
-      ends: [
-        el("span", "st-size", presetCounts(preset)),
-        ...(preset.onLoad ? [el("span", "row-value", "on")] : []),
-      ],
       onToggle(out) {
         if (out) {
           open.add(name);
@@ -189,6 +188,45 @@ export function presetSection(shell: Shell): Section {
       box.area.focus({ preventScroll: true });
     }
 
+    /** A field for the preset's name, in the row's fold, which escape takes back. */
+    function rename(): void {
+      const problem = el("div", "ask");
+      const back = (): void => {
+        release();
+        fill();
+      };
+      const save = (): void => {
+        const typed = field.value.trim();
+        if (typed === "") {
+          problem.replaceChildren(noteLine("the preset needs a name"));
+          return;
+        }
+        const next = { ...preset, name: freeName(typed, presets, preset) };
+        const failed = savePresets(presets.map((entry) => (entry === preset ? next : entry)));
+        if (failed !== null) {
+          problem.replaceChildren(noteLine(failed));
+          return;
+        }
+        release();
+        open.delete(name);
+        open.add(next.name);
+        refresh();
+      };
+      const field = textField({ placeholder: "preset name", label: `name of ${name}`, value: name, onEnter: save });
+      const release = shell.hold(back);
+      fold.body.replaceChildren(
+        stack([
+          field,
+          problem,
+          controls([
+            { label: "rename", run: save },
+            { label: "cancel", run: back },
+          ]).node,
+        ]),
+      );
+      field.focus({ preventScroll: true });
+    }
+
     function remove(): void {
       open.add(name);
       fold.set(true);
@@ -222,6 +260,7 @@ export function presetSection(shell: Shell): Section {
         how.node,
         controls([
           { label: "apply", run: apply },
+          { label: "rename", run: rename },
           { label: "edit", run: edit },
           { label: "export", run: () => shell.copy(presetText(preset), `the preset ${name}`) },
           { label: "delete", run: remove },

@@ -10,6 +10,7 @@ import {
   stack,
   textArea,
 } from "./kit";
+import type { PaneView } from "./pane";
 
 /**
  * What the storage view's sections share: what they need from the view, the
@@ -29,6 +30,8 @@ export interface StorageDeps {
   /** Whether the view is in sight. A view out of sight reads nothing on its tick. */
   visible(): boolean;
   now(): number;
+  /** Show a view in the panel, in place of the one that is open: the way from the stores to one of them, and back. */
+  open(view: PaneView): void;
 }
 
 /** What a section needs from the view around it. */
@@ -41,7 +44,7 @@ export interface Shell {
   own(): boolean;
   /** Say something on the view's quiet line, with a control after it where one is handed in. */
   say(lines: string | readonly string[], control?: ControlOption): void;
-  /** Ask a question in place, under the view's bar. */
+  /** Ask a question in place, over the view's rows. */
   ask(text: string, confirm: string, run: () => void): void;
   /**
    * Put something in the place a question is asked in, instead of what is
@@ -74,6 +77,8 @@ export interface Section {
   count(): number | null;
   /** The controls it adds to the view's line of them. */
   controls?(): ControlOption[];
+  /** How many of devknobs' own items it has, which it leaves out until asked. A kind with none to tell has none. */
+  hidden?(): number;
   /** Ask to clear the kind. A kind that is read only has none. */
   clear?(): void;
   destroy?(): void;

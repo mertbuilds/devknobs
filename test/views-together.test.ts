@@ -9,7 +9,7 @@ import { ACTIONS, type Action, availableActions } from "../src/ui/catalog";
 import { createRequests, REQUESTS_VIEW, type Requests } from "../src/ui/requests";
 import { stage } from "../src/ui/stage";
 import { createStorageControl, STORAGE_VIEW, type StorageControl } from "../src/ui/storageaction";
-import { POLL_MS, storageView } from "../src/ui/storageview";
+import { POLL_MS, storageView, storeViewId } from "../src/ui/storageview";
 import { type FakePane, fakeDocument, fakePane, leaveDocument } from "./requests-dom";
 import { LOADED, manual } from "./requests-fakes";
 import { type FakeSite, fakeSite, settle } from "./storage-fakes";
@@ -98,12 +98,12 @@ function live(at: Scene): number[] {
   return at.ticks.filter((tick) => !tick.stopped).map((tick) => tick.ms);
 }
 
-/** Show the storage view on its `local` segment, whichever it showed last. */
+/** Show the storage view on its list of stores, whichever store it showed last. */
 async function showStorage(at: Scene): Promise<void> {
   at.storage.toggle();
   await settle();
-  const local = at.pane.body.find("seg-item").find((item) => item.textContent === "local");
-  local?.click();
+  // From a store's page, escape is the way back to the list.
+  if (at.pane.view() !== STORAGE_VIEW) at.pane.escape();
   await settle();
 }
 
@@ -148,6 +148,49 @@ describe("one view in another's place", () => {
     at.requests.close();
     expect(at.pane.view()).toBeNull();
     expect(at.heard()).toBe(0);
+  });
+});
+
+describe("storage's two levels in the panel", () => {
+  /** Press a store's row in the list of them. */
+  async function openStore(label: string): Promise<void> {
+    const row = at.pane.body.find("row").find((box) => box.find("row-label")[0]?.textContent === label);
+    row?.find("main")[0]?.click();
+    await settle();
+  }
+
+  test("a store's page takes the list's place under the store's name, and escape and the way back go up one level, not out", async () => {
+    await showStorage(at);
+    expect(at.pane.title()).toBe("storage");
+    expect(at.pane.node.getAttribute("data-layout")).toBe("rows");
+    await openStore("IndexedDB");
+    expect(at.pane.view()).toBe(storeViewId("indexeddb"));
+    expect(at.pane.title()).toBe("IndexedDB");
+    expect(at.pane.node.getAttribute("data-layout")).toBe("flush");
+    expect(actionOf("storage").state?.()).toBe("on");
+    at.pane.escape();
+    expect(at.pane.view()).toBe(STORAGE_VIEW);
+    expect(actionOf("storage").state?.()).toBe("on");
+    await openStore("cookies");
+    expect(at.pane.title()).toBe("cookies");
+    at.pane.back();
+    expect(at.pane.view()).toBe(STORAGE_VIEW);
+    at.pane.escape();
+    expect(at.pane.view()).toBeNull();
+    expect(actionOf("storage").state?.()).toBe("off");
+  });
+
+  test("left on a store's page, the action closes the view, and brings it back on that page", async () => {
+    await showStorage(at);
+    await openStore("session storage");
+    at.storage.toggle();
+    expect(at.pane.view()).toBeNull();
+    expect(live(at)).toEqual([]);
+    at.storage.toggle();
+    await settle();
+    expect(at.pane.view()).toBe(storeViewId("session"));
+    at.pane.escape();
+    expect(at.pane.view()).toBe(STORAGE_VIEW);
   });
 });
 
