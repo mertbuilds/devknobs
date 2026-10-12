@@ -123,3 +123,47 @@ export function createTips(tip: HTMLElement, wrap: HTMLElement): Tips {
     },
   };
 }
+
+/** How long a control stays red, and its reason shows, after a value it cannot take, in ms. */
+export const REFUSED_RED = 1000;
+export const REFUSED_TIP = 1800;
+
+/** The one way a control says no to a value. */
+export interface Refusal {
+  /**
+   * A value the control cannot take: it shakes and goes red for a moment, and
+   * the tooltip over it says why, as the live region does. A second one
+   * starts it all again.
+   */
+  refuse(node: HTMLElement, reason: string): void;
+  /** Take the red and the reason off a control. */
+  unrefuse(node: HTMLElement): void;
+  destroy(): void;
+}
+
+/** The refusals of a view, their reason in `tips` and in the live region `said`. */
+export function createRefusal(tips: Tips, said: HTMLElement): Refusal {
+  /** Takes the red off a control whose value was not taken. */
+  let timer = 0;
+  return {
+    refuse(node, reason) {
+      clearTimeout(timer);
+      node.classList.remove("refused");
+      // Read the layout, so the shake starts over.
+      void node.offsetWidth;
+      node.classList.add("refused");
+      timer = window.setTimeout(() => node.classList.remove("refused"), REFUSED_RED);
+      tips.show(node, reason, true);
+      tips.hideAfter(REFUSED_TIP);
+      said.textContent = reason;
+    },
+    unrefuse(node) {
+      clearTimeout(timer);
+      node.classList.remove("refused");
+      if (tips.isFor(node)) tips.hide();
+    },
+    destroy() {
+      clearTimeout(timer);
+    },
+  };
+}

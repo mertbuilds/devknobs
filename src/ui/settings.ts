@@ -5,17 +5,13 @@ import { BINDING_ICONS, icon, type IconName } from "./icons";
 import { type Binding, comboLabel, comboSpoken, type Keys } from "./keys";
 import type { LivePrefs } from "./prefs";
 import { focusOn, type View } from "./slide";
-import type { Tips } from "./tooltip";
+import { createRefusal, type Tips } from "./tooltip";
 
 /**
  * The settings view, which slides in over the rows: whether the handle shows
  * while the panel is closed, and each binding's key, recorded from the next
  * keys pressed. A key a binding cannot take is refused, and the chip says why.
  */
-
-/** How long a chip stays red, and its reason shows, after a key it cannot take, in ms. */
-const REFUSED_RED = 1000;
-const REFUSED_TIP = 1800;
 
 /** How long the way back to a panel whose handle was just hidden shows, in ms. */
 const HANDLE_HINT = 4000;
@@ -112,8 +108,8 @@ export function createSettings(context: SettingsContext): Settings {
   let editingKeys = false;
   /** The binding waiting for its new key. */
   let recording: Binding | null = null;
-  /** Takes the red off a chip whose key was not taken. */
-  let refusedTimer = 0;
+  /** A key a chip's binding cannot take: the chip shakes and goes red, and says why. */
+  const { refuse, unrefuse, destroy: stopRefusing } = createRefusal(tips, said);
 
   /** Show the keys in force on the settings, and whether they show. */
   function drawKeys(now: Keys): void {
@@ -183,29 +179,6 @@ export function createSettings(context: SettingsContext): Settings {
     }
   }
 
-  /**
-   * A key the chip's binding cannot take: the chip shakes and goes red for a
-   * moment, and the tooltip over it says why, as the live region does. A
-   * second one starts it all again.
-   */
-  function refuse(chip: HTMLElement, reason: string): void {
-    clearTimeout(refusedTimer);
-    chip.classList.remove("refused");
-    // Read the layout, so the shake starts over.
-    void chip.offsetWidth;
-    chip.classList.add("refused");
-    refusedTimer = window.setTimeout(() => chip.classList.remove("refused"), REFUSED_RED);
-    tips.show(chip, reason, true);
-    tips.hideAfter(REFUSED_TIP);
-    said.textContent = reason;
-  }
-
-  function unrefuse(chip: HTMLElement): void {
-    clearTimeout(refusedTimer);
-    chip.classList.remove("refused");
-    if (tips.isFor(chip)) tips.hide();
-  }
-
   /** Hand the focus to what a view takes it on, as it slides there. */
   function focusView(view: View): void {
     (focusOn(view) === "back" ? keysBack : keysToggle).focus({ preventScroll: true });
@@ -273,8 +246,6 @@ export function createSettings(context: SettingsContext): Settings {
     },
     stopRecording,
     leaveKeys,
-    destroy(): void {
-      clearTimeout(refusedTimer);
-    },
+    destroy: stopRefusing,
   };
 }
