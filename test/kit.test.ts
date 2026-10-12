@@ -5,6 +5,7 @@ import {
   codeBlock,
   confirmLine,
   controls,
+  emptyAction,
   emptyLine,
   entryFold,
   entryRow,
@@ -21,6 +22,7 @@ import {
   textArea,
   textField,
   toolbar,
+  toolToggle,
 } from "../src/ui/kit";
 import * as radio from "../src/ui/radio";
 import { CSS } from "../src/ui/styles";
@@ -159,10 +161,53 @@ describe("toolbar, emptyLine and sectionFold", () => {
     expect(bar.children.map((child) => child.className)).toEqual(["field filter", "seg"]);
   });
 
+  test("a bar's toggle is a named icon button, which says a press and is on as the caller says", () => {
+    let presses = 0;
+    const tool = toolToggle({ label: "select an element", icon: "square-dashed-mouse-pointer", on: false, onPress: () => presses++ });
+    const node = fake(tool.node);
+    expect(node.tag).toBe("button");
+    expect(node.className).toBe("tool");
+    expect(node.attributes.get("aria-label")).toBe("select an element");
+    expect(node.attributes.get("aria-pressed")).toBe("false");
+    expect(node.children.map((child) => child.tag)).toEqual(["svg"]);
+    node.fire("click");
+    expect(presses).toBe(1);
+    expect(node.attributes.get("aria-pressed")).toBe("false");
+    tool.set(true);
+    expect(node.className).toBe("tool on");
+    expect(node.attributes.get("aria-pressed")).toBe("true");
+    const bar = fake(toolbar([tool.node, filterField({ placeholder: "filter", onInput() {} }).node]));
+    expect(bar.children.map((child) => child.className)).toEqual(["tool on", "field filter"]);
+  });
+
+  test("a toggle that is on has the ground of the segment that is on, by the one rule for both, and no line or weight", () => {
+    const on = rules(CSS).filter((rule) => /\.tool\[aria-pressed="true"\]|\.seg-item\.on/.test(rule.selector));
+    expect(on.map((rule) => rule.selector)).toEqual(['.seg-item.on, .tool[aria-pressed="true"]']);
+    expect(on[0]?.body.trim()).toBe("color: var(--fg); background: var(--raised); box-shadow: var(--lift);");
+    for (const rule of rules(CSS).filter((one) => /\.tool(?![\w-])/.test(one.selector))) {
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(/border(?!-radius)|outline|inset|font-weight/);
+    }
+  });
+
   test("an empty line is the panel's", () => {
     const line = emptyLine("no requests yet");
     expect(line.className).toBe("empty");
     expect(line.textContent).toBe("no requests yet");
+  });
+
+  test("an empty line that is a button is the same line, and says a press", () => {
+    let presses = 0;
+    const line = fake(emptyAction("select an element", () => presses++));
+    expect(line.tag).toBe("button");
+    expect(line.className).toBe("empty empty-action");
+    expect(line.textContent).toBe("select an element");
+    line.fire("click");
+    expect(presses).toBe(1);
+    // Its own rules place and pad nothing, and draw no line or weight.
+    for (const rule of rules(CSS).filter((one) => one.selector.includes(".empty-action"))) {
+      expect(across(rule.body)).toEqual([]);
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(/padding|margin|border(?!-radius)|outline|inset|font-weight/);
+    }
   });
 
   test("a fold is a row from the builder, its chevron where a row's icon is, that folds its body", () => {
@@ -528,7 +573,7 @@ describe("a view's chrome", () => {
   ];
 
   /** The head, the kit's pieces and a row's parts: what a view is built from. */
-  const KIT = /\.(view-head|view-actions|view-body|row|line|main|lead|grip|turn|row-label|row-value|row-button|row-control|row-key|rows-label|toolbar|filter|empty|note|note-button|cell-name|cell-value|cell-end|group|group-head|group-label|pairs|pair-name|pair-value|code|code-text|split|stack|ask|fold|fold-body|add|head|entry|editor|knob-label)(?![\w-])/;
+  const KIT = /\.(view-head|view-actions|view-body|row|line|main|lead|grip|turn|row-label|row-value|row-button|row-control|row-key|rows-label|toolbar|tool|filter|empty|note|note-button|cell-name|cell-value|cell-end|group|group-head|group-label|pairs|pair-name|pair-value|code|code-text|split|stack|ask|fold|fold-body|add|head|entry|editor|knob-label)(?![\w-])/;
 
   /** A view's own root, and the panes: where a view could pad all it holds at once. */
   const VIEW = /\.(keys|home|body|pane|view|view-body|styles|css-blocks|req-detail|req-list|req-body|req-headers|st-list)(?![\w-])|#|data-layout/;
@@ -578,6 +623,7 @@ describe("a view's chrome", () => {
     expect(across("padding-top: 4px; padding-bottom: 4px;")).toEqual([]);
     expect(across("text-indent: -12px; padding-inline: 4px; inset-inline-start: 2px;")).toHaveLength(3);
     expect(".storage .main").toMatch(KIT);
+    expect(".styles .tool").toMatch(KIT);
     expect(".req-detail > .note").toMatch(VIEW);
     expect("#styles .row").toMatch(VIEW);
     expect('[data-layout="flush"] .empty').toMatch(VIEW);

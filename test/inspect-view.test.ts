@@ -7,7 +7,7 @@ import { createInspector, type Inspector, type LoadStyles, STYLES_VIEW } from ".
 import { type EscapeStep, escapeStep } from "../src/ui/keys";
 import { closePane, createPane, openPane, type Pane, paneView } from "../src/ui/pane";
 import { createRequests, REQUESTS_VIEW } from "../src/ui/requests";
-import { createStylesView, GONE, SETTLE, type StylesPage } from "../src/ui/stylesview";
+import { createStylesView, EMPTY, GONE, GONE_PICK, PICK, SETTLE, type StylesPage } from "../src/ui/stylesview";
 import type { Tips } from "../src/ui/tooltip";
 import { fetched } from "./requests-entries";
 import { LOADED, manual } from "./requests-fakes";
@@ -170,9 +170,17 @@ async function inspecting(): Promise<void> {
   inspect.set(true);
 }
 
-/** The select button in the view's head. */
+/** The empty lines that show, each by its tag and what it says. */
+function said(): [string, string][] {
+  return node
+    .all()
+    .filter((part) => part.classList.contains("empty") && !part.hidden)
+    .map((part) => [part.tag, part.textContent]);
+}
+
+/** The select button the view's bar starts with. */
 function select(): PanelNode {
-  return one("view-action");
+  return one("tool");
 }
 
 /**
@@ -393,17 +401,68 @@ describe("the styles view and the requests view, one in the other's place", () =
   });
 });
 
-describe("the select button in the view's head", () => {
-  test("is the head's one action, pressed while the picking is on", async () => {
+describe("the view with no element", () => {
+  test("has no bar while it picks, only the head and a line of words", async () => {
     inspect.set(true);
     await settle();
-    expect(node.find("view-action")).toHaveLength(1);
-    expect(select().className).toBe("row-button view-action");
+    expect(one("toolbar").hidden).toBe(true);
+    expect(said()).toEqual([["div", EMPTY]]);
+  });
+
+  test("once the picking ends with no pick, the line is the button that starts it again, and still no bar", async () => {
+    inspect.set(true);
+    await settle();
+    expect(escape()).toBe("view");
+    expect(on).toBe(false);
+    expect(paneView()).toBe(STYLES_VIEW);
+    expect(one("toolbar").hidden).toBe(true);
+    expect(said()).toEqual([["button", PICK]]);
+    one("empty-action").fire("click");
+    expect(on).toBe(true);
+    expect(said()).toEqual([["div", EMPTY]]);
+    // The view has the focus, so the arrows and Enter are the picking's.
+    expect(active).toBe(one("styles"));
+    // Inspect's key ends it as it started it, and the line follows.
+    inspect.set(false);
+    expect(said()).toEqual([["button", PICK]]);
+  });
+
+  test("the bar comes with the element, the select button first, and the line goes", async () => {
+    inspect.set(true);
+    await settle();
+    pick(save);
+    expect(one("toolbar").hidden).toBe(false);
+    expect(one("toolbar").children[0]).toBe(select());
+    expect(said()).toEqual([]);
+  });
+});
+
+describe("the select button the view's bar starts with", () => {
+  test("is the first control of the bar, the kit's toggle, pressed while the picking is on", async () => {
+    inspect.set(true);
+    await settle();
+    expect(node.find("tool")).toHaveLength(1);
+    expect(one("toolbar").children[0]).toBe(select());
+    expect(select().tag).toBe("button");
+    expect(select().className).toBe("tool on");
     expect(select().attributes.get("aria-label")).toBe("select an element");
     expect(select().attributes.get("aria-pressed")).toBe("true");
     pick(save);
+    expect(select().className).toBe("tool");
     expect(select().attributes.get("aria-pressed")).toBe("false");
     expect(one("css-selector").textContent).toBe(".primary");
+    expect(one("toolbar").children.map((part) => (part as PanelNode).className)).toEqual(["tool", "field filter"]);
+  });
+
+  test("is no action of the head, which holds the way back alone", async () => {
+    inspect.set(true);
+    await settle();
+    expect(node.find("view-action")).toEqual([]);
+    expect(one("view-actions").children).toEqual([]);
+    // The tab key comes to the way back, then to the bar, where the button is first.
+    const stops = node.all().filter((part) => part.tag === "button" || part.tag === "input");
+    expect(stops.indexOf(one("main"))).toBe(0);
+    expect(stops.indexOf(select())).toBeLessThan(stops.indexOf(filter()));
   });
 
   test("starts the picking again with a click, and ends it with the next, the element kept", async () => {
@@ -474,7 +533,7 @@ describe("the page with the styles view open", () => {
     expect(outlined).toEqual([]);
   });
 
-  test("an element that left the page is said so, with the select button there to pick another", async () => {
+  test("an element that left the page is said so, in a line that is the button to pick another, with no bar", async () => {
     inspect.set(true);
     await settle();
     pick(save);
@@ -483,11 +542,14 @@ describe("the page with the styles view open", () => {
     save.isConnected = false;
     if (parent) FakeObserver.made.at(-1)?.change(parent);
     await Bun.sleep(SETTLE + 20);
-    expect(one("empty").textContent).toBe(GONE);
-    expect(one("empty").hidden).toBe(false);
     expect(inspector?.picked()).toBeNull();
-    expect(node.find("view-action")).toHaveLength(1);
-    expect(select().attributes.get("aria-pressed")).toBe("false");
+    expect(one("toolbar").hidden).toBe(true);
+    expect(said()).toEqual([["button", GONE_PICK]]);
+    one("empty-action").fire("click");
+    expect(on).toBe(true);
+    // While it picks, the line is only words.
+    expect(said()).toEqual([["div", GONE]]);
+    expect(active).toBe(one("styles"));
   });
 });
 

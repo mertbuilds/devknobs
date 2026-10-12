@@ -451,6 +451,17 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .wrap:not([data-mode="keys"]) .keys:not(.leaving),
 .wrap:not([data-mode="view"]) .view:not(.leaving) { display: none; }
 .empty { padding: 4px var(--view-end) 4px var(--view-start); color: var(--faint); }
+/* An empty line that is a button: the same line, a row wide, so 8 round, on
+   the rows' ground under the pointer. */
+.empty-action {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  border-radius: 8px;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.empty-action:hover { color: var(--fg); background: var(--card); }
 /* Heard, not seen. */
 .said {
   position: absolute;
@@ -603,7 +614,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 .seg-item:hover { color: var(--fg); }
-.seg-item.on { color: var(--fg); background: var(--raised); box-shadow: var(--lift); }
+/* What is on has a ground of its own: a segment, and a bar's toggle. */
+.seg-item.on, .tool[aria-pressed="true"] { color: var(--fg); background: var(--raised); box-shadow: var(--lift); }
 
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 3px 5px; }
 .swatch {
@@ -1015,7 +1027,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 
 /* What a view builds its chrome from, see kit.ts. The bar stays over what
    scrolls under it, flush with the rows' edges, and holds a filter, which
-   takes the room, and segments, which keep theirs. Where the panel is narrow
+   takes the room, and segments, which keep theirs, after a toggle where it
+   starts with one. Where the panel is narrow
    the filter has a line of its own. It never moves, so the browser does not
    hold the scroll by it. */
 .toolbar {
@@ -1032,6 +1045,22 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .toolbar > .filter { flex: 1 1 96px; min-width: 0; }
 .toolbar > .seg { flex: none; max-width: 100%; }
+/* The small icon button a bar starts with, a toggle: its icon stands where
+   the view's lines start, with the pad clear on each side of it, so 4 round
+   as the filter beside it is. */
+.tool {
+  flex: none;
+  width: calc(var(--col-icon) + var(--col-pad) * 2);
+  height: 22px;
+  margin-left: calc(var(--view-start) - var(--col-pad));
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  border-radius: 4px;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.tool:hover { color: var(--fg); }
+.tool[aria-pressed="false"]:hover { background: var(--track); }
 /* A bar's own controls have a line to themselves, under its filter. */
 .toolbar > .chips { flex: 1 1 100%; }
 /* A line of a table: its name in the type code is read in, then its value on

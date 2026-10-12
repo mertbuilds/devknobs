@@ -140,11 +140,11 @@ function pick(element: Element): void {
   inspect.set(false);
 }
 
-/** The select button, as the pane's head was handed it. */
+/** The select button, as the styles view was handed it for its bar. */
 function select() {
-  const action = open?.actions?.[0];
-  if (!action) throw new Error("no select button");
-  return action;
+  const button = handed?.select;
+  if (!button) throw new Error("no select button");
+  return button;
 }
 
 async function settle(): Promise<void> {
@@ -278,34 +278,33 @@ describe("a pick", () => {
 });
 
 describe("the select button", () => {
-  test("is the first of the head's actions, named, with inspect's key in its tooltip", async () => {
+  test("is the view's own, for its bar, and no action of the head: named, with inspect's key for its tooltip", async () => {
     inspector?.destroy();
     inspector = createInspector({ inspect, tips, key: () => "Shift C" }, load, pane);
     inspect.set(true);
     await settle();
-    expect(open?.actions).toHaveLength(1);
+    expect(open?.actions).toBeUndefined();
     expect(select().label).toBe("select an element");
-    expect(select().icon).toBe("square-dashed-mouse-pointer");
     expect(select().hint?.()).toBe("Shift C");
   });
 
-  test("is pressed while the picking is on, however that went on or off, and tells its head", async () => {
+  test("is pressed while the picking is on, however that went on or off, and tells its view", async () => {
     inspect.set(true);
     await settle();
     let told = 0;
-    const stop = select().watch?.(() => told++);
-    expect(select().pressed?.()).toBe(true);
+    const stop = select().watch(() => told++);
+    expect(select().on()).toBe(true);
     pick(button);
-    expect(select().pressed?.()).toBe(false);
+    expect(select().on()).toBe(false);
     expect(told).toBe(1);
     // By inspect's key.
     inspect.set(true);
-    expect(select().pressed?.()).toBe(true);
+    expect(select().on()).toBe(true);
     // By escape.
     inspect.set(false);
-    expect(select().pressed?.()).toBe(false);
+    expect(select().on()).toBe(false);
     expect(told).toBe(3);
-    stop?.();
+    stop();
     inspect.set(true);
     expect(told).toBe(3);
   });
@@ -351,7 +350,7 @@ describe("the row's way in", () => {
     expect(on).toBe(false);
     expect(shown).toEqual([button]);
     expect(focuses).toBe(0);
-    expect(select().pressed?.()).toBe(false);
+    expect(select().on()).toBe(false);
   });
 
   test("with the view open on an element does nothing", async () => {
