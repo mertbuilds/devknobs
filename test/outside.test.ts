@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { parsePlainColor } from "../src/engine/color";
 import {
   clearOutside,
   getOutside,
   landOutside,
-  lookOutside,
-  parseLook,
   parseOutside,
   refuseOutside,
   reloadingOutside,
@@ -48,101 +45,17 @@ describe("an address for an outside page", () => {
   });
 });
 
-describe("a color for an outside page", () => {
-  test("is taken as a hex or an rgb of plain numbers", () => {
-    const table: [string, [number, number, number, number]][] = [
-      ["#fff", [255, 255, 255, 1]],
-      ["#1a2B3c", [26, 43, 60, 1]],
-      ["#0f08", [0, 255, 0, 136 / 255]],
-      ["#11223380", [17, 34, 51, 128 / 255]],
-      ["  #000  ", [0, 0, 0, 1]],
-      ["rgb(1, 2, 3)", [1, 2, 3, 1]],
-      ["rgb(1,2,3)", [1, 2, 3, 1]],
-      ["RGB( 255 , 0 , 12.5 )", [255, 0, 12.5, 1]],
-      ["rgba(10, 20, 30, 0.5)", [10, 20, 30, 0.5]],
-      ["rgba(10, 20, 30, .25)", [10, 20, 30, 0.25]],
-      ["rgb(10, 20, 30, 1)", [10, 20, 30, 1]],
-      ["rgb(10 20 30)", [10, 20, 30, 1]],
-      ["rgb(10 20 30 / 0.5)", [10, 20, 30, 0.5]],
-    ];
-    for (const [value, [red, green, blue, alpha]] of table) {
-      expect(parsePlainColor(value)).toEqual({ red, green, blue, alpha });
-    }
-  });
-
-  test("is refused in any other form", () => {
-    for (const value of [
-      "",
-      "   ",
-      "#",
-      "#ff",
-      "#fffff",
-      "#fffffff",
-      "#fffffffff",
-      "#ggg",
-      "fff",
-      "# fff",
-      "red",
-      "transparent",
-      "currentColor",
-      "inherit",
-      "rgb(256, 0, 0)",
-      "rgb(0, 0, 0, 1.5)",
-      "rgb(-1, 0, 0)",
-      "rgb(1e2, 0, 0)",
-      "rgb(10%, 20%, 30%)",
-      "rgba(0, 0, 0, 50%)",
-      "rgb(0, 0)",
-      "rgb(0, 0, 0, 0, 0)",
-      "rgb(0 0, 0)",
-      "rgb(0, 0, 0 / 1)",
-      "rgb(0, 0, 0",
-      "rgb(0, 0, 0))",
-      "rgb(calc(1), 0, 0)",
-      "rgb(var(--a), 0, 0)",
-      "rgb(from red r g b)",
-      "rgb(none 0 0)",
-      "hsl(0, 0%, 0%)",
-      "color(srgb 0 0 0)",
-      "oklch(0.5 0.1 20)",
-      "light-dark(#fff, #000)",
-      "#fff; background: url(https://example.com/x)",
-      "#fff url(https://example.com/x)",
-      "url(https://example.com/x)",
-      "rgb(0, 0, 0); color: red",
-      "#fff\n}",
-    ]) {
-      expect(parsePlainColor(value)).toBeNull();
-    }
-    for (const value of [null, undefined, 0, 0xffffff, {}, ["#fff"]]) {
-      expect(parsePlainColor(value)).toBeNull();
-    }
-  });
-});
-
-describe("the colors of an outside page", () => {
-  test("are the ones that are colors, trimmed, and null with none", () => {
-    expect(parseLook({ light: " #fff ", dark: "rgb(1, 2, 3)" })).toEqual({ light: "#fff", dark: "rgb(1, 2, 3)" });
-    expect(parseLook({ light: "#fff", dark: "red" })).toEqual({ light: "#fff" });
-    expect(parseLook({ light: "url(x)", dark: "#000" })).toEqual({ dark: "#000" });
-    expect(parseLook({ light: 1, dark: null, other: "#fff" })).toBeNull();
-    for (const value of [null, undefined, "#fff", 1, [], {}, { light: "red" }]) {
-      expect(parseLook(value)).toBeNull();
-    }
-  });
-});
-
 describe("what the frame shows", () => {
   const URL = "https://example.com/";
 
   afterEach(clearOutside);
 
   test("is the window's own page until an outside one is shown, and after it is cleared", () => {
-    expect(getOutside()).toEqual({ outside: null, refused: false, loaded: false, look: null });
+    expect(getOutside()).toEqual({ outside: null, refused: false, loaded: false });
     setOutside(URL, false);
-    expect(getOutside()).toEqual({ outside: URL, refused: false, loaded: false, look: null });
+    expect(getOutside()).toEqual({ outside: URL, refused: false, loaded: false });
     clearOutside();
-    expect(getOutside()).toEqual({ outside: null, refused: false, loaded: false, look: null });
+    expect(getOutside()).toEqual({ outside: null, refused: false, loaded: false });
   });
 
   test("is told to its listeners once per change, until they stop", () => {
@@ -173,41 +86,10 @@ describe("what the frame shows", () => {
     landOutside();
     refuseOutside();
     reloadingOutside();
-    expect(getOutside()).toEqual({ outside: null, refused: false, loaded: false, look: null });
+    expect(getOutside()).toEqual({ outside: null, refused: false, loaded: false });
     setOutside(URL, true);
     landOutside();
     expect(getOutside().loaded).toBe(false);
-  });
-
-  test("carries the colors it was shown with, until another page or its own", () => {
-    setOutside(URL, false, { light: "#fff" });
-    expect(getOutside().look).toEqual({ light: "#fff" });
-    landOutside();
-    reloadingOutside();
-    refuseOutside();
-    expect(getOutside().look).toEqual({ light: "#fff" });
-    setOutside("https://example.org/", false);
-    expect(getOutside().look).toBeNull();
-    setOutside(URL, false, { dark: "#000" });
-    clearOutside();
-    expect(getOutside().look).toBeNull();
-  });
-
-  test("takes colors given later, and gives them up, told once per change", () => {
-    lookOutside({ light: "#fff" });
-    expect(getOutside().look).toBeNull();
-    setOutside(URL, false);
-    landOutside();
-    const heard: unknown[] = [];
-    const stop = subscribeOutside((state) => heard.push(state.look));
-    lookOutside({ light: "#fff" });
-    lookOutside({ light: "#fff" });
-    expect(getOutside()).toEqual({ outside: URL, refused: false, loaded: true, look: { light: "#fff" } });
-    lookOutside({ light: "#fff", dark: "#000" });
-    lookOutside(null);
-    lookOutside(null);
-    stop();
-    expect(heard).toEqual([{ light: "#fff" }, { light: "#fff", dark: "#000" }, null]);
   });
 
   test("is never written to storage", () => {

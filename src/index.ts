@@ -55,7 +55,7 @@ export type { DeviceKind, DevicePreset } from "./engine/devices";
 export type { GeoPreset } from "./engine/geo";
 export type { UaBrand, UaHints, UaPreset } from "./engine/ua";
 export type { EngineOptions, OutsideOptions } from "./engine";
-export type { OutsideListener, OutsideLook, OutsideState } from "./engine/outside";
+export type { OutsideListener, OutsideState } from "./engine/outside";
 export type { GrabEntry, GrabFrame, GrabOptions, GrabPayload, ResolvedSource } from "./grab/types";
 
 export interface MountOptions extends engine.EngineOptions {
@@ -171,8 +171,7 @@ export const frame = {
    * Show the page at `url` in the frame, and bring the frame up as a phone
    * where there is none. Only `http:` and `https:` addresses are taken: false
    * for any other. `refused` shows the screen of a page that refuses to be
-   * framed, without asking for the page. `look` is the page's colors, as for
-   * `look` below.
+   * framed, without asking for the page.
    */
   show: engine.showOutside,
   /**
@@ -182,14 +181,6 @@ export const frame = {
    * guesses it.
    */
   refuse: engine.refuseShown,
-  /**
-   * The colors of the outside page shown, as the host found them, such as its
-   * `theme-color`: `light`, `dark` or both, each a hex or an `rgb()` of plain
-   * numbers. The device's own screen around the page takes the one for its
-   * scheme, and one alone is for both. Any other value counts as none, and
-   * null takes them away.
-   */
-  look: engine.lookShown,
   /** Put the window's own page back in the frame. */
   own: engine.showOwn,
   /** What the frame shows now. */

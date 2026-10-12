@@ -730,10 +730,7 @@ import { frame } from "devknobs";
 frame.show("https://example.com"); // false for anything but http and https
 frame.own(); // your own page again
 
-frame.show("https://example.com", { look: { light: "#faf7f2", dark: "#14110f" } }); // the site's own colors
-frame.look({ dark: "rgb(20, 17, 15)" }); // or later, for the page now shown. null takes them away
-
-frame.get(); // { outside: "https://example.com/", refused: false, loaded: false, look: null }
+frame.get(); // { outside: "https://example.com/", refused: false, loaded: false }
 const stop = frame.subscribe(({ outside, refused, loaded }) => {});
 ```
 
@@ -746,11 +743,7 @@ reload of the window is back on your own page.
 what works: the device's size and its fit, its body, the mat, turning, another
 device, the status bar, the browser's bars and the reload button, which asks
 for the address again. the bars are drawn still, with the page's host in the
-address, on white, as the page's scroll and colors cannot be read. where your
-own server reads the site's colors, such as its `theme-color`, give them as
-`look` and the device's own screen takes the one for its scheme, in the ink
-that reads on it. one color alone is for both schemes. only a hex or an
-`rgb()` of plain numbers is taken, and anything else counts as none. the Duo
+address, on white, as the page's scroll and colors cannot be read. the Duo
 folds and unfolds with a dark screen on the half that turns, as there is no
 picture of the page to put there. device pixel ratio and vision are set on
 the frame, so they work too.

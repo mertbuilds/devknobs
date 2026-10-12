@@ -43,38 +43,6 @@ export function parseColor(value: string): Color | null {
   return { red, green, blue, alpha };
 }
 
-const NUMBER = String.raw`(?:\d+(?:\.\d+)?|\.\d+)`;
-const HEX = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
-const PLAIN = new RegExp(
-  String.raw`^rgba?\(\s*${NUMBER}(?:(?:\s*,\s*${NUMBER}){2}(?:\s*,\s*${NUMBER})?|(?:\s+${NUMBER}){2}(?:\s*/\s*${NUMBER})?)\s*\)$`,
-  "i",
-);
-
-/**
- * A color someone else wrote, taken only in its plainest forms: a hex of 3,
- * 4, 6 or 8 digits, or an `rgb()` or `rgba()` of plain numbers, the channels
- * from 0 to 255 and the alpha from 0 to 1. Null for anything else, a name, a
- * percentage and a channel out of range too.
- */
-export function parsePlainColor(value: unknown): Color | null {
-  if (typeof value !== "string") return null;
-  const text = value.trim();
-  let color: Color | null = null;
-  if (HEX.test(text)) {
-    const digits = text.slice(1);
-    const wide = digits.length > 4 ? digits : digits.replace(/./g, "$&$&");
-    const [red = 0, green = 0, blue = 0, alpha = 255] = (wide.match(/../g) ?? []).map((pair) =>
-      Number.parseInt(pair, 16),
-    );
-    color = { red, green, blue, alpha: alpha / 255 };
-  } else if (PLAIN.test(text)) {
-    color = parseColor(text);
-  }
-  if (!color) return null;
-  const { red, green, blue, alpha } = color;
-  return [red, green, blue].every((channel) => channel <= 255) && alpha <= 1 ? color : null;
-}
-
 /** Whether a value is a color as the knobs keep one of the user's own. */
 export function isCustomColor(value: unknown): value is CustomColor {
   return typeof value === "string" && /^#[0-9a-f]{6}$/.test(value);
