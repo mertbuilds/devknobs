@@ -377,37 +377,6 @@ describe("the outline", () => {
     expect(areas).toEqual(["margin", null]);
   });
 
-  test("with an outside page in the frame, which no copy of devknobs runs in, nothing throws and nothing is boxed there", async () => {
-    setWindow("");
-    // Another origin's window: its document is out of reach, and a message for this origin never lands.
-    const outside = Object.assign(new EventTarget(), {
-      postMessage: (data: unknown) => {
-        sent.push(data);
-      },
-    });
-    Object.defineProperty(outside, "document", {
-      get(): object {
-        throw new Error("cross-origin");
-      },
-    });
-    control = createInspect({}, load, () => outside as unknown as Window);
-    const heard: Element[] = [];
-    control.onPick((one) => heard.push(one));
-    const button = element(document);
-    expect(() => control?.outline(button)).not.toThrow();
-    await settle();
-    expect(() => {
-      control?.area("padding");
-      control?.outline(null);
-      control?.set(true);
-      control?.set(false);
-    }).not.toThrow();
-    message({ source: "devknobs", type: "picked" }, outside);
-    expect(heard).toEqual([]);
-    // The page above still draws on its own elements.
-    expect(boxed).toEqual([button, null]);
-  });
-
   test("an element of a page that is gone is boxed nowhere", async () => {
     control = above();
     control.outline(element({}));

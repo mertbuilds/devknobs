@@ -1,5 +1,6 @@
 import { realNow } from "./clock";
 import { isDevknobsFrame } from "./frame";
+import { webStorage } from "./fresh";
 import { newer, stamped } from "./stored";
 
 /**
@@ -8,7 +9,8 @@ import { newer, stamped } from "./stored";
  * A host that restores scroll itself only knows the history entry it left, and
  * a frame built again is a new one, so its page starts at the top. Before such
  * a load devknobs keeps where each document was, and the document that comes
- * goes back there. A load of the visitor's finds nothing kept.
+ * goes back there. A load of the visitor's finds nothing kept, in fresh mode
+ * too, where it starts the session over.
  */
 
 /** Where the positions are kept for the next page, in `sessionStorage`. */
@@ -239,7 +241,8 @@ function placeIn(view: Window | null): Place | null {
  */
 export function keep(view: Window | null, role: Role): void {
   try {
-    const session = window.sessionStorage;
+    const session = webStorage("session");
+    if (!session) return;
     const kept = keptWith(parseKept(session.getItem(SCROLL_KEY)), role, placeIn(view), realNow());
     if (kept) session.setItem(SCROLL_KEY, JSON.stringify(stamped(kept, SCROLL_VERSION)));
     else session.removeItem(SCROLL_KEY);
@@ -271,9 +274,9 @@ export function resume(): void {
   if (typeof window === "undefined") return;
   let target: Point | null = null;
   try {
-    const session = window.sessionStorage;
-    const text = session.getItem(SCROLL_KEY);
-    if (text === null) return;
+    const session = webStorage("session");
+    const text = session?.getItem(SCROLL_KEY) ?? null;
+    if (!session || text === null) return;
     const role: Role = isDevknobsFrame() ? "frame" : "page";
     const { place, rest } = take(parseKept(text), role, window.location.pathname, realNow());
     if (rest) session.setItem(SCROLL_KEY, JSON.stringify(stamped(rest, SCROLL_VERSION)));
