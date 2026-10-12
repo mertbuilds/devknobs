@@ -397,6 +397,34 @@ describe("the row's way in", () => {
   });
 });
 
+describe("letting go of the element", () => {
+  test("ends the picking and empties the view, which stays open", async () => {
+    let heard = 0;
+    inspector?.subscribe(() => heard++);
+    inspect.set(true);
+    await settle();
+    pick(button);
+    inspect.set(true);
+    inspector?.forget();
+    expect(on).toBe(false);
+    expect(shown).toEqual([button, null]);
+    expect(inspector?.picked()).toBeNull();
+    expect(open?.id).toBe("styles");
+    expect(heard).toBe(2);
+  });
+
+  test("with the view closed, the next way in from the row picks again", async () => {
+    inspect.set(true);
+    await settle();
+    pick(button);
+    closePane();
+    inspector?.forget();
+    expect(inspector?.picked()).toBeNull();
+    inspector?.open();
+    expect(on).toBe(true);
+  });
+});
+
 describe("what the view points at", () => {
   test("is boxed on the page while it is pointed at, and the box goes with the pointer", async () => {
     inspect.set(true);

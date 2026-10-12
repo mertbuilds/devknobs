@@ -14,7 +14,7 @@ export interface Stage {
   /** Inspect's switch, where there is one. */
   inspect: GrabControl | null;
   /** Inspect's view in the panel and the element it holds, while there is a panel. */
-  inspector: Pick<Inspector, "open" | "picked" | "subscribe"> | null;
+  inspector: Pick<Inspector, "open" | "picked" | "forget" | "subscribe"> | null;
   /** The requests view, where a panel shows one. */
   requests: Requests | null;
   /** The storage view, where there is a panel to show it in. */

@@ -206,6 +206,7 @@ describe("the pin's row", () => {
         inspecting = !inspecting;
       },
       picked: () => null,
+      forget() {},
       subscribe: () => () => {},
     };
     stage.requests = {

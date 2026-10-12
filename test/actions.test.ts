@@ -68,6 +68,11 @@ function fakeInspector(inspect: GrabControl, held: { name: string | null; opens:
       else held.opens++;
     },
     picked: () => held.name,
+    forget(): void {
+      inspect.set(false);
+      held.name = null;
+      for (const listener of [...listeners]) listener();
+    },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => {
@@ -338,6 +343,32 @@ describe("inspect's row", () => {
     expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("button#save.primary");
     inspector.hold(null);
     expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("off");
+  });
+
+  test("is listed while the view holds an element, pinned or not, and its × lets go of the element", () => {
+    const { inspector } = inspecting();
+    const store = fakeStore();
+    // Picked by inspect's key alone: the row was never pinned.
+    inspector.hold("button#save.primary");
+    expect(isActive(row("inspect"), store.getState())).toBe(true);
+    expect(listedOrder(store.getState())).toEqual([...DEFAULTS, "inspect"]);
+    expect(isReset(store.getState())).toBe(false);
+    stopAction(action("inspect"));
+    store.setState(removePatch(store.getState(), row("inspect")));
+    expect(inspector.picked()).toBeNull();
+    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("off");
+    expect(listedOrder(store.getState())).toEqual([...DEFAULTS]);
+    expect(isReset(store.getState())).toBe(true);
+  });
+
+  test("reset all ends the picking and lets go of the element", () => {
+    const { inspect, inspector } = inspecting();
+    inspector.hold("a.link");
+    inspect.set(true);
+    for (const entry of ACTIONS) stopAction(entry);
+    expect(inspect.isOn()).toBe(false);
+    expect(inspector.picked()).toBeNull();
+    expect(isActive(row("inspect"), DEFAULT_STATE)).toBe(false);
   });
 
   test("with an element held, its line opens the view and picks nothing", () => {

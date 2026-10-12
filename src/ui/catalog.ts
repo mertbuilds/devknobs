@@ -252,12 +252,13 @@ export interface Action {
   /** False where the page has nothing for the action to act on. */
   available?(): boolean;
   /**
-   * What the action emulates now, as its row says it and as a knob's summary
-   * does. Empty while it emulates nothing. A row that says something is
-   * listed, so what changes the page is never out of sight.
+   * What the action emulates now, or holds as inspect does its element, as
+   * its row says it and as a knob's summary does. Empty while there is none.
+   * A row that says something is listed, so what changes the page is never
+   * out of sight.
    */
   value?(): string;
-  /** Put back what the action emulates, as its row's `×` and reset all do. */
+  /** Put back what the action emulates, or let go of what it holds, as its row's `×` and reset all do. */
   reset?(): void;
 }
 
@@ -310,7 +311,10 @@ export const ACTIONS: readonly Action[] = [
       };
     },
     available: () => stage.inspect !== null,
+    // Its row says the element the view holds, which keeps it listed as what a
+    // row emulates does, so its `×` and reset all let go of the element.
     value: () => (stage.inspect?.isOn() ? PICKING : (stage.inspector?.picked() ?? "")),
+    reset: () => stage.inspector?.forget(),
   },
   {
     id: "replay",

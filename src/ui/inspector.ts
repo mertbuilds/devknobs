@@ -37,6 +37,11 @@ export interface Inspector {
   open(): void;
   /** The name of the element the view holds, as devtools names one, or null with none. */
   picked(): string | null;
+  /**
+   * End the picking and let go of the element, as inspect's row's `×` and
+   * reset all do: a row that says an element is listed, and this is its way off.
+   */
+  forget(): void;
   /** Hear the element the view holds change. Returns the way to stop. */
   subscribe(listener: () => void): () => void;
   destroy(): void;
@@ -224,6 +229,11 @@ export function createInspector(
     picked(): string | null {
       const element = current();
       return element ? label(element) : null;
+    },
+    forget(): void {
+      inspect.set(false);
+      if (view) view.show(null);
+      else hold(null);
     },
     subscribe(listener) {
       listeners.add(listener);
