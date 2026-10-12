@@ -1,6 +1,7 @@
 import type { MatColorValue } from "../types";
 import { folding } from "./foldrun";
 import type { Point } from "./mat";
+import { putMat } from "./matcolors";
 import type { Rect } from "./mock";
 import { type Curve, ease } from "./morph";
 import { running, still } from "./morphrun";
@@ -252,18 +253,18 @@ function paperFor(paper: SVGSVGElement | null): Node | null {
 export function spreadMat(scene: MatScene, mat: MatColorValue): void {
   const from = scene.letterbox.getAttribute("data-mat");
   if (from === mat) return;
-  scene.letterbox.setAttribute("data-mat", mat);
+  putMat(scene.letterbox, mat);
   if (!from || still() || moving()) {
     landSplash();
     return;
   }
   if (!base) {
     base = scene.back;
-    base.setAttribute("data-mat", from);
+    putMat(base, from);
   }
   const node = document.createElement("div");
   node.className = "splash";
-  node.setAttribute("data-mat", mat);
+  putMat(node, mat);
   node.style.clipPath = "inset(50%)";
   const paper = paperFor(scene.paper);
   if (paper) node.append(paper);
@@ -290,7 +291,7 @@ function step(now: number): void {
   });
   const top = layers[done];
   if (top) {
-    base?.setAttribute("data-mat", top.mat);
+    if (base) putMat(base, top.mat);
     for (const layer of layers.splice(0, done + 1)) layer.node.remove();
   }
   if (layers.length === 0) {
@@ -306,6 +307,6 @@ export function landSplash(): void {
   frame = 0;
   for (const layer of layers) layer.node.remove();
   layers = [];
-  base?.removeAttribute("data-mat");
+  if (base) putMat(base, null);
   base = null;
 }

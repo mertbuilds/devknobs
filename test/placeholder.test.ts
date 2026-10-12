@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../src/engine/matcolors";
+import {
+  MAT_COLOR_NAMES,
+  MAT_COLORS,
+  matGradient,
+  matPaint,
+} from "../src/engine/matcolors";
 import {
   EARLY,
   readSnapshot,
@@ -74,6 +79,7 @@ describe("the kept drawing", () => {
   test("is not shown once the mat has another color", () => {
     writeSnapshot(kept());
     expect(readSnapshot(merge(PHONE, { mat: "green" }), VIEW)).toBeNull();
+    expect(readSnapshot(merge(PHONE, { mat: "#ffd400" }), VIEW)).toBeNull();
   });
 
   test("is not shown when what was kept is not in its shape", () => {
@@ -130,6 +136,16 @@ describe("the early cover", () => {
         `@media (color-gamut:p3){html::after{background:${matGradient(paint.p3)}}}`,
       );
     }
+  });
+
+  test("lies on a color of the user's own, read from the stored session alone", () => {
+    const cover = earlyCover(JSON.stringify({ v: STATE_VERSION, width: 390, mat: "#ffd400" }));
+    const paint = matPaint("#ffd400");
+    expect(paint.srgb[0]).toBe("rgb(255, 212, 0)");
+    expect(cover).toContain(`background:${matGradient(paint.srgb)};pointer-events:none}`);
+    expect(cover).toContain(
+      `@media (color-gamut:p3){html::after{background:${matGradient(paint.p3)}}}`,
+    );
   });
 
   test("lies on blue for a session stored before the mat had colors, or with one it does not know", () => {

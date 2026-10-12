@@ -242,6 +242,7 @@ describe("grabColor", () => {
     expect(grabColor("blue", "green")).toBe("blue");
     expect(grabColor("pink", "green")).toBe("pink");
     expect(grabColor("cyan", "blue")).toBe("cyan");
+    expect(grabColor("#ff8c00", "green")).toBe("#ff8c00");
   });
 });
 

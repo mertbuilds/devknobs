@@ -1,4 +1,5 @@
 import { getState, subscribe } from "../engine";
+import { isCustomColor } from "../engine/color";
 import { baseMatchMedia } from "../engine/matchmedia";
 import { GRAB_COLOR_NAMES, GRAB_COLORS, grabColor } from "./colors";
 import { createThemeReader, type GrabTone, invertTheme, type Theme } from "./theme";
@@ -48,7 +49,8 @@ function colorRules(gamut: "srgb" | "p3"): string {
 
 /**
  * One color for the boxes and the glow, wider where the screen shows P3: the
- * one picked, or a blue, and a green where the page is blue. The label goes
+ * one picked, one of the user's own too, or a blue, and a green where the page
+ * is blue. The label goes
  * by the page: light on a dark one, dark on a light one.
  */
 const CSS = `
@@ -509,7 +511,12 @@ export function createOverlay(): Overlay {
 
   function paint(): void {
     const name = grabColor(color, tone);
-    if (layer.dataset.grab !== name) layer.dataset.grab = name;
+    if (layer.dataset.grab !== name) {
+      layer.dataset.grab = name;
+      // One of grab's own has a rule. One of the user's goes on the layer itself.
+      if (isCustomColor(name)) layer.style.setProperty("--grab", name);
+      else layer.style.removeProperty("--grab");
+    }
     if (bar && label.dataset.bar !== bar) label.dataset.bar = bar;
   }
 

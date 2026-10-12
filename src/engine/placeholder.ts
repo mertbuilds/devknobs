@@ -1,7 +1,7 @@
 import type { DevknobsState, MatColorValue, PanelValue } from "../types";
 import type { Look } from "./browserkit";
 import { needsFrame } from "./frame";
-import { MAT_COLORS, matGradient } from "./matcolors";
+import { matGradient, matStops } from "./matcolors";
 import { newer, stamped } from "./stored";
 
 /**
@@ -39,7 +39,7 @@ let earlyWait = 0;
  * there.
  */
 export function coverCss(mat: MatColorValue): string {
-  const paint = MAT_COLORS[mat];
+  const paint = matStops(mat);
   return `html{overflow:hidden!important}
 body>:not([data-devknobs]){content-visibility:hidden!important}
 html::after{content:"";position:fixed;inset:0;z-index:${Z_INDEX - 1};background:${matGradient(paint.srgb)};pointer-events:none}
