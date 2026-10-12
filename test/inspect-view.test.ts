@@ -120,6 +120,7 @@ const stylesPage: StylesPage = {
   subscribe: () => () => undefined,
   isColor: () => false,
   box: () => null,
+  variable: () => "",
 };
 
 const load: LoadStyles = async () => ({

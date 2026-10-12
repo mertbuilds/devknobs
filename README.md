@@ -462,9 +462,14 @@ them, and after a value that reads a custom property what it comes to.
 - the rules of its `::before` and `::after`
 - what each ancestor hands down, under `inherited from` and its name
 
-a color has a swatch before it. the name of a custom property says what it
-resolves to for the element when the pointer rests on it, and a click goes to
-the block that sets it. the crumbs on top are the element's ancestors, each a
+a color has a swatch before it. in both modes a property's name has a color
+of its own, the one the names in a request's headers and a cookie's fields
+have, and every custom property a value reads through `var()` is a piece you
+can rest the pointer on or reach with the tab key, as is the name of a
+`--custom` declaration: the tooltip says what the element sees for it right
+then, with a swatch for a color and under it the selector that sets it, or
+`not set` and what its fallback comes to. in `advanced` a click on one goes to
+the block that sets it, and no click copies. the crumbs on top are the element's ancestors, each a
 click away, and the filter keeps the declarations that have its text in
 their name or value. the view reads the styles again when the element or an
 ancestor changes, when a stylesheet in the head does, when the window is
