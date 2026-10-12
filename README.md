@@ -534,42 +534,49 @@ what it records, and what it cannot:
 ## storage
 
 the storage action (`⇧S`, or search for storage, data, application, cookies)
-shows what the page keeps in the browser, in the panel, one kind at a time:
+shows what the page keeps in the browser, in the panel. it opens on a list of
+the stores, a row each with what the store holds: how many items and how
+much, or that it has none. a row opens its store on a page of its own, with a
+filter, the store's own controls under it, and its rows. the way back in the
+head, and escape, go back to the list, and the view opens again on the store
+it last showed:
 
-- `local` and `session`: every key of `localStorage` and `sessionStorage`,
-  with a one-line preview and its size. a row folds out to the whole value,
+- `local storage` and `session storage`: every key of `localStorage` and
+  `sessionStorage`, its key and a one-line preview of its value each on a
+  column, and its size. a row folds out to the whole value,
   laid out as json only where that changes nothing of it, with copy value,
   edit, duplicate and delete. add takes `key=value`, a line each, or a json
   object of several keys. the list follows other tabs through the `storage`
   event and the page's own writes by reading again once a second, only while
-  the segment is in sight
+  the store is in sight
 - `cookies`: what `document.cookie` gives, and in Chromium the path, domain,
   expiry, secure and sameSite the cookie store knows. edit and delete write
   `document.cookie` at the cookie's own path and domain, and where those are
   not told, try the page's path, its folders and `/`. a cookie that could not
   be changed says so
-- `idb`: the databases `indexedDB.databases()` lists, a database's object
+- `IndexedDB`: the databases `indexedDB.databases()` lists, a database's object
   stores (key path, auto increment, indexes, record count) and a store's
   records, fifty at a time. read only: a whole database can be deleted, a
   record cannot be changed
-- `cache`: the caches of Cache Storage, and a cache's requests with the
+- `cache storage`: the caches of Cache Storage, and a cache's requests with the
   response's status, type and size, a hundred at a time. read only
 - `presets`: named sets of values to put back into the page, see below
 
-the head of the view has refresh, clear for the kind that shows, and clear
-site data: one question that lists what goes, with counts, then local and
+a store that can be emptied has clear among its controls, after one question.
+the head of the view has refresh and clear site data: one question that lists what goes, with counts, then local and
 session storage, every cookie the page can delete, every database and every
 cache go in one go. what could not be removed is counted and said, and a
 reload is offered, never done for you.
 
 devknobs' own items (the key `devknobs` and every `devknobs:` key) are hidden
-and kept by every clear, until show devknobs' own is on.
+and kept by every clear. a list that has some ends with a quiet line that
+says how many are hidden, and a press on it shows them.
 
 ### presets
 
 save as preset keeps the local and session items and the readable cookies
 the filter shows, under a name. a preset applies with one press, added to
-what is there or in place of it, and is edited, exported and imported as
+what is there or in place of it, is renamed in its row, and is edited, exported and imported as
 json, so it moves between machines and teammates. a preset holds at most 200
 entries and 256 KB.
 

@@ -14,18 +14,18 @@ import {
   codeBlock,
   controls,
   emptyLine,
+  entryFold,
+  entryRow,
   type Fold,
   noteLine,
   pairs,
-  rowBox,
-  sectionFold,
   stack,
 } from "./kit";
 import { askIn, counted, type Section, type Shell } from "./storageparts";
 
 /**
  * IndexedDB and Cache Storage in the storage view. Both are read when their
- * segment shows and when refresh is pressed, never on a tick, and what is
+ * page shows and when refresh is pressed, never on a tick, and what is
  * read is read only: a whole database can be deleted, and nothing in one
  * changed. No database is held open, see idb.ts.
  */
@@ -47,10 +47,10 @@ export function databaseSection(shell: Shell): Section {
 
   function recordRow(key: unknown, value: unknown): HTMLElement {
     const title = describe(key, false, 200);
-    const fold: Fold = sectionFold({
-      label: title,
+    const fold: Fold = entryFold({
+      name: title,
+      value: preview(describe(value, false, 400)),
       open: false,
-      ends: [el("span", "st-preview", preview(describe(value, false, 400)))],
       onToggle(out) {
         if (!out || fold.body.children.length > 0) return;
         const text = describe(value, true);
@@ -62,7 +62,6 @@ export function databaseSection(shell: Shell): Section {
         );
       },
     });
-    fold.label.className = `${fold.label.className} st-key`;
     return fold.node;
   }
 
@@ -95,10 +94,10 @@ export function databaseSection(shell: Shell): Section {
     }
 
     const size = store.count === null ? "" : counted(store.count, ["record", "records"]);
-    const fold = sectionFold({
-      label: store.name,
+    const fold = entryFold({
+      name: store.name,
+      end: size,
       open: false,
-      ends: [el("span", "st-size", size)],
       onToggle(out) {
         if (!out || started) return;
         started = true;
@@ -155,10 +154,10 @@ export function databaseSection(shell: Shell): Section {
       );
     }
 
-    const fold = sectionFold({
-      label: name,
+    const fold = entryFold({
+      name,
+      end: `version ${database.version}`,
       open: open.has(name),
-      ends: [el("span", "st-size", `version ${database.version}`)],
       onToggle(out) {
         if (out) {
           open.add(name);
@@ -166,7 +165,6 @@ export function databaseSection(shell: Shell): Section {
         } else open.delete(name);
       },
     });
-    fold.label.className = `${fold.label.className} st-key`;
     if (open.has(name)) void fill();
     return fold.node;
   }
@@ -239,12 +237,8 @@ export function cacheSection(shell: Shell): Section {
         const address = entry.url.startsWith(site.location.origin)
           ? entry.url.slice(site.location.origin.length)
           : entry.url;
-        const row = rowBox({
-          main: el("div", "main"),
-          title: `${entry.method} ${address}`,
-          ends: [el("span", "st-size", said.join(" · "))],
-        });
-        row.label.className = `${row.label.className} st-key`;
+        const row = entryRow({ name: `${entry.method} ${address}`, end: said.join(" · ") });
+        // The whole address, where the row says the path alone.
         row.label.title = entry.url;
         entries.append(row.box);
       }
@@ -272,8 +266,8 @@ export function cacheSection(shell: Shell): Section {
       void more();
     }
 
-    const fold = sectionFold({
-      label: name,
+    const fold = entryFold({
+      name,
       open: open.has(name),
       onToggle(out) {
         if (out) {
@@ -282,7 +276,6 @@ export function cacheSection(shell: Shell): Section {
         } else open.delete(name);
       },
     });
-    fold.label.className = `${fold.label.className} st-key`;
     fold.body.append(stack([entries, foot]));
     if (open.has(name)) start();
     return fold.node;

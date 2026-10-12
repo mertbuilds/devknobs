@@ -10,13 +10,14 @@
  *   toolbar([filterField({ ... }).node, segments({ ... }).node]);
  *   toolbar([toolToggle({ ... }).node, filterField({ ... }).node]);
  *   rowBox({ main, glyph, title, ends, after }); sectionFold({ ... }); emptyLine("no requests");
+ *   entryFold({ name, value, end, open }); entryRow({ name, end }); noteButton("3 hidden", run);
  *   emptyAction("select an element", run);
  *   group({ label, ends }); pairs(lines); codeBlock({ text, lines }); splitBar(shares, label);
  *   stack([noteLine("..."), codeBlock({ text }).node, pairs(lines).node, controls([{ label, run }]).node]);
  *   textField({ ... }); textArea({ ... }); switchLine({ ... }); confirmLine({ ... });
  */
 
-import { button, el, field, mark, rowBox } from "./dom";
+import { button, el, field, mark, type RowBox, rowBox } from "./dom";
 import { type IconName, icon } from "./icons";
 
 export { LAYOUTS, type Layout, type RowBox, type RowParts, rowBox, rowButton, rowsLabel } from "./dom";
@@ -165,9 +166,58 @@ export function sectionFold(options: FoldOptions): Fold {
   return { node: box, main, label, body, set };
 }
 
+/** What a line of a table is built from. */
+export interface EntryOptions {
+  /** What the line is of: a key, a name. Cut short where it is long, and whole in its tooltip. */
+  name: string;
+  /** What it holds, on one line. With one, the name stands on a column every line of the table has. */
+  value?: string;
+  /** What the line ends with, quiet: a size, a count. */
+  end?: string;
+  /** Whether the name is as quiet as the value is. */
+  quiet?: boolean;
+}
+
+/** Make a row's label the name of a line of a table, and say what the line ends with. */
+function entryCells(label: HTMLElement, options: EntryOptions): HTMLElement[] {
+  const columned = options.value !== undefined;
+  label.className = `${label.className} cell-name${columned ? " columned" : ""}${options.quiet ? " quiet" : ""}`;
+  label.title = options.name;
+  const ends: HTMLElement[] = [];
+  if (options.value !== undefined) ends.push(el("span", "cell-value", options.value));
+  if (options.end !== undefined && options.end !== "") ends.push(el("span", "cell-end", options.end));
+  return ends;
+}
+
+/**
+ * A line of a table that folds out under itself: a name, its value and what
+ * the line ends with. The names of every line stand on one column and the
+ * values on the next, so they line up down the list.
+ */
+export function entryFold(options: EntryOptions & Omit<FoldOptions, "label" | "ends">): Fold {
+  const fold = sectionFold({ label: options.name, open: options.open, onToggle: options.onToggle });
+  fold.main.append(...entryCells(fold.label, options));
+  return fold;
+}
+
+/** A line of a table that does nothing: a name, its value and what the line ends with. */
+export function entryRow(options: EntryOptions): RowBox {
+  const main = el("div", "main");
+  const row = rowBox({ main, title: options.name });
+  main.append(...entryCells(row.label, options));
+  return row;
+}
+
 /** A quiet line: a note on what a view shows, or what just happened in it. */
 export function noteLine(text: string): HTMLElement {
   return el("div", "note", text);
+}
+
+/** A quiet line that is a control: it says what a list leaves out, and a press shows it. */
+export function noteButton(text: string, run: () => void): HTMLButtonElement {
+  const node = button("note note-button", text);
+  node.addEventListener("click", run);
+  return node;
 }
 
 /** What a labelled group is built from. */

@@ -7,13 +7,18 @@ import { closePane, onPane, openPane, type PaneView, paneView } from "./pane";
  * first use, so a page that never opens it never pays for them.
  */
 
-/** The id the storage view has among the panel's views. */
+/** The id the storage view has among the panel's views: its list of stores. A store's page has it and the store. */
 export const STORAGE_VIEW = "storage";
+
+/** Whether a view is the storage view's, the list of stores or the page of one. */
+export function isStorageView(id: string | null): boolean {
+  return id === STORAGE_VIEW || (id?.startsWith(`${STORAGE_VIEW}:`) ?? false);
+}
 
 export interface StorageControl {
   /** Show the view, or leave it where it shows. */
   toggle(): void;
-  /** Whether the view is the one that is open. */
+  /** Whether the view is the one that is open, on either of its levels. */
   isOn(): boolean;
   /** Leave the view where it shows. */
   close(): void;
@@ -37,7 +42,7 @@ function load(): Promise<PaneView> {
 export function createStorageControl(loadView: LoadStorageView = load): StorageControl {
   /** Counts the asks, so a view that loads after it was left, or asked for twice, never opens. */
   let asked = 0;
-  const isOn = (): boolean => paneView() === STORAGE_VIEW;
+  const isOn = (): boolean => isStorageView(paneView());
   const close = (): void => {
     asked++;
     if (isOn()) closePane();

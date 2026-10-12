@@ -54,9 +54,12 @@ const ROOTS: string[][] = [[], ["styles"], ["req-detail"], ["req-detail", "req-b
 const LINES: Record<string, string[]> = {
   "rowBox, a list's row": ["row", "line", "div main"],
   "sectionFold, its chevron": MAIN,
+  "entryFold, its chevron": MAIN,
+  "entryRow, its name": ["row", "line", "div main", "span row-label cell-name"],
   emptyLine: ["empty"],
   "emptyAction, a button": ["button empty empty-action"],
   noteLine: ["note"],
+  noteButton: ["button note note-button"],
   rowsLabel: ["rows-label"],
   "group, its label": ["group", "group-head", "span group-label"],
   "group, a note in it": ["group", "note"],
@@ -70,6 +73,7 @@ const BOXES: Record<string, string[]> = {
   toolbar: ["toolbar"],
   "filterField in a bar": ["toolbar", "input field filter"],
   "segments in a bar": ["toolbar", "seg"],
+  "controls in a bar": ["toolbar", "chips"],
   "a row's ground": ["row"],
   "codeBlock, its ground": ["code", "pre code-text"],
   stack: ["stack"],
@@ -202,6 +206,18 @@ for (const layout of LAYOUTS) {
       }
     });
 
+    test("a table's cells stand in a row's line and set no length across: its content starts and ends where the row's does", () => {
+      for (const root of ROOTS) {
+        const main = [...body, ...root, ...MAIN];
+        const name = left(...main, "span row-label cell-name columned");
+        expect(name).toBe(at);
+        expect(left(...main, "span row-label cell-name columned quiet")).toBe(name);
+        expect(left(...main, "span cell-value")).toBe(at);
+        expect(right(...main, "span cell-end")).toBe(INSET);
+        expect(right(...main, "span cell-value")).toBe(INSET);
+      }
+    });
+
     test("what folds out under a row sits the pad in, and its words at the inset, whatever the layout", () => {
       for (const holder of [["stack"], ["row", "fold", "fold-body", "stack"], ["st-list", "row", "fold", "fold-body", "stack"]]) {
         const stack = [...body, ...holder];
@@ -222,7 +238,7 @@ for (const layout of LAYOUTS) {
     test("every line ends the inset short of the far edge, and a small button half the pad short of it", () => {
       expect(right(...head, "button main")).toBe(INSET);
       expect(right(...body, ...MAIN)).toBe(INSET);
-      for (const name of ["emptyLine", "noteLine", "rowsLabel", "pairs", "codeBlock, its text"]) {
+      for (const name of ["emptyLine", "noteLine", "noteButton", "rowsLabel", "pairs", "codeBlock, its text"]) {
         expect([name, right(...body, ...(LINES[name] ?? []))]).toEqual([name, INSET]);
       }
       expect(boxRight(...body, "split")).toBe(INSET);

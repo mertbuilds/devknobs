@@ -11,7 +11,7 @@ import {
 import { preview, relative, sizeLabel } from "../storage/format";
 import { parseEntries } from "../storage/web";
 import { el } from "./dom";
-import { controls, emptyLine, type Fold, noteLine, pairs, sectionFold, stack } from "./kit";
+import { controls, emptyLine, entryFold, type Fold, noteLine, pairs, stack } from "./kit";
 import {
   askIn,
   counted,
@@ -112,10 +112,11 @@ export function cookieSection(shell: Shell): Section {
 
   function build(cookie: Cookie, id: string): RowView {
     const title = cookie.name === "" ? "(no name)" : cookie.name;
-    const fold = sectionFold({
-      label: title,
+    const fold = entryFold({
+      name: title,
+      value: preview(cookie.value),
+      end: sizeLabel(cookie.size),
       open: open.has(id),
-      ends: [el("span", "st-preview", preview(cookie.value)), el("span", "st-size", sizeLabel(cookie.size))],
       onToggle(out) {
         if (out) {
           open.add(id);
@@ -126,7 +127,6 @@ export function cookieSection(shell: Shell): Section {
         }
       },
     });
-    fold.label.className = `${fold.label.className} st-key`;
 
     /** Closes the row's text box, while it is open: a row folded away keeps none. */
     let closeEdit: (() => void) | null = null;
