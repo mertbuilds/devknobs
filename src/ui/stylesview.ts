@@ -7,8 +7,10 @@
  * applies to the element, with no rule around it, and what it inherits folded
  * under that. In both modes the element's box heads the styles, in a fold of
  * its own. Its bar starts with the select button, which turns the picking on
- * and off. Its bar, toggle, filter, modes, folds and empty lines are the
- * kit's, and only the crumbs, the box and the css are its own. Nothing of it is drawn on
+ * and off. With no element there is no bar, and the empty line is the button
+ * that starts the picking, while that is off. Its bar, toggle, filter, modes,
+ * folds and empty lines are the kit's, and only the crumbs, the box and the
+ * css are its own. Nothing of it is drawn on
  * the page, but for a box on the element a crumb or the box's diagram stands
  * for, while the pointer is on that. To use it:
  *
@@ -37,7 +39,7 @@ import type { BoxRing } from "../grab/boxmodel";
 import type { DevknobsState } from "../types";
 import { type BoxReading, createBoxDiagram, readBox } from "./boxdiagram";
 import { button, el } from "./dom";
-import { emptyLine, type Fold, filterField, sectionFold, segments, toolbar, toolToggle } from "./kit";
+import { emptyAction, emptyLine, type Fold, filterField, sectionFold, segments, toolbar, toolToggle } from "./kit";
 import type { StylesMode } from "./prefs";
 import {
   type Applied,
@@ -70,6 +72,9 @@ const FLASH = 900;
 /** What the view says before an element is picked, when one left, and when nothing is to show. */
 export const EMPTY = "pick an element to see its styles";
 export const GONE = "the element left the page";
+/** What the same two lines say as a button, with the picking off: what a press does. */
+export const PICK = "select an element to see its styles";
+export const GONE_PICK = "the element left the page, select another";
 export const NO_RULES = "no rule reaches this element";
 export const NO_MATCH = "no declaration matches";
 
@@ -92,8 +97,9 @@ export interface StylesContext {
   /** Whether the box starts folded out, and where the way the user leaves it is kept. */
   box?: { get(): boolean; set(open: boolean): void };
   /**
-   * The picking, for the select button the bar starts with, which stays with
-   * no element shown. Without it the bar has no such button.
+   * The picking, for the select button the bar starts with, and for the
+   * empty line, which starts it with no element shown and the picking off.
+   * Without it the bar has no such button, and the line is only words.
    */
   select?: {
     /** What the button is called. */
@@ -232,11 +238,13 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
         onPress: select.run,
       })
     : null;
-  if (select && picker) {
-    tips.tooltip(picker.node, () => [select.label, select.hint?.()].filter(Boolean).join(" · "));
+  /** The empty line as a button, which starts the picking. */
+  const again = select ? emptyAction(PICK, select.run) : null;
+  if (select) {
+    const told = (): string => [select.label, select.hint?.()].filter(Boolean).join(" · ");
+    if (picker) tips.tooltip(picker.node, told);
+    if (again) tips.tooltip(again, told);
   }
-  /** Stops hearing the picking go on and off. */
-  const unpick = select && picker ? select.watch(() => picker.set(select.on())) : null;
   // Stays on top while the blocks scroll under it. The select button is first, at its left start.
   const bar = toolbar([picker?.node, filter.node, modes?.node].filter((part) => part != null));
   const diagram = createBoxDiagram((ring) => context.area?.(ring));
@@ -253,6 +261,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   const blocks = el("div", "css-blocks");
   const note = emptyLine(EMPTY);
   node.append(crumbs, bar, box.node, blocks, note);
+  if (again) node.append(again);
   /** Tells the diagram how wide it is, so it knows whether its lengths fit in it. */
   const fitter =
     typeof ResizeObserver === "undefined"
@@ -289,6 +298,14 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   let timer = 0;
   let flashTimer = 0;
   let lit: HTMLElement | null = null;
+  /** The line said in place of the styles, and what it says as a button. */
+  let said: { text: string | null; press: string | null } = { text: null, press: null };
+  /** Stops hearing the picking go on and off. */
+  const unpick =
+    select?.watch(() => {
+      picker?.set(select.on());
+      drawSaid();
+    }) ?? null;
   /** The crumb the pointer is on, whose element is boxed on the page for as long. */
   let pointed: HTMLElement | null = null;
   /** Whether the view has an element boxed on the page. */
@@ -359,9 +376,24 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     }
   }
 
-  function say(text: string | null): void {
-    note.hidden = text === null;
+  /**
+   * Say a line in place of the styles, or with null none. `press` is what it
+   * says as a button, where a press of it starts the picking: it is that with
+   * the picking off, and only words while it is on.
+   */
+  function say(text: string | null, press: string | null = null): void {
+    said = { text, press };
+    drawSaid();
+  }
+
+  function drawSaid(): void {
+    const { text, press } = said;
+    const asks = again !== null && press !== null && select?.on() === false;
+    note.hidden = text === null || asks;
     if (text !== null) note.textContent = text;
+    if (!again) return;
+    again.hidden = !asks;
+    if (press !== null) again.textContent = press;
   }
 
   /** Give a node of the blocks a tooltip. */
@@ -376,7 +408,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     tipped = [];
   }
 
-  function clear(text: string): void {
+  function clear(text: string, press: string): void {
     dropTips();
     read = null;
     built = [];
@@ -385,16 +417,9 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     blocks.replaceChildren();
     crumbs.replaceChildren();
     crumbs.hidden = true;
-    fill(false);
+    bar.hidden = true;
     drawBox();
-    say(text);
-  }
-
-  /** With no element the bar keeps only its select button, and goes where it has none. */
-  function fill(full: boolean): void {
-    filter.node.hidden = !full;
-    if (modes) modes.node.hidden = !full;
-    bar.hidden = !full && !picker;
+    say(text, press);
   }
 
   /** A crumb or a heading that shows something else when pressed. */
@@ -700,7 +725,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       unwatch();
       point(null);
       context.held?.(null);
-      clear(GONE);
+      clear(GONE, GONE_PICK);
       return;
     }
     const found = page.inspect(element, pseudo ?? undefined);
@@ -708,7 +733,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       pseudos = found.blocks.flatMap((block) => (block.kind === "pseudo" ? [block.pseudo] : []));
     }
     crumbs.hidden = false;
-    fill(true);
+    bar.hidden = false;
     context.title(middle(`${found.target.label}${found.target.pseudo ?? ""}`, TITLE_MAX));
     drawCrumbs(element);
     drawBox();
@@ -747,7 +772,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     if (!element) {
       unwatch();
       context.title("styles");
-      clear(EMPTY);
+      clear(EMPTY, PICK);
       return;
     }
     watch(element);
@@ -765,7 +790,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     if (target) later();
   });
 
-  clear(EMPTY);
+  clear(EMPTY, PICK);
 
   return {
     node,

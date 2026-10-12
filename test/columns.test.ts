@@ -55,6 +55,7 @@ const LINES: Record<string, string[]> = {
   "rowBox, a list's row": ["row", "line", "div main"],
   "sectionFold, its chevron": MAIN,
   emptyLine: ["empty"],
+  "emptyAction, a button": ["button empty empty-action"],
   noteLine: ["note"],
   rowsLabel: ["rows-label"],
   "group, its label": ["group", "group-head", "span group-label"],

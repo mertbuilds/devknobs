@@ -6,8 +6,10 @@ import { createPrefs, PREFS_KEY, type StylesMode } from "../src/ui/prefs";
 import { NO_STYLES } from "../src/ui/stylesapplied";
 import {
   createStylesView,
+  EMPTY,
   NO_MATCH,
   NO_RULES,
+  PICK,
   SETTLE,
   type StylesPage,
   type StylesView,
@@ -484,29 +486,44 @@ describe("the view's chrome", () => {
     expect(button?.tag).toBe("button");
     expect(button?.getAttribute("aria-label")).toBe("select an element");
     expect(button?.getAttribute("aria-pressed")).toBe("false");
-    expect(tipped).toEqual([button as FakeNode]);
+    // The button and the empty line that stands in for it say the same in their tooltips.
+    expect(tipped).toEqual([button as FakeNode, node.find("empty-action")[0] as FakeNode]);
     expect(told[0]?.()).toBe("select an element · Shift C");
     key = "Alt I";
     expect(told[0]?.()).toBe("select an element · Alt I");
     key = "";
     expect(told[0]?.()).toBe("select an element");
-    // With no element the bar is the button alone, and all of it with one.
-    expect(node.shown("toolbar")).toHaveLength(1);
-    expect(node.shown("tool")).toHaveLength(1);
-    expect(node.shown("filter")).toEqual([]);
-    expect(node.shown("seg")).toEqual([]);
+    // With no element there is no bar, and the empty line is the button that starts the picking.
+    expect(node.shown("toolbar")).toEqual([]);
+    expect(node.shown("tool")).toEqual([]);
+    expect(node.shown("empty").map((one) => [one.tag, one.className, one.textContent])).toEqual([
+      ["button", "empty empty-action", PICK],
+    ]);
+    expect(told[1]?.()).toBe("select an element");
+    node.find("empty-action")[0]?.fire("click");
+    expect(presses).toBe(1);
+    // While it picks the line is only words, and a button again once the picking ends with no pick.
+    on = true;
+    for (const listener of [...hearing]) listener();
+    expect(node.shown("empty").map((one) => [one.tag, one.textContent])).toEqual([["div", EMPTY]]);
+    on = false;
+    for (const listener of [...hearing]) listener();
+    expect(node.shown("empty").map((one) => one.tag)).toEqual(["button"]);
+    // With an element the bar is there, the button first, and no empty line.
     view.show(as(save));
     expect(node.shown("tool")).toHaveLength(1);
     expect(node.shown("filter")).toHaveLength(1);
     expect(node.shown("seg")).toHaveLength(1);
+    expect(node.shown("empty")).toEqual([]);
     // A press only asks, and the button is on as the picking says, however that changed.
     button?.fire("click");
-    expect(presses).toBe(1);
+    expect(presses).toBe(2);
     expect(button?.getAttribute("aria-pressed")).toBe("false");
     on = true;
     for (const listener of [...hearing]) listener();
     expect(button?.getAttribute("aria-pressed")).toBe("true");
     expect(button?.className).toBe("tool on");
+    expect(node.shown("empty")).toEqual([]);
     view.destroy();
     view = null;
     expect(hearing).toEqual([]);

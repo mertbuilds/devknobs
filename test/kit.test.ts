@@ -5,6 +5,7 @@ import {
   codeBlock,
   confirmLine,
   controls,
+  emptyAction,
   emptyLine,
   filterField,
   noteLine,
@@ -181,6 +182,21 @@ describe("toolbar, emptyLine and sectionFold", () => {
     const line = emptyLine("no requests yet");
     expect(line.className).toBe("empty");
     expect(line.textContent).toBe("no requests yet");
+  });
+
+  test("an empty line that is a button is the same line, and says a press", () => {
+    let presses = 0;
+    const line = fake(emptyAction("select an element", () => presses++));
+    expect(line.tag).toBe("button");
+    expect(line.className).toBe("empty empty-action");
+    expect(line.textContent).toBe("select an element");
+    line.fire("click");
+    expect(presses).toBe(1);
+    // Its own rules place and pad nothing, and draw no line or weight.
+    for (const rule of rules(CSS).filter((one) => one.selector.includes(".empty-action"))) {
+      expect(across(rule.body)).toEqual([]);
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(/padding|margin|border(?!-radius)|outline|inset|font-weight/);
+    }
   });
 
   test("a fold is a row from the builder, its chevron where a row's icon is, that folds its body", () => {

@@ -451,6 +451,17 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 .wrap:not([data-mode="keys"]) .keys:not(.leaving),
 .wrap:not([data-mode="view"]) .view:not(.leaving) { display: none; }
 .empty { padding: 4px var(--view-end) 4px var(--view-start); color: var(--faint); }
+/* An empty line that is a button: the same line, a row wide, so 8 round, on
+   the rows' ground under the pointer. */
+.empty-action {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  border-radius: 8px;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.empty-action:hover { color: var(--fg); background: var(--card); }
 /* Heard, not seen. */
 .said {
   position: absolute;

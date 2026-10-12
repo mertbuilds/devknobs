@@ -397,7 +397,8 @@ without picking. with no element, the row starts the picking. the row says
 the view points at the page only while the pointer is on what stands for an
 element: a crumb, the box's diagram, or the name in the view's head box that
 element on the page, and the box goes when the pointer leaves. an element
-that left the page is said so, and the select button picks another. the
+that left the page is said so, in a line you press to pick another. with no
+element the view has no bar, and its one line starts the picking. the
 search finds inspect as `inspect`, `styles` or `css`, the footer has its
 key, and the shortcuts in the settings set another. grab and inspect are
 never on together: starting one ends the other. while grab is on `c` is

@@ -10,6 +10,7 @@
  *   toolbar([filterField({ ... }).node, segments({ ... }).node]);
  *   toolbar([toolToggle({ ... }).node, filterField({ ... }).node]);
  *   rowBox({ main, glyph, title, ends, after }); sectionFold({ ... }); emptyLine("no requests");
+ *   emptyAction("select an element", run);
  *   group({ label, ends }); pairs(lines); codeBlock({ text, lines }); splitBar(shares, label);
  *   stack([noteLine("..."), codeBlock({ text }).node, pairs(lines).node, controls([{ label, run }]).node]);
  *   textField({ ... }); textArea({ ... }); switchLine({ ... }); confirmLine({ ... });
@@ -99,6 +100,16 @@ export function toolToggle(options: ToolOptions): Tool {
 /** A line that says a list has nothing to show. */
 export function emptyLine(text: string): HTMLElement {
   return el("div", "empty", text);
+}
+
+/**
+ * An empty line that is the way to fill what it stands for: a button, quiet
+ * as the line is and on its columns, whose words say what a press does.
+ */
+export function emptyAction(text: string, run: () => void): HTMLButtonElement {
+  const node = button("empty empty-action", text);
+  node.addEventListener("click", () => run());
+  return node;
 }
 
 /** What a fold is built from. */
