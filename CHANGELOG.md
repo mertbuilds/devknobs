@@ -1,5 +1,13 @@
 # changelog
 
+## unreleased
+
+### colors
+
+- the mat and grab's color take colors of your own: the plus after the swatches opens the browser's color picker, and a hex or `rgb()` can be typed in the field under it. the color shows on the mat, or on grab's box, while you pick it
+- a color of your own is kept per site, up to 8 for the mat and 8 for grab, and the x on its swatch, or delete with the focus on it, takes it off. one the same as a swatch that is there picks that swatch
+- the mat's lines and numbers go dark on a light color such as white or yellow, and the splash, the reload's stand-in and the early script follow any color
+
 ## 0.1.2
 
 ### iPhone Duo

@@ -161,7 +161,14 @@ export function createPanel(options: PanelOptions = {}): Panel {
   wrap.append(handle, panel);
   root.append(style, wrap);
 
-  const knobRows = createRows({ root, rows, said, render, dragging: () => drag.dragging() });
+  const knobRows = createRows({
+    root,
+    rows,
+    said,
+    tips,
+    render,
+    dragging: () => drag.dragging(),
+  });
   const palette = createPalette({
     root,
     wrap,

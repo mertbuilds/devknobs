@@ -15,11 +15,14 @@ import {
   rowOf,
   wallInput,
 } from "./catalog";
+import { createColors } from "./colors";
 import { button, el, field, mark, numberField, reveal } from "./dom";
 import { createFoldSlider, type FoldSlider, foldChip } from "./foldslider";
 import { radioMove } from "./keys";
 import { pinPatch, showsLabel } from "./list";
 import { filterOptions } from "./search";
+import { swatchList } from "./swatches";
+import { createRefusal, type Tips } from "./tooltip";
 
 /**
  * The editor that folds out under a knob row: a control per knob, as its
@@ -58,6 +61,9 @@ export interface EditorsContext {
   root: ShadowRoot;
   /** A value picked from a long list, which may open its row too. */
   pickOption(knob: Knob, option: Option): void;
+  /** The live region that says why a value was not taken. */
+  said: HTMLElement;
+  tips: Tips;
 }
 
 export interface Editors {
@@ -69,6 +75,9 @@ export interface Editors {
 
 export function createEditors(context: EditorsContext): Editors {
   const { root, pickOption } = context;
+  /** The colors the user added, which the swatches list after a knob's own. */
+  const colors = createColors();
+  const refusal = createRefusal(context.tips, context.said);
 
   /** Leave an input alone while it has the caret, so typing is never cut off. */
   function fill(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -99,9 +108,9 @@ export function createEditors(context: EditorsContext): Editors {
     track: HTMLElement,
     items: { node: HTMLButtonElement; value: string }[],
   ): Update {
-    // The choices shown, in the order they stand.
+    // The choices shown, in the order they stand, however deep in the track.
     const shown = () =>
-      Array.from(track.children).flatMap((node) => {
+      Array.from(track.querySelectorAll('[role="radio"]')).flatMap((node) => {
         const item = items.find((entry) => entry.node === node);
         return item && !item.node.hidden ? [item] : [];
       });
@@ -162,20 +171,14 @@ export function createEditors(context: EditorsContext): Editors {
 
   /** Colors as swatches, the one that is on with a ring around it. */
   function swatches(knob: Knob): [HTMLElement, Update] {
-    const track = el("div", "swatches");
-    track.setAttribute("role", "radiogroup");
-    track.setAttribute("aria-label", knob.label);
-    const items = knob.options.map((option) => {
-      const node = button("swatch", "");
-      node.setAttribute("role", "radio");
-      node.setAttribute("aria-label", option.label);
-      node.title = option.label;
-      node.style.background = option.swatch ?? "";
-      node.addEventListener("click", () => set(knob, option.value));
-      track.append(node);
-      return { node, value: option.value };
+    return swatchList(knob, {
+      root,
+      colors,
+      radio: radioGroup,
+      set,
+      reset: (of) => commit(rowOf(of.id).id, of.reset),
+      refuse: refusal.refuse,
     });
-    return [track, radioGroup(knob, track, items)];
   }
 
   /**
@@ -484,6 +487,8 @@ export function createEditors(context: EditorsContext): Editors {
     buildEditor,
     destroy(): void {
       foldSlider?.destroy();
+      colors.destroy();
+      refusal.destroy();
       for (const timer of pending.values()) clearTimeout(timer);
     },
   };

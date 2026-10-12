@@ -15,6 +15,7 @@ import { createEditors, set, type Update } from "./editors";
 import { icon, ROW_ICONS } from "./icons";
 import { arrange, isListed, listedOrder, movePatch, removePatch, rowOrder, rowText } from "./list";
 import { between, DRAG_SLOP } from "./place";
+import type { Tips } from "./tooltip";
 
 /**
  * The knob rows: one per row of the catalog, each a line that opens into its
@@ -51,8 +52,9 @@ export interface RowsContext {
   root: ShadowRoot;
   /** The box the rows stand in. */
   rows: HTMLElement;
-  /** The live region that says where a row moved to. */
+  /** The live region that says where a row moved to, and why a value was not taken. */
   said: HTMLElement;
+  tips: Tips;
   /** Draw the whole panel again. */
   render(): void;
   /** Whether the handle is being dragged, which leaves the grips alone. */
@@ -80,7 +82,7 @@ export interface Rows {
 
 export function createRows(context: RowsContext): Rows {
   const { root, rows, said } = context;
-  const editors = createEditors({ root, pickOption });
+  const editors = createEditors({ root, pickOption, said, tips: context.tips });
 
   /** The row whose editor is open. */
   let openRow: RowId | null = null;
