@@ -523,6 +523,8 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
   transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 .row-button:hover { color: var(--fg); background: var(--track); }
+/* One that is a toggle, while it is on. */
+.row-button[aria-pressed="true"] { color: var(--fg); }
 
 /* An open row's editor folds out under its line and pushes the rows below it
    down. The fold eases between none and all of the editor's height, and clips

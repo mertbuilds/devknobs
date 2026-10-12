@@ -1,6 +1,7 @@
 import type { GrabControl } from "../grab/control";
 import type { Requests } from "./requests";
 import type { StorageControl } from "./storageaction";
+import type { Inspector } from "./inspector";
 
 /**
  * What the actions act on, on this page. The catalog says what an action does,
@@ -12,6 +13,8 @@ export interface Stage {
   grab: GrabControl | null;
   /** Inspect's switch, where there is one. */
   inspect: GrabControl | null;
+  /** Inspect's view in the panel and the element it holds, while there is a panel. */
+  inspector: Pick<Inspector, "open" | "picked" | "subscribe"> | null;
   /** The requests view, where a panel shows one. */
   requests: Requests | null;
   /** The storage view, where there is a panel to show it in. */
@@ -20,4 +23,11 @@ export interface Stage {
   flip: (() => void) | null;
 }
 
-export const stage: Stage = { grab: null, inspect: null, requests: null, storage: null, flip: null };
+export const stage: Stage = {
+  grab: null,
+  inspect: null,
+  inspector: null,
+  requests: null,
+  storage: null,
+  flip: null,
+};

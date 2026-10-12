@@ -17,6 +17,8 @@ let cleanup: (() => void) | null;
 let paneListeners: ((id: string | null) => void)[];
 let titles: [string, string][];
 let opens: number;
+/** How often the open view was brought back in sight. */
+let shows: number;
 /** The styles view the pane mounted: what it was shown, and what it was handed. */
 let shown: (Element | null)[];
 let refreshes: number;
@@ -78,6 +80,9 @@ const pane: PaneDoor = {
   retitlePane: (id, title) => {
     titles.push([id, title]);
   },
+  showPane: (id) => {
+    if (open?.id === id) shows++;
+  },
 };
 
 function closePane(): void {
@@ -94,6 +99,7 @@ const load: LoadStyles = async () => ({
       node: {} as HTMLElement,
       show: (element) => {
         shown.push(element);
+        context.held?.(element);
       },
       refresh: () => {
         refreshes++;
@@ -114,11 +120,31 @@ const load: LoadStyles = async () => ({
 });
 
 const tips = {} as Tips;
-const button = { tagName: "BUTTON" } as unknown as Element;
-const link = { tagName: "A" } as unknown as Element;
 
+/** An element of a page that shows, until `isConnected` is taken from it. */
+function fakeElement(tagName: string, id: string): Element {
+  return {
+    tagName,
+    isConnected: true,
+    ownerDocument: { defaultView: {} },
+    getAttribute: (name: string) => (name === "id" ? id : null),
+  } as unknown as Element;
+}
+
+let button: Element;
+let link: Element;
+
+/** A pick, as the mode makes one: the element is handed over, and the mode ends. */
 function pick(element: Element): void {
   for (const listener of [...pickListeners]) listener(element);
+  inspect.set(false);
+}
+
+/** The select button, as the pane's head was handed it. */
+function select() {
+  const action = open?.actions?.[0];
+  if (!action) throw new Error("no select button");
+  return action;
 }
 
 async function settle(): Promise<void> {
@@ -135,12 +161,15 @@ beforeEach(() => {
   paneListeners = [];
   titles = [];
   opens = 0;
+  shows = 0;
   shown = [];
   refreshes = 0;
   destroyed = 0;
   focuses = 0;
   handed = null;
   filterText = "";
+  button = fakeElement("BUTTON", "save");
+  link = fakeElement("A", "home");
   body = {
     nodes: [],
     append(node) {
@@ -184,40 +213,226 @@ describe("inspect going on", () => {
     inspect.set(true);
     await settle();
     pick(button);
-    inspect.set(false);
     inspect.set(true);
     await settle();
     expect(opens).toBe(1);
     expect(destroyed).toBe(0);
     expect(shown).toEqual([button]);
+    // A panel that closed over the view opens again for the picking.
+    expect(shows).toBe(1);
   });
 });
 
 describe("a pick", () => {
-  test("shows in the view, and inspect stays on for the next", async () => {
+  test("shows in the view, which stays open on it with the mode ended and nothing boxed", async () => {
     inspect.set(true);
     await settle();
     pick(button);
-    pick(link);
-    expect(shown).toEqual([button, link]);
-    expect(on).toBe(true);
-    expect(opens).toBe(1);
-  });
-
-  test("made while the view loads is the first thing it shows", async () => {
-    inspect.set(true);
-    pick(button);
-    await settle();
     expect(shown).toEqual([button]);
+    expect(on).toBe(false);
+    expect(open?.id).toBe("styles");
+    expect(opens).toBe(1);
+    expect(outlined.every((element) => element === null)).toBe(true);
+    expect(inspector?.picked()).toBe("button#save");
   });
 
-  test("the view says its element in the pane's head, and boxes it through inspect", async () => {
+  test("made while the view loads is the first thing it shows, though the mode ended with it", async () => {
+    inspect.set(true);
+    pick(button);
+    await settle();
+    expect(open?.id).toBe("styles");
+    expect(shown).toEqual([button]);
+    // The picking is over, and the focus stays where the pane put it.
+    expect(focuses).toBe(0);
+  });
+
+  test("the view says its element in the pane's head", async () => {
     inspect.set(true);
     await settle();
     handed?.title("button#save");
-    handed?.outline(button);
     expect(titles).toEqual([["styles", "button#save"]]);
-    expect(outlined).toEqual([button]);
+  });
+
+  test("tells who listens that the view holds another element, and none once it left", async () => {
+    let heard = 0;
+    inspector?.subscribe(() => heard++);
+    inspect.set(true);
+    await settle();
+    pick(button);
+    expect(heard).toBe(1);
+    // A crumb showed an ancestor, and the view says so.
+    handed?.held?.(link);
+    expect(inspector?.picked()).toBe("a#home");
+    handed?.held?.(null);
+    expect(inspector?.picked()).toBeNull();
+    expect(heard).toBe(3);
+  });
+
+  test("an element that left its page is held no more", async () => {
+    inspect.set(true);
+    await settle();
+    pick(button);
+    Object.assign(button, { isConnected: false });
+    expect(inspector?.picked()).toBeNull();
+  });
+});
+
+describe("the select button", () => {
+  test("is the first of the head's actions, named, with inspect's key in its tooltip", async () => {
+    inspector?.destroy();
+    inspector = createInspector({ inspect, tips, key: () => "Shift C" }, load, pane);
+    inspect.set(true);
+    await settle();
+    expect(open?.actions).toHaveLength(1);
+    expect(select().label).toBe("select an element");
+    expect(select().icon).toBe("square-dashed-mouse-pointer");
+    expect(select().hint?.()).toBe("Shift C");
+  });
+
+  test("is pressed while the picking is on, however that went on or off, and tells its head", async () => {
+    inspect.set(true);
+    await settle();
+    let told = 0;
+    const stop = select().watch?.(() => told++);
+    expect(select().pressed?.()).toBe(true);
+    pick(button);
+    expect(select().pressed?.()).toBe(false);
+    expect(told).toBe(1);
+    // By inspect's key.
+    inspect.set(true);
+    expect(select().pressed?.()).toBe(true);
+    // By escape.
+    inspect.set(false);
+    expect(select().pressed?.()).toBe(false);
+    expect(told).toBe(3);
+    stop?.();
+    inspect.set(true);
+    expect(told).toBe(3);
+  });
+
+  test("starts the picking, and pressed again ends it with the element kept", async () => {
+    inspect.set(true);
+    await settle();
+    pick(button);
+    focuses = 0;
+    select().run();
+    expect(on).toBe(true);
+    // The view takes the focus from the button, so the arrows and Enter are the picking's.
+    expect(focuses).toBe(1);
+    select().run();
+    expect(on).toBe(false);
+    expect(focuses).toBe(1);
+    expect(shown).toEqual([button]);
+    expect(inspector?.picked()).toBe("button#save");
+  });
+});
+
+describe("the row's way in", () => {
+  test("with nothing picked yet starts the picking, and opens the view", async () => {
+    inspector?.open();
+    expect(on).toBe(true);
+    await settle();
+    expect(open?.id).toBe("styles");
+    expect(focuses).toBe(1);
+  });
+
+  test("with an element held opens the view on it, and picks nothing", async () => {
+    inspector?.open();
+    await settle();
+    pick(button);
+    closePane();
+    expect(inspector?.picked()).toBe("button#save");
+    shown = [];
+    focuses = 0;
+    inspector?.open();
+    expect(on).toBe(false);
+    await settle();
+    expect(open?.id).toBe("styles");
+    expect(on).toBe(false);
+    expect(shown).toEqual([button]);
+    expect(focuses).toBe(0);
+    expect(select().pressed?.()).toBe(false);
+  });
+
+  test("with the view open on an element does nothing", async () => {
+    inspector?.open();
+    await settle();
+    pick(button);
+    inspector?.open();
+    await settle();
+    expect(on).toBe(false);
+    expect(opens).toBe(1);
+  });
+
+  test("picks again where the element it held left its page", async () => {
+    inspector?.open();
+    await settle();
+    pick(button);
+    closePane();
+    Object.assign(button, { isConnected: false });
+    shown = [];
+    inspector?.open();
+    expect(on).toBe(true);
+    await settle();
+    expect(shown).toEqual([]);
+  });
+
+  test("while the picking is on, ends it", async () => {
+    inspector?.open();
+    await settle();
+    inspector?.open();
+    expect(on).toBe(false);
+    expect(open?.id).toBe("styles");
+  });
+
+  test("taken back by another view before the view loaded, opens nothing", async () => {
+    inspector?.open();
+    await settle();
+    pick(button);
+    closePane();
+    inspector?.open();
+    pane.openPane({ id: "other", title: "other", mount: () => undefined });
+    await settle();
+    expect(open?.id).toBe("other");
+  });
+});
+
+describe("what the view points at", () => {
+  test("is boxed on the page while it is pointed at, and the box goes with the pointer", async () => {
+    inspect.set(true);
+    await settle();
+    pick(button);
+    outlined = [];
+    handed?.outline(link);
+    handed?.outline(null);
+    expect(outlined).toEqual([link, null]);
+  });
+
+  test("is not boxed under the picking's own box, which takes any box off as it goes on", async () => {
+    inspect.set(true);
+    await settle();
+    pick(button);
+    handed?.outline(link);
+    outlined = [];
+    inspect.set(true);
+    expect(outlined).toEqual([null]);
+    handed?.outline(link);
+    expect(outlined).toEqual([null]);
+    // Taking a box off is never held back.
+    handed?.outline(null);
+    expect(outlined).toEqual([null, null]);
+  });
+
+  test("the head's line stands for the element held, and for nothing with none", async () => {
+    inspect.set(true);
+    await settle();
+    open?.point?.(true);
+    expect(outlined.every((element) => element === null)).toBe(true);
+    pick(button);
+    outlined = [];
+    open?.point?.(true);
+    open?.point?.(false);
+    expect(outlined).toEqual([button, null]);
   });
 });
 
@@ -238,23 +453,27 @@ describe("escape", () => {
     inspect.set(true);
     await settle();
     pick(button);
+    inspect.set(true);
     // The mode takes the first escape itself, and only says it went off.
     inspect.set(false);
     expect(open?.id).toBe("styles");
     expect(destroyed).toBe(0);
-    expect(outlined).toEqual([]);
+    expect(shown).toEqual([button]);
+    expect(inspector?.picked()).toBe("button#save");
   });
 });
 
 describe("the pane closing", () => {
-  test("ends inspect and takes the box off the element", async () => {
+  test("ends the picking and takes any box off, and the element is kept", async () => {
     inspect.set(true);
     await settle();
     pick(button);
+    inspect.set(true);
     closePane();
     expect(on).toBe(false);
     expect(destroyed).toBe(1);
     expect(outlined[outlined.length - 1]).toBeNull();
+    expect(inspector?.picked()).toBe("button#save");
   });
 
   test("another view taking its place does the same", async () => {
@@ -266,13 +485,16 @@ describe("the pane closing", () => {
     expect(outlined[outlined.length - 1]).toBeNull();
   });
 
-  test("a pick left waiting is not shown by a view opened later", async () => {
-    inspect.set(true);
-    pick(button);
-    emit(null);
+  test("a view that opens later is on the element still, with the picking on where it was asked for", async () => {
     inspect.set(true);
     await settle();
-    expect(shown).toEqual([]);
+    pick(button);
+    closePane();
+    shown = [];
+    inspect.set(true);
+    await settle();
+    expect(shown).toEqual([button]);
+    expect(on).toBe(true);
   });
 });
 

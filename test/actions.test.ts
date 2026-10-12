@@ -54,6 +54,45 @@ function fakeGrab(): GrabControl {
   };
 }
 
+/**
+ * Inspect's view, as far as its row drives it: its row ends the picking, or
+ * opens the view, which picks where it holds no element. `held.name` is the
+ * element the view holds.
+ */
+function fakeInspector(inspect: GrabControl, held: { name: string | null; opens: number }) {
+  const listeners = new Set<() => void>();
+  return {
+    open(): void {
+      if (inspect.isOn()) inspect.set(false);
+      else if (held.name === null) inspect.set(true);
+      else held.opens++;
+    },
+    picked: () => held.name,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    /** The view took an element, or lost the one it had, and the picking ended. */
+    hold(name: string | null): void {
+      held.name = name;
+      inspect.set(false);
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
+
+/** A page with an inspect and its view, with no element held yet. */
+function inspecting() {
+  const held = { name: null as string | null, opens: 0 };
+  const inspect = fakeGrab();
+  const inspector = fakeInspector(inspect, held);
+  stage.inspect = inspect;
+  stage.inspector = inspector;
+  return { inspect, inspector, held };
+}
+
 /** The knobs as the panel keeps them, as far as running an action goes. */
 function fakeStore(start: DevknobsState = DEFAULT_STATE): Store & { sets: number } {
   let state = start;
@@ -87,6 +126,7 @@ function pinned(...ids: string[]): DevknobsState {
 afterEach(() => {
   stage.grab = null;
   stage.inspect = null;
+  stage.inspector = null;
 });
 
 describe("an action's row", () => {
@@ -254,16 +294,17 @@ describe("inspect's row", () => {
     expect(listedOrder(DEFAULT_STATE)).toEqual(DEFAULTS);
   });
 
-  test("is listed once it is run from the panel, and says on while the mode is on", () => {
+  test("is listed once it is run from the panel, and says picking while the mode is on", () => {
     stage.grab = fakeGrab();
-    stage.inspect = fakeGrab();
+    const { inspect } = inspecting();
     const store = fakeStore();
     expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("off");
     runAction(action("inspect"), store);
     expect(store.getState().panel.pinned).toEqual([...DEFAULTS, "inspect"]);
     expect(listedOrder(store.getState())).toEqual([...DEFAULTS, "inspect"]);
-    expect(stage.inspect.isOn()).toBe(true);
-    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("on");
+    expect(inspect.isOn()).toBe(true);
+    expect(action("inspect").state?.()).toBe("on");
+    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("picking");
     expect(isActive(row("inspect"), store.getState())).toBe(true);
     // Grab's row and its mode are no part of it.
     expect(stage.grab.isOn()).toBe(false);
@@ -271,38 +312,75 @@ describe("inspect's row", () => {
     expect(isListed(row("grab"), store.getState())).toBe(false);
   });
 
-  test("stays listed, off, once the mode ends, as when its view is left", () => {
-    stage.inspect = fakeGrab();
+  test("stays listed, off, once the mode ends with nothing picked, as with escape", () => {
+    const { inspect } = inspecting();
     const store = fakeStore();
     runAction(action("inspect"), store);
-    stage.inspect.set(false);
+    inspect.set(false);
     expect(listedOrder(store.getState())).toEqual([...DEFAULTS, "inspect"]);
     expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("off");
     expect(isActive(row("inspect"), store.getState())).toBe(false);
-    // Its line runs it again, with one pin.
+    // Its line picks again, with one pin, and run while picking it ends that.
     runAction(action("inspect"), store);
-    expect(stage.inspect.isOn()).toBe(true);
+    expect(inspect.isOn()).toBe(true);
     expect(store.sets).toBe(1);
     runAction(action("inspect"), store);
-    expect(stage.inspect.isOn()).toBe(false);
+    expect(inspect.isOn()).toBe(false);
+  });
+
+  test("says the element the view holds once the pick ended the mode, and off again once that is gone", () => {
+    const { inspect, inspector } = inspecting();
+    const store = fakeStore();
+    runAction(action("inspect"), store);
+    inspector.hold("button#save.primary");
+    expect(inspect.isOn()).toBe(false);
+    expect(action("inspect").state?.()).toBe("off");
+    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("button#save.primary");
+    inspector.hold(null);
+    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("off");
+  });
+
+  test("with an element held, its line opens the view and picks nothing", () => {
+    const { inspect, inspector, held } = inspecting();
+    const store = fakeStore();
+    inspector.hold("a.link");
+    runAction(action("inspect"), store);
+    expect(held.opens).toBe(1);
+    expect(inspect.isOn()).toBe(false);
+    expect(rowText(row("inspect"), store.getState(), LIVE)).toBe("a.link");
+  });
+
+  test("tells its row of the mode going on and off, and of the element the view holds", () => {
+    const { inspect, inspector } = inspecting();
+    let heard = 0;
+    const stop = action("inspect").watch?.(() => heard++);
+    inspect.set(true);
+    expect(heard).toBe(1);
+    // The pick ends the mode, and the view takes the element.
+    inspector.hold("a.link");
+    expect(heard).toBe(3);
+    stop?.();
+    inspector.hold(null);
+    inspect.set(true);
+    expect(heard).toBe(3);
   });
 
   test("its × unpins it and ends the mode", () => {
-    stage.inspect = fakeGrab();
+    const { inspect } = inspecting();
     const heard: boolean[] = [];
-    stage.inspect.subscribe((on) => heard.push(on));
+    inspect.subscribe((on) => heard.push(on));
     const store = fakeStore();
     runAction(action("inspect"), store);
     stopAction(action("inspect"));
     store.setState(removePatch(store.getState(), row("inspect")));
     expect(heard).toEqual([true, false]);
-    expect(stage.inspect.isOn()).toBe(false);
+    expect(inspect.isOn()).toBe(false);
     expect(store.getState().panel.pinned).toEqual([...DEFAULTS]);
     expect(listedOrder(store.getState())).toEqual([...DEFAULTS]);
     expect(isReset(store.getState())).toBe(true);
     // With the mode off already, the × only unpins.
     runAction(action("inspect"), store);
-    stage.inspect.set(false);
+    inspect.set(false);
     stopAction(action("inspect"));
     expect(heard).toEqual([true, false, true, false]);
   });

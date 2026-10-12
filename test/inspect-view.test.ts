@@ -7,7 +7,7 @@ import { createInspector, type Inspector, type LoadStyles, STYLES_VIEW } from ".
 import { type EscapeStep, escapeStep } from "../src/ui/keys";
 import { closePane, createPane, openPane, type Pane, paneView } from "../src/ui/pane";
 import { createRequests, REQUESTS_VIEW } from "../src/ui/requests";
-import { createStylesView, type StylesPage } from "../src/ui/stylesview";
+import { createStylesView, GONE, SETTLE, type StylesPage } from "../src/ui/stylesview";
 import type { Tips } from "../src/ui/tooltip";
 import { fetched } from "./requests-entries";
 import { LOADED, manual } from "./requests-fakes";
@@ -152,19 +152,27 @@ function type(text: string): void {
   filter().fire("input");
 }
 
+/** A pick, as the mode makes one: the element is handed over, and the mode ends. */
 function pick(target: FakeElement): void {
   for (const listener of [...pickListeners]) listener(as(target));
+  inspect.set(false);
 }
 
 async function settle(): Promise<void> {
   await Bun.sleep(0);
 }
 
-/** Inspect on, the view loaded and open, and the button picked. */
+/** The view loaded and open on the button, and the picking on again for another. */
 async function inspecting(): Promise<void> {
   inspect.set(true);
   await settle();
   pick(save);
+  inspect.set(true);
+}
+
+/** The select button in the view's head. */
+function select(): PanelNode {
+  return one("view-action");
 }
 
 /**
@@ -335,7 +343,7 @@ describe("the ways out of the styles view", () => {
     await inspecting();
     inspect.set(false);
     expect(paneView()).toBe("styles");
-    expect(outlined.at(-1)).toBe(as(save));
+    expect(outlined.every((target) => target === null)).toBe(true);
     const shown = one("styles");
     inspect.set(true);
     await settle();
@@ -382,6 +390,104 @@ describe("the styles view and the requests view, one in the other's place", () =
     add();
     // With no one to tell, the log gathers nothing.
     expect(timer.waiting()).toBe(0);
+  });
+});
+
+describe("the select button in the view's head", () => {
+  test("is the head's one action, pressed while the picking is on", async () => {
+    inspect.set(true);
+    await settle();
+    expect(node.find("view-action")).toHaveLength(1);
+    expect(select().className).toBe("row-button view-action");
+    expect(select().attributes.get("aria-label")).toBe("select an element");
+    expect(select().attributes.get("aria-pressed")).toBe("true");
+    pick(save);
+    expect(select().attributes.get("aria-pressed")).toBe("false");
+    expect(one("css-selector").textContent).toBe(".primary");
+  });
+
+  test("starts the picking again with a click, and ends it with the next, the element kept", async () => {
+    inspect.set(true);
+    await settle();
+    pick(save);
+    select().fire("click");
+    expect(on).toBe(true);
+    expect(select().attributes.get("aria-pressed")).toBe("true");
+    // The view has the focus, so the arrows and Enter are the picking's and not the button's.
+    expect(active).toBe(one("styles"));
+    select().fire("click");
+    expect(on).toBe(false);
+    expect(select().attributes.get("aria-pressed")).toBe("false");
+    expect(one("css-selector").textContent).toBe(".primary");
+  });
+
+  test("follows escape and inspect's key, which end and start the picking without it", async () => {
+    inspect.set(true);
+    await settle();
+    expect(escape()).toBe("view");
+    expect(on).toBe(false);
+    expect(select().attributes.get("aria-pressed")).toBe("false");
+    inspect.set(true);
+    expect(select().attributes.get("aria-pressed")).toBe("true");
+  });
+
+  test("stops hearing the mode once its view is left", async () => {
+    inspect.set(true);
+    await settle();
+    const hearing = modeListeners.length;
+    closePane();
+    expect(modeListeners).toHaveLength(hearing - 1);
+  });
+});
+
+describe("the page with the styles view open", () => {
+  test("has nothing boxed on it after a pick, until the view points at the element", async () => {
+    inspect.set(true);
+    await settle();
+    pick(save);
+    expect(outlined.every((target) => target === null)).toBe(true);
+    outlined = [];
+    const crumbs = node.find("crumb");
+    crumbs[crumbs.length - 1]?.fire("pointerenter");
+    expect(outlined).toEqual([as(save)]);
+    crumbs[crumbs.length - 1]?.fire("pointerleave");
+    expect(outlined).toEqual([as(save), null]);
+  });
+
+  test("the head's line boxes the element while the pointer is on it", async () => {
+    inspect.set(true);
+    await settle();
+    pick(save);
+    outlined = [];
+    one("main").fire("pointerenter");
+    expect(outlined).toEqual([as(save)]);
+    one("main").fire("pointerleave");
+    expect(outlined).toEqual([as(save), null]);
+  });
+
+  test("nothing the view points at is boxed while the picking draws its own box", async () => {
+    await inspecting();
+    outlined = [];
+    const crumbs = node.find("crumb");
+    crumbs[crumbs.length - 1]?.fire("pointerenter");
+    one("main").fire("pointerenter");
+    expect(outlined).toEqual([]);
+  });
+
+  test("an element that left the page is said so, with the select button there to pick another", async () => {
+    inspect.set(true);
+    await settle();
+    pick(save);
+    expect(inspector?.picked()).toBe("button#save.primary");
+    const parent = save.parentElement;
+    save.isConnected = false;
+    if (parent) FakeObserver.made.at(-1)?.change(parent);
+    await Bun.sleep(SETTLE + 20);
+    expect(one("empty").textContent).toBe(GONE);
+    expect(one("empty").hidden).toBe(false);
+    expect(inspector?.picked()).toBeNull();
+    expect(node.find("view-action")).toHaveLength(1);
+    expect(select().attributes.get("aria-pressed")).toBe("false");
   });
 });
 

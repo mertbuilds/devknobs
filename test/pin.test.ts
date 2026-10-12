@@ -200,6 +200,14 @@ describe("the pin's row", () => {
       subscribe: () => () => {},
       destroy() {},
     };
+    // Inspect's row picks through its view, which holds no element here.
+    stage.inspector = {
+      open() {
+        inspecting = !inspecting;
+      },
+      picked: () => null,
+      subscribe: () => () => {},
+    };
     stage.requests = {
       toggle() {
         shown = !shown;
@@ -225,6 +233,7 @@ describe("the pin's row", () => {
       expect(isReset(reset)).toBe(true);
     } finally {
       stage.inspect = null;
+      stage.inspector = null;
       stage.requests = null;
     }
   });

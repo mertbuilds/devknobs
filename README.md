@@ -381,13 +381,27 @@ press `⇧C` (`Shift C` off a Mac) to see the css of an element. it picks as
 grab does, with the same box, arrows and escape, and its label says `styles`
 before the element. a click copies nothing: the element's styles open in the
 panel, in place of the rows, and the panel grows wider for them. drag its
-edge for another width. inspect stays on, so the next click shows another
-element. escape ends inspect and leaves the styles open, the next escape
-clears the filter if it has text, and the next goes back to the rows, as the
-back button on top does. going back ends inspect. the element shown keeps a
-quiet box while its styles show. the search finds it as `inspect`, `styles`
-or `css`, the footer has its key, and the shortcuts in the settings set
-another. grab and inspect are never on together, and while grab is on `c` is
+edge for another width.
+
+picking is a mode, as in the browsers' own tools. a click picks the element
+and ends the picking: nothing is left drawn on the page, and the page takes
+clicks again. the element stays in the styles view. to pick another, press
+the select button in the view's head, the dashed square with a pointer, or
+`⇧C` again. the button is pressed while the picking is on, and `⇧C` while
+picking stops it. escape ends the picking and keeps the element shown, the
+next escape clears the filter if it has text, and the next goes back to the
+rows, as the back button on top does. going back ends the picking and keeps
+the element: inspect's row says its name, and opens the view on it again
+without picking. with no element, the row starts the picking. the row says
+`picking` while the mode is on, and `off` with nothing picked.
+
+the view points at the page only while the pointer is on what stands for an
+element: a crumb, the box's diagram, or the name in the view's head box that
+element on the page, and the box goes when the pointer leaves. an element
+that left the page is said so, and the select button picks another. the
+search finds inspect as `inspect`, `styles` or `css`, the footer has its
+key, and the shortcuts in the settings set another. grab and inspect are
+never on together: starting one ends the other. while grab is on `c` is
 grab's copy.
 
 while inspect is on, the element under the pointer shows its box as the
@@ -397,8 +411,8 @@ line. a negative margin makes no area on its side. an element in several
 pieces, as a link over two lines is, is drawn by its bounding box, and so is
 one a transform turns or scales, unless the browser has `getBoxQuads`, which
 gives its own corners. an element with `display: contents` or of no size has
-no box, only its label. the element whose styles show keeps its areas with
-its quiet box. grab draws none of this.
+no box, only its label. an element the view points at is drawn the same way,
+with no label. grab draws none of this.
 
 the label by the box is a small card in inspect. its first line is the
 element and its size. under it, once the pointer rests, only what applies:
@@ -427,8 +441,8 @@ the styles start with the element's box, under `box`, which folds away
 and stays the way you leave it: the margin, the border, the padding and the
 content one inside the other, each with the length of its four sides in css
 px, a dash for 0, the content with its width by its height, and around them
-the offsets of a positioned element. the pointer or the focus on an area
-draws that one alone on the page. where the panel is too narrow for the
+the offsets of a positioned element. the pointer on the box draws the
+element's on the page, and on one area that one alone. where the panel is too narrow for the
 lengths, they leave the areas, and those of the area the pointer or the
 focus is on stand in a line under them. under that are the element's
 `box-sizing` and `display`, and its `position` where it is not `static`. the

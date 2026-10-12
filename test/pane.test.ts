@@ -10,8 +10,11 @@ import {
   type PaneView,
   paneView,
   retitlePane,
+  showPane,
 } from "../src/ui/pane";
+import { CSS } from "../src/ui/styles";
 import type { Tips } from "../src/ui/tooltip";
+import { rules } from "./kit-dom";
 
 type Listener = (event: { target: unknown }) => void;
 
@@ -102,7 +105,8 @@ interface Page {
   trigger: FakeNode;
   /** What the panel was asked for, in order: to leave the search and the settings, to open, to draw. */
   asked: string[];
-  tipped: [FakeNode, string][];
+  /** The controls given a tooltip, each with its text, or with what says it as it shows. */
+  tipped: [FakeNode, string | (() => string)][];
   tipsHidden: () => number;
   /** Runs as the panel draws, in the place of what a real panel does then. */
   drawing: { run: (() => void) | null };
@@ -143,7 +147,7 @@ function build(options: { open?: boolean } = {}): Page {
   const home = document.createElement("button");
   const trigger = document.createElement("button");
   const asked: string[] = [];
-  const tipped: [FakeNode, string][] = [];
+  const tipped: Page["tipped"] = [];
   let tipsHidden = 0;
   const tips: Tips = {
     show: () => {},
@@ -154,7 +158,7 @@ function build(options: { open?: boolean } = {}): Page {
     hideAfter: () => {},
     isFor: () => false,
     tooltip: (node, text) => {
-      tipped.push([fake(node), typeof text === "string" ? text : text()]);
+      tipped.push([fake(node), text]);
     },
     destroy: () => {},
   };
@@ -259,6 +263,20 @@ describe("opening a view", () => {
     expect(page.back.attributes.get("aria-label")).toBe("back from styles of .card");
     expect(page.asked.at(-1)).toBe("render");
     expect(paneView()).toBe("styles");
+  });
+
+  test("the open view is brought back in sight when asked, and no other is", () => {
+    page = build();
+    openPane(viewOf("styles").view);
+    page.asked.length = 0;
+    showPane("requests");
+    expect(page.asked).toEqual([]);
+    showPane("styles");
+    expect(page.asked).toEqual(["uncover", "render"]);
+    closePane();
+    page.asked.length = 0;
+    showPane("styles");
+    expect(page.asked).toEqual([]);
   });
 
   test("leaves the search and the settings before the panel draws, so the view shows", () => {
@@ -419,6 +437,82 @@ describe("the head's actions", () => {
     buttons[0]?.fire("click");
     expect(ran).toEqual(["clear", "copy"]);
     expect(paneView()).toBe("requests");
+  });
+
+  test("one with a hint says it after its name, as it is when the tooltip shows", () => {
+    page = build();
+    let key = "Shift C";
+    const select = { label: "select an element", icon: "x" as const, run() {}, hint: () => key };
+    openPane(viewOf("styles", { actions: [select] }).view);
+    const [control] = page.node.find("view-action");
+    expect(control?.attributes.get("aria-label")).toBe("select an element");
+    const [, text] = page.tipped[0] ?? [];
+    if (typeof text !== "function") throw new Error("the tooltip was read too early");
+    expect(text()).toBe("select an element · Shift C");
+    key = "Alt I";
+    expect(text()).toBe("select an element · Alt I");
+    key = "";
+    expect(text()).toBe("select an element");
+  });
+
+  test("a toggle is pressed as it says, and follows what it watches", () => {
+    page = build();
+    let on = true;
+    let tell: (() => void) | null = null;
+    let stopped = 0;
+    const toggle = {
+      label: "select an element",
+      icon: "x" as const,
+      run: () => {
+        on = !on;
+        tell?.();
+      },
+      pressed: () => on,
+      watch: (listener: () => void) => {
+        tell = listener;
+        return () => {
+          stopped++;
+          tell = null;
+        };
+      },
+    };
+    const plain = { label: "clear", icon: "eraser" as const, run() {} };
+    openPane(viewOf("styles", { actions: [toggle, plain] }).view);
+    const [first, second] = page.node.find("view-action");
+    expect(first?.attributes.get("aria-pressed")).toBe("true");
+    // One that is no toggle says nothing of being pressed.
+    expect(second?.attributes.has("aria-pressed")).toBe(false);
+    first?.fire("click");
+    expect(first?.attributes.get("aria-pressed")).toBe("false");
+    // However it went on: its key, say.
+    on = true;
+    (tell as (() => void) | null)?.();
+    expect(first?.attributes.get("aria-pressed")).toBe("true");
+    closePane();
+    expect(stopped).toBe(1);
+  });
+
+  test("a pressed toggle looks as the panel's other toggles do, by the one rule every small button has", () => {
+    const pressed = rules(CSS).filter((rule) => rule.selector.includes("row-button[aria-pressed"));
+    expect(pressed.map((rule) => rule.selector)).toEqual(['.row-button[aria-pressed="true"]']);
+    expect(pressed[0]?.body.trim()).toBe("color: var(--fg);");
+    const keys = rules(CSS).find((rule) => rule.selector.includes(".keys-toggle[aria-pressed"));
+    expect(keys?.body.trim()).toBe(pressed[0]?.body.trim());
+  });
+
+  test("the pointer on the head's line and off it is told to a view that points at the page", () => {
+    page = build();
+    const pointed: boolean[] = [];
+    openPane(viewOf("styles", { point: (over) => pointed.push(over) }).view);
+    page.back.fire("pointerenter");
+    page.back.fire("pointerleave");
+    expect(pointed).toEqual([true, false]);
+    // A view with nothing to point at hears nothing, and neither does one that closed.
+    openPane(viewOf("requests").view);
+    page.back.fire("pointerenter");
+    closePane();
+    page.back.fire("pointerenter");
+    expect(pointed).toEqual([true, false]);
   });
 
   test("go with their view", () => {

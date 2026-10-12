@@ -7,9 +7,11 @@
  * applies to the element, with no rule around it, and what it inherits folded
  * under that. In both modes the element's box heads the styles, in a fold of
  * its own. Its bar, filter, modes, folds and empty lines are the kit's, and
- * only the crumbs, the box and the css are its own. To use it:
+ * only the crumbs, the box and the css are its own. Nothing of it is drawn on
+ * the page, but for a box on the element a crumb or the box's diagram stands
+ * for, while the pointer is on that. To use it:
  *
- *   const view = createStylesView({ tips, title, outline, area, mode, box });
+ *   const view = createStylesView({ tips, title, outline, held, area, mode, box });
  *   body.append(view.node); view.show(element); view.destroy();
  *
  * The view is built once for each inspection, and the filter only hides what
@@ -75,8 +77,10 @@ export interface StylesContext {
   tips: Tips;
   /** Say what is shown in the view's head. */
   title(text: string): void;
-  /** Keep a quiet box on the element shown, or with null on none. */
+  /** Put a quiet box on an element the view points at, or with null take it off. */
   outline(element: Element | null): void;
+  /** The element the view holds now, or null once it holds none: another was shown, or it left. */
+  held?(element: Element | null): void;
   /**
    * The mode the view starts in, and where the one the user picks is kept.
    * Without it the view is the advanced one, with no control to change it.
@@ -211,6 +215,10 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     onToggle: (open) => context.box?.set(open),
   });
   box.body.append(diagram.node);
+  // The diagram stands for the element: its box shows on the page while the
+  // pointer is on it, one area of it alone where the diagram says.
+  diagram.node.addEventListener("pointerenter", () => point(target));
+  diagram.node.addEventListener("pointerleave", () => point(null));
   const blocks = el("div", "css-blocks");
   const note = emptyLine(EMPTY);
   node.append(crumbs, bar, box.node, blocks, note);
@@ -250,6 +258,17 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
   let timer = 0;
   let flashTimer = 0;
   let lit: HTMLElement | null = null;
+  /** The crumb the pointer is on, whose element is boxed on the page for as long. */
+  let pointed: HTMLElement | null = null;
+  /** Whether the view has an element boxed on the page. */
+  let pointing = false;
+
+  /** Box an element on the page while the pointer is on what stands for it, or with null take the box off. */
+  function point(element: Element | null): void {
+    if (!element && !pointing) return;
+    pointing = element !== null;
+    context.outline(element);
+  }
 
   function later(): void {
     clearTimeout(timer);
@@ -370,21 +389,32 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     const chain: Element[] = [];
     for (let up: Element | null = element; up; up = flatParent(up)) chain.unshift(up);
     const nodes: HTMLElement[] = [];
-    const add = (text: string, current: boolean, go: () => void) => {
+    const add = (text: string, current: boolean, of: Element, go: () => void) => {
       if (nodes.length > 0) {
         const mark = el("span", "crumb-sep", "›");
         mark.setAttribute("aria-hidden", "true");
         nodes.push(mark);
       }
       const crumb = link("crumb", text, go);
+      crumb.addEventListener("pointerenter", () => {
+        pointed = crumb;
+        point(of);
+      });
+      crumb.addEventListener("pointerleave", () => {
+        pointed = null;
+        point(null);
+      });
       crumb.tabIndex = current ? 0 : -1;
       if (current) crumb.setAttribute("aria-current", "true");
       nodes.push(crumb);
     };
     for (const one of chain) {
-      add(crumbText(label(one)), one === element && pseudo === null, () => show(one));
+      add(crumbText(label(one)), one === element && pseudo === null, one, () => show(one));
     }
-    for (const name of pseudos) add(name, name === pseudo, () => show(element, name));
+    for (const name of pseudos) add(name, name === pseudo, element, () => show(element, name));
+    // A crumb the pointer was on goes without a word, and its box with it.
+    if (pointed) point(null);
+    pointed = null;
     crumbs.replaceChildren(...nodes);
     // The element is the end of the line, so that is the end that shows.
     crumbs.scrollLeft = crumbs.scrollWidth;
@@ -630,7 +660,8 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     if (!element.isConnected || !element.ownerDocument.defaultView) {
       target = null;
       unwatch();
-      context.outline(null);
+      point(null);
+      context.held?.(null);
       clear(GONE);
       return;
     }
@@ -673,7 +704,8 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
     target = element;
     pseudo = name ?? null;
     if (pseudo !== null && !pseudos.includes(pseudo)) pseudos = [...pseudos, pseudo];
-    context.outline(element);
+    point(null);
+    context.held?.(element);
     if (!element) {
       unwatch();
       context.title("styles");
@@ -709,6 +741,7 @@ export function createStylesView(context: StylesContext, page: StylesPage = PAGE
       unwatch();
       unsubscribe();
       fitter?.disconnect();
+      point(null);
       context.area?.(null);
       crumbs.removeEventListener("keydown", onCrumbKey);
       dropTips();

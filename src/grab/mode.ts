@@ -36,7 +36,7 @@ const BLOCKED = [
 export interface Purpose {
   /** What the label says of an element, in place of its tag and its component. */
   label(element: Element): { tag: string; name: string | null };
-  /** An element was picked. Nothing is copied, and the mode stays on for the next. */
+  /** An element was picked. Nothing is copied, and the mode ends with the pick. */
   pick(element: Element): void;
 }
 
@@ -49,7 +49,7 @@ export interface ModeOptions {
   heldKey: (event: KeyboardEvent) => boolean;
   /** Another use of the picking than grab's copy, as inspect is. */
   purpose?: Purpose;
-  /** Grab ended from inside: a copy, or escape. */
+  /** Grab ended from inside: a copy, a pick handed to a purpose, or escape. */
   onExit(): void;
 }
 
@@ -103,9 +103,9 @@ function onControl(event: Event): boolean {
  * there, so a click can copy it whole in the click itself, as Safari wants.
  * The box goes to an element once the pointer settles on it, and not to those
  * it only passes over. With a `purpose` the picking is the same and what a pick
- * does is not: nothing is gathered or copied, the mode stays on, and the box
- * shows the element's margin, border, padding and content, with a card of
- * what its text is set in by it.
+ * does is not: nothing is gathered or copied, the pick is handed over and ends
+ * the mode, and until then the box shows the element's margin, border, padding
+ * and content, with a card of what its text is set in by it.
  */
 export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
   const { purpose } = options;
@@ -258,6 +258,7 @@ export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
     if (!target) return;
     if (purpose) {
       purpose.pick(target);
+      exit();
       return;
     }
     if (event.shiftKey) {
@@ -303,6 +304,7 @@ export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
       event.preventDefault();
       event.stopImmediatePropagation();
       purpose.pick(current);
+      exit();
       return;
     }
     if (event.key !== "Enter" && !isCLike(event.key, event.code)) return;
