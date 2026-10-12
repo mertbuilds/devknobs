@@ -126,7 +126,7 @@ export function createDrag(context: DragContext): Drag {
    * Put a pinned panel where it goes: a column from the window's top to its
    * bottom, whatever its place says. Open, it shows no handle, and the host
    * starts at the window's top. Closed, the handle shows where it was put,
-   * and the column slides away from under it.
+   * once the column has slid away.
    */
   function placeColumn(at: Place, open: boolean): void {
     const room = { view: window.innerHeight, handle: handle.getBoundingClientRect().height };

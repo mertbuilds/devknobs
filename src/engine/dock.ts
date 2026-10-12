@@ -54,23 +54,26 @@ export interface ColumnEdge {
   moving: boolean;
 }
 
-let column: ((side: SideValue) => ColumnEdge | null) | null = null;
+let column: ((side: SideValue, time: number) => ColumnEdge | null) | null = null;
 
 /**
  * The panel says how to read its column where it shows. The frame asks each
- * animation frame the column moves in, so the page's edge keeps to the
+ * animation frame the column moves in, with that frame's time, so the panel
+ * draws the column for the frame before it is read and the page's edge is the
  * column's. Returns the way to stop.
  */
-export function watchColumn(read: (side: SideValue) => ColumnEdge | null): () => void {
+export function watchColumn(
+  read: (side: SideValue, time: number) => ColumnEdge | null,
+): () => void {
   column = read;
   return () => {
     if (column === read) column = null;
   };
 }
 
-/** The column on `side` as it shows now, or null with no panel to read. */
-export function columnEdge(side: SideValue): ColumnEdge | null {
-  return column?.(side) ?? null;
+/** The column on `side` as it shows in the frame of `time`, or null with no panel to read. */
+export function columnEdge(side: SideValue, time: number): ColumnEdge | null {
+  return column?.(side, time) ?? null;
 }
 
 /** Does a window `view` px wide leave the page its least beside a pinned panel `column` px wide? */
