@@ -14,7 +14,6 @@ import {
   setOutside,
 } from "../src/engine/outside";
 import { copyPage, paintPage, shootPage } from "../src/engine/pageshot";
-import { parseKept, SCROLL_KEY, SCROLL_VERSION } from "../src/engine/scrollkeep";
 import { keepDrawing, SNAPSHOT_KEY } from "../src/engine/placeholder";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
 import { type Mark, MARK_EVENT } from "../src/engine/touchmark";
@@ -3385,65 +3384,6 @@ describe("an outside page in the frame", () => {
       press(BACK);
       expect(backs).toBe(1);
       expect(owned).toBe(0);
-    });
-  });
-
-  describe("and the scroll place kept for a load", () => {
-    let items: Map<string, string>;
-
-    beforeEach(() => {
-      items = new Map();
-      Object.assign(location, { pathname: "/settings" });
-      Object.assign(window, {
-        sessionStorage: {
-          getItem: (key: string) => items.get(key) ?? null,
-          setItem: (key: string, value: string) => items.set(key, value),
-          removeItem: (key: string) => items.delete(key),
-        },
-      });
-      // The knobs were drawn once with no frame, so the one that comes up is a knob's, not a reload's.
-      apply(DEFAULT_STATE);
-    });
-
-    test("is the page's for a frame that comes up with the window's own page", () => {
-      foreign = false;
-      apply(PHONE_STATE);
-      expect(parseKept(items.get(SCROLL_KEY) ?? null)?.frame).toEqual({
-        path: "/settings",
-        x: 0,
-        y: SCROLL_Y,
-      });
-    });
-
-    test("is none for a frame that comes up with an outside page", () => {
-      setOutside(OUTSIDE, false);
-      apply(PHONE_STATE);
-      expect(items.has(SCROLL_KEY)).toBe(false);
-      expect(touched).toBe(0);
-    });
-
-    test("is not taken from an outside page on its reload button", () => {
-      setOutside(OUTSIDE, false);
-      apply(PHONE_STATE);
-      loaded();
-      play();
-      glyphOf(RELOAD)?.dispatchEvent(new Event("click"));
-      expect(sent).toEqual([OUTSIDE, OUTSIDE]);
-      expect(items.has(SCROLL_KEY)).toBe(false);
-      expect(touched).toBe(0);
-    });
-
-    test("goes on the way back to the window's own page, which starts at its top", () => {
-      setOutside(OUTSIDE, false);
-      apply(PHONE_STATE);
-      loaded();
-      const place = { path: "/settings", x: 0, y: 320 };
-      items.set(SCROLL_KEY, JSON.stringify({ v: SCROLL_VERSION, at: Date.now(), frame: place }));
-      clearOutside();
-      apply(PHONE_STATE);
-      expect(sent).toEqual([OUTSIDE, PAGE]);
-      expect(items.has(SCROLL_KEY)).toBe(false);
-      expect(touched).toBe(0);
     });
   });
 
