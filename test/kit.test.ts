@@ -6,7 +6,10 @@ import {
   confirmLine,
   controls,
   emptyLine,
+  entryFold,
+  entryRow,
   filterField,
+  noteButton,
   noteLine,
   pairs,
   rowBox,
@@ -140,6 +143,14 @@ describe("filterField", () => {
 });
 
 describe("toolbar, emptyLine and sectionFold", () => {
+  test("a bar's own controls have a line to themselves under its filter, which is a line wide", () => {
+    const filter = filterField({ placeholder: "filter", onInput() {} });
+    const line = controls([{ label: "add", run() {} }]);
+    const bar = fake(toolbar([filter.node, line.node]));
+    expect(bar.children.map((child) => child.className)).toEqual(["field filter", "chips"]);
+    expect(rules(CSS).find((rule) => rule.selector === ".toolbar > .chips")?.body.trim()).toBe("flex: 1 1 100%;");
+  });
+
   test("the bar holds what it is handed, in order", () => {
     const filter = filterField({ placeholder: "filter", onInput() {} });
     const kinds = segments({ options: KINDS, label: "kind", onChange() {} });
@@ -319,14 +330,92 @@ describe("what folds out under a view's row", () => {
     expect(heard).toEqual(["no", "yes"]);
   });
 
-  test("the storage view's own css is only for its cells: it sets no box on a row, a bar or a head", () => {
-    const own = rules(CSS).filter((rule) => /\.st-/.test(rule.selector));
-    expect(own.map((rule) => rule.selector)).toEqual([".st-key", ".st-key.own", ".st-preview", ".st-size", ".st-list"]);
+  test("a line of a table is a fold from the builder: a name, its value and what the line ends with", () => {
+    const heard: boolean[] = [];
+    const fold = entryFold({ name: "token", value: "abc", end: "3 B", open: false, onToggle: (open) => heard.push(open) });
+    const node = fake(fold.node);
+    expect(node.className).toBe("row");
+    const [main] = node.find("main");
+    expect(main?.tag).toBe("button");
+    expect(main?.children.map((child) => [child.className, child.textContent])).toEqual([
+      ["turn", ""],
+      ["row-label cell-name columned", "token"],
+      ["cell-value", "abc"],
+      ["cell-end", "3 B"],
+    ]);
+    // A name cut short is whole in its tooltip.
+    expect(fake(fold.label).title).toBe("token");
+    main?.fire("click");
+    expect(node.className).toBe("row open");
+    expect(heard).toEqual([true]);
+  });
+
+  test("a name stands on the table's column only where a value follows it, and a quiet one says so by its class alone", () => {
+    const bare = fake(entryFold({ name: "shop", end: "version 3", open: false }).node);
+    expect(bare.find("main")[0]?.children.map((child) => child.className)).toEqual(["turn", "row-label cell-name", "cell-end"]);
+    const alone = fake(entryFold({ name: "pages", end: "", open: false }).node);
+    expect(alone.find("main")[0]?.children.map((child) => child.className)).toEqual(["turn", "row-label cell-name"]);
+    // An empty value still holds its column.
+    const empty = fake(entryFold({ name: "flag", value: "", open: false }).node);
+    expect(empty.find("main")[0]?.children.map((child) => child.className)).toEqual(["turn", "row-label cell-name columned", "cell-value"]);
+    const quiet = fake(entryFold({ name: "devknobs", value: "{}", quiet: true, open: false }).node);
+    expect(quiet.find("row-label")[0]?.className).toBe("row-label cell-name columned quiet");
+  });
+
+  test("a line of a table that does nothing is a row from the builder, with no control in it", () => {
+    const row = entryRow({ name: "GET /p/0", end: "200 · 1 KB" });
+    const node = fake(row.box);
+    expect(node.className).toBe("row");
+    const [main] = node.find("main");
+    expect(main?.tag).toBe("div");
+    expect(main?.children.map((child) => [child.className, child.textContent])).toEqual([
+      ["row-label cell-name", "GET /p/0"],
+      ["cell-end", "200 · 1 KB"],
+    ]);
+    expect(fake(row.label).title).toBe("GET /p/0");
+  });
+
+  test("a table's cells set type, color and their share of the line, and no box: every line has the one column", () => {
+    const own = rules(CSS).filter((rule) => /\.cell-/.test(rule.selector));
+    expect(own.map((rule) => rule.selector)).toEqual([
+      ".cell-name",
+      ".cell-name.columned",
+      ".cell-name.quiet",
+      ".cell-value",
+      ".cell-end",
+    ]);
     for (const rule of own) {
       expect(`${rule.selector} {${rule.body}}`).not.toMatch(/(^|[\s;])(padding|border|outline|box-shadow|background|font-weight)(-[a-z-]+)?\s*:/);
     }
-    // One of devknobs' own is told by fainter text alone.
-    expect(own.find((rule) => rule.selector === ".st-key.own")?.body.trim()).toBe("color: var(--faint);");
+    // The column is said once, with a floor and a ceiling, and is no row's own to change.
+    expect(own.find((rule) => rule.selector === ".cell-name.columned")?.body.trim()).toBe("flex: 0 0 clamp(72px, 38%, 200px);");
+    // A quiet name is told by fainter text alone.
+    expect(own.find((rule) => rule.selector === ".cell-name.quiet")?.body.trim()).toBe("color: var(--faint);");
+    // What a line ends with is pushed to the far end, and by no length.
+    expect(across(own.find((rule) => rule.selector === ".cell-end")?.body ?? "")).toEqual([["margin-left", "auto"]]);
+  });
+
+  test("a note that is a control is a button with the note's line, and runs on a press", () => {
+    let ran = 0;
+    const node = fake(noteButton("3 hidden (devknobs' own)", () => ran++));
+    expect(node.tag).toBe("button");
+    expect(node.type).toBe("button");
+    expect(node.className).toBe("note note-button");
+    expect(node.textContent).toBe("3 hidden (devknobs' own)");
+    node.fire("click");
+    expect(ran).toBe(1);
+    const own = rules(CSS).filter((rule) => /\.note-button/.test(rule.selector));
+    expect(own.map((rule) => rule.selector)).toEqual([".note-button", ".note-button:hover"]);
+    for (const rule of own) {
+      expect(across(rule.body)).toEqual([]);
+      expect(`${rule.selector} {${rule.body}}`).not.toMatch(/(^|[\s;])(border|outline|box-shadow|background|font-weight)(-[a-z-]+)?\s*:/);
+    }
+  });
+
+  test("the storage view has no css of its own but its lists': its cells and lines are the kit's", () => {
+    const own = rules(CSS).filter((rule) => /\.st-/.test(rule.selector));
+    expect(own.map((rule) => rule.selector)).toEqual([".st-list"]);
+    expect(across(own[0]?.body ?? "")).toEqual([]);
   });
 
   test("the swatch list's field is the kit's: its own css is for its swatches, the x and the plus", () => {
@@ -372,7 +461,7 @@ describe("a view's chrome", () => {
   test("the bar has only the shared rules: nothing else pads, edges or rounds one", () => {
     expect(rules(CSS).filter((rule) => rule.selector === ".toolbar")).toHaveLength(1);
     const bar = naming(/\.toolbar\b/);
-    expect(bar.map((rule) => rule.selector)).toEqual([".toolbar > .filter", ".toolbar > .seg"]);
+    expect(bar.map((rule) => rule.selector)).toEqual([".toolbar > .filter", ".toolbar > .seg", ".toolbar > .chips"]);
     for (const rule of bar) expect(`${rule.selector} {${rule.body}}`).not.toMatch(BOX);
   });
 
@@ -439,7 +528,7 @@ describe("a view's chrome", () => {
   ];
 
   /** The head, the kit's pieces and a row's parts: what a view is built from. */
-  const KIT = /\.(view-head|view-actions|view-body|row|line|main|lead|grip|turn|row-label|row-value|row-button|row-control|row-key|rows-label|toolbar|filter|empty|note|group|group-head|group-label|pairs|pair-name|pair-value|code|code-text|split|stack|ask|fold|fold-body|add|head|entry|editor|knob-label)(?![\w-])/;
+  const KIT = /\.(view-head|view-actions|view-body|row|line|main|lead|grip|turn|row-label|row-value|row-button|row-control|row-key|rows-label|toolbar|filter|empty|note|note-button|cell-name|cell-value|cell-end|group|group-head|group-label|pairs|pair-name|pair-value|code|code-text|split|stack|ask|fold|fold-body|add|head|entry|editor|knob-label)(?![\w-])/;
 
   /** A view's own root, and the panes: where a view could pad all it holds at once. */
   const VIEW = /\.(keys|home|body|pane|view|view-body|styles|css-blocks|req-detail|req-list|req-body|req-headers|st-list)(?![\w-])|#|data-layout/;

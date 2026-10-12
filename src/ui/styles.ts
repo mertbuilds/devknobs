@@ -1032,6 +1032,30 @@ button:focus-visible { outline: 1px solid var(--faint); outline-offset: -1px; }
 }
 .toolbar > .filter { flex: 1 1 96px; min-width: 0; }
 .toolbar > .seg { flex: none; max-width: 100%; }
+/* A bar's own controls have a line to themselves, under its filter. */
+.toolbar > .chips { flex: 1 1 100%; }
+/* A line of a table: its name in the type code is read in, then its value on
+   one line, cut where it is long and quiet, then what the line ends with.
+   Where a value follows, the name has a column every line of the table has,
+   a share of the line with a floor and a ceiling, so names and values line
+   up down the list. A quiet name is told by its fainter text alone. */
+.cell-name { font: 11px/1.5 var(--mono); color: var(--fg); }
+.cell-name.columned { flex: 0 0 clamp(72px, 38%, 200px); }
+.cell-name.quiet { color: var(--faint); }
+.cell-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px/1.5 var(--mono);
+  color: var(--faint);
+}
+.cell-end { flex: none; margin-left: auto; font-size: 10px; color: var(--faint); }
+/* A note that is a control: a line wide, with room over and under it to
+   press, and in the text's color under the pointer. */
+.note-button { display: block; width: 100%; padding-top: 4px; padding-bottom: 4px; transition: color 120ms ease-out; }
+.note-button:hover { color: var(--fg); }
 /* A section of a view that folds, a row as the rows are: its chevron where
    a row's icon is, to the side while folded and down while out. */
 .turn { flex: none; align-self: center; display: grid; }
@@ -1449,25 +1473,7 @@ s.css-decl, s.css-decl .css-var { color: var(--faint); text-decoration: line-thr
 .req-fn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .req-where { flex: 0 1 auto; min-width: 32px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); }
 
-/* The storage view's own cells: a key and a cookie's name in the type code is
-   read in, the value after it cut to the line, and its size at the end. One
-   of devknobs' own items is told by its fainter key alone. */
-.st-key {
-  max-width: 55%;
-  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--fg);
-}
-.st-key.own { color: var(--faint); }
-.st-preview {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--faint);
-}
-.st-size { flex: none; margin-left: auto; font-size: 10px; color: var(--faint); }
+/* The lists of the storage view, a row under a row as the panel's rows are. */
 .st-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
 
 /* The pinned panel: a column the window's height, flush with its edge and
