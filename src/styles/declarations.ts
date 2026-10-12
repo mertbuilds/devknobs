@@ -1,3 +1,5 @@
+import { varReferences } from "./varrefs";
+
 /** A declaration as a rule's `cssText` has it. */
 export interface Written {
   name: string;
@@ -6,7 +8,6 @@ export interface Written {
 }
 
 const IMPORTANT = /!\s*important\s*$/i;
-const VAR = /var\(\s*(--[^\s,)]+)/g;
 
 /** Past the string whose quote is at `at`. */
 function skipString(text: string, at: number): number {
@@ -79,11 +80,7 @@ export function parseDeclarations(cssText: string): Written[] {
 
 /** The custom properties a value reads through `var()`, those in fallbacks too, each once. */
 export function variableNames(value: string): string[] {
-  const names = new Set<string>();
-  for (const match of value.matchAll(VAR)) {
-    if (match[1]) names.add(match[1]);
-  }
-  return [...names];
+  return [...new Set(varReferences(value).map((reference) => reference.name))];
 }
 
 /** What reading a declaration block takes: the longhands it lists and what each is set to. */
