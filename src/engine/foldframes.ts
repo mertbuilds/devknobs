@@ -21,17 +21,18 @@ import {
 } from "./fold";
 import { freeOf, reachOf, screenLook, wedgeOf } from "./foldgl";
 import {
-  creaseOf,
   type Face,
   div,
   type Glued,
   gluedOf,
   light,
+  litByGl,
   type Pictures,
   placeAt,
   screenOf,
   turningOf,
 } from "./foldpage";
+import { backColor, finds, tuneChanges } from "./foldtune";
 import type { Rect } from "./mock";
 import type { Corners } from "./morph";
 
@@ -77,8 +78,9 @@ export interface Shots {
 /**
  * How far the dark under the window reaches past the turned screen, in its
  * css px, under the case all round, but for the open screen's hinge side,
- * where the page goes on past it: so where the window's edge and the case's
- * hole each fade out over a px, the mat never shows between them.
+ * where the page goes on past it and the dark stops short, as `bled` has it:
+ * so where the window's edge and the case's hole each fade out over a px,
+ * the mat never shows between them.
  */
 export const BLEED = 2;
 
@@ -100,7 +102,7 @@ function boxAround(drawn: readonly FoldStill[]): [number, number, number, number
 /**
  * The half that turns as the fold's frames, `found`, laid on the fold: a
  * canvas over where every frame lies in the render, under it the screens
- * with the page glued on, the bend's half on the open one, and under them a
+ * with the page glued on, nothing over them at the hinge, and under them a
  * canvas over where every half that stays lies. Null where there is no
  * canvas to draw on.
  */
@@ -129,7 +131,6 @@ export function shotsOf(layout: FoldLayout, open: Face, closed: Face, pictures: 
   const density = (window.devicePixelRatio || 1) * Math.max(layout.folded.scale, layout.unfolded.scale);
   const inner = gluedOf(open, pictures.open, sides.inner, layout.across, box, margin(open, "inner"), density);
   const outer = gluedOf(closed, pictures.closed, sides.outer, layout.across, box, margin(closed, "cover"), density);
-  inner.shade.after(creaseOf(layout, open, true, sides.inner.rect));
   model.append(still.canvas, inner.node, outer.node, canvas);
   const { rect } = screenOf(closed);
   return {
@@ -183,11 +184,17 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
   const fade = (value: number) => (value >= 1 ? "" : String(Math.round(Math.max(0, value) * 1000) / 1000));
   model.style.opacity = fade(shown);
   turning.still.canvas.style.opacity = fade(still);
-  // The screens change only with the frame, or with what draws them.
-  const by = [turning.inner.gl, turning.inner.pictures, turning.outer.gl, turning.outer.pictures];
+  // The screens change only with the frame, with what draws them, or with a number of their look set by hand.
+  // And with what lies over them: WebGL2 shades a screen itself once the bars' copy is off it.
+  const over = [turning.inner.stage.lastElementChild, turning.outer.stage.lastElementChild];
+  const by = [turning.inner.gl, turning.inner.pictures, turning.outer.gl, turning.outer.pictures, typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE ? tuneChanges() : 0, ...over];
   const { lit } = turning;
   if (lit && lit.shot === shot && lit.by.every((one, index) => one === by[index])) return;
   turning.lit = shot && { shot, by };
+  // The case's pictures, but where a hand looks for what draws a line.
+  const framed = (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) && finds.frameOn < 0.5 ? "hidden" : "";
+  plane.canvas.style.visibility = framed;
+  turning.still.canvas.style.visibility = framed;
   const pane = shot && shotPane(shots, shot);
   const quad = shot && pane ? shotQuad(shot, pane) : null;
   for (const glued of [turning.inner, turning.outer]) {
@@ -200,37 +207,78 @@ export function pose(turning: Shots, layout: FoldLayout, open: number, shown: nu
     if (!seen || !picture || !opening) continue;
     // The page stays still and flat behind the turned screen, dark where the screen reaches past it.
     glued.cut.style.clipPath = `path("${roundedPath(rect, glued.radii, seen)}")`;
-    glued.node.style.clipPath = `path("${roundedPath(bled(rect, glued.pane, layout.across, seen), bledRadii(glued.radii), seen)}")`;
+    // It stops short of the hinge, its dark with it, as far as `over` css px of the page lying flat are in the render.
+    const short = glued.over * (picture.width / (layout.across ? rect.width : rect.height));
+    const dark = bled(rect, glued.pane, layout.across, seen, short, 8 * glued.over);
+    glued.node.style.clipPath = `path("${roundedPath(dark, bledRadii(glued.radii), seen)}")`;
     const { x, y } = plane.corner;
+    glued.node.style.background = backOf(typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE ? backColor() : "#000", picture.x + picture.width - x, short);
     glued.picture.style.transform = flatMatrix(glued.size, { ...picture, x: picture.x - x, y: picture.y - y }, layout.across);
     const free = freeOf(opening, glued.pane, picture);
-    // The free edge's dark is WebGL2's where it draws the page, else a gradient's.
-    light(glued, open, glued.gl ? null : free, free);
+    // The free edge's dark is WebGL2's where it draws the page, else a gradient's, and so are the screen's shades.
+    const own = litByGl(glued);
+    light(glued, open, glued.gl ? null : free, free, own);
     const span = layout.across ? glued.size.height : glued.size.width;
     const wedge = wedgeOf(opening, glued.pane, picture, span);
-    glued.gl?.draw(screenLook(glued.pane, open, glued.extent, wedge, free));
+    glued.gl?.draw(screenLook(open, wedge, free, own ? glued.pane : null, glued.pane));
   }
+}
+
+/**
+ * The dark under a window as a css background, `color` all over, or, where
+ * the window stops `short` px of the render short of the hinge, at `hinge`
+ * in the node, the picture's right, only up to twice as far short of it. The
+ * browser cuts the dark and the page's canvas over it each by itself where
+ * the window is cut: on that edge, where each covers a part of a px, the
+ * dark shows through the page, a fifth of it black, as a line down the
+ * hinge. So the dark ends before that edge, on one of its own under the
+ * page, and only the page is cut there, over the half that stays.
+ */
+export function backOf(color: string, hinge: number, short: number): string {
+  if (short <= 0) return color;
+  const wide = Math.round((hinge - 2 * short) * 100) / 100;
+  return `linear-gradient(${color}, ${color}) 0 0 / ${wide}px 100% no-repeat`;
 }
 
 /**
  * A screen's rect, seen as `seen` has it, bigger by `BLEED` px along the
  * hinge and by as much as `SEEN_BLEED` takes across it, but at the open
- * screen's hinge: its right held across, else its top.
+ * screen's hinge, its right held across, else its top: there it is smaller,
+ * by as much as it takes to be seen `short` px of the render short of the
+ * hinge, and by no more than `most` of its own px. So the window
+ * and its dark end on one edge there, short of the hinge, with the half that
+ * stays under it: the dark never has an edge of its own beside the page's,
+ * for a px of the display to show it through. With no `short`, it ends at
+ * the hinge.
  */
-function bled(rect: Rect, pane: Pane, across: boolean, seen: (point: Point) => Point): Rect {
+export function bled(rect: Rect, pane: Pane, across: boolean, seen: (point: Point) => Point, short = 0, most = 0): Rect {
   const { x, y, width, height } = rect;
   const middle = { x: x + width / 2, y: y + height / 2 };
-  // How far a side has to go out to be seen `SEEN_BLEED` px of the render further on.
-  const outward = (at: Point, step: Point) => {
+  // How many px of the render a px of the screen is seen as, going `step` from `at`.
+  const shown = (at: Point, step: Point) => {
     const from = seen(at);
     const to = seen({ x: at.x + step.x, y: at.y + step.y });
-    const shown = Math.hypot(to.x - from.x, to.y - from.y);
-    return Math.max(BLEED, Math.min(8 * BLEED, shown > 0 ? SEEN_BLEED / shown : 8 * BLEED));
+    return Math.hypot(to.x - from.x, to.y - from.y);
+  };
+  // How far a side has to go out to be seen `SEEN_BLEED` px of the render further on.
+  const outward = (at: Point, step: Point) => {
+    const by = shown(at, step);
+    return Math.max(BLEED, Math.min(8 * BLEED, by > 0 ? SEEN_BLEED / by : 8 * BLEED));
+  };
+  // How far the hinge's side has to come in to be seen `short` px of the render short of it: a way in, so less than none out.
+  const inward = (at: Point, step: Point) => {
+    if (short <= 0) return 0;
+    const by = shown(at, step);
+    return -Math.min(most, by > 0 ? short / by : most);
   };
   const hinge = pane === "inner";
   const left = across ? outward({ x, y: middle.y }, { x: -1, y: 0 }) : BLEED;
-  const right = across ? (hinge ? 0 : outward({ x: x + width, y: middle.y }, { x: 1, y: 0 })) : BLEED;
-  const top = across ? BLEED : hinge ? 0 : outward({ x: middle.x, y }, { x: 0, y: -1 });
+  const right = across
+    ? hinge
+      ? inward({ x: x + width, y: middle.y }, { x: -1, y: 0 })
+      : outward({ x: x + width, y: middle.y }, { x: 1, y: 0 })
+    : BLEED;
+  const top = across ? BLEED : hinge ? inward({ x: middle.x, y }, { x: 0, y: 1 }) : outward({ x: middle.x, y }, { x: 0, y: -1 });
   const bottom = across ? BLEED : outward({ x: middle.x, y: y + height }, { x: 0, y: 1 });
   return { x: x - left, y: y - top, width: width + left + right, height: height + top + bottom };
 }

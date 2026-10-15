@@ -9,8 +9,9 @@ import type {
   DirValue,
   EdgeValue,
   GeoErrorValue,
+  CustomColor,
   GrabColorValue,
-  MatColorValue,
+  MatColorName,
   MotionValue,
   OnlineValue,
   OrientationValue,
@@ -22,7 +23,9 @@ import type {
   VisionValue,
 } from "../types";
 import { mergeClock } from "./clock";
+import { isCustomColor } from "./color";
 import { deviceOf, formParent, hold, POSTURES, settle } from "./devices";
+import { webStorage } from "./fresh";
 import { DEFAULT_ACCURACY, DEFAULT_SPEED } from "./geo";
 import { newer, stamped } from "./stored";
 import { clampZoom } from "./zoom";
@@ -30,7 +33,7 @@ import { clampZoom } from "./zoom";
 export const STORAGE_KEY = "devknobs";
 
 /** The version of the state `STORAGE_KEY` keeps. Bump it with a change of shape, see stored.ts. */
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 
 /**
  * Where the panel's place is kept beside the session, in `localStorage`, so
@@ -39,16 +42,22 @@ export const STATE_VERSION = 1;
 export const PLACE_KEY = "devknobs:place";
 
 /** The version of the place `PLACE_KEY` keeps. Bump it with a change of shape, see stored.ts. */
-export const PLACE_VERSION = 1;
+export const PLACE_VERSION = 2;
 
-/** What of the panel outlives the session: its side and where it sits on it. */
-export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab">;
+/** What of the panel outlives the session: its side, where it sits on it, and whether it is pinned there. */
+export type PanelPlace = Pick<PanelValue, "side" | "y" | "top" | "edge" | "tab" | "docked">;
 
 /**
  * The rows a fresh panel lists, in the order they stand: the device, the
  * scheme, the text size and the locale.
  */
 export const DEFAULT_PINNED: readonly string[] = ["device", "scheme", "text", "locale"];
+
+/**
+ * How far below the top of the viewport a fresh panel's handle sits, in px,
+ * and the panel's top with it.
+ */
+export const PANEL_START = 128;
 
 /**
  * Rows an older version had, by the row their knobs live in now. The old
@@ -105,14 +114,17 @@ export const DEFAULT_STATE: DevknobsState = {
   overflow: false,
   outlines: false,
   grabColor: "auto",
-  // Closed, the handle alone, until the user opens it.
+  // Closed, the handle alone, until the user opens it. It sits where a drag
+  // of the closed handle to `PANEL_START` leaves it: flush with the panel's
+  // top corner, the panel flush with no edge of the window.
   panel: {
     open: false,
     side: "right",
-    y: 16,
-    top: 16,
+    y: PANEL_START,
+    top: PANEL_START,
     edge: "none",
-    tab: "none",
+    tab: "top",
+    docked: false,
     pinned: [...DEFAULT_PINNED],
   },
 };
@@ -141,9 +153,9 @@ const VISIONS: VisionValue[] = [
   "blur",
 ];
 
-const MAT_COLORS: MatColorValue[] = ["blue", "green", "magenta", "purple", "red", "graphite"];
+const MAT_COLORS: MatColorName[] = ["blue", "green", "magenta", "purple", "red", "graphite"];
 
-const GRAB_COLORS: GrabColorValue[] = [
+const GRAB_COLORS: Exclude<GrabColorValue, CustomColor>[] = [
   "auto",
   "blue",
   "green",
@@ -159,6 +171,11 @@ function record(value: unknown): Record<string, unknown> {
 
 function oneOf<T extends string>(value: unknown, allowed: T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+/** One of the colors a knob has a name for, or one of the user's own as its hex. */
+function colorOf<T extends string>(value: unknown, named: T[], fallback: T): T | CustomColor {
+  return isCustomColor(value) ? value : oneOf(value, named, fallback);
 }
 
 function text(value: unknown, fallback: string): string {
@@ -213,25 +230,29 @@ function read(json: string | null | undefined, version: number): unknown {
  * The place fields of a stored panel, each one that is not valid taken from
  * `fallback`. One stored before the panel had a top of its own only has `y`,
  * and one stored before it had sides lives on the right, unless `fallback`
- * says otherwise.
+ * says otherwise. One stored before the panel could be pinned floats.
  */
 function placeOf(value: unknown, fallback: PanelPlace): PanelPlace {
   const panel = record(value);
+  // The edges say how `y` and `top` sit, so a place with heights of its own
+  // never takes them from `fallback`. One stored before the panel stuck to
+  // edges sticks to none, until the panel next lays itself out and finds the
+  // edges it sits flush with.
+  const own = Number.isFinite(num(panel.y, num(panel.top, Number.NaN)));
   return {
     side: oneOf(panel.side, SIDES, fallback.side),
     y: num(panel.y, fallback.y),
     top: num(panel.top, num(panel.y, fallback.top)),
-    // One stored before the panel stuck to edges sticks to none, until the
-    // panel next lays itself out and finds the edges it sits flush with.
-    edge: oneOf(panel.edge, EDGES, fallback.edge),
-    tab: oneOf(panel.tab, EDGES, fallback.tab),
+    edge: oneOf(panel.edge, EDGES, own ? "none" : fallback.edge),
+    tab: oneOf(panel.tab, EDGES, own ? "none" : fallback.tab),
+    docked: bool(panel.docked, fallback.docked),
   };
 }
 
 /** The place of a state's panel, as `PLACE_KEY` keeps it. */
 export function placeText(state: DevknobsState): string {
-  const { side, y, top, edge, tab } = state.panel;
-  return JSON.stringify(stamped({ side, y, top, edge, tab }, PLACE_VERSION));
+  const { side, y, top, edge, tab, docked } = state.panel;
+  return JSON.stringify(stamped({ side, y, top, edge, tab, docked }, PLACE_VERSION));
 }
 
 /**
@@ -311,7 +332,7 @@ export function parse(json: string | null | undefined, place?: string | null): D
     // A session stored before the zoom knob fits the frame, as it did then.
     zoom: zoom === "fit" ? zoom : clampZoom(zoom),
     // A session stored before the mat had colors lies on the blue one.
-    mat: oneOf(state.mat, MAT_COLORS, DEFAULT_STATE.mat),
+    mat: colorOf(state.mat, MAT_COLORS, "blue"),
     vision: oneOf(state.vision, VISIONS, DEFAULT_STATE.vision),
     ua: {
       preset: text(ua.preset, DEFAULT_STATE.ua.preset),
@@ -320,7 +341,7 @@ export function parse(json: string | null | undefined, place?: string | null): D
     overflow: bool(state.overflow, DEFAULT_STATE.overflow),
     outlines: bool(state.outlines, DEFAULT_STATE.outlines),
     // A session stored before grab had a color to pick lets grab pick it.
-    grabColor: oneOf(state.grabColor, GRAB_COLORS, DEFAULT_STATE.grabColor),
+    grabColor: colorOf(state.grabColor, GRAB_COLORS, "auto"),
     panel: {
       open: bool(panel.open, DEFAULT_STATE.panel.open),
       ...placeOf(panel, home),
@@ -334,7 +355,7 @@ export function parse(json: string | null | undefined, place?: string | null): D
 
 /**
  * What reset all leaves: every knob at its default and the default rows
- * listed, with the panel where it is.
+ * listed, with the panel where it is, pinned or not.
  */
 export function resetState(state: DevknobsState): DevknobsState {
   return { ...DEFAULT_STATE, panel: { ...state.panel, pinned: [...DEFAULT_PINNED] } };
@@ -359,18 +380,10 @@ export function merge(state: DevknobsState, patch: DevknobsStatePatch): Devknobs
   });
 }
 
-function storage(kind: "session" | "local"): Storage | null {
-  try {
-    return kind === "session" ? window.sessionStorage : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 /** Either storage's value under a key, or null where it cannot be read. */
 function item(kind: "session" | "local", key: string): string | null {
   try {
-    return storage(kind)?.getItem(key) ?? null;
+    return webStorage(kind)?.getItem(key) ?? null;
   } catch {
     return null;
   }
@@ -382,7 +395,7 @@ export function load(): DevknobsState {
 
 export function save(state: DevknobsState): void {
   try {
-    storage("session")?.setItem(STORAGE_KEY, JSON.stringify(stamped(state, STATE_VERSION)));
+    webStorage("session")?.setItem(STORAGE_KEY, JSON.stringify(stamped(state, STATE_VERSION)));
   } catch {
     // Private mode, disabled storage: knobs still work, they just do not stick.
   }
@@ -395,7 +408,7 @@ export function save(state: DevknobsState): void {
  */
 export function keepPlace(state: DevknobsState): void {
   try {
-    storage("local")?.setItem(PLACE_KEY, placeText(state));
+    webStorage("local")?.setItem(PLACE_KEY, placeText(state));
   } catch {
     // The same: the panel just starts on the right in a new session.
   }

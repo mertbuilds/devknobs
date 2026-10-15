@@ -1,6 +1,15 @@
 import { getState, subscribe } from "../engine";
+import { isCustomColor } from "../engine/color";
 import { baseMatchMedia } from "../engine/matchmedia";
-import { GRAB_COLOR_NAMES, GRAB_COLORS, grabColor } from "./colors";
+import { middle } from "../ui/stylesformat";
+import { type BoxRing, RINGS, ringPaths, ringQuads } from "./boxmodel";
+import { sizeText } from "./boxtext";
+import { type CardFacts, type CardRow, cardRows } from "./card";
+import { type BoxRead, readBox, readFacts } from "./cardread";
+import { createCardView } from "./cardview";
+import { boxTint, GRAB_COLOR_NAMES, GRAB_COLORS, grabColor } from "./colors";
+import { DWELL } from "./dwell";
+import { createColorReader } from "./paint";
 import { createThemeReader, type GrabTone, invertTheme, type Theme } from "./theme";
 
 /** Over everything, the panel too. It never takes a pointer. */
@@ -34,6 +43,12 @@ export const TOAST_TIME = 1500;
 const TOAST_FADE = 100;
 /** The most the label is wide, in px. Longer text is cut short. */
 const MAX_WIDTH = 280;
+/** How wide inspect's card is, whatever it says, so it keeps its shape from one element to the next. */
+const CARD_WIDTH = 264;
+/** The most the card is tall, in px. */
+const CARD_HEIGHT = 180;
+/** The most characters of an element's name on the card. A longer one is cut in its middle. */
+const NAME_MAX = 26;
 
 /** How solid two layers of one color are, the first over the second, each in percent. */
 function over(top: number, under: number): number {
@@ -48,7 +63,8 @@ function colorRules(gamut: "srgb" | "p3"): string {
 
 /**
  * One color for the boxes and the glow, wider where the screen shows P3: the
- * one picked, or a blue, and a green where the page is blue. The label goes
+ * one picked, one of the user's own too, or a blue, and a green where the page
+ * is blue. The label goes
  * by the page: light on a dark one, dark on a light one.
  */
 const CSS = `
@@ -136,6 +152,14 @@ ${colorRules("p3")}
   background: color-mix(in srgb, var(--grab) 5%, transparent);
   transition: border-color ${FADE}ms ease-out, background-color ${FADE}ms ease-out;
 }
+.tint {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity ${FADE}ms ease-out;
+}
+.tint.on { opacity: 1; }
+${RINGS.map((ring) => `.tint.${ring} { background: ${boxTint(ring)}; }`).join("\n")}
 .tip {
   position: absolute;
   inset: 0;
@@ -154,6 +178,7 @@ ${colorRules("p3")}
   white-space: nowrap;
   opacity: 0;
   --bar: #161616;
+  --quiet: #a7a7a7;
   color: #ffffff;
   background: var(--bar);
   border-radius: 6px;
@@ -183,10 +208,41 @@ ${colorRules("p3")}
 .pill .tag { flex: none; color: #a7a7a7; }
 .pill[data-bar="light"] {
   --bar: #ffffff;
+  --quiet: #737373;
   color: #171717;
   box-shadow: 0 0 0 1px rgb(0 0 0 / 10%), 0 2px 8px rgb(0 0 0 / 32%);
 }
 .pill[data-bar="light"] .tag { color: #737373; }
+/* Inspect's card: the label grown to a few rows, one width whatever it says. */
+.pill.card {
+  display: block;
+  width: ${CARD_WIDTH}px;
+  max-height: ${CARD_HEIGHT}px;
+  overflow: hidden;
+  padding: 8px;
+  border-radius: 8px;
+}
+.card .head { display: flex; align-items: center; gap: 6px; }
+.card .size, .card .val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.card .size { flex: none; margin-left: auto; color: var(--quiet); }
+.card .rows { display: grid; gap: 2px; margin-top: 6px; }
+.card .info { display: flex; align-items: center; gap: 12px; }
+.card .key { flex: none; font-size: 11px; color: var(--quiet); }
+.card .val { display: flex; align-items: center; gap: 5px; min-width: 0; margin-left: auto; }
+.card .quiet { color: var(--quiet); }
+.card .dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgb(128 128 128 / 45%);
+}
+.card .mark { flex: none; display: grid; overflow: visible; }
+.card .mark.fail { color: var(--quiet); }
 .layer [hidden] { display: none; }
 .layer[data-still] * { transition: none; }
 `;
@@ -234,6 +290,20 @@ export function labelPlace(
   if (y + pill.height > view.height - MARGIN) y = box.top - pill.height - GAP;
   y = clamp(y, MARGIN, view.height - pill.height - MARGIN);
   return { x, y };
+}
+
+/**
+ * Where inspect's card goes by a box: under it or over it as the label does,
+ * and sideways from the box's own left, kept in the window. It does not
+ * follow the pointer, so it stays put while the pointer moves over one element.
+ */
+export function cardPlace(
+  box: { top: number; bottom: number; left: number; right: number },
+  card: { width: number; height: number },
+  view: { width: number; height: number },
+): { x: number; y: number } {
+  const { y } = labelPlace(box, card, view, null);
+  return { x: clamp(box.left, MARGIN, view.width - card.width - MARGIN), y };
 }
 
 /** The first px length of a computed `border-radius`, or 0 where it has none. */
@@ -352,6 +422,12 @@ export interface Overlay {
   destroy(): void;
 }
 
+/** A layer that also draws the box of its element: its margin, border, padding and content. */
+export interface BoxOverlay extends Overlay {
+  /** Draw one area alone, or with null all four again. */
+  area(ring: BoxRing | null): void;
+}
+
 /** A box as the tween takes it: x, y, width, height and radius. */
 type Shape = [number, number, number, number, number];
 
@@ -398,8 +474,18 @@ function place(node: HTMLElement, shape: readonly number[], ratio: number): void
   write(node, "border-radius", `${shape[4] ?? 0}px`);
 }
 
-/** The layer grab draws on, in a shadow root of its own on this document. */
-export function createOverlay(): Overlay {
+/**
+ * The layer grab draws on, in a shadow root of its own on this document. A
+ * `quiet` one has no glow around the window, for a box that stays with no mode on.
+ * With `model`, as inspect asks, it tints the four areas of its element's box,
+ * the element under the pointer or else the first gathered one, and the label
+ * of the element under the pointer grows to a card. An element in one piece
+ * that no transform turns is tinted from its bounding box, and so is an inline
+ * one in several pieces. One a transform turns or scales is tinted by its own
+ * corners where the browser has `getBoxQuads`, and from its bounding box
+ * where it has not, which is then only near.
+ */
+export function createOverlay(quiet = false, model = false): BoxOverlay {
   const host = document.createElement("div");
   host.setAttribute("data-devknobs", "grab");
   host.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:${Z_INDEX}`;
@@ -450,8 +536,23 @@ export function createOverlay(): Overlay {
   const tag = document.createElement("span");
   tag.className = "tag";
   const name = document.createElement("span");
-  label.append(check, tag, name);
+  /** The card is the label's, with the mode on. The box that stays has none. */
+  const card = model && !quiet ? createCardView() : null;
+  if (card) {
+    const head = document.createElement("div");
+    head.className = "head";
+    head.append(check, tag, name, card.size);
+    label.classList.add("card");
+    label.append(head, card.rows);
+  } else label.append(check, tag, name);
   const picks: HTMLElement[] = [];
+  /** The areas of the box, under the box's own line. */
+  const tints = (model ? RINGS : []).map((ring) => {
+    const node = document.createElement("div");
+    node.className = `tint ${ring}`;
+    layer.append(node);
+    return { ring, node };
+  });
   layer.append(glow, glide, tip);
   root.append(style, layer);
   (document.body ?? document.documentElement).append(host);
@@ -489,6 +590,18 @@ export function createOverlay(): Overlay {
   /** The text the label's size was read for. */
   let sized: string | null = null;
   let size = { width: 0, height: 0 };
+  /** The computed style of each element looked at, read once and live from then on. */
+  const styles = new WeakMap<Element, CSSStyleDeclaration>();
+  const colorOf = createColorReader();
+  /** The box that is tinted, and where its element was last read, for one that is not glided to. */
+  let rings: BoxRead | null = null;
+  let ringsAt: Shape | null = null;
+  /** The one area drawn, or null for all four. */
+  let only: BoxRing | null = null;
+  /** What was read for the card, and of which element. */
+  let facts: { of: Element; read: Omit<CardFacts, "margin" | "padding"> } | null = null;
+  let factsTimer = 0;
+  let rows: CardRow[] = [];
   let toasting = false;
   let closing = false;
   let removed = false;
@@ -509,7 +622,12 @@ export function createOverlay(): Overlay {
 
   function paint(): void {
     const name = grabColor(color, tone);
-    if (layer.dataset.grab !== name) layer.dataset.grab = name;
+    if (layer.dataset.grab !== name) {
+      layer.dataset.grab = name;
+      // One of grab's own has a rule. One of the user's goes on the layer itself.
+      if (isCustomColor(name)) layer.style.setProperty("--grab", name);
+      else layer.style.removeProperty("--grab");
+    }
     if (bar && label.dataset.bar !== bar) label.dataset.bar = bar;
   }
 
@@ -561,6 +679,51 @@ export function createOverlay(): Overlay {
     for (const { piece, node } of pieces) write(node, "transform", parts.pieces[piece]);
   }
 
+  function styleOf(of: Element): CSSStyleDeclaration {
+    let style = styles.get(of);
+    if (!style) {
+      style = getComputedStyle(of);
+      styles.set(of, style);
+    }
+    return style;
+  }
+
+  /** Read the box to tint, and with it what the card says of the spacing. */
+  function measureBox(): void {
+    const first = element ? -1 : picked.findIndex((pick) => pick.isConnected);
+    const subject = element ?? picked[first] ?? null;
+    rings = subject ? readBox(subject, styleOf(subject)) : null;
+    ringsAt = shapes[first] ?? null;
+    // Until the new element was rested on, the card keeps the rows it has.
+    if (!card || !element || facts?.of !== element) return;
+    rows = rings
+      ? cardRows({ ...facts.read, margin: rings.model.margin, padding: rings.model.padding })
+      : [];
+  }
+
+  /** The pointer rested on an element: read what its card says, and draw it on the next frame. */
+  function readCard(of: Element): void {
+    if (removed || of !== element || !of.isConnected) return;
+    facts = { of, read: readFacts(of, styleOf(of), colorOf) };
+    stale = true;
+    schedule();
+  }
+
+  /** Write each area's shape, from a box on its way or the one last read. */
+  function drawTints(glide: readonly number[] | null): void {
+    const [x, y, width, height] = glide ?? ringsAt ?? [];
+    const on = rings !== null && x !== undefined && y !== undefined;
+    if (rings && on) {
+      const paths = ringPaths(
+        rings.quads ?? ringQuads({ x, y, width: width ?? 0, height: height ?? 0 }, rings.model),
+      );
+      for (const { ring, node } of tints) write(node, "clip-path", paths[ring]);
+    }
+    for (const { ring, node } of tints) {
+      node.classList.toggle("on", on && (only === null || only === ring));
+    }
+  }
+
   /**
    * Read the bounds, and write nothing: the frame writes after all of its
    * reads. A new element is glided to, and one that moved takes the box and
@@ -569,6 +732,7 @@ export function createOverlay(): Overlay {
   function measure(): void {
     if (element && !element.isConnected) element = null;
     shapes = picked.map((pick) => (pick.isConnected ? shapeOf(pick) : null));
+    if (model) measureBox();
     if (element || toasting) {
       const { theme, grab } = read(element);
       bar = invertTheme(theme);
@@ -595,17 +759,21 @@ export function createOverlay(): Overlay {
   }
 
   function writeLabel(): void {
-    const key = `${checked}\n${text.tag}\n${text.name ?? ""}`;
+    const said = card && target ? sizeText(target[2], target[3]) : "";
+    const told = card ? `\n${said}\n${JSON.stringify(rows)}` : "";
+    const key = `${checked}\n${text.tag}\n${text.name ?? ""}${told}`;
     if (key === sized) return;
     check.toggleAttribute("hidden", !checked);
     tag.textContent = text.tag;
     tag.hidden = !text.tag;
-    name.textContent = text.name ?? "";
+    name.textContent = card ? middle(text.name ?? "", NAME_MAX) : (text.name ?? "");
     name.hidden = !text.name;
-    let known = sizes.get(key);
+    // The card is one width, so it is as tall as the rows that show, whatever they say.
+    const shape = card ? `card\n${card.write(said, rows)}` : key;
+    let known = sizes.get(shape);
     if (!known) {
       known = { width: label.offsetWidth, height: label.offsetHeight };
-      sizes.set(key, known);
+      sizes.set(shape, known);
     }
     size = known;
     sized = key;
@@ -643,6 +811,7 @@ export function createOverlay(): Overlay {
     if (!at || !target) {
       last = 0;
       labelAt = null;
+      if (model) drawTints(null);
       if (!toasting) return;
       const x = Math.round((view.width - size.width) / 2);
       write(tip, "transform", `translate(${x}px, ${MARGIN * 2}px)`);
@@ -652,17 +821,14 @@ export function createOverlay(): Overlay {
     const step = tweenStep(at, target, elapsed, reduced);
     at = step.values;
     drawBox(boxParts(at, target[4], ratio));
-    const spot = labelPlace(
-      {
-        top: target[1],
-        bottom: target[1] + target[3],
-        left: target[0],
-        right: target[0] + target[2],
-      },
-      size,
-      view,
-      pointerX,
-    );
+    if (model) drawTints(at);
+    const edges = {
+      top: target[1],
+      bottom: target[1] + target[3],
+      left: target[0],
+      right: target[0] + target[2],
+    };
+    const spot = card ? cardPlace(edges, size, view) : labelPlace(edges, size, view, pointerX);
     const goal = [Math.round(spot.x), Math.round(spot.y)];
     const move = tweenStep(labelAt ?? goal, goal, elapsed, reduced);
     labelAt = move.values;
@@ -677,6 +843,10 @@ export function createOverlay(): Overlay {
   function hide(): void {
     hideTimer = 0;
     element = null;
+    // The next card starts from its first line, with nothing of this element on it.
+    clearTimeout(factsTimer);
+    facts = null;
+    rows = [];
     box.classList.remove("on");
     label.classList.remove("on");
     stale = true;
@@ -689,6 +859,7 @@ export function createOverlay(): Overlay {
     clearTimeout(hideTimer);
     clearTimeout(toastTimer);
     clearTimeout(fadeTimer);
+    clearTimeout(factsTimer);
     clearInterval(ticker);
     if (frame) window.cancelAnimationFrame(frame);
     window.removeEventListener("scroll", sync, true);
@@ -710,7 +881,7 @@ export function createOverlay(): Overlay {
   const ticker = window.setInterval(sync, SYNC_EVERY);
   // The styles are worked out once with the glow off, so that it fades in.
   void getComputedStyle(glow).opacity;
-  glow.classList.add("on");
+  if (!quiet) glow.classList.add("on");
 
   return {
     draw(current, next, gathered) {
@@ -719,6 +890,11 @@ export function createOverlay(): Overlay {
       if (current) {
         clearTimeout(hideTimer);
         hideTimer = 0;
+        if (card && current !== element) {
+          // The first line is said at once, and the rest once the pointer has rested there.
+          clearTimeout(factsTimer);
+          factsTimer = window.setTimeout(() => readCard(current), DWELL);
+        }
         element = current;
         text = next;
         checked = false;
@@ -753,6 +929,11 @@ export function createOverlay(): Overlay {
         if (!closing) box.classList.remove("copied");
         if (closing) fadeTimer = window.setTimeout(remove, fade());
       }, TOAST_TIME);
+    },
+    area(ring) {
+      if (closing || ring === only) return;
+      only = ring;
+      schedule();
     },
     destroy() {
       if (closing) return;

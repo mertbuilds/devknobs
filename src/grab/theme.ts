@@ -1,5 +1,6 @@
 // adapted from react-grab (MIT, Copyright (c) 2025 Aiden Bai)
-import { type Color, luminance, parseColor } from "../engine/color";
+import { type Color, luminance } from "../engine/color";
+import { createColorReader } from "./paint";
 
 /** What the page looks like where grab draws: the bar takes the other one. */
 export type Theme = "light" | "dark";
@@ -184,40 +185,10 @@ interface Page {
  * element once, so a reader is good for one run of grab.
  */
 export function createThemeReader(): (element: Element | null) => Reading {
-  const colors = new Map<string, Color | null>();
   const surfaces = new WeakMap<Element, Color | null>();
   const tones = new WeakMap<Element, GrabTone>();
-  let context: CanvasRenderingContext2D | null | undefined;
+  const colorOf = createColorReader();
   let page: Page | null = null;
-
-  /**
-   * A color the parser does not know, such as `oklch()`, painted on a pixel
-   * and read back.
-   */
-  function paint(value: string): Color | null {
-    if (!CSS.supports("color", value)) return null;
-    if (context === undefined) {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1;
-      canvas.height = 1;
-      context = canvas.getContext("2d", { willReadFrequently: true });
-    }
-    if (!context) return null;
-    context.clearRect(0, 0, 1, 1);
-    context.fillStyle = value;
-    context.fillRect(0, 0, 1, 1);
-    const [red = 0, green = 0, blue = 0, alpha = 0] = context.getImageData(0, 0, 1, 1).data;
-    return { red, green, blue, alpha: alpha / 255 };
-  }
-
-  function colorOf(value: string): Color | null {
-    let color = colors.get(value);
-    if (color === undefined) {
-      color = parseColor(value) ?? paint(value);
-      colors.set(value, color);
-    }
-    return color;
-  }
 
   function parentOf(element: Element): Element | null {
     if (element.parentElement) return element.parentElement;

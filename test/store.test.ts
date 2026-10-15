@@ -5,6 +5,7 @@ import {
   keepPlace,
   load,
   merge,
+  PANEL_START,
   PLACE_KEY,
   PLACE_VERSION,
   parse,
@@ -111,6 +112,7 @@ describe("parse", () => {
         top: 24,
         edge: "bottom",
         tab: "none",
+        docked: false,
         pinned: ["scheme", "clock"],
       },
     });
@@ -126,11 +128,24 @@ describe("parse", () => {
     }
   });
 
+  test("keeps a grab color of the user's own, and lets grab pick for one that does not read", () => {
+    expect(parse(JSON.stringify({ grabColor: "#ff8c00" })).grabColor).toBe("#ff8c00");
+    expect(parse(JSON.stringify({ grabColor: "pink" })).grabColor).toBe("pink");
+    for (const grabColor of ["#FF8C00", "#f80", "teal", 7]) {
+      expect(parse(JSON.stringify({ grabColor })).grabColor).toBe("auto");
+    }
+  });
+
   test("lays a session stored before the mat had colors on the blue one, and keeps one stored", () => {
     expect(DEFAULT_STATE.mat).toBe("blue");
     expect(parse(JSON.stringify({ scheme: "dark" })).mat).toBe("blue");
     expect(parse(JSON.stringify({ mat: "pink" })).mat).toBe("blue");
     expect(parse(JSON.stringify({ mat: 3 })).mat).toBe("blue");
+    expect(parse(JSON.stringify({ mat: "#1e90ff" })).mat).toBe("#1e90ff");
+    // Only a hex as the knobs keep it is one of the user's own.
+    for (const mat of ["#1E90FF", "#fff", "#1e90ff;", "rgb(1, 2, 3)"]) {
+      expect(parse(JSON.stringify({ mat })).mat).toBe("blue");
+    }
     for (const color of MAT_COLOR_NAMES) {
       expect(parse(JSON.stringify({ mat: color })).mat).toBe(color);
     }
@@ -235,6 +250,7 @@ describe("parse", () => {
       top: 200,
       edge: "none",
       tab: "none",
+      docked: false,
       pinned: [],
     });
   });
@@ -255,6 +271,18 @@ describe("parse", () => {
     expect(parse(JSON.stringify({ panel: { side: 1 } })).panel.side).toBe("right");
     expect(parse(JSON.stringify({ panel: { side: "left" } })).panel.side).toBe("left");
     expect(parse(JSON.stringify({ panel: { side: "right" } })).panel.side).toBe("right");
+  });
+
+  test("floats the panel when the session predates the pin or stored junk, and keeps one pinned", () => {
+    expect(DEFAULT_STATE.panel.docked).toBe(false);
+    expect(parse(JSON.stringify({ panel: { side: "left" } })).panel.docked).toBe(false);
+    for (const docked of ["true", 1, null, {}]) {
+      expect(parse(JSON.stringify({ panel: { docked } })).panel.docked).toBe(false);
+    }
+    expect(parse(JSON.stringify({ panel: { docked: true } })).panel.docked).toBe(true);
+    // The rows pinned to the list are another thing, and neither reads as the other.
+    const both = parse(JSON.stringify({ panel: { docked: true, pinned: ["scheme"] } })).panel;
+    expect(both).toMatchObject({ docked: true, pinned: ["scheme"] });
   });
 
   test("pins no row when the session predates pinned rows or stored junk", () => {
@@ -362,6 +390,7 @@ describe("the place kept across sessions", () => {
         side: "left",
         y: 300,
         top: 240,
+        tab: "none",
       });
     }
     expect(parse(JSON.stringify({ scheme: "dark" }), kept).scheme).toBe("dark");
@@ -375,6 +404,7 @@ describe("the place kept across sessions", () => {
       side: "right",
       y: 40,
       top: 24,
+      tab: "none",
       pinned: [],
     });
     // A session from before sides has a place, but takes the side kept.
@@ -418,7 +448,15 @@ describe("the place kept across sessions", () => {
   test("writes the place alone, the way it reads back", () => {
     const state = merge(DEFAULT_STATE, {
       scheme: "dark",
-      panel: { open: true, side: "left", y: 120, top: 80, edge: "bottom", pinned: ["scheme"] },
+      panel: {
+        open: true,
+        side: "left",
+        y: 120,
+        top: 80,
+        edge: "bottom",
+        tab: "none",
+        pinned: ["scheme"],
+      },
     });
     const text = placeText(state);
     expect(JSON.parse(text)).toEqual({
@@ -428,6 +466,7 @@ describe("the place kept across sessions", () => {
       top: 80,
       edge: "bottom",
       tab: "none",
+      docked: false,
     });
     expect(parse(null, text).panel).toEqual({
       ...DEFAULT_STATE.panel,
@@ -435,6 +474,75 @@ describe("the place kept across sessions", () => {
       y: 120,
       top: 80,
       edge: "bottom",
+      tab: "none",
+    });
+  });
+
+  test("keeps the pin with the place, for a new session to start pinned", () => {
+    const pinned = merge(DEFAULT_STATE, { panel: { side: "left", docked: true } });
+    const text = placeText(pinned);
+    expect(JSON.parse(text)).toMatchObject({ v: PLACE_VERSION, side: "left", docked: true });
+    expect(parse(null, text).panel).toEqual({ ...DEFAULT_STATE.panel, side: "left", docked: true });
+    // Never open with it: the pin is place, and open is the session's.
+    expect(parse(null, text).panel.open).toBe(false);
+  });
+
+  test("a session's own pin wins over the kept one, either way", () => {
+    const kept = (docked: boolean) => JSON.stringify({ v: PLACE_VERSION, side: "left", docked });
+    const session = (docked: boolean) => JSON.stringify({ panel: { docked } });
+    expect(parse(session(false), kept(true)).panel.docked).toBe(false);
+    expect(parse(session(true), kept(false)).panel.docked).toBe(true);
+    // A session from before the pin takes the kept one.
+    expect(parse(JSON.stringify({ panel: { y: 90 } }), kept(true)).panel.docked).toBe(true);
+  });
+
+  test("a place kept before the pin floats, at any older version, and junk does too", () => {
+    expect(PLACE_VERSION).toBe(2);
+    const place = { side: "left", y: 120, top: 80, edge: "bottom", tab: "none" } as const;
+    for (const older of [place, { v: 0, ...place }, { v: 1, ...place }]) {
+      expect(parse(null, JSON.stringify(older)).panel).toEqual({
+        ...DEFAULT_STATE.panel,
+        ...place,
+        docked: false,
+      });
+    }
+    for (const docked of ["true", 1, null]) {
+      expect(parse(null, JSON.stringify({ v: PLACE_VERSION, docked })).panel.docked).toBe(false);
+    }
+    // One from a newer devknobs reads as nothing kept, pin and all.
+    const newer = JSON.stringify({ v: PLACE_VERSION + 1, ...place, docked: true });
+    expect(parse(null, newer).panel).toEqual(DEFAULT_STATE.panel);
+  });
+
+  test("a place from before edges keeps its handle off the fresh panel's corner", () => {
+    expect(PANEL_START).toBe(128);
+    expect(DEFAULT_STATE.panel).toMatchObject({ y: PANEL_START, top: PANEL_START, tab: "top" });
+    for (const stored of [{ y: 300, top: 240 }, { y: 300 }, { top: 240 }]) {
+      const json = JSON.stringify(stored);
+      expect(parse(null, json).panel).toMatchObject({ edge: "none", tab: "none" });
+      expect(parse(JSON.stringify({ panel: stored })).panel).toMatchObject({
+        edge: "none",
+        tab: "none",
+      });
+    }
+    // With no heights of its own, a place is the fresh one, edges and all.
+    expect(parse(null, JSON.stringify({ side: "left" })).panel).toEqual({
+      ...DEFAULT_STATE.panel,
+      side: "left",
+    });
+    const stuck = JSON.stringify({ side: "left", y: 500, top: 492, edge: "bottom", tab: "bottom" });
+    expect(parse(JSON.stringify({ panel: { y: 300, top: 240 } }), stuck).panel).toMatchObject({
+      y: 300,
+      top: 240,
+      edge: "none",
+      tab: "none",
+    });
+    // With no heights of its own, a session takes the kept place, edges and all.
+    expect(parse(JSON.stringify({ panel: { open: true } }), stuck).panel).toMatchObject({
+      y: 500,
+      top: 492,
+      edge: "bottom",
+      tab: "bottom",
     });
   });
 });
@@ -470,6 +578,16 @@ describe("the kept place", () => {
     save(merge(state, { panel: { side: "right", y: 300, top: 280, edge: "bottom" } }));
     expect(session.has(STORAGE_KEY)).toBe(true);
     expect(JSON.parse(local.get(PLACE_KEY) ?? "")).toEqual(kept);
+  });
+
+  test("a save never writes the pin there either, and keeping it does", () => {
+    const { local } = stubStorage();
+    const pinned = merge(load(), { panel: { docked: true } });
+    save(pinned);
+    expect(local.has(PLACE_KEY)).toBe(false);
+    keepPlace(pinned);
+    expect(JSON.parse(local.get(PLACE_KEY) ?? "").docked).toBe(true);
+    expect(load().panel.docked).toBe(true);
   });
 
   test("keeping it writes the place that reads back", () => {

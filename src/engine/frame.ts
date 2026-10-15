@@ -1,4 +1,5 @@
-import type { DevknobsState, SchemeValue } from "../types";
+import { type BoxRing, RINGS } from "../grab/boxmodel";
+import type { DevknobsState, PanelValue, SchemeValue } from "../types";
 import { parse } from "./store";
 
 /** Marks the iframe the width knob renders the page in. */
@@ -15,13 +16,23 @@ export const FRAME_NAME = "devknobs-frame";
 export type ZoomAction = "zoom-in" | "zoom-out" | "zoom-fit";
 
 /** What a key pressed inside the frame asks of the panel above it. */
-export type KeyAction = "toggle" | "close" | "replay" | "reset" | "search" | ZoomAction;
+export type KeyAction =
+  | "toggle"
+  | "close"
+  | "replay"
+  | "requests"
+  | "reset"
+  | "storage"
+  | "search"
+  | ZoomAction;
 
 const KEY_ACTIONS: readonly KeyAction[] = [
   "toggle",
   "close",
   "replay",
+  "requests",
   "reset",
+  "storage",
   "search",
   "zoom-in",
   "zoom-out",
@@ -33,8 +44,11 @@ export type DevknobsMessage =
   | { source: "devknobs"; type: "state"; state: DevknobsState }
   | { source: "devknobs"; type: "key"; action: KeyAction }
   | { source: "devknobs"; type: "overflow"; count: number }
-  | { source: "devknobs"; type: "grab"; on: boolean; scheme?: "light" | "dark" }
-  | { source: "devknobs"; type: "ready" | "replay" };
+  | { source: "devknobs"; type: "grab" | "inspect"; on: boolean; scheme?: "light" | "dark" }
+  /** `picked`: inspect took an element in the frame. `outline`: the frame is to box another. */
+  | { source: "devknobs"; type: "ready" | "replay" | "picked" | "outline" }
+  /** The frame is to tint one area of the box it outlines, or with null all four. */
+  | { source: "devknobs"; type: "area"; ring: BoxRing | null };
 
 /** The parts of a `MessageEvent` that decide whether devknobs reads it. */
 export interface Envelope {
@@ -113,12 +127,15 @@ function positive(value: number | string): boolean {
   return typeof value === "number" && value > 0;
 }
 
+/** The frame knobs, with the panel where it can be pinned to its side. */
+export type Framing = FrameKnobs & { panel?: Pick<PanelValue, "docked"> };
+
 /**
  * Does any knob need the page inside the frame? Device pixels only exist in a
  * frame. Vision does too: its filter on the frame leaves the panel alone and
  * fixed elements in place, where one on `<html>` would not.
  */
-export function needsFrame(knobs: FrameKnobs): boolean {
+export function knobFrame(knobs: FrameKnobs): boolean {
   return (
     positive(knobs.width) ||
     positive(knobs.height) ||
@@ -129,16 +146,37 @@ export function needsFrame(knobs: FrameKnobs): boolean {
 }
 
 /**
+ * Is the page inside the frame? A knob puts it there, and so does a panel
+ * pinned to its side: only a frame gives the page a viewport that ends where
+ * the panel starts, for its media queries, `100vw` and fixed boxes alike.
+ */
+export function needsFrame(knobs: Framing): boolean {
+  return knobFrame(knobs) || knobs.panel?.docked === true;
+}
+
+/**
+ * Is the frame up for a pinned panel alone? Then it is the page as it was,
+ * edge to edge in the room the panel leaves: no mat shows, and no zoom.
+ */
+export function plainFrame(knobs: Framing): boolean {
+  return knobs.panel?.docked === true && !knobFrame(knobs);
+}
+
+/**
  * Is the frame up whatever the frame knob says? A size, a ratio or a vision
  * deficiency brings it up alone, and the knob then changes nothing to see.
  */
-export function frameForced(knobs: FrameKnobs): boolean {
+export function frameForced(knobs: Framing): boolean {
   return needsFrame({ ...knobs, frame: false });
 }
 
-/** The knobs a framed page runs with. It is the viewport already, so it never frames itself. */
+/**
+ * The knobs a framed page runs with. It is the viewport already, so it never
+ * frames itself, for a knob or for a pinned panel.
+ */
 export function framed(state: DevknobsState): DevknobsState {
-  return needsFrame(state) ? { ...state, ...UNFRAMED } : state;
+  if (!needsFrame(state)) return state;
+  return { ...state, ...UNFRAMED, panel: { ...state.panel, docked: false } };
 }
 
 /**
@@ -169,7 +207,7 @@ export function readMessage(
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return null;
     return { source: "devknobs", type, count };
   }
-  if (type === "grab") {
+  if (type === "grab" || type === "inspect") {
     if (typeof message.on !== "boolean") return null;
     const scheme =
       message.scheme === "light" || message.scheme === "dark" ? message.scheme : undefined;
@@ -177,7 +215,13 @@ export function readMessage(
       ? { source: "devknobs", type, on: message.on, scheme }
       : { source: "devknobs", type, on: message.on };
   }
-  if (type === "ready" || type === "replay") return { source: "devknobs", type };
+  if (type === "area") {
+    const ring = RINGS.find((known) => known === message.ring) ?? null;
+    return ring === null && message.ring !== null ? null : { source: "devknobs", type, ring };
+  }
+  if (type === "ready" || type === "replay" || type === "picked" || type === "outline") {
+    return { source: "devknobs", type };
+  }
   return null;
 }
 

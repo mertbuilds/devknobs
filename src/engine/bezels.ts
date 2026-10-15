@@ -1,4 +1,5 @@
 import type { DevknobsState, OrientationValue } from "../types";
+import { hush } from "../requests/quiet";
 import { BEZEL_URLS, DUO_FOLD } from "./bezelurls";
 import { deviceOf, formId, screenOf, turn } from "./devices";
 import { type FoldShots, openOf, shotAt, shotsWindow, towardFrom } from "./fold";
@@ -298,6 +299,8 @@ function urlsOf(file: string): string[] {
     add(() => BEZEL_URLS[file]?.());
     add(() => new URL(`/node_modules/devknobs/dist/bezels/${file}`, location.href).href);
   }
+  // Devknobs' own pictures, which the requests log leaves out.
+  for (const url of urls) hush(url);
   return urls;
 }
 

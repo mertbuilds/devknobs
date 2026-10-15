@@ -1,0 +1,453 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { LAYOUTS, type Layout } from "../src/ui/dom";
+import { icon } from "../src/ui/icons";
+import type { PaneView } from "../src/ui/pane";
+import { CSS } from "../src/ui/styles";
+import { declarations, path, readSelector, readSheet } from "./columns";
+import { fake, leave, page, rules } from "./kit-dom";
+
+/**
+ * Where every line of the panel starts and ends, read off the stylesheet it
+ * ships. A head, a row and each piece of the kit start at the one place the
+ * view's layout says, so a view's head cannot stand apart from its content,
+ * whatever the view is and whichever layout it names.
+ */
+
+const sheet = readSheet(CSS);
+
+/** What every pane stands in. Lengths are told from the body's edges, which are the panes'. */
+const BODY = ["wrap", "panel", "body"];
+const zero = { left: sheet.left(path(...BODY)), right: sheet.right(path(...BODY)) };
+
+/** How far in from the pane's left edge what is in a part starts, and its box. */
+const left = (...nodes: string[]): number => sheet.left(path(...nodes)) - zero.left;
+const boxLeft = (...nodes: string[]): number => sheet.boxLeft(path(...nodes)) - zero.left;
+/** How far in from the pane's right edge what is in a part ends, and its box. */
+const right = (...nodes: string[]): number => sheet.right(path(...nodes)) - zero.right;
+const boxRight = (...nodes: string[]): number => sheet.boxRight(path(...nodes)) - zero.right;
+
+/** A column token, in px. */
+const token = (name: string): number => sheet.px(path("wrap"), name);
+const PAD = token("--col-pad");
+const ICON = token("--col-icon");
+const GAP = token("--col-gap");
+const INSET = token("--col-inset");
+const GRIP = token("--col-grip");
+
+/** A feature's view in a layout, the rows' pane and the settings'. */
+const view = (layout: Layout): string[] => [...BODY, `view pane data-layout=${layout}`];
+const HOME = [...BODY, "home pane data-layout=rows"];
+const KEYS = [...BODY, "keys pane data-layout=rows"];
+
+/** Where the lines of a view in a layout start, as the one rule for the layout says. */
+const start = (layout: Layout): number => sheet.px(path(...view(layout)), "--view-start");
+
+/** A row's line down to its main, which holds its icon and its name. */
+const MAIN = ["row", "line", "button main"];
+
+/** What a view mounts in its body, and what its lists are in: none of them moves a line. */
+const ROOTS: string[][] = [[], ["styles"], ["req-detail"], ["req-detail", "req-body"], ["req-list"], ["st-list"], ["st-list", "st-list"]];
+
+/** Every kind of line the kit builds whose first glyph stands at the start of the view's lines. */
+const LINES: Record<string, string[]> = {
+  "rowBox, a list's row": ["row", "line", "div main"],
+  "sectionFold, its chevron": MAIN,
+  "entryFold, its chevron": MAIN,
+  "entryHead, the room of a line's chevron": ["cells-head", "span cell-lead"],
+  emptyLine: ["empty"],
+  "emptyAction, a button": ["button empty empty-action"],
+  noteLine: ["note"],
+  noteButton: ["button note note-button"],
+  rowsLabel: ["rows-label"],
+  "group, its label": ["group", "group-head", "span group-label"],
+  "group, a note in it": ["group", "note"],
+  pairs: ["dl pairs"],
+  "pairs in a group": ["group", "dl pairs"],
+  "codeBlock, its text": ["code", "pre code-text"],
+};
+
+/** The kit's boxes, which go edge to edge: a bar and what is in it, a row's ground, a block of code. */
+const BOXES: Record<string, string[]> = {
+  toolbar: ["toolbar"],
+  "filterField in a bar": ["toolbar", "input field filter"],
+  "segments in a bar": ["toolbar", "seg"],
+  "controls in a bar": ["toolbar", "chips"],
+  "a row's ground": ["row"],
+  "codeBlock, its ground": ["code", "pre code-text"],
+  stack: ["stack"],
+};
+
+beforeEach(page);
+afterEach(leave);
+
+describe("the columns", () => {
+  test("are said once, on the wrapper: the pad, an icon, the gap, the inset, and the grip's column from them", () => {
+    expect({ PAD, ICON, GAP, INSET, GRIP }).toEqual({ PAD: 4, ICON: 14, GAP: 8, INSET: 10, GRIP: 22 });
+    expect(GRIP).toBe(PAD + ICON + PAD);
+    // A level of a tree is an icon and the gap in.
+    expect(token("--col-step")).toBe(ICON + GAP);
+    const setting = rules(CSS).filter((rule) => /(^|[\s;])--col-[\w-]+\s*:/.test(rule.body));
+    expect(setting.map((rule) => rule.selector)).toEqual([".wrap"]);
+  });
+
+  test("an icon is drawn as wide as its column", () => {
+    expect(Number(fake(icon("x")).attributes.get("width"))).toBe(ICON);
+    expect(Number(fake(icon("chevron-left")).attributes.get("width"))).toBe(ICON);
+  });
+
+  test("each layout has one rule, which sets where the lines start and nothing else", () => {
+    const named = rules(CSS).filter((rule) => rule.selector.includes("data-layout"));
+    expect(named.map((rule) => rule.selector)).toEqual(LAYOUTS.map((layout) => `[data-layout="${layout}"]`));
+    for (const rule of named) expect([...declarations(rule.body).keys()]).toEqual(["--view-start"]);
+    expect(start("rows")).toBe(GRIP);
+    expect(start("flush")).toBe(INSET);
+  });
+
+  test("where the lines start and end is set by the wrapper, a layout, and what folds out under a row, and by nothing else", () => {
+    const setting = rules(CSS).filter((rule) => /(^|[\s;])--view-(start|end)\s*:/.test(rule.body));
+    expect(setting.map((rule) => rule.selector)).toEqual([
+      ".wrap",
+      '[data-layout="rows"]',
+      '[data-layout="flush"]',
+      ".editor, .stack",
+    ]);
+  });
+
+  test("the resolver reads every rule that could move a part: one it cannot read sets no length across", () => {
+    for (const rule of rules(CSS)) {
+      const unread = rule.selector.split(",").some((part) => readSelector(part.trim()) === null);
+      // A rule in a keyframe, or one for a state, a pseudo-element or a sibling.
+      if (!unread) continue;
+      for (const [name, value] of declarations(rule.body)) {
+        if (!/^(padding|margin)-(left|right)$|^(left|right)$/.test(name)) continue;
+        if (/\.(wrap|handle|sizer|switch|fold-|swatch|item)/.test(rule.selector)) continue;
+        expect(`${rule.selector} { ${name}: ${value} }`).toMatch(/: (0|auto) \}$/);
+      }
+    }
+  });
+});
+
+describe("the knob rows' columns", () => {
+  const ROW = [...HOME, "rows", "row"];
+
+  test("the grip stands in its column, the icon after it, then the name", () => {
+    expect(boxLeft(...ROW)).toBe(0);
+    expect(boxLeft(...ROW, "line", "button lead grip")).toBe(PAD);
+    expect(sheet.px(path(...ROW, "line", "button lead grip"), "width")).toBe(ICON);
+    const glyph = left(...ROW, "line", "button main");
+    expect(glyph).toBe(GRIP);
+    expect(glyph).toBe(start("rows"));
+    expect(glyph + ICON + sheet.px(path(...ROW, "line", "button main"), "column-gap")).toBe(GRIP + ICON + GAP);
+  });
+
+  test("the row's value ends the inset short of its x, and the x half the pad short of the edge", () => {
+    expect(right(...ROW, "line", "button main")).toBe(INSET);
+    expect(boxRight(...ROW, "line", "button row-button clear")).toBe(PAD / 2);
+  });
+
+  test("the list's own lines are on the same columns: add knob, the empty state, and a row's editor", () => {
+    expect(left(...HOME, "button add")).toBe(GRIP);
+    expect(sheet.px(path(...HOME, "button add"), "column-gap")).toBe(GAP);
+    expect(right(...HOME, "button add")).toBe(INSET);
+    expect(left(...HOME, "empty")).toBe(GRIP);
+    expect(boxLeft(...ROW, "fold", "editor", "knob")).toBe(PAD);
+    expect(left(...ROW, "fold", "editor", "knob", "knob-label")).toBe(INSET);
+    expect(left(...ROW, "fold", "editor", "extra", "note")).toBe(INSET);
+    expect(right(...ROW, "fold", "editor", "knob", "knob-label")).toBe(INSET);
+  });
+
+  test("the search and its results start at the inset, and end where the rows do", () => {
+    const head = [...HOME, "label head data-layout=flush"];
+    const results = [...HOME, "results data-layout=flush"];
+    expect(left(...head)).toBe(INSET);
+    expect(right(...head)).toBe(INSET);
+    expect(boxRight(...head, "button search-close")).toBe(PAD);
+    expect(left(...results, "entry")).toBe(INSET);
+    expect(left(...results, "group-label")).toBe(INSET);
+    expect(left(...results, "empty")).toBe(INSET);
+    expect(right(...results, "entry")).toBe(INSET);
+    // The check of the value that is on ends where a row's x does.
+    expect(boxRight(...results, "entry", "svg glyph entry-check")).toBe(PAD / 2);
+  });
+});
+
+for (const layout of LAYOUTS) {
+  describe(`a view whose layout is ${layout}`, () => {
+    const pane = view(layout);
+    const head = [...pane, "row view-head", "line"];
+    const body = [...pane, "view-body"];
+    const at = start(layout);
+
+    test("the head's chevron starts where the view's lines start, and its title an icon and the gap on", () => {
+      const main = [...head, "button main"];
+      expect(left(...main)).toBe(at);
+      expect(sheet.px(path(...main), "column-gap")).toBe(GAP);
+      // The head is a row: the same rule places it and a row of the view.
+      expect(left(...main)).toBe(left(...body, ...MAIN));
+      expect(boxLeft(...pane, "row view-head")).toBe(0);
+    });
+
+    test("every line the kit builds starts there too, whatever the view mounts it in", () => {
+      for (const root of ROOTS) {
+        for (const [name, nodes] of Object.entries(LINES)) {
+          expect([name, root.join(" "), left(...body, ...root, ...nodes)]).toEqual([name, root.join(" "), at]);
+        }
+        // A bar in parts starts there by its margin, as it has no words.
+        expect(boxLeft(...body, ...root, "split")).toBe(at);
+      }
+    });
+
+    test("a box with a ground goes edge to edge, and what is read in it starts with the lines", () => {
+      for (const root of ROOTS) {
+        for (const [name, nodes] of Object.entries(BOXES)) {
+          expect([name, boxLeft(...body, ...root, ...nodes)]).toEqual([name, 0]);
+          expect([name, boxRight(...body, ...root, ...nodes)]).toEqual([name, 0]);
+        }
+      }
+    });
+
+    test("a table's cells stand in a row's line and set no length across: its content starts and ends where the row's does", () => {
+      for (const root of ROOTS) {
+        const main = [...body, ...root, ...MAIN];
+        const name = left(...main, "span row-label cell-name columned");
+        expect(name).toBe(at);
+        expect(left(...main, "span row-label cell-name columned quiet")).toBe(name);
+        expect(left(...main, "span cell-value")).toBe(at);
+        expect(right(...main, "span cell-end")).toBe(INSET);
+        expect(right(...main, "span cell-value")).toBe(INSET);
+      }
+    });
+
+    test("the head of a table is on its lines' columns: the same start, the same gap, and each cell as wide as the line's", () => {
+      for (const root of ROOTS) {
+        const head = [...body, ...root, "cells-head"];
+        const main = [...body, ...root, ...MAIN];
+        expect(boxLeft(...head)).toBe(0);
+        expect(left(...head)).toBe(left(...main));
+        expect(right(...head)).toBe(right(...main));
+        expect(sheet.px(path(...head), "column-gap")).toBe(sheet.px(path(...main), "column-gap"));
+        // The chevron's room is an icon wide, as the chevron is drawn.
+        expect(sheet.px(path(...head, "span cell-lead"), "width")).toBe(ICON);
+        expect(Number(fake(icon("chevron-left")).attributes.get("width"))).toBe(ICON);
+        // A number's column is as wide in the head as in a line.
+        expect(sheet.px(path(...head, "span cell-index"), "width")).toBe(ICON * 2);
+        expect(sheet.px(path(...main, "span cell-index"), "width")).toBe(ICON * 2);
+        for (const cell of ["span cell-index", "span cell-name columned", "span cell-value", "span cell-end"]) {
+          expect([cell, left(...head, cell)]).toEqual([cell, left(...main, cell.replace("cell-name", "row-label cell-name"))]);
+        }
+      }
+    });
+
+    test("a tree's nodes step in an icon and the gap a level, so each starts under the name of the node it is in", () => {
+      const STEP = ICON + GAP;
+      const node = ["row", "fold", "fold-body", "branch"];
+      const top = left(...body, ...MAIN);
+      expect(top).toBe(at);
+      // A node's name is an icon and the gap past its icon: where the nodes in it start.
+      expect(boxLeft(...body, ...node, "row")).toBe(STEP);
+      expect(left(...body, ...node, ...MAIN)).toBe(top + STEP);
+      expect(left(...body, ...node, "row", "line", "div main")).toBe(top + STEP);
+      expect(left(...body, ...node, ...node, ...MAIN)).toBe(top + STEP * 2);
+      // What a node says of itself in its branch starts with its nodes, and all of it ends where the tree does.
+      expect(left(...body, ...node, "empty")).toBe(top + STEP);
+      expect(left(...body, ...node, "note")).toBe(top + STEP);
+      expect(right(...body, ...node, ...MAIN)).toBe(INSET);
+      expect(right(...body, ...node, ...node, ...MAIN)).toBe(INSET);
+    });
+
+    test("what folds out under a row sits the pad in, and its words at the inset, whatever the layout", () => {
+      for (const holder of [["stack"], ["row", "fold", "fold-body", "stack"], ["st-list", "row", "fold", "fold-body", "stack"]]) {
+        const stack = [...body, ...holder];
+        expect(left(...stack)).toBe(PAD);
+        expect(right(...stack)).toBe(PAD);
+        for (const [name, nodes] of Object.entries(LINES)) {
+          expect([name, left(...stack, ...nodes)]).toEqual([name, INSET]);
+        }
+        expect(left(...stack, "ask", "note")).toBe(INSET);
+        expect(right(...stack, "ask", "note")).toBe(INSET);
+        expect(boxLeft(...stack, "code", "pre code-text")).toBe(PAD);
+        expect(boxLeft(...stack, "chips")).toBe(PAD);
+        // One more step in for each fold inside a fold.
+        expect(left(...stack, "row", "fold", "fold-body", "stack", "note")).toBe(INSET + PAD);
+      }
+    });
+
+    test("every line ends the inset short of the far edge, and a small button half the pad short of it", () => {
+      expect(right(...head, "button main")).toBe(INSET);
+      expect(right(...body, ...MAIN)).toBe(INSET);
+      for (const name of ["entryHead, the room of a line's chevron", "emptyLine", "noteLine", "noteButton", "rowsLabel", "pairs", "codeBlock, its text"]) {
+        expect([name, right(...body, ...(LINES[name] ?? []))]).toEqual([name, INSET]);
+      }
+      expect(boxRight(...body, "split")).toBe(INSET);
+      const action = boxRight(...head, "view-actions", "button row-button view-action");
+      expect(action).toBe(PAD / 2);
+      expect(boxRight(...body, "row", "line", "button row-button clear")).toBe(action);
+      expect(boxRight(...body, "group", "group-head", "button row-button req-copy")).toBe(action);
+    });
+
+    test("the toggle a bar starts with has its icon where the view's lines start, the pad clear on each side of it", () => {
+      for (const root of ROOTS) {
+        const tool = [...body, ...root, "toolbar", "button tool"];
+        const width = sheet.px(path(...tool), "width");
+        expect(width).toBe(ICON + PAD * 2);
+        // The icon is centered in the button, so it starts half of what the button has over it in.
+        expect([root.join(" "), boxLeft(...tool) + (width - ICON) / 2]).toEqual([root.join(" "), at]);
+        expect(boxLeft(...tool)).toBe(at - PAD);
+      }
+      // The same place the head's chevron starts at.
+      expect(boxLeft(...body, "styles", "toolbar", "button tool") + PAD).toBe(left(...head, "button main"));
+    });
+
+    test("the views' own lines start and end with the kit's: the crumbs, a css block, the box's facts, a request's summary", () => {
+      const styles = [...body, "styles"];
+      const blocks = [...styles, "css-blocks"];
+      const diagram = [...styles, "row", "fold", "fold-body", "box-model"];
+      const detail = [...body, "req-detail"];
+      const own: Record<string, string[]> = {
+        crumbs: [...styles, "crumbs"],
+        "a css block": [...blocks, "section css-block"],
+        "what applies": [...blocks, "css-block css-applied"],
+        "what is inherited, in its fold": [...blocks, "row", "fold", "fold-body", "css-applied"],
+        "a block's heading": [...blocks, "button css-group"],
+        "what is hidden": [...blocks, "css-hidden"],
+        "the box's line": [...diagram, "bm-line"],
+        "the box's facts": [...diagram, "bm-facts"],
+        "a request's summary": [...detail, "toolbar", "req-sum"],
+        "a stack's frames": [...detail, "req-body", "group", "req-stack"],
+      };
+      for (const [name, nodes] of Object.entries(own)) {
+        expect([name, left(...nodes), right(...nodes)]).toEqual([name, at, INSET]);
+      }
+      expect(boxLeft(...blocks, "section css-block")).toBe(0);
+      expect(boxLeft(...diagram, "bm-ring bm-margin")).toBe(0);
+      expect(right(...body, "toolbar", "span req-count")).toBe(INSET);
+    });
+  });
+}
+
+describe("the storage view", () => {
+  const pane = view("flush");
+  const body = [...pane, "view-body"];
+  const chevron = left(...pane, "row view-head", "line", "button main");
+  const STEP = token("--col-step");
+  const tree = [...body, "st-list"];
+  /** What a node holds, under it. */
+  const node = ["row", "fold", "fold-body", "branch"];
+  /** A table under a node: the lists its head and its lines are in. */
+  const table = ["st-list"];
+  const lines = ["st-list", "st-list"];
+  /** The levels of the tree, each as the path to what is under a node of the level over it. */
+  const levels = {
+    "a store, a top node": tree,
+    "a store's table, a database, a cache": [...tree, ...node],
+    "an object store, under its database": [...tree, ...node, ...node, "st-list"],
+    "an object store's table": [...tree, ...node, ...node, "st-list", ...node],
+  };
+
+  test("is one flush view, so the head's chevron stands at the inset", () => {
+    const source = readFileSync(join(import.meta.dir, "..", "src", "ui", "storageview.ts"), "utf8");
+    expect(source.match(/layout: "(\w+)"/g)).toEqual(['layout: "flush"']);
+    expect(chevron).toBe(INSET);
+    expect(STEP).toBe(ICON + GAP);
+  });
+
+  test("the head's chevron and a top node's chevron start at the one x, and each level is a step in from the one over it", () => {
+    const xs = Object.entries(levels).map(([name, at]) => [name, left(...at, ...MAIN)]);
+    expect(xs).toEqual([
+      ["a store, a top node", chevron],
+      ["a store's table, a database, a cache", chevron + STEP],
+      ["an object store, under its database", chevron + STEP * 2],
+      ["an object store's table", chevron + STEP * 3],
+    ]);
+    expect(xs.map(([, x]) => x)).toEqual([10, 32, 54, 76]);
+    // A node's chevron stands under the icon of the node it is in.
+    expect(chevron + ICON + GAP).toBe(left(...levels["a store's table, a database, a cache"], ...MAIN));
+    // The presets' node is a top node, under its label.
+    expect(left(...tree, "group", ...MAIN)).toBe(chevron);
+    expect(left(...tree, "group", "group-head", "span group-label")).toBe(chevron);
+    expect(left(...tree, "group", "st-list", "note")).toBe(chevron);
+  });
+
+  test("the cells of a nested table line up with its own head, and its controls and its last line start with them", () => {
+    for (const under of [levels["a store's table, a database, a cache"], levels["an object store's table"]]) {
+      const head = [...under, ...table, "cells-head"];
+      const main = [...under, ...lines, ...MAIN];
+      expect(left(...head)).toBe(left(...main));
+      expect(right(...head)).toBe(right(...main));
+      for (const cell of ["span cell-index", "span cell-name columned", "span cell-value", "span cell-end"]) {
+        expect([cell, left(...head, cell)]).toEqual([cell, left(...main, cell.replace("cell-name", "row-label cell-name"))]);
+      }
+      // A chip's word is its own 6 in, so the store's controls read from where the lines' chevrons are.
+      expect(boxLeft(...under, "stack", "chips")).toBe(left(...main) - INSET + PAD);
+      expect(left(...under, "st-list", "button note note-button")).toBe(left(...main));
+      expect(left(...under, "ask", "stack", "ask", "note")).toBe(left(...main));
+    }
+  });
+
+  test("in a panel 320 wide a line of the deepest table still has room for its key and its value", () => {
+    // The panel's padding and its border on the page's side leave the view this much.
+    const VIEW = 320 - 4 * 2 - 1;
+    /** What a line has for its cells: the view, less where its content starts and where it ends. */
+    const room = (at: string[]): number => VIEW - left(...at, ...lines, ...MAIN) - INSET;
+    /** The key's column: its share of the line, with its floor and its ceiling. */
+    const key = (width: number): number => Math.min(Math.max(72, width * 0.38), 200);
+    const web = room(levels["a store's table, a database, a cache"]);
+    const records = room(levels["an object store's table"]);
+    expect([web, records]).toEqual([269, 225]);
+    // A key and its value, after the chevron: the value has what the key and the gaps leave.
+    const webValue = web - (ICON + GAP) - key(web) - GAP;
+    // A record has its number's column too.
+    const recordValue = records - (ICON + GAP) - (ICON * 2 + GAP) - key(records) - GAP;
+    expect([Math.round(key(web)), Math.round(webValue)]).toEqual([102, 137]);
+    expect([Math.round(key(records)), Math.round(recordValue)]).toEqual([86, 74]);
+    expect(recordValue).toBeGreaterThanOrEqual(72);
+  });
+});
+
+describe("the settings", () => {
+  test("are on the knob rows' columns: the head's chevron, a row's icon and the shortcuts' title all start past the grip's", () => {
+    const chevron = left(...KEYS, "row view-head", "line", "button main");
+    expect(chevron).toBe(GRIP);
+    expect(left(...KEYS, "row", "line", "div main")).toBe(chevron);
+    expect(left(...KEYS, "rows-label")).toBe(chevron);
+    expect(chevron).toBe(left(...HOME, "rows", "row", "line", "button main"));
+    // A key ends where a knob row's value would with no x after it.
+    expect(right(...KEYS, "row", "line", "div main")).toBe(INSET);
+  });
+});
+
+describe("every view", () => {
+  const SOURCES = join(import.meta.dir, "..", "src", "ui");
+  const files = readdirSync(SOURCES).filter((name) => name.endsWith(".ts"));
+  const source = (name: string): string => readFileSync(join(SOURCES, name), "utf8");
+
+  test("names its layout: a view with none does not typecheck", () => {
+    const mount = (): void => {};
+    // @ts-expect-error a view must say where its lines start
+    const bare: PaneView = { id: "bare", title: "bare", mount };
+    const laid: PaneView = { id: "laid", title: "laid", layout: "flush", mount };
+    expect(bare.layout).toBeUndefined();
+    expect(LAYOUTS).toContain(laid.layout);
+  });
+
+  test("names it as data, where it is opened: a layout is set on a node by the pane, the settings and the rows alone", () => {
+    const setting = files.filter((name) => /\blay\(/.test(source(name).replace(/export function lay\(/, "")));
+    expect(setting.sort()).toEqual(["pane.ts", "panel.ts", "settings.ts"]);
+    for (const name of files) expect([name, /data-layout|dataset\.layout/.test(source(name))]).toEqual([name, name === "dom.ts" || name === "styles.ts"]);
+    // The pane sets the one its view names, and nothing but a view's own word for it.
+    expect(source("pane.ts")).toContain("lay(node, view.layout);");
+  });
+
+  test("has the one head: nothing but viewHead builds a head, and the pane and the settings both ask it", () => {
+    const heads = files.filter((name) => source(name).includes("view-head"));
+    expect(heads.filter((name) => name !== "styles.ts")).toEqual(["pane.ts"]);
+    expect(source("pane.ts").match(/view-head/g)).toHaveLength(1);
+    const asking = files.filter((name) => /\bviewHead\(\)/.test(source(name)));
+    expect(asking.sort()).toEqual(["pane.ts", "settings.ts"]);
+    // The way back's chevron is drawn there and in the kit's fold, and by no view.
+    const chevrons = files.filter((name) => source(name).includes('icon("chevron-left")'));
+    expect(chevrons.sort()).toEqual(["kit.ts", "pane.ts"]);
+  });
+});

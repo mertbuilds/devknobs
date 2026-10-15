@@ -27,23 +27,25 @@ import {
 } from "./fold";
 import { BLEED, pick, pose, type Shots, shotsOf } from "./foldframes";
 import {
-  creaseOf,
   type Face,
   div,
   fill,
   light,
   paintDrawn,
+  paintGlued,
   paintLeaf,
   type Panel,
   type Picture,
   type Pictures,
   pictureOf,
   placeAt,
+  roughOf,
   round,
   screenOf,
   type Turning,
   turningOf,
 } from "./foldpage";
+import { backColor, finds, hingeMoved, installTune, tuneLive, watchTune } from "./foldtune";
 import type { Mock, Rect } from "./mock";
 import { drawMock, UNDER } from "./mockdraw";
 import { type Corners, lerp } from "./morph";
@@ -110,6 +112,8 @@ interface Leaf extends Panel {
   screen: HTMLElement;
   /** The part of the screen that turns, as it lies flat, cut to where the turned one is seen. */
   window: HTMLElement;
+  /** The dark in it, under the pictures. */
+  dark: HTMLElement;
   /** The dark its ends along the hinge go toward as the half stands. */
   rim: HTMLElement;
   /** The shade's layer, turned with the body over the window. */
@@ -120,22 +124,20 @@ interface Leaf extends Panel {
   pivot: Point;
 }
 
-/** The half that turns as the copies of its two sides, and the bend's half on it. */
+/** The half that turns as the copies of its two sides. */
 interface Copies {
   inner: Leaf;
   outer: Leaf;
-  bend: HTMLElement;
 }
 
 /**
- * The layer a fold is drawn on, the fold's place on it, the half that turns,
- * as copies or as frames, and the bend's half on the half that stays.
+ * The layer a fold is drawn on, the fold's place on it, and the half that
+ * turns, as copies or as frames. Nothing marks the hinge on either half.
  */
 interface Layer {
   layer: HTMLElement;
   place: HTMLElement;
   turning: Copies | Shots;
-  still: HTMLElement;
 }
 
 /**
@@ -185,6 +187,12 @@ interface Going {
   parts: Layer;
   unit: Unit;
   /**
+   * How many times the fold was drawn since the frame's own device was last
+   * drawn open in the middle of it, while the open screen's picture is still
+   * to be looked at again. Null otherwise.
+   */
+  fresh: number | null;
+  /**
    * Under the frames, how far the still half's rendered case has faded in
    * over the device's bezel picture since the hinge left an end, and how far
    * the whole render has faded out to the device since it got still at one,
@@ -199,11 +207,68 @@ interface Going {
 
 let fold: Going | null = null;
 
+/** Why the page is laid over itself in layers on the copies of the half that turns: the Duo's frames are not in, or it is no fold of theirs. */
+const COPIES_WAIT = "the Duo's fold frames are not in yet, so copies of the half turn, and WebGL2 draws only under the frames";
+const COPIES_ONLY = "only the Duo in its bezels folds as frames, which WebGL2 draws under, and this fold turns copies of the half";
+
 /** What wants to know once a fold is over. */
 const watchers = new Set<() => void>();
 
 /** What wants to know where the hinge is drawn each time it is, and whether a hand sent it there. */
 const hinges = new Set<(open: number, hand: boolean) => void>();
+
+/** The foldable the frame shows, and the knobs it is drawn by. */
+export interface Shown {
+  scene: FoldScene;
+  value: ViewportValue;
+}
+
+/** The foldable the frame shows at rest, or null where it shows none: asked of the frame, which says how here. */
+let shown: (() => Shown | null) | null = null;
+
+/** The frame says how to ask it for the foldable it shows, for the tuning hook. */
+export function foldableShown(source: (() => Shown | null) | null): void {
+  shown = source;
+}
+
+/** How far open the hinge is drawn, 0 shut to 1 open: of the fold on its way, else as the foldable rests. Null with none up. */
+function hingeOpen(): number | null {
+  if (fold) return fold.open;
+  const rest = shown?.();
+  return rest ? openOf(rest.value.posture) : null;
+}
+
+/**
+ * The pictures of the page on the screen that shows now, as the browser
+ * draws it and then the rough one: those of the fold on its way, of the side
+ * that faces the viewer, the open screen while the hinge is more than half
+ * open, or, at rest, taken now as a fold would. Else why there is none.
+ */
+async function pagePictures(): Promise<HTMLCanvasElement[] | string> {
+  const going = fold;
+  const rest = going ? null : shown?.();
+  let picture: Picture;
+  if (going) picture = going.pictures[going.open > 0.5 ? "open" : "closed"];
+  else if (rest) {
+    const { scene, value } = rest;
+    const { size } = sideOf(scene, value, scene.screenRect());
+    picture = pictureOf(scene.frame, scene.glass, value, size, scene.background(), copyPage(scene.frame));
+  } else return "no foldable is up";
+  const drawn = await picture.painted;
+  const found = [drawn?.shot, picture.shot].filter((canvas): canvas is HTMLCanvasElement => canvas != null);
+  return found.length > 0 ? found : "the page is out of reach, so there is no picture of it";
+}
+
+// A number of the fold's look set by hand shows at once, on a hinge that rests between its ends too.
+if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) {
+  installTune();
+  tuneLive({ open: hingeOpen, pictures: pagePictures });
+  watchTune(() => {
+    if (!fold) return;
+    fold.drawn = "";
+    show(fold);
+  });
+}
 
 /** Is a foldable folding? */
 export function folding(): boolean {
@@ -273,8 +338,12 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     node,
     screen,
     window: opening,
+    dark,
     stage,
     pictures: [],
+    shot: null,
+    widths: [],
+    why: "",
     rim,
     flat,
     veil,
@@ -285,7 +354,6 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
     rect,
     radii: turning.radii,
     pivot: turning.pivot,
-    extent: across ? size.width : size.height,
     width: size.width,
     across,
   };
@@ -300,7 +368,9 @@ function leafOf(side: Face, picture: Picture, turning: Turning, across: boolean)
 /**
  * The copies of the half that turns: its inside, the open screen's half,
  * `inner`, and its outside, the folded body, `outer`, each with the window its
- * screen is, and the bend's half on it.
+ * screen is. The inside's body goes a px past the hinge and its window does
+ * not, so its screen's dark stops a px short of the hinge: none of it shows
+ * past the window, as a line down the hinge.
  */
 function copiesOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictures): Copies {
   const sides = turningOf(layout, open, closed);
@@ -316,15 +386,18 @@ function copiesOf(layout: FoldLayout, open: Face, closed: Face, pictures: Pictur
   }
   outer.node.style.transformOrigin = layout.origins.outer;
   outer.veil.style.transformOrigin = layout.origins.outer;
-  const bend = creaseOf(layout, open, true);
-  inner.veil.append(bend);
-  return { inner, outer, bend };
+  const { rect: whole } = screenOf(open);
+  const far = 1e5;
+  const short = (value: number) => Math.round((value + 1) * 100) / 100;
+  inner.screen.style.clipPath = layout.across
+    ? `inset(${-far}px ${short(whole.x + whole.width - layout.hinge)}px ${-far}px ${-far}px)`
+    : `inset(${short(layout.hinge - whole.y)}px ${-far}px ${-far}px ${-far}px)`;
+  return { inner, outer };
 }
 
 /**
  * Put the half that turns over the frame's own device, as the fold's frames
- * where `found` has them, else as copies, and the bend's half on the half that
- * stays, which shows only while the inside does, so the outside never goes over it.
+ * where `found` has them, else as copies.
  */
 function build(
   scene: FoldScene,
@@ -336,22 +409,20 @@ function build(
 ): Layer {
   const layer = div("fold");
   const place = div("");
-  const still = creaseOf(layout, open, false);
   let turning: Copies | Shots;
   const shots = found && shotsOf(layout, open, closed, pictures, found);
   if (shots) {
-    // Under the frames, which draw the hinge over it.
-    place.append(still, shots.model);
+    place.append(shots.model);
     turning = shots;
   } else {
     const copies = copiesOf(layout, open, closed, pictures);
     const { inner, outer } = copies;
-    place.append(inner.node, inner.window, inner.veil, outer.node, outer.window, outer.veil, still);
+    place.append(inner.node, inner.window, inner.veil, outer.node, outer.window, outer.veil);
     turning = copies;
   }
   layer.append(place);
   scene.place(layer);
-  return { layer, place, turning, still };
+  return { layer, place, turning };
 }
 
 /** Where the frame's own device is, now that it is drawn `posture`. */
@@ -369,6 +440,59 @@ function redraw(going: Going, posture: PostureValue): void {
   going.draw(going.values[posture]);
   fold = going;
   going.unit = measure(going.scene, posture);
+  // The folded body is the frame's own only for the last of the way shut, where its picture has all but gone.
+  going.fresh = posture === "open" ? 0 : null;
+}
+
+/**
+ * After how many draws of the fold the open screen's picture is looked at
+ * again, counted from the one that drew the frame's own device open: the
+ * second, by when the page has heard of its new size, and once more later,
+ * for what it had to load for it. Both come before the open screen's half
+ * shows, a quarter of a second into an unfold.
+ */
+const RETAKES = [2, 10];
+
+/**
+ * The frame's own device is drawn open in the middle of a fold, so the page
+ * lays itself out for the open screen for real now. The picture of that
+ * layout a fold starts with was taken ahead in one task, the frame drawn
+ * that way a moment, unseen: the page's scripts had not heard of the size
+ * yet, and whatever they set for it, a picture picked for it too, was still
+ * as the folded screen had it. So it is taken again here where the page has
+ * changed since, and put on the half that turns, which then meets the live
+ * half at the hinge. A page that stays as it was costs a look, not a picture.
+ */
+function retake(going: Going): void {
+  const { fresh } = going;
+  if (fresh === null) return;
+  going.fresh = fresh >= Math.max(...RETAKES) ? null : fresh + 1;
+  if (!RETAKES.includes(fresh)) return;
+  const { scene, values } = going;
+  const { size } = going.faces.open;
+  const color = scene.background();
+  const last = going.pictures.open;
+  // The same rough picture again: the page is as the picture has it.
+  if (roughOf(scene.frame, scene.glass, values.open, size, color) === last.shot) return;
+  const next = pictureOf(scene.frame, scene.glass, values.open, size, color, copyPage(scene.frame));
+  going.pictures = { ...going.pictures, open: next };
+  const put = (shot: HTMLCanvasElement) => {
+    if (fold !== going || going.pictures.open !== next) return;
+    const { turning } = going.parts;
+    if ("model" in turning) paintGlued(turning.inner, shot);
+    else paintLeaf(turning.inner, shot);
+  };
+  // Only once the browser has drawn it, so a sharp picture never gives way to a rough one, but where it will not.
+  const rough = () => {
+    if (next.shot) put(next.shot);
+  };
+  if (!next.painted) rough();
+  else {
+    void next.painted.then((drawn) => {
+      if (drawn) paintDrawn(next, drawn, put);
+      else rough();
+    });
+  }
 }
 
 /**
@@ -400,6 +524,10 @@ function stand(leaf: Leaf, layout: FoldLayout, frame: FoldFrame, transform: stri
   });
   leaf.window.style.clipPath = `path("${path}")`;
   leaf.rim.style.opacity = String(frame.lift);
+  // Its dark, magenta where a hand looks for what draws a line.
+  const back = typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE ? backColor() : "#000";
+  leaf.screen.style.background = back;
+  leaf.dark.style.background = back;
   // Its free edge's dark turns with it, but its blur is of the picture lying flat, as far out as it is seen.
   light(leaf, open, 1, seenShare(rect, pivot, frame.degrees, layout.across, layout.depth));
   // Its body stays whole, so nothing behind the device shows through it.
@@ -432,10 +560,12 @@ function show(going: Going): void {
   // Under the frames every layer is drawn at the angle of the frame shown, so the device changes as one picture, a frame at a time.
   const open = shots ? pick(shots, going.open) : going.open;
   sync(going, open);
+  retake(going);
   const { unit, scene } = going;
   const drawn = shots ? `${open} ${going.out} ${going.still} ${unit.posture}` : "";
   if (drawn && drawn === going.drawn) {
     for (const watcher of Array.from(hinges)) watcher(going.open, going.hand);
+    if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
     return;
   }
   going.drawn = drawn;
@@ -445,13 +575,11 @@ function show(going: Going): void {
   parts.place.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
   if ("model" in turning) pose(turning, layout, open, 1 - hand, going.still);
   else {
+    // Only the fold's frames have a screen WebGL2 draws: a copy's is always layers.
+    turning.inner.why = turning.outer.why = going.waiting ? COPIES_WAIT : COPIES_ONLY;
     stand(turning.inner, layout, frame, frame.inner, open, 1 - hand);
     stand(turning.outer, layout, frame, frame.outer, open, 1 - hand);
-    turning.bend.style.opacity = String(frame.lift);
   }
-  // As the half that turns shows it, faded as it is. Under the frames it may go on past a right angle, so it never goes at once.
-  parts.still.style.visibility = frame.inner || shots ? "" : "hidden";
-  parts.still.style.opacity = String(frame.lift * (1 - hand));
   // The frame's own device moves with the fold, its folded body onto where it lies shut, and under the frames with them.
   const opened = unit.posture === "open";
   const own = opened ? layout.unfolded.scale : layout.folded.scale;
@@ -464,22 +592,27 @@ function show(going: Going): void {
   const size = (unit.base * scale) / own;
   scene.unit.style.transform = `translate(${by.x}px, ${by.y}px) scale(${size * drift.wide}, ${size * drift.tall})`;
   scene.unit.style.clipPath = opened && hand === 0 ? stillClip(going, shots, frame.inner !== null, own) : "";
+  // The half that stays, but where a hand looks for what draws a line.
+  scene.unit.style.visibility = (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) && finds.stillOn < 0.5 ? "hidden" : "";
   darken(scene.cover, screenDim(opened ? "inner" : "cover", open));
   for (const watcher of Array.from(hinges)) watcher(going.open, going.hand);
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
 }
 
 /**
  * What of the frame's own device shows open, in its own css px: the half
  * that stays, till the copy of the other fades into it. It goes a px of the
  * screen under the inside of the half that turns, while that shows, so their
- * edges at the hinge leave no seam. Under the frames, once the still half's
+ * edges at the hinge leave no seam, and under the frames a px further than
+ * the dark under their open screen stops short of the hinge, twice as far as
+ * the screen does. Under the frames, once the still half's
  * rendered case is all in, only its screen shows, `BLEED` px further out, under
  * that case, so none of the bezel picture shows past the render's.
  */
 function stillClip(going: Going, shots: Shots | null, inside: boolean, own: number): string {
   const { layout, unit } = going;
   const at = (value: number) => (value * own) / unit.base;
-  const under = inside ? 1 : 0;
+  const under = inside ? 1 + 2 * (shots?.inner.over ?? 0) : 0;
   const hinge = at(layout.hinge + (layout.across ? -under : under));
   const far = 1e5;
   const points = (corners: [number, number][]) => `polygon(${corners.map(([px, py]) => `${px}px ${py}px`).join(", ")})`;
@@ -514,9 +647,11 @@ function clear(last: Going): void {
   window.removeEventListener("resize", settle);
   drop(last.parts);
   last.scene.unit.style.clipPath = "";
+  last.scene.unit.style.visibility = "";
   darken(last.scene.cover, 0);
   if (last.duo) endFoldShots();
   for (const watcher of Array.from(watchers)) watcher();
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
 }
 
 /** Is the hinge shut or open there? */
@@ -754,6 +889,7 @@ export function foldDevice(
     wait,
     parts,
     unit: measure(scene, from.posture),
+    fresh: null,
     // At rest the device shows as it is drawn, till the hinge moves.
     still: 0,
     out: 1,
@@ -853,6 +989,7 @@ export function forgetFold(): void {
   window.removeEventListener("resize", settle);
   fold = null;
   for (const watcher of Array.from(watchers)) watcher();
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
   forgetShots();
   endFoldShots(true);
 }

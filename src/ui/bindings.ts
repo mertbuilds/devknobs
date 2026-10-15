@@ -1,5 +1,7 @@
+import { fresh, webStorage } from "../engine/fresh";
 import { newer, stamped } from "../engine/stored";
 import {
+  type BaseKeys,
   type Binding,
   type Combo,
   comboText,
@@ -21,13 +23,24 @@ export const KEYS_KEY = "devknobs:keys";
 export const KEYS_VERSION = 1;
 
 /** The bindings in the order the panel lists them. */
-export const BINDINGS: readonly Binding[] = ["panel", "grab", "replay", "reset"];
+export const BINDINGS: readonly Binding[] = [
+  "panel",
+  "grab",
+  "inspect",
+  "replay",
+  "requests",
+  "storage",
+  "reset",
+];
 
 /** What each binding does, in the words the footer uses. */
 export const BINDING_WORDS: Record<Binding, string> = {
   panel: "panel",
   grab: "grab",
+  inspect: "inspect",
   replay: "replay animations",
+  requests: "requests",
+  storage: "storage",
   reset: "reset",
 };
 
@@ -193,36 +206,46 @@ export function readKeys(json: string | null | undefined): StoredKeys {
 
 /**
  * The keys in force: a key the user set wins over `base`, the mount options
- * or the defaults. One that another binding has as well gives way to its base.
- * Without grab, its key is no other binding's to clash with.
+ * or the defaults, another binding's too: the binding whose default it took
+ * is left with no key, to be set one in the settings. Two set keys that are
+ * the same, or one that is the panel's, give way to their base, as the panel
+ * always keeps a key. Without grab, its key is no other binding's to clash with.
  */
-export function resolveKeys(base: Keys, stored: StoredKeys, grab = true): Keys {
+export function resolveKeys(base: BaseKeys, stored: StoredKeys, grab = true): Keys {
   const keys: Keys = { ...base };
+  const set = new Set<Binding>();
   for (const binding of BINDINGS) {
     const combo = parseCombo(stored[binding]);
-    if (combo) keys[binding] = combo;
+    if (!combo) continue;
+    keys[binding] = combo;
+    set.add(binding);
   }
   const live = BINDINGS.filter((binding) => grab || binding !== "grab");
+  const textOf = (binding: Binding): string | null => {
+    const combo = keys[binding];
+    return combo ? clashText(combo) : null;
+  };
   for (const binding of live) {
-    if (stored[binding] === undefined) continue;
-    const text = clashText(keys[binding]);
-    const shared = live.some((other) => other !== binding && clashText(keys[other]) === text);
-    if (shared) keys[binding] = base[binding];
+    if (!set.has(binding)) continue;
+    const text = textOf(binding);
+    const shared = live.some(
+      (other) => other !== binding && (set.has(other) || other === "panel") && textOf(other) === text,
+    );
+    if (!shared) continue;
+    keys[binding] = base[binding];
+    set.delete(binding);
+  }
+  for (const binding of live) {
+    if (binding === "panel" || set.has(binding)) continue;
+    const text = textOf(binding);
+    if (live.some((other) => set.has(other) && textOf(other) === text)) keys[binding] = null;
   }
   return keys;
 }
 
-function local(): Storage | null {
-  try {
-    return typeof window === "undefined" ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
 function loadKeys(): StoredKeys {
   try {
-    return readKeys(local()?.getItem(KEYS_KEY));
+    return readKeys(webStorage("local")?.getItem(KEYS_KEY));
   } catch {
     return {};
   }
@@ -230,8 +253,8 @@ function loadKeys(): StoredKeys {
 
 function keepKeys(keys: StoredKeys): void {
   try {
-    if (Object.keys(keys).length === 0) local()?.removeItem(KEYS_KEY);
-    else local()?.setItem(KEYS_KEY, JSON.stringify(stamped(keys, KEYS_VERSION)));
+    if (Object.keys(keys).length === 0) webStorage("local")?.removeItem(KEYS_KEY);
+    else webStorage("local")?.setItem(KEYS_KEY, JSON.stringify(stamped(keys, KEYS_VERSION)));
   } catch {
     // Private mode, disabled storage: the key holds until the page goes.
   }
@@ -272,6 +295,8 @@ export function createKeys(
 
   function onStorage(event: StorageEvent): void {
     if (event.key !== KEYS_KEY && event.key !== null) return;
+    // In fresh mode nothing kept is read: a key set here holds, whatever another tab keeps.
+    if (fresh()) return;
     stored = loadKeys();
     changed();
   }
@@ -280,8 +305,10 @@ export function createKeys(
 
   return {
     get: () => keys,
-    custom: (binding) =>
-      stored[binding] !== undefined && comboText(keys[binding]) === stored[binding],
+    custom: (binding) => {
+      const combo = keys[binding];
+      return stored[binding] !== undefined && combo !== null && comboText(combo) === stored[binding];
+    },
     set(binding, combo) {
       const next = { ...stored };
       if (combo === null || comboText(combo) === comboText(base[binding])) delete next[binding];

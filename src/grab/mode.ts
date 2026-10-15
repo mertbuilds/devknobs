@@ -6,7 +6,7 @@ import { DWELL, settles, speedOf } from "./dwell";
 import { grabTargetAt, isDevknobs } from "./hit";
 import { isCLike } from "./keys";
 import { createNavigator, stepOf } from "./navigate";
-import { createOverlay, HIDE_WAIT } from "./overlay";
+import { createOverlay, HIDE_WAIT, type Overlay } from "./overlay";
 import { copiedText, flushPicks, togglePick } from "./picks";
 import type { GrabEntry } from "./types";
 
@@ -32,6 +32,14 @@ const BLOCKED = [
   "mouseout",
 ] as const;
 
+/** What a pick does where it is not grab's copy. */
+export interface Purpose {
+  /** What the label says of an element, in place of its tag and its component. */
+  label(element: Element): { tag: string; name: string | null };
+  /** An element was picked. Nothing is copied, and the mode ends with the pick. */
+  pick(element: Element): void;
+}
+
 export interface ModeOptions {
   /** Where the pointer was last, so the element under it shows straight away. */
   pointer?: { x: number; y: number } | null;
@@ -39,7 +47,9 @@ export interface ModeOptions {
   scheme?: "light" | "dark";
   /** The grab key's own key, whatever modifiers are down. */
   heldKey: (event: KeyboardEvent) => boolean;
-  /** Grab ended from inside: a copy, or escape. */
+  /** Another use of the picking than grab's copy, as inspect is. */
+  purpose?: Purpose;
+  /** Grab ended from inside: a copy, a pick handed to a purpose, or escape. */
   onExit(): void;
 }
 
@@ -54,7 +64,7 @@ export interface Mode {
 export interface ModePage {
   componentOf: typeof componentOf;
   copyGrab: typeof copyGrab;
-  createOverlay: typeof createOverlay;
+  createOverlay: (quiet?: boolean, model?: boolean) => Overlay;
   grabEntry: typeof grabEntry;
   grabTargetAt: typeof grabTargetAt;
   quickEntry: typeof quickEntry;
@@ -80,16 +90,27 @@ function isTyping(event: Event): boolean {
   return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 }
 
+/** The key is a control's own: a button it presses or moves from, or a field it is typed in. */
+function onControl(event: Event): boolean {
+  const target = event.composedPath()[0];
+  return isTyping(event) || (target instanceof HTMLElement && target.tagName === "BUTTON");
+}
+
 /**
  * Grab, on: the element under the pointer gets a box and a label, a click
  * copies it, shift and a click gather more, and the arrows walk the tree.
  * The context of the element under the pointer is worked out while it rests
  * there, so a click can copy it whole in the click itself, as Safari wants.
  * The box goes to an element once the pointer settles on it, and not to those
- * it only passes over.
+ * it only passes over. With a `purpose` the picking is the same and what a pick
+ * does is not: nothing is gathered or copied, the pick is handed over and ends
+ * the mode, and until then the box shows the element's margin, border, padding
+ * and content, with a card of what its text is set in by it.
  */
 export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
-  const overlay = page.createOverlay();
+  const { purpose } = options;
+  // Inspect draws the box of what it is on, and says more of it than grab does.
+  const overlay = page.createOverlay(false, purpose !== undefined);
   const navigator = createNavigator();
   const ready = new WeakMap<Element, GrabEntry>();
   const warming = new WeakSet<Element>();
@@ -115,7 +136,7 @@ export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
   pause(true);
 
   function warm(element: Element): void {
-    if (ready.has(element) || warming.has(element)) return;
+    if (purpose || ready.has(element) || warming.has(element)) return;
     warming.add(element);
     void page.grabEntry(element)
       .then((entry) => ready.set(element, entry))
@@ -124,6 +145,7 @@ export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
   }
 
   function labelOf(element: Element): { tag: string; name: string | null } {
+    if (purpose) return purpose.label(element);
     let name = labels.get(element);
     if (name === undefined) {
       name = page.componentOf(element);
@@ -234,6 +256,11 @@ export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
       page.grabTargetAt(document, event.clientX, event.clientY) ??
       (current?.isConnected ? current : null);
     if (!target) return;
+    if (purpose) {
+      purpose.pick(target);
+      exit();
+      return;
+    }
     if (event.shiftKey) {
       picked = togglePick(picked, target);
       warm(target);
@@ -253,6 +280,8 @@ export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
     const step = stepOf(event);
     if (step) {
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return;
+      // Its pane has controls: tab still goes from one to the next, and they keep their arrows.
+      if (purpose && (event.key === "Tab" || onControl(event))) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       const next = current?.isConnected ? navigator.next(step, current) : null;
@@ -266,6 +295,16 @@ export function startMode(options: ModeOptions, page: ModePage = PAGE): Mode {
     if (event.repeat) {
       // The grab key, still held from turning grab on, its modifiers let go or not.
       if (options.heldKey(event)) event.preventDefault();
+      return;
+    }
+    if (purpose) {
+      if (event.key !== "Enter" || onControl(event)) return;
+      resolve();
+      if (!current?.isConnected) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      purpose.pick(current);
+      exit();
       return;
     }
     if (event.key !== "Enter" && !isCLike(event.key, event.code)) return;

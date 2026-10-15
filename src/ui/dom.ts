@@ -20,28 +20,81 @@ export function button(className: string, label: string): HTMLButtonElement {
 }
 
 /**
- * A row: its line, with the grip's column kept in the main's leading padding
- * whether a grip is in it or not, its icon, its title and what it ends with,
- * its value or a control, and its x after the main. The knob rows and the
- * settings are all built here, so they line up and take the same styles.
+ * Where the lines of a view start. `rows` is on the knob rows' columns, past
+ * the grip's column whether a grip stands in it or not. `flush` is at the
+ * panel's inset, for a view of bars, lists and text. The stylesheet has one
+ * rule for each, which sets where a head, a row and every piece of the kit
+ * in the view start.
  */
-export function rowBox(
-  main: HTMLElement,
-  glyph: Element,
-  title: string,
-  value?: HTMLElement,
-  clear?: HTMLElement,
-  grip?: HTMLElement,
-): HTMLElement {
+export const LAYOUTS = ["rows", "flush"] as const;
+export type Layout = (typeof LAYOUTS)[number];
+
+/** Say which layout the lines under a node go by. */
+export function lay(node: HTMLElement, layout: Layout): void {
+  node.setAttribute("data-layout", layout);
+}
+
+/** What a row is built from. Every part but the main and the title may be left out. */
+export interface RowParts {
+  /** The row's control: a button, or a plain box where the line itself does nothing. */
+  main: HTMLElement;
+  /** A control of its own in the grip's column, as a knob row's grip is. */
+  grip?: HTMLElement;
+  /** The icon before the title, where the row's content starts. */
+  glyph?: Element;
+  title: string;
+  /** What the main ends with, in order: the row's value, its key or a control. */
+  ends?: readonly HTMLElement[];
+  /** What stands after the main, in order: the row's x, or a head's actions. */
+  after?: readonly HTMLElement[];
+}
+
+/** A row as built: its box, and the node that holds its title. */
+export interface RowBox {
+  box: HTMLElement;
+  label: HTMLElement;
+}
+
+/**
+ * A row: its line, which starts where the layout it is in says, then its
+ * icon, its title and what it ends with, and what stands after the main. The
+ * knob rows, the actions' rows, the settings and the head of a view are all
+ * built here and differ only by what is in their slots, so they line up and
+ * take the same styles.
+ */
+export function rowBox(parts: RowParts): RowBox {
+  const { main, grip, glyph } = parts;
   const box = el("div", "row");
   const line = el("div", "line");
-  main.append(glyph, el("span", "row-label", title));
-  if (value) main.append(value);
-  if (grip) line.append(grip);
-  line.append(main);
-  if (clear) line.append(clear);
+  const label = el("span", "row-label", parts.title);
+  if (glyph) main.append(glyph);
+  main.append(label, ...(parts.ends ?? []));
+  if (grip) {
+    grip.className = `lead ${grip.className}`;
+    line.append(grip);
+  }
+  line.append(main, ...(parts.after ?? []));
   box.append(line);
-  return box;
+  return { box, label };
+}
+
+/**
+ * A title over a run of rows, such as the settings' shortcuts: it starts
+ * where the rows' content does.
+ */
+export function rowsLabel(text: string): HTMLElement {
+  return el("div", "rows-label", text);
+}
+
+/**
+ * A small icon button a row ends with: a knob row's x, or an action in the
+ * head of a view. `className` names which, for the code that looks for it.
+ */
+export function rowButton(className: string, glyph: Element, label: string): HTMLButtonElement {
+  const node = button(`row-button ${className}`, "");
+  node.append(glyph);
+  node.setAttribute("aria-label", label);
+  return node;
 }
 
 export function field(className: string, placeholder: string, label: string): HTMLInputElement {

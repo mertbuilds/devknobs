@@ -564,6 +564,15 @@ describe("grab color", () => {
     expect(merge(pink, knob.reset).grabColor).toBe("auto");
   });
 
+  test("takes a color of the user's own, kept apart from the mat's, and says its hex", () => {
+    expect(knob.custom).toBe("grab");
+    const own = merge(DEFAULT_STATE, knob.write("#ff8c00", DEFAULT_STATE));
+    expect(own.grabColor).toBe("#ff8c00");
+    expect(says("debug", { grabColor: "#ff8c00" })).toBe("#ff8c00");
+    expect(knob.options.find((option) => option.value === "pink")?.color).toBe("#d239c0");
+    expect(knob.options.find((option) => option.value === "auto")?.color).toBeUndefined();
+  });
+
   test("says the name of the color in its row", () => {
     expect(says("debug", { grabColor: "pink" })).toBe("pink");
     expect(says("debug", { grabColor: "blue" })).toBe("blue");
@@ -594,6 +603,22 @@ describe("mat", () => {
     expect(green.mat).toBe("green");
     expect(merge(green, knob.write("teal", green)).mat).toBe("blue");
     expect(merge(green, knob.reset).mat).toBe("blue");
+  });
+
+  test("takes a color of the user's own, and each of its own goes by the top of its mat", () => {
+    expect(knob.custom).toBe("mat");
+    const own = merge(DEFAULT_STATE, knob.write("#ffd400", DEFAULT_STATE));
+    expect(own.mat).toBe("#ffd400");
+    expect(merge(own, knob.write("#FFD400", own)).mat).toBe("blue");
+    expect(merge(own, knob.reset).mat).toBe("blue");
+    expect(knob.options.map((option) => option.color)).toEqual([
+      "#144698",
+      "#1a6047",
+      "#7b2558",
+      "#563882",
+      "#842424",
+      "#40444a",
+    ]);
   });
 
   test("says the color in its row only off blue, and only while the frame is up", () => {

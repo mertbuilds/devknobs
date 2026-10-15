@@ -1,7 +1,9 @@
-import type { DevknobsState, MatColorValue, PanelValue } from "../types";
+import type { DevknobsState, MatColorValue } from "../types";
 import type { Look } from "./browserkit";
-import { needsFrame } from "./frame";
-import { MAT_COLORS, matGradient } from "./matcolors";
+import type { Docked } from "./dock";
+import { needsFrame, plainFrame } from "./frame";
+import { webStorage } from "./fresh";
+import { matGradient, matStops } from "./matcolors";
 import { newer, stamped } from "./stored";
 
 /**
@@ -36,12 +38,14 @@ let earlyWait = 0;
  * The page under the frame hidden, as the frame hides it, and the bare mat
  * over it in the stored color where nothing else stands in yet. It is a
  * pseudo element, so a page that hydrates its document finds no node of ours
- * there.
+ * there. With no mat, as under a pinned panel's frame, the page is only hidden.
  */
-export function coverCss(mat: MatColorValue): string {
-  const paint = MAT_COLORS[mat];
-  return `html{overflow:hidden!important}
-body>:not([data-devknobs]){content-visibility:hidden!important}
+export function coverCss(mat: MatColorValue | null): string {
+  const hide = `html{overflow:hidden!important}
+body>:not([data-devknobs]){content-visibility:hidden!important}`;
+  if (!mat) return hide;
+  const paint = matStops(mat);
+  return `${hide}
 html::after{content:"";position:fixed;inset:0;z-index:${Z_INDEX - 1};background:${matGradient(paint.srgb)};pointer-events:none}
 @media (color-gamut:p3){html::after{background:${matGradient(paint.p3)}}}`;
 }
@@ -64,7 +68,7 @@ export type Drawn = Pick<
   | "edgeToEdge"
   | "zoom"
   | "mat"
-> & { panel: Pick<PanelValue, "open" | "side"> };
+> & { panel: Docked };
 
 /** The window's size and pixel ratio, which a drawing of the frame depends on too. */
 export interface WindowSize {
@@ -103,18 +107,11 @@ export function snapshotKey(knobs: Drawn, view: WindowSize): string {
     knobs.mat,
     knobs.panel.open,
     knobs.panel.side,
+    knobs.panel.docked,
     view.innerWidth,
     view.innerHeight,
     view.devicePixelRatio,
   ]);
-}
-
-function session(): Storage | null {
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
 }
 
 function lookOf(value: unknown): Look | null {
@@ -137,7 +134,7 @@ function lookOf(value: unknown): Look | null {
 /** The drawing the last page kept, if it was drawn for these knobs at this window's size. */
 export function readSnapshot(knobs: Drawn, view: WindowSize): Snapshot | null {
   try {
-    const text = session()?.getItem(SNAPSHOT_KEY);
+    const text = webStorage("session")?.getItem(SNAPSHOT_KEY);
     if (!text) return null;
     const data: unknown = JSON.parse(text);
     if (typeof data !== "object" || data === null || newer(data, SNAPSHOT_VERSION)) return null;
@@ -155,7 +152,7 @@ export function readSnapshot(knobs: Drawn, view: WindowSize): Snapshot | null {
 
 export function writeSnapshot(snapshot: Snapshot): void {
   try {
-    session()?.setItem(SNAPSHOT_KEY, JSON.stringify(stamped(snapshot, SNAPSHOT_VERSION)));
+    webStorage("session")?.setItem(SNAPSHOT_KEY, JSON.stringify(stamped(snapshot, SNAPSHOT_VERSION)));
   } catch {
     // Storage full or off: the next page shows the bare mat.
     clearSnapshot();
@@ -183,6 +180,9 @@ export function keepDrawing({ letterbox, zoom, key, css, look }: Kept): void {
   const copy = letterbox.cloneNode(true);
   if (!(copy instanceof HTMLElement)) return;
   copy.querySelector("iframe")?.remove();
+  // The touch cursor is the live frame's, and the stand-in keeps the mouse's.
+  copy.querySelector(".touchdot")?.remove();
+  copy.querySelector(".glass")?.removeAttribute("data-touch");
   for (const line of Array.from(copy.querySelectorAll<HTMLElement>(".progress"))) line.hidden = true;
   const blank = copy.querySelector<HTMLElement>(".screenblank");
   if (blank) {
@@ -197,7 +197,7 @@ export function keepDrawing({ letterbox, zoom, key, css, look }: Kept): void {
 
 export function clearSnapshot(): void {
   try {
-    session()?.removeItem(SNAPSHOT_KEY);
+    webStorage("session")?.removeItem(SNAPSHOT_KEY);
   } catch {
     // Nothing kept, or nothing to reach.
   }
@@ -254,12 +254,14 @@ export function stopAdopting(): void {
  * the page in a frame, hide it under the mat, and put the frame's drawing the
  * last page kept over that once there is a body for it. Devknobs takes both
  * away when it draws the frame, and they go on their own after `GIVE_UP`.
+ * A frame up for a pinned panel alone has no mat and keeps no drawing: the
+ * page is hidden until the frame shows it at its width.
  */
 export function showEarly(knobs: Drawn): void {
   if (!needsFrame(knobs) || !document.head) return;
   const style = document.createElement("style");
   style.setAttribute("data-devknobs", EARLY);
-  style.textContent = coverCss(knobs.mat);
+  style.textContent = coverCss(plainFrame(knobs) ? null : knobs.mat);
   document.head.append(style);
   window.setTimeout(dropEarly, GIVE_UP);
   const snapshot = readSnapshot(knobs, window);

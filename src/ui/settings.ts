@@ -1,11 +1,12 @@
 import type { GrabControl } from "../grab/control";
 import { BINDING_WORDS, type LiveKeys, recordStep } from "./bindings";
-import { button, el, mark, rowBox } from "./dom";
+import { button, el, lay, mark, rowBox, rowButton, rowsLabel } from "./dom";
 import { BINDING_ICONS, icon, type IconName } from "./icons";
 import { type Binding, comboLabel, comboSpoken, type Keys } from "./keys";
+import { viewHead } from "./pane";
 import type { LivePrefs } from "./prefs";
 import { focusOn, type View } from "./slide";
-import type { Tips } from "./tooltip";
+import { createRefusal, type Tips } from "./tooltip";
 
 /**
  * The settings view, which slides in over the rows: whether the handle shows
@@ -13,9 +14,8 @@ import type { Tips } from "./tooltip";
  * keys pressed. A key a binding cannot take is refused, and the chip says why.
  */
 
-/** How long a chip stays red, and its reason shows, after a key it cannot take, in ms. */
-const REFUSED_RED = 1000;
-const REFUSED_TIP = 1800;
+/** What a binding's chip says while it has no key: its default went to another binding. */
+export const NO_KEY = "not set";
 
 /** How long the way back to a panel whose handle was just hidden shows, in ms. */
 const HANDLE_HINT = 4000;
@@ -33,6 +33,7 @@ export interface SettingsContext {
   keys: LiveKeys;
   prefs: LivePrefs;
   grab: GrabControl | null;
+  inspect: GrabControl | null;
   mac: boolean;
   /** The bindings the shortcuts list. */
   bindingsHere: readonly Binding[];
@@ -70,14 +71,18 @@ export function createSettings(context: SettingsContext): Settings {
   const { keys, prefs, grab, mac, bindingsHere, keysToggle, said, tips, render, renderKeys } =
     context;
 
-  // The settings, in place of the rows: a way back to them, whether the
-  // handle shows while the panel is closed, then each binding's key, to set
-  // or put back. A key that is not taken shakes its chip and says why in the
-  // tooltip. The panel's icons face the side it is on.
+  // The settings, in place of the rows: the head every view has, with the
+  // way back to them, whether the handle shows while the panel is closed,
+  // then each binding's key, to set or put back. A key that is not taken
+  // shakes its chip and says why in the tooltip. The panel's icons face the
+  // side it is on. Its layout is the knob rows', as a view names its own.
   const keysView = el("div", "keys pane");
+  lay(keysView, "rows");
   keysView.setAttribute("role", "group");
   keysView.setAttribute("aria-label", "settings");
-  const keysBack = button("main", "");
+  const head = viewHead();
+  const keysBack = head.back;
+  head.title.textContent = "settings";
   keysBack.setAttribute("aria-label", "back from settings");
   const handleSwitch = button("switch row-control", "");
   handleSwitch.setAttribute("role", "switch");
@@ -88,9 +93,14 @@ export function createSettings(context: SettingsContext): Settings {
     return glyph;
   };
   keysView.append(
-    rowBox(keysBack, icon("chevron-left"), "settings"),
-    rowBox(el("div", "main"), sided("panel-right"), "show handle", handleSwitch),
-    el("div", "group-label", "shortcuts"),
+    head.box,
+    rowBox({
+      main: el("div", "main"),
+      glyph: sided("panel-right"),
+      title: "show handle",
+      ends: [handleSwitch],
+    }).box,
+    rowsLabel("shortcuts"),
   );
   const keyViews = new Map<
     Binding,
@@ -99,12 +109,16 @@ export function createSettings(context: SettingsContext): Settings {
   for (const binding of bindingsHere) {
     const word = BINDING_WORDS[binding];
     const set = button("key-set row-control", "");
-    const back = button("clear", "");
-    back.append(icon("x"));
-    back.setAttribute("aria-label", `put the ${word} key back`);
+    const back = rowButton("clear", icon("x"), `put the ${word} key back`);
     // Its x sits before its key, so every key ends on the row's right edge.
-    keysView.append(rowBox(el("div", "main"), sided(BINDING_ICONS[binding]), word, set));
-    set.before(back);
+    keysView.append(
+      rowBox({
+        main: el("div", "main"),
+        glyph: sided(BINDING_ICONS[binding]),
+        title: word,
+        ends: [back, set],
+      }).box,
+    );
     keyViews.set(binding, { set, back });
   }
 
@@ -112,8 +126,8 @@ export function createSettings(context: SettingsContext): Settings {
   let editingKeys = false;
   /** The binding waiting for its new key. */
   let recording: Binding | null = null;
-  /** Takes the red off a chip whose key was not taken. */
-  let refusedTimer = 0;
+  /** A key a chip's binding cannot take: the chip shakes and goes red, and says why. */
+  const { refuse, unrefuse, destroy: stopRefusing } = createRefusal(tips, said);
 
   /** Show the keys in force on the settings, and whether they show. */
   function drawKeys(now: Keys): void {
@@ -121,11 +135,14 @@ export function createSettings(context: SettingsContext): Settings {
     for (const [binding, view] of keyViews) {
       const word = BINDING_WORDS[binding];
       const on = recording === binding;
-      view.set.textContent = on ? "press keys…" : comboLabel(now[binding], mac);
+      const combo = now[binding];
+      view.set.textContent = on ? "press keys…" : combo ? comboLabel(combo, mac) : NO_KEY;
       view.set.classList.toggle("recording", on);
       view.set.setAttribute(
         "aria-label",
-        on ? `press the new ${word} key` : `${word}, ${comboSpoken(now[binding])}, change`,
+        on
+          ? `press the new ${word} key`
+          : `${word}, ${combo ? comboSpoken(combo) : NO_KEY}, ${combo ? "change" : "set"}`,
       );
       view.back.hidden = !keys.custom(binding);
     }
@@ -144,8 +161,10 @@ export function createSettings(context: SettingsContext): Settings {
   function startRecording(binding: Binding): void {
     recording = binding;
     keys.recording = true;
-    // Grab's mode reads the keys ahead of the panel, escape and the arrows too.
+    // Grab's mode reads the keys ahead of the panel, escape and the arrows too,
+    // and inspect's is the same mode.
     grab?.set(false);
+    context.inspect?.set(false);
     renderKeys();
     keyViews.get(binding)?.set.focus({ preventScroll: true });
   }
@@ -181,29 +200,6 @@ export function createSettings(context: SettingsContext): Settings {
       stopRecording();
       keys.set(binding, step.combo);
     }
-  }
-
-  /**
-   * A key the chip's binding cannot take: the chip shakes and goes red for a
-   * moment, and the tooltip over it says why, as the live region does. A
-   * second one starts it all again.
-   */
-  function refuse(chip: HTMLElement, reason: string): void {
-    clearTimeout(refusedTimer);
-    chip.classList.remove("refused");
-    // Read the layout, so the shake starts over.
-    void chip.offsetWidth;
-    chip.classList.add("refused");
-    refusedTimer = window.setTimeout(() => chip.classList.remove("refused"), REFUSED_RED);
-    tips.show(chip, reason, true);
-    tips.hideAfter(REFUSED_TIP);
-    said.textContent = reason;
-  }
-
-  function unrefuse(chip: HTMLElement): void {
-    clearTimeout(refusedTimer);
-    chip.classList.remove("refused");
-    if (tips.isFor(chip)) tips.hide();
   }
 
   /** Hand the focus to what a view takes it on, as it slides there. */
@@ -273,8 +269,6 @@ export function createSettings(context: SettingsContext): Settings {
     },
     stopRecording,
     leaveKeys,
-    destroy(): void {
-      clearTimeout(refusedTimer);
-    },
+    destroy: stopRefusing,
   };
 }

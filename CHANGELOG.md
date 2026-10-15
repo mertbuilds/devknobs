@@ -1,5 +1,69 @@
 # changelog
 
+## 0.2.0
+
+### requests
+
+- `⇧N`, or `requests` in the search, shows what the page asks for, as a view in the panel: `fetch` and `XMLHttpRequest` whole, and what the page loads on its own by its timing and size. a row opens its request in full, and copy puts it on the clipboard as text for an AI, with the values of secret headers left out. the key can be set in the settings like the others
+
+### fresh mode
+
+- `?devknobs=fresh` in the page's address shows the page and the panel as a first visit sees them: `localStorage` is left alone, and every load devknobs did not ask for starts with no knobs set. the footer says so while it is on
+
+### inspect
+
+- `⇧C` (`Shift C` off a Mac), the inspect action in the search or its key in the footer picks an element as grab does and shows its css in the panel, in place of the rows, read only: its `style` attribute, the rules that reach it in cascade order with overridden declarations struck through, each rule's `@layer`, `@media`, `@supports` and `@container` and its stylesheet's file, its `::before` and `::after`, what each ancestor hands down, color swatches and what a custom property resolves to. a click copies nothing. a stylesheet from another origin shows as `rules hidden`. the key is set in the settings like the others, and `inspect` in the search no longer finds grab. the styles have two modes, set beside the filter and kept: `simple`, the default, lists only the declarations that apply to the element, grouped by what they do, with what it inherits folded under them, and `advanced` is the cascade view above
+- every custom property a value reads through `var()` is a piece of its own in both modes, for the pointer and the tab key, nested ones and those inside `calc()`, `color-mix()` and gradients too, and so is the name of a `--custom` declaration. its tooltip says what the element, or the pseudo-element shown, sees for it at that moment, so a knob that moved shows: the value, cut in its middle where it is long, with a swatch for a color, and under it the selector of the rule that sets it, the element's own or the ancestor's it comes from. one that is not set says `not set`, and what the fallback of its `var()` comes to. text in a string, a comment or a `url()` that looks like a call is left alone. a click still copies nothing. a declaration's name now has a color of its own, a calm blue, with the value in the text's color and `:` and `;` quiet, and the names in a request's headers and a cookie's fields have the same color, so a key looks the same across the panel. an overridden declaration stays quiet all over
+- inspect draws the box of the element under the pointer, as the browsers' tools do: content blue, padding green, border yellow, margin orange. a turned or scaled element is drawn by its own corners where the browser has `getBoxQuads`, and by its bounding box where it has not. grab keeps its plain box
+- the styles view starts with the element's box under `box`, in both modes: margin, border, padding and content one inside the other with the length of each side, the content's size, and the offsets of a positioned element. the pointer on an area draws it alone on the page. a narrow panel says the lengths in a line under the box. the fold stays the way you leave it
+- inspect's label is a card: the element and its size, then its color and background, the font its text is likely set in with its size, line height and weight, the wcag contrast with a mark for level AA, and its margin and padding, each only where it applies. the font is the first family of the list that the browser says is there, as a page cannot ask which font a glyph was drawn with
+- picking is a mode that ends with the pick, as in the browsers' own tools: a click shows the element in the styles view and nothing stays drawn on the page, which takes clicks again. the view's bar starts with a select button at its left, as the browsers' tools have it, on its own ground while the picking is on, that starts it again, and `⇧C` does the same and stops it while it picks. escape ends the picking and keeps the element. inspect's row opens the view on the element it holds, and picks only with none: it says `picking`, the element's name, or `off`, stays listed while it holds an element, and its x and reset all let go of the element. a crumb, the box's diagram and the name in the view's head box their element on the page while the pointer is on them. with no element the view has no bar: while it picks, one line says to pick an element, and with the picking off that line is the button that starts it. an element that left the page is said so in the same way, in a line you press to pick another. starting grab ends the picking, and the reverse
+- inspect has a row as grab and replay animations do: run from the search, the add knob list, the footer or its row, its row stays in the list, says `picking` while it picks, and its x takes it off and ends the picking. its key in the footer and its row now turn it off where it is on
+
+### storage
+
+- a storage view in the panel (`⇧S`, or search for storage, data, cookies): `localStorage`, `sessionStorage` and the cookies a page can read, to look at, copy, edit, add and delete; IndexedDB and Cache Storage to read; clear site data in one go after one question; and presets, named sets of values to put back with a press or on every load. see the storage section of the readme
+
+### panel
+
+- the pin button in the footer, and the pin panel action in the search, dock the panel to its side as a column the height of the window, like devtools. the page runs in a frame beside it, so its viewport really is narrower: media queries, `100vw` and fixed boxes follow. pinning loads the page once more when no frame is up, and never with a device or a width set. the pin is kept with the panel's place. the column is as wide as the panel, a view's width while one shows, and its edge sets that width down to a page of 320px. the page follows the column's edge frame by frame as the panel opens, closes or glides to a view's width, and slides across as the column changes side. two buttons by the pin, and the move panel across action, take it to the other side and close it. run from the panel, pin panel and move panel across are rows like any action: the pin's row says `on` while the panel is pinned, and its `×` and reset all leave the panel where it is
+- a pinned panel that closes slides all the way off its edge first, and its handle comes in from that edge after it. as it opens, the column comes out at once and the handle goes off the edge under it. the column is drawn in the same frame the page takes its room in, so no strip of the mat shows between the two on the way
+- a fresh panel starts with its handle 128px below the top of the window, and opens from there, not from the very top. a place you already dragged it to is kept
+- the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
+- grab, replay animations and requests have rows as the knobs do. run one from the search, the add knob list, the footer or its row and its row stays in the list, to drag where you want it. its row runs it, shows its key and whether a mode is on, and its x takes it off and turns the mode off. a key alone lists a mode only while it is on
+- the head of the settings is the head every view has, and keeps the grip's column empty as a row with no grip does: its way back stands where a row's icon is, and its title where a row's name is
+
+### iPhone Duo
+
+- the half that turns shows the page at the text size knob's size: its lines meet the other half's at the hinge. a page that sets its own root font size folds right too
+- the half that turns is sharp at the hinge through the whole fold, and blurs gently toward its free edge: 48 px at most, where it was 128. its top and bottom ends still blur into the black past them, at the hinge too
+- nothing marks the hinge: the bend's dark strip is gone from both halves
+- no thin dark line runs down the hinge as the Duo folds: the half that turns stops 2 px short of the hinge and the black under it 4 px short, each on an edge of its own, and the other half goes on under both, so the black never shows through the page's edge
+- a fold that turns copies of the half has no black px down the hinge either
+- where WebGL2 does not draw the half that turns, its blur rises with no lines down it: the blurred pictures laid over each other are twice as wide each, not four times, and each fades in exactly where the one under it is all in
+- the half that turns is no longer shaded toward its free edge as it turns: it keeps the screen's own light, the same as the other half's, so no lines run down it. the three shades are still in the fold's numbers, at 0
+- a shade brought back has no lines either: WebGL2 works it out at every px, and where gradients draw it they go through as many stops as its bends need, not 9
+- a picture on the page that covers its box, or is contained in it, is cut and placed on the half that turns as the page shows it. it was stretched over its box, so a page that had not yet picked its picture for the open screen showed the folded screen's twice as wide as it is tall
+- unfolding, the open screen's half shows the page as it lays itself out open, once it has picked what it shows there: its picture is taken again when the frame is drawn open, where the page changed since
+- the half that turns shows the page's pictures as they were when its picture was taken, not as they are a moment later, the frame laid out for the other screen and back
+- nothing devknobs put on the page is on the half that turns, nor the browser's box for a picture it could not load
+- a rough picture of the page is kept by all it depends on: its screen, viewport and knobs, the device pixel ratio, the text size, the scroll and what the page's pictures show. one of the folded screen never stands in for the open one's
+
+### types
+
+- `GrabColorValue` and `MatColorValue` also take a hex of your own, `` `#${string}` ``, so a `switch` over them that covers every swatch needs a case for the rest
+- `PanelValue`, and with it `DevknobsState`, has `docked`, true while the panel is pinned
+
+### fixes
+
+- a load devknobs asks for keeps the scroll position: the reload a locale or a device needs, the reload button in the device's browser bars, and a frame a knob brings up. the page, and the copy of it in the device's frame, go back to where they were once they are long enough, also when the host sends them to the top as it mounts. it stops as soon as you scroll, press a key or click, and a load of your own restores nothing
+
+### colors
+
+- the mat and grab's color take colors of your own: the plus after the swatches opens the browser's color picker, and a hex or `rgb()` can be typed in the field under it. the color shows on the mat, or on grab's box, while you pick it
+- a color of your own is kept per site, up to 8 for the mat and 8 for grab, and the x on its swatch, or delete with the focus on it, takes it off. one the same as a swatch that is there picks that swatch
+- the mat's lines and numbers go dark on a light color such as white or yellow, and the splash, the reload's stand-in and the early script follow any color
+
 ## 0.1.2
 
 ### iPhone Duo

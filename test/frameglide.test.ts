@@ -27,6 +27,25 @@ describe("glides", () => {
     expect(glides({ ...CUE, to: RIGHT })).toBe(false);
   });
 
+  test("glides when the panel changed its width, as a view comes and goes", () => {
+    expect(glides({ ...CUE, to: RIGHT, sized: true })).toBe(true);
+    expect(glides({ ...CUE, to: RIGHT, sized: false })).toBe(false);
+    expect(glides({ ...CUE, to: RIGHT, sized: true, first: true })).toBe(false);
+    expect(glides({ ...CUE, to: RIGHT, sized: true, still: true })).toBe(false);
+    expect(glides({ ...CUE, to: RIGHT, sized: true, moving: true })).toBe(false);
+  });
+
+  test("glides when the panel is pinned to its side or let go, which changes the room it has", () => {
+    expect(glides({ ...CUE, from: RIGHT, to: { ...RIGHT, docked: true } })).toBe(true);
+    expect(glides({ ...CUE, from: { ...RIGHT, docked: true }, to: RIGHT })).toBe(true);
+    expect(glides({ ...CUE, from: { ...RIGHT, docked: true }, to: { ...RIGHT, docked: true } })).toBe(
+      false,
+    );
+    expect(glides({ ...CUE, from: RIGHT, to: { ...RIGHT, docked: false } })).toBe(false);
+    expect(glides({ ...CUE, from: RIGHT, to: { ...RIGHT, docked: true }, first: true })).toBe(false);
+    expect(glides({ ...CUE, from: RIGHT, to: { ...RIGHT, docked: true }, still: true })).toBe(false);
+  });
+
   test("never on the first paint, such as a reload", () => {
     expect(glides({ ...CUE, first: true })).toBe(false);
   });

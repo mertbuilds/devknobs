@@ -1,0 +1,471 @@
+import { copyText as copyToClipboard } from "../grab/copy";
+import { type RequestEntry, type RequestStore, requestLog } from "../requests";
+import { button, el } from "./dom";
+import { glyph } from "./icons";
+import { emptyLine, filterField, rowBox, segments, toolbar } from "./kit";
+import { closePane, openPane, type PaneView, paneView, retitlePane } from "./pane";
+import { createDetail, type Detail } from "./requestdetail";
+import {
+  atTop,
+  type Chip,
+  CHIPS,
+  copyText,
+  durationLabel,
+  firstInView,
+  keptScroll,
+  type Lead,
+  lead,
+  LIGHT_WHY,
+  matches,
+  middle,
+  QUERY_MAX,
+  STATUS_TONES,
+  statusLabel,
+  statusTone,
+  urlName,
+} from "./requestformat";
+
+/**
+ * The requests view: the page's log as a view in the panel, a row a request,
+ * the newest first, and one request in full in its place when a row is
+ * picked. The two are one way in: back from a request is the list, and back
+ * from the list is the panel's rows. Its bar, its rows and its empty line are
+ * the kit's, so they line up with the panel's own.
+ *
+ * A row is built once and then changed in place: the log hands over the rows
+ * that are new or changed, and swaps a changed row for a new object, so one
+ * that is the same object needs nothing. The view only shows the log. It
+ * records nothing itself, and listens only while it is on the page.
+ */
+
+/** The view that lists the requests, and the one that shows one of them. */
+export const REQUESTS_VIEW = "requests";
+export const REQUEST_VIEW = "request";
+
+/** What the head says over one request, and how long the word a copy leaves takes its place, in ms. */
+export const REQUEST_TITLE = "request";
+export const COPIED_SHOWS = 1800;
+
+/** What the list says while it has no rows, and while its filter leaves none. */
+export const NO_REQUESTS = "no requests yet";
+export const NO_MATCH = "no request matches";
+
+/** The panel's place for a view, as far as the requests drive it. */
+export interface PaneHost {
+  open(view: PaneView): void;
+  close(): void;
+  view(): string | null;
+  retitle(id: string, title: string): void;
+}
+
+/** What the view is made of. The panel gives the live region, the tests the rest. */
+export interface RequestsContext {
+  /** The live region that hears how a copy went. */
+  said?: HTMLElement;
+  /** The page's log, or null while nothing records. */
+  log?(): RequestStore | null;
+  pane?: PaneHost;
+  copy?(text: string): Promise<boolean>;
+}
+
+export interface Requests {
+  /** Show the requests in the panel, or go back to its rows where they show. */
+  toggle(): void;
+  /** Whether the requests show: the list, or one request in full. */
+  shows(): boolean;
+  /** Go back to the panel's rows, where the requests show. */
+  close(): void;
+}
+
+/** A request's row, and the parts of it that change. */
+interface Row {
+  entry: RequestEntry;
+  /** The row, which hides where the filter leaves it out. */
+  box: HTMLElement;
+  /** The row's line, which opens the request and takes the focus. */
+  node: HTMLButtonElement;
+  method: HTMLElement;
+  /** What the method's column shows now, or nothing yet. */
+  lead: Lead | null;
+  path: HTMLElement;
+  query: HTMLElement;
+  status: HTMLElement;
+  time: HTMLElement;
+}
+
+/** Where an unstuck list is scrolled to: the first row in view, and how many show above it. */
+interface Held {
+  top: number;
+  /** How far apart the rows are, top to top, in px. */
+  pitch: number;
+  row: Row | undefined;
+  above: number;
+}
+
+/** Set a node's text, unless it says so already. */
+function put(node: HTMLElement, text: string): void {
+  if (node.textContent !== text) node.textContent = text;
+}
+
+/**
+ * Show a row's first column: the method as text in its tone, or the kind as a
+ * mark, with the kind's word as its name and its tooltip.
+ */
+function putLead(row: Row, next: Lead): void {
+  const was = row.lead;
+  if (was && was.text === next.text && was.icon === next.icon && was.tone === next.tone) return;
+  row.lead = next;
+  const node = row.method;
+  node.className = ["req-method", next.icon ? "mark" : "", next.tone].filter(Boolean).join(" ");
+  if (next.icon) {
+    node.replaceChildren(glyph(next.icon));
+    node.setAttribute("role", "img");
+    node.setAttribute("aria-label", next.text);
+    node.title = next.text;
+  } else {
+    node.textContent = next.text;
+    node.removeAttribute("role");
+    node.removeAttribute("aria-label");
+    node.title = "";
+  }
+}
+
+export function createRequests(context: RequestsContext = {}): Requests {
+  const log = context.log ?? requestLog;
+  const pane = context.pane ?? { open: openPane, close: closePane, view: paneView, retitle: retitlePane };
+  const copy = context.copy ?? copyToClipboard;
+
+  /** Whose requests show, as the segments say. */
+  let chip: Chip = "all";
+  // The list is kept between showings, so a way back from a request finds it as it was.
+  const filter = filterField({ placeholder: "filter", label: "filter requests", onInput: refilter });
+  const kinds = segments({
+    options: CHIPS.map((each) => ({ value: each.id, label: each.label })),
+    label: "requests shown",
+    value: chip,
+    onChange(value: string): void {
+      const picked = CHIPS.find((each) => each.id === value);
+      if (!picked) return;
+      chip = picked.id;
+      kinds.set(chip);
+      refilter();
+    },
+  });
+  const total = el("span", "req-count");
+  const bar = toolbar([filter.node, kinds.node, total]);
+  const list = el("div", "req-list");
+  list.setAttribute("role", "group");
+  list.setAttribute("aria-label", "requests");
+  const empty = emptyLine(NO_REQUESTS);
+
+  const rows = new Map<string, Row>();
+  const rowOf = new WeakMap<EventTarget, Row>();
+  /** The rows as the list holds them, newest first: the log's order, turned over. */
+  let order: Row[] = [];
+  /** The list keeps to its top, where the new rows go in, while it is scrolled there. */
+  let stuck = true;
+  /** Where the list was when it last left the view, if it was not at its top. */
+  let left: Held | null = null;
+  /** The one row the tab key stops at. */
+  let tabbed: Row | null = null;
+  /** The view's body while the list is in it, and the log it listens to. */
+  let scroller: HTMLElement | null = null;
+  let store: RequestStore | null = null;
+  /** The row a request was opened from, which gets the focus back. */
+  let opened: string | null = null;
+  /** The first copy says what it leaves out. */
+  let told = false;
+
+  function shows(row: Row): boolean {
+    return !row.box.hidden;
+  }
+
+  function setTab(row: Row | null): void {
+    if (tabbed === row) return;
+    if (tabbed) tabbed.node.tabIndex = -1;
+    tabbed = row;
+    if (row) row.node.tabIndex = 0;
+  }
+
+  /** Show what a row's request reads now. */
+  function draw(row: Row, entry: RequestEntry): void {
+    row.entry = entry;
+    const { name, query } = urlName(entry.url);
+    const light = entry.detail === "light";
+    putLead(row, lead(entry));
+    put(row.path, name);
+    put(row.query, middle(query, QUERY_MAX));
+    put(row.status, statusLabel(entry));
+    const tone = statusTone(entry);
+    for (const each of STATUS_TONES) row.status.classList.toggle(each, each === tone);
+    put(row.time, durationLabel(entry.timing.duration));
+    row.box.classList.toggle("light", light);
+    const title = light ? `${entry.url}\n${LIGHT_WHY}` : entry.url;
+    if (row.node.title !== title) row.node.title = title;
+    row.box.hidden = !matches(entry, filter.node.value, chip);
+  }
+
+  /**
+   * A row, built as the panel's rows are: the method or the kind's mark where
+   * a row's icon is, at the start of the view's lines, the name where its
+   * label is, and the status and the time where it ends.
+   */
+  function build(entry: RequestEntry): Row {
+    const node = button("main", "");
+    node.tabIndex = -1;
+    const method = el("span", "req-method");
+    const path = el("span", "req-path");
+    const query = el("span", "req-query");
+    const status = el("span", "req-status");
+    const time = el("span", "req-time");
+    const { box, label } = rowBox({ main: node, glyph: method, title: "", ends: [status, time] });
+    box.classList.add("req-row");
+    label.classList.add("req-name");
+    label.append(path, query);
+    const row: Row = { entry, box, node, method, lead: null, path, query, status, time };
+    rowOf.set(node, row);
+    node.addEventListener("click", () => openRequest(row));
+    node.addEventListener("focus", () => setTab(row));
+    draw(row, entry);
+    return row;
+  }
+
+  /** What the bar and the empty line say, and which row the tab key stops at. */
+  function tally(): void {
+    const shown = order.filter(shows);
+    put(total, shown.length === order.length ? String(order.length) : `${shown.length} of ${order.length}`);
+    put(empty, order.length === 0 ? NO_REQUESTS : NO_MATCH);
+    empty.hidden = shown.length > 0;
+    list.hidden = shown.length === 0;
+    if (!tabbed || !rows.has(tabbed.entry.id) || !shows(tabbed)) setTab(shown[0] ?? null);
+  }
+
+  /**
+   * Bring the list in line with the log: rows the log let go leave, and new
+   * ones go in where the log has them, the newest at the top and a late one
+   * at its place by its start. A row already there never moves, as the log
+   * keeps its rows in the order they started.
+   */
+  function reconcile(entries: readonly RequestEntry[]): void {
+    const live = new Set<string>();
+    for (const entry of entries) live.add(entry.id);
+    const kept = order.filter((row) => {
+      if (live.has(row.entry.id)) return true;
+      rows.delete(row.entry.id);
+      row.box.remove();
+      return false;
+    });
+    let at = 0;
+    order = [...entries].reverse().map((entry) => {
+      let row = rows.get(entry.id);
+      if (row && kept[at] === row) at++;
+      else if (!row) {
+        row = build(entry);
+        rows.set(entry.id, row);
+        list.insertBefore(row.box, kept[at]?.box ?? null);
+      }
+      if (row.entry !== entry) draw(row, entry);
+      return row;
+    });
+  }
+
+  /** Where the list is scrolled to, or null while it keeps to its top. */
+  function hold(): Held | null {
+    if (stuck || !scroller) return null;
+    const shown = order.filter(shows);
+    const [first, second] = shown;
+    // The rows are all as tall, so two of them tell how far apart they all are.
+    const pitch =
+      first && second ? second.box.getBoundingClientRect().top - first.box.getBoundingClientRect().top : 0;
+    const above = firstInView(scroller.scrollTop, pitch);
+    return { top: scroller.scrollTop, pitch, row: shown[above], above };
+  }
+
+  /**
+   * Scroll the list for the rows that changed: to its top where it kept to
+   * it, else on by the rows that went in above the first one in view, so
+   * that what was in view has not moved.
+   */
+  function settle(held: Held | null): void {
+    if (!scroller) return;
+    let top = 0;
+    if (held) {
+      const above = held.row ? order.filter(shows).indexOf(held.row) : -1;
+      top = above < 0 ? held.top : keptScroll(held.top, above - held.above, held.pitch);
+    }
+    if (scroller.scrollTop !== top) scroller.scrollTop = top;
+  }
+
+  /**
+   * The log's news: the rows that are new or changed, none of them after a
+   * clear. A row that is known is changed in place, and only a new row, or
+   * none at all, has the list gone through against the log.
+   */
+  function onChange(changed: readonly RequestEntry[]): void {
+    const held = hold();
+    let fresh = changed.length === 0;
+    for (const entry of changed) {
+      const row = rows.get(entry.id);
+      if (!row) fresh = true;
+      else if (row.entry !== entry) draw(row, entry);
+    }
+    if (fresh) reconcile(store?.entries() ?? []);
+    tally();
+    settle(held);
+  }
+
+  function refilter(): void {
+    for (const row of order) row.box.hidden = !matches(row.entry, filter.node.value, chip);
+    tally();
+    if (stuck) settle(null);
+  }
+
+  function onScroll(): void {
+    if (!scroller) return;
+    stuck = atTop(scroller.scrollTop);
+  }
+
+  /** The arrows, Home and End move the focus through the rows that show. */
+  function onKeydown(event: KeyboardEvent): void {
+    const from = event.target ? rowOf.get(event.target) : undefined;
+    if (!from) return;
+    const shown = order.filter(shows);
+    const at = shown.indexOf(from);
+    let to = -1;
+    if (event.key === "ArrowDown") to = Math.min(at + 1, shown.length - 1);
+    else if (event.key === "ArrowUp") to = Math.max(at - 1, 0);
+    else if (event.key === "Home") to = 0;
+    else if (event.key === "End") to = shown.length - 1;
+    else return;
+    event.preventDefault();
+    shown[to]?.node.focus();
+  }
+
+  list.addEventListener("keydown", onKeydown);
+
+  const listView: PaneView = {
+    id: REQUESTS_VIEW,
+    title: "requests",
+    layout: "flush",
+    actions: [
+      {
+        label: "clear",
+        icon: "ban",
+        run(): void {
+          store?.clear();
+          store?.flush();
+        },
+      },
+    ],
+    mount(body: HTMLElement): () => void {
+      scroller = body;
+      store = log();
+      body.append(bar, list, empty);
+      reconcile(store?.entries() ?? []);
+      tally();
+      settle(left);
+      body.addEventListener("scroll", onScroll);
+      const stop = store?.subscribe(onChange);
+      return () => {
+        stop?.();
+        body.removeEventListener("scroll", onScroll);
+        left = hold();
+        scroller = null;
+        store = null;
+      };
+    },
+    // Escape empties the filter first, wherever the focus is, and then goes back to the rows.
+    escape: () => filter.clear(),
+  };
+
+  /** Back from a request to the list, and to the row it was opened from. */
+  function back(): void {
+    pane.open(listView);
+    const row = opened === null ? undefined : rows.get(opened);
+    opened = null;
+    if (row && shows(row)) row.node.focus({ preventScroll: true });
+  }
+
+  function openRequest(row: Row): void {
+    const id = row.entry.id;
+    let entry = row.entry;
+    let detail: Detail | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    opened = id;
+    /** Copy a text, and say how it went: aloud, and for a moment in the head, in its title's place. */
+    function send(text: string, then?: (view: Detail, copied: boolean) => void): void {
+      void copy(text).then((copied) => {
+        const word = copied ? "copied" : "copy failed";
+        if (context.said) context.said.textContent = word;
+        // The request left the view while the copy was on its way.
+        if (!detail) return;
+        clearTimeout(timer);
+        pane.retitle(REQUEST_VIEW, word);
+        timer = setTimeout(() => pane.retitle(REQUEST_VIEW, REQUEST_TITLE), COPIED_SHOWS);
+        then?.(detail, copied);
+      });
+    }
+    pane.open({
+      id: REQUEST_VIEW,
+      title: REQUEST_TITLE,
+      layout: "flush",
+      actions: [
+        {
+          label: "copy as text for AI",
+          icon: "copy",
+          run(): void {
+            send(copyText(entry), (view, copied) => {
+              if (copied && !told) view.hides();
+              if (copied) told = true;
+            });
+          },
+        },
+      ],
+      mount(body: HTMLElement): () => void {
+        const view = createDetail(entry, {
+          copy: (text) => send(text),
+          picked(): void {
+            if (body.scrollTop !== 0) body.scrollTop = 0;
+          },
+        });
+        detail = view;
+        body.append(view.node);
+        const from = log();
+        const stop = from?.subscribe((changed) => {
+          // Cleared away, or pushed out by newer ones: nothing more comes of it.
+          if (from.get(id) === undefined) view.gone();
+          const next = changed.find((each) => each.id === id);
+          if (!next || next === entry) return;
+          entry = next;
+          view.update(next);
+        });
+        return () => {
+          stop?.();
+          clearTimeout(timer);
+          view.destroy();
+          detail = null;
+        };
+      },
+      // Escape empties the headers' filter first, as it does the list's.
+      escape: () => detail?.escape() ?? false,
+      // The head's way back and Escape go to the list, and from there to the rows.
+      back,
+    });
+  }
+
+  function showing(): boolean {
+    const shown = pane.view();
+    return shown === REQUESTS_VIEW || shown === REQUEST_VIEW;
+  }
+
+  return {
+    toggle(): void {
+      if (showing()) pane.close();
+      else pane.open(listView);
+    },
+    shows: showing,
+    close(): void {
+      if (showing()) pane.close();
+    },
+  };
+}

@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { DEFAULT_STATE, PANEL_START } from "../src/engine/store";
 import { apply, reset } from "../src/engine/time";
 import { resolveKeys } from "../src/ui/bindings";
 import { keyChips, overflowBadge } from "../src/ui/footer";
 import { defaultKeys } from "../src/ui/keys";
 import { HOST_STYLE, wallInput } from "../src/ui/panel";
 import {
+  type Anchor,
   cornerAt,
+  dockedHandle,
+  otherSide,
+  dragDocked,
   dragTarget,
   dragTo,
   FLING,
@@ -28,9 +33,11 @@ import {
   velocity,
 } from "../src/ui/place";
 import { handleHint } from "../src/ui/settings";
+import { HANDLE_REACH, LIST_MIN, VIEW_WIDTH, WIDTH_MAX, widthIn } from "../src/ui/size";
 import { SLIDE } from "../src/ui/slide";
 import { CSS } from "../src/ui/styles";
 import { TIP_GAP, TIP_MARGIN, tipAt } from "../src/ui/tooltip";
+import { path, readSheet } from "./columns";
 
 describe("overflowBadge", () => {
   test("counts while the overflow knob is on", () => {
@@ -234,6 +241,177 @@ describe("a closed panel's drag", () => {
     expect(dragTo("handle", false, bottom - 10, from, ROOM)).toEqual(
       at(bottom, LAST, "bottom", "bottom"),
     );
+  });
+});
+
+describe("a pinned panel's handle", () => {
+  const room = { view: 800, handle: 64 };
+  const from: Place = { y: 300, top: 200, edge: "none", tab: "none" };
+
+  test("moves alone along the window's edge while the panel is closed", () => {
+    expect(dragDocked(420, from, room)).toEqual({ y: 420, top: 320, edge: "none", tab: "none" });
+  });
+
+  test("snaps flush with the window's top and bottom within SNAP, and stays inside", () => {
+    expect(dragDocked(PANEL_GAP + SNAP, from, room).y).toBe(PANEL_GAP);
+    expect(dragDocked(-500, from, room).y).toBe(PANEL_GAP);
+    const low = 800 - PANEL_GAP - 64;
+    expect(dragDocked(low - SNAP, from, room).y).toBe(low);
+    expect(dragDocked(5000, from, room).y).toBe(low);
+  });
+
+  test("carries the panel's own top along by as much, for when it floats again", () => {
+    const flush: Place = { y: 128, top: 128, edge: "none", tab: "top" };
+    expect(dragDocked(400, flush, room)).toEqual({ y: 400, top: 400, edge: "none", tab: "top" });
+    // The floating panel settles from there, inside the window.
+    const landed = dragDocked(5000, from, room);
+    const floated = settle(landed, { view: 800, panel: 300, handle: 64 }, "top");
+    expect(floated.top).toBe(800 - PANEL_GAP - 300);
+    expect(floated.y).toBeGreaterThanOrEqual(floated.top);
+    expect(floated.y).toBeLessThanOrEqual(floated.top + 300 - 64);
+  });
+
+  test("shows where it was put, kept inside a window that got shorter", () => {
+    expect(dockedHandle(300, room)).toBe(300);
+    expect(dockedHandle(900, room)).toBe(800 - PANEL_GAP - 64);
+    expect(dockedHandle(-20, room)).toBe(PANEL_GAP);
+    expect(dockedHandle(300, { view: 200, handle: 64 })).toBe(200 - PANEL_GAP - 64);
+  });
+});
+
+describe("the pinned panel's styles", () => {
+  const rule = (selector: string) => {
+    const at = CSS.indexOf(`${selector} {`);
+    if (at < 0) throw new Error(`no rule for ${selector}`);
+    return CSS.slice(at, CSS.indexOf("}", at));
+  };
+
+  test("make it a square column the window's height, with no cap on the rows", () => {
+    const panel = rule('.wrap[data-dock="true"] .panel');
+    expect(panel).toContain("height: 100dvh");
+    expect(panel).toContain("max-height: none");
+    expect(panel).toContain("border-radius: 0");
+    expect(panel).toContain("border-top-width: 0");
+    expect(panel).toContain("border-bottom-width: 0");
+    expect(CSS).toContain('.wrap[data-dock="true"] .home,');
+  });
+
+  test("give what the column shows all its height: the rows, a feature's view and the settings", () => {
+    const fill = CSS.slice(CSS.indexOf('.wrap[data-dock="true"] .body,'));
+    expect(fill).toStartWith(
+      [
+        '.wrap[data-dock="true"] .body,',
+        '.wrap[data-dock="true"] .home,',
+        '.wrap[data-dock="true"] .view,',
+        '.wrap[data-dock="true"] .keys { flex: 1 1 auto; }',
+      ].join("\n"),
+    );
+    // A view asks for the floating panel's tallest, which the column is not held to.
+    expect(rule("\n.view")).toContain("height: 672px");
+    expect(CSS).toContain('.wrap[data-dock="true"] .view { height: auto; }');
+    // The settings scroll in the column, and the footer stays under them.
+    const keys = fill.slice(fill.indexOf('.wrap[data-dock="true"] .keys {\n'), fill.indexOf("overscroll"));
+    expect(keys).toContain("min-height: 0");
+    expect(keys).toContain("overflow-y: auto");
+    expect(rule(".foot")).toContain("flex: none");
+  });
+
+  test("ease no height as the views slide: the window sets the column's", () => {
+    expect(rule(".body[data-slide]")).toContain("transition: height");
+    expect(CSS).toContain('.wrap[data-dock="true"] .body[data-slide] { transition: none; }');
+    // The panes still slide across, by the rule every panel has.
+    expect(rule(".body[data-slide] > .pane")).toContain("transition: transform");
+    expect(CSS.indexOf('.wrap[data-dock="true"] .body[data-slide]')).toBeGreaterThan(
+      CSS.indexOf(".body[data-slide] {"),
+    );
+  });
+
+  test("come after the floating panel's, which they override", () => {
+    expect(CSS.indexOf('.wrap[data-dock="true"] .panel {')).toBeGreaterThan(
+      CSS.lastIndexOf('.wrap[data-side="left"] .panel {'),
+    );
+  });
+
+  test("show no handle on the open column: its edge is the strip that changes its width", () => {
+    // The column has none of its own: one shows only where the panel says it is at the edge or on its way.
+    expect(CSS).toContain('.wrap[data-dock="true"] .handle { display: none; }');
+    // Nothing of the edge that closed the panel on a click is left.
+    expect(CSS).not.toMatch(/\[data-dock="true"\]\[data-open="true"\][^{]*\.handle/);
+    // The strip is the one every panel has, its hairline the column's height.
+    expect(rule(".sizer")).toContain("cursor: ew-resize");
+    expect(CSS).toContain('.wrap[data-dock="true"] .sizer::after { top: 0; bottom: 0; }');
+  });
+
+  test("leave the panel's width alone, which is the strip's to set", () => {
+    const panel = rule('.wrap[data-dock="true"] .panel');
+    expect(panel).not.toMatch(/[^-]width:/);
+    expect(rule(".panel")).toContain("width: var(--panel-width)");
+  });
+
+  test("mark no state with a stripe, an inset line or a bold word", () => {
+    const docked = CSS.slice(CSS.indexOf('.wrap[data-dock="true"] .panel {'));
+    expect(docked).not.toMatch(/box-shadow|outline|font-weight|border-(left|right)/);
+  });
+});
+
+describe("the strip while it is dragged", () => {
+  test("covers the window, so no move of the drag goes to the page or a frame in it", () => {
+    const at = CSS.indexOf('.wrap[data-sizing="true"] .sizer::before {');
+    expect(at).toBeGreaterThan(0);
+    const cover = CSS.slice(at, CSS.indexOf("}", at));
+    expect(cover).toContain('content: ""');
+    expect(cover).toContain("position: absolute");
+    for (const edge of ["top: -100vh", "right: -100vw", "bottom: -100vh", "left: -100vw"]) {
+      expect(cover).toContain(edge);
+    }
+    // It paints nothing, and is there only for the drag.
+    expect(cover).not.toMatch(/background|opacity/);
+    expect(CSS).not.toMatch(/^\.sizer::before/m);
+  });
+});
+
+describe("the side across", () => {
+  test("is the other one", () => {
+    expect(otherSide("right")).toBe("left");
+    expect(otherSide("left")).toBe("right");
+  });
+});
+
+describe("a fresh panel's place", () => {
+  const { y, top, edge, tab } = DEFAULT_STATE.panel;
+  const fresh = { y, top, edge, tab };
+  /** A window 1000 tall with the panel at its tallest, 672. */
+  const tall: Room = { view: 1000, panel: 672, handle: 64 };
+
+  test("is where a drag of the closed handle down from the window's top leaves it", () => {
+    expect(fresh).toEqual(at(PANEL_START, PANEL_START, "none", "top"));
+    expect(dragTo("handle", false, PANEL_START, at(8, 8, "top", "top"), tall)).toEqual(fresh);
+    expect(dragTo("handle", false, PANEL_START, at(16, 16), tall)).toEqual(fresh);
+  });
+
+  test("stays put on a tall window, however the panel is held", () => {
+    expect(settle(fresh, tall)).toEqual(fresh);
+    expect(settle(fresh, tall, "top")).toEqual(fresh);
+    expect(settle(fresh, ROOM, "top")).toEqual(fresh);
+  });
+
+  test("on a window too short for it, rises to keep the panel and the handle in view", () => {
+    // The panel at its tallest in a window with 28 to spare, and one it fills.
+    const short: Room = { view: 700, panel: 672, handle: 64 };
+    const filled: Room = { view: 400, panel: 384, handle: 64 };
+    const anchors: Anchor[] = ["top", "edge"];
+    for (const room of [short, { ...short, view: 820 }, filled]) {
+      for (const anchor of anchors) {
+        const laid = settle(fresh, room, anchor);
+        expect(laid.top).toBeGreaterThanOrEqual(PANEL_GAP);
+        expect(laid.top + room.panel).toBeLessThanOrEqual(room.view - PANEL_GAP);
+        expect(laid.y).toBe(laid.top);
+        expect(laid.tab).toBe("top");
+        expect(settle(laid, room, anchor)).toEqual(laid);
+      }
+    }
+    expect(settle(fresh, short, "top")).toEqual(at(20, 20, "bottom", "top"));
+    expect(settle(fresh, filled, "top").top).toBe(PANEL_GAP);
   });
 });
 
@@ -627,6 +805,9 @@ function body(selector: string): string {
   return rule.body;
 }
 
+/** The surfaces that take a pointer: the handle and a panel that is out, all it holds with it. */
+const TAKES_POINTER = [".handle", '.wrap[data-open="true"] .panel'];
+
 /** The selectors that take a pointer back from the page. */
 function pointerTargets(): string[] {
   return rules(CSS)
@@ -648,7 +829,7 @@ describe("pointer events", () => {
   });
 
   test("the handle and a panel that is out are the only surfaces that take one", () => {
-    expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+    expect(pointerTargets()).toEqual(TAKES_POINTER);
   });
 });
 
@@ -685,7 +866,7 @@ describe("a hidden handle", () => {
 
   test("takes no pointer while closed", () => {
     expect(body(`${closed} .handle`)).toMatch(/pointer-events:\s*none/);
-    expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+    expect(pointerTargets()).toEqual(TAKES_POINTER);
   });
 
   test("shows as ever while the panel is open", () => {
@@ -705,8 +886,11 @@ describe("a hidden handle", () => {
 
 describe("the left side", () => {
   test("mirrors the slide, and the handle sits on the panel's right", () => {
-    expect(body(".wrap")).toMatch(/transform:\s*translateX\(239px\)/);
-    expect(body('.wrap[data-side="left"]')).toMatch(/transform:\s*translateX\(-239px\)/);
+    // By the panel's width less the pixel the handle sits over it, whatever that width is.
+    expect(body(".wrap")).toMatch(/transform:\s*translateX\(calc\(var\(--panel-width\) - 1px\)\)/);
+    expect(body('.wrap[data-side="left"]')).toMatch(
+      /transform:\s*translateX\(calc\(1px - var\(--panel-width\)\)\)/,
+    );
     expect(body('.wrap[data-side="left"]')).toMatch(/flex-direction:\s*row-reverse/);
     const order = rules(CSS).map((rule) => rule.selector);
     // Open on either side wins over the closed slide, as it comes after.
@@ -746,7 +930,7 @@ describe("the left side", () => {
   });
 
   test("takes a pointer nowhere the right side does not", () => {
-    expect(pointerTargets()).toEqual([".handle", '.wrap[data-open="true"] .panel']);
+    expect(pointerTargets()).toEqual(TAKES_POINTER);
   });
 });
 
@@ -801,7 +985,7 @@ describe("the edge side", () => {
     expect(body(".panel")).toMatch(late("right", "right"));
     expect(body('.wrap[data-open="false"] .handle')).toMatch(late("right", "left"));
     expect(body('.wrap[data-side="left"] .panel')).toMatch(
-      /border-left-color,\s*border-left-width, padding-left;/,
+      /border-left-color,\s*border-left-width, padding-left, width;/,
     );
     expect(body('.wrap[data-open="false"][data-side="left"] .handle')).toMatch(
       /border-left-color,\s*border-left-width, padding-right;/,
@@ -890,5 +1074,416 @@ describe("the slide between the rows and the settings", () => {
   test("swaps at once with reduced motion, the body and the views being in the wrapper", () => {
     const reduced = CSS.slice(CSS.indexOf("prefers-reduced-motion"));
     expect(reduced).toMatch(/\.wrap \*, [^{]*\{\s*transition:\s*none !important/);
+  });
+});
+
+describe("a feature's view", () => {
+  const left = /transform:\s*translateX\(calc\(-100% - 4px\)\)/;
+  const right = /transform:\s*translateX\(calc\(100% \+ 4px\)\)/;
+
+  test("takes the place of the rows, as the settings do", () => {
+    const hiding = rules(CSS).find((rule) => rule.selector.includes(".view:not(.leaving)"));
+    expect(hiding?.selector).toContain('.wrap[data-mode="view"] .home:not(.leaving)');
+    expect(hiding?.selector).toContain('.wrap:not([data-mode="view"]) .view:not(.leaving)');
+    expect(hiding?.body).toMatch(/display:\s*none/);
+  });
+
+  test("pushes the rows out to the left and comes in from the right", () => {
+    expect(body('.wrap[data-mode="view"] .body[data-slide] > .home')).toMatch(left);
+    expect(body('.wrap:not([data-mode="keys"], [data-mode="view"]) .body[data-slide] > .view')).toMatch(
+      right,
+    );
+    const starting = CSS.slice(CSS.indexOf("@starting-style"));
+    const coming = starting.indexOf('.wrap[data-mode="view"] .body[data-slide] > .view {');
+    expect(coming).toBeGreaterThan(-1);
+    expect(starting.slice(coming)).toMatch(/^[^}]*translateX\(calc\(100% \+ 4px\)\)/);
+  });
+
+  test("sits under the settings: they push it out to the left, and leave it to come back from there", () => {
+    expect(body('.wrap[data-mode="keys"] .body[data-slide] > .view')).toMatch(left);
+    const starting = CSS.slice(CSS.indexOf("@starting-style"));
+    const from = '.wrap[data-mode="view"] .body[data-slide] > .view {';
+    const back = '.wrap[data-mode="view"] .body[data-slide="keys"] > .view {';
+    expect(starting.slice(starting.indexOf(back))).toMatch(/^[^}]*translateX\(calc\(-100% - 4px\)\)/);
+    // The one that names where the slide came from is the later, so it wins.
+    expect(starting.indexOf(back)).toBeGreaterThan(starting.indexOf(from));
+  });
+
+  test("makes the panel as tall as it gets, and shrinks to what the panel leaves it", () => {
+    const view = body(".view");
+    expect(view).toMatch(/height:\s*672px/);
+    expect(view).toMatch(/flex:\s*0 1 auto/);
+    expect(view).toMatch(/min-height:\s*0/);
+    expect(body(".panel")).toMatch(/max-height:\s*min\(672px, calc\(100dvh - 16px\)\)/);
+    // While it slides too, where the other views are held at their height.
+    expect(body(".body[data-slide] > .pane")).toMatch(/flex:\s*none/);
+    expect(body(".body[data-slide] > .view")).toMatch(/flex:\s*0 1 auto/);
+    const order = rules(CSS).map((rule) => rule.selector);
+    expect(order.indexOf(".body[data-slide] > .view")).toBeGreaterThan(
+      order.indexOf(".body[data-slide] > .pane"),
+    );
+  });
+
+  test("keeps its head while its body scrolls", () => {
+    expect(body(".view-head")).toMatch(/flex:\s*none/);
+    expect(body(".view-body")).toMatch(/overflow-y:\s*auto/);
+    expect(body(".view-body")).toMatch(/min-height:\s*0/);
+    expect(body(".view-body")).toMatch(/overscroll-behavior:\s*contain/);
+    // The title is cut short as any row's is: the head has no rule of its own for it.
+    expect(body(".row-label")).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  test("has no surface of its own: nothing of the side pane is left", () => {
+    expect(CSS).not.toMatch(/\.side\b|data-pane|--pane-/);
+    const own = rules(CSS).filter((rule) => rule.selector.includes(".view"));
+    for (const rule of own) expect(rule.body).not.toMatch(/font-weight|font-size|font-family/);
+  });
+});
+
+describe("the styles view at any width", () => {
+  /** The rules of the styles view: its bar, its crumbs and its blocks. */
+  function own(): Rule[] {
+    return rules(CSS).filter((rule) => /\.(styles|crumb|css-)/.test(rule.selector));
+  }
+
+  /** The panel's border and padding, then a block's own padding, on both sides, in px. */
+  const PANEL_EDGES = 10;
+  const BLOCK_EDGES = 20;
+
+  test("is shown from 240 in a small window, at 340 until dragged, and up to 720", () => {
+    const small = 240 + HANDLE_REACH + PANEL_GAP;
+    expect(widthIn("view", 340, small)).toBe(240);
+    expect(widthIn("view", 340, 1440)).toBe(340);
+    expect(widthIn("view", 720, 1440)).toBe(720);
+    expect(widthIn("view", 2000, 1440)).toBe(720);
+  });
+
+  test("has no width of its own to outgrow the narrowest: only the swatch is sized, in px", () => {
+    const narrowest = 240 - PANEL_EDGES - BLOCK_EDGES;
+    for (const width of [240, 340, 720]) {
+      const room = width - PANEL_EDGES - BLOCK_EDGES;
+      for (const rule of own()) {
+        const sizes = [...rule.body.matchAll(/(?:^|[\s;])(?:min-)?width:\s*([\d.]+)px/g)];
+        for (const [, px] of sizes) {
+          expect(rule.selector).toBe(".css-swatch");
+          expect(Number(px)).toBeLessThan(room);
+        }
+        expect(rule.body).not.toMatch(/min-width:\s*[1-9]/);
+      }
+    }
+    // The selector asks for 14 characters of 11px mono before the file goes under it.
+    expect(body(".css-selector")).toMatch(/flex:\s*1 1 14ch/);
+    expect(14 * 11 * 0.61).toBeLessThan(narrowest);
+  });
+
+  test("fits its columns to the panel, whatever a line in them is worth", () => {
+    for (const selector of [".styles", ".css-blocks"]) {
+      expect(body(selector)).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    }
+  });
+
+  test("has rules for its content alone: its bar, filter, modes and fold are the kit's", () => {
+    const selectors = rules(CSS).map((rule) => rule.selector);
+    for (const selector of selectors) {
+      expect(selector).not.toMatch(/\.styles-|\.css-fold\b/);
+      if (/\.(styles|crumb|css-)/.test(selector)) {
+        expect(selector).not.toMatch(/\.(toolbar|filter|seg|seg-item|row|main|lead|turn|fold|empty)\b/);
+      }
+    }
+    expect(selectors).toContain(".styles");
+  });
+
+  test("wraps a declaration, a selector and what a rule sits in, anywhere in a long word", () => {
+    expect(body(".css-context, .css-selector, .css-decl")).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(body(".css-selector")).toMatch(/min-width:\s*0/);
+    expect(body(".css-var")).toMatch(/white-space:\s*normal/);
+    expect(body(".css-hidden")).toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  test("puts the file under the selector where both do not fit, and cuts its name short", () => {
+    expect(body(".css-head")).toMatch(/flex-wrap:\s*wrap/);
+    const from = body(".css-from");
+    expect(from).toMatch(/max-width:\s*100%/);
+    expect(from).toMatch(/min-width:\s*0/);
+    expect(from).toMatch(/margin-left:\s*auto/);
+    const source = body(".css-source");
+    expect(source).toMatch(/min-width:\s*0/);
+    expect(source).toMatch(/text-overflow:\s*ellipsis/);
+    expect(source).toMatch(/white-space:\s*nowrap/);
+    expect(body(".css-mark")).toMatch(/flex:\s*none/);
+  });
+
+  test("keeps the crumbs on one line that scrolls, and cuts a heading short", () => {
+    expect(body(".crumbs")).toMatch(/overflow-x:\s*auto/);
+    expect(body(".crumbs")).not.toMatch(/flex-wrap/);
+    expect(body(".crumb")).toMatch(/flex:\s*none/);
+    const group = body(".css-group");
+    expect(group).toMatch(/max-width:\s*100%/);
+    expect(group).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  test("marks no state with a line: no border, no inset shadow and no bold", () => {
+    for (const rule of own()) {
+      if (rule.selector === ".css-swatch") continue;
+      expect(rule.body).not.toMatch(/[\s;]border(-(?!radius)[\w-]+)?:|box-shadow|outline:|font-weight/);
+    }
+    // The block a custom property is set in lights up by its fill.
+    const flash = rules(CSS).filter((rule) => rule.selector === "from" || rule.selector === "to");
+    expect(flash.some((rule) => /background:\s*var\(--track\)/.test(rule.body))).toBe(true);
+  });
+});
+
+describe("the panel's width", () => {
+  test("is the wrapper's --panel-width, 240 until the panel says", () => {
+    expect(body(".wrap")).toMatch(/--panel-width:\s*240px/);
+    expect(body(".panel")).toMatch(/width:\s*var\(--panel-width\)/);
+  });
+
+  test("glides to a new one in the glide's time, on either side", () => {
+    expect(body(".panel")).toMatch(/width var\(--glide\) ease-out;/);
+    expect(body('.wrap[data-side="left"] .panel')).toMatch(/padding-left, width;/);
+    // The seventh in each list of delays, so it never waits.
+    expect(body('.wrap[data-open="true"] .panel')).toMatch(/var\(--glide\), 0s;/);
+  });
+
+  test("keeps the panel on the window's edge while the host is wider than it", () => {
+    expect(body(".wrap")).toMatch(/justify-content:\s*flex-end/);
+  });
+
+  test("stops gliding with reduced motion, as every transition does", () => {
+    const reduced = CSS.slice(CSS.indexOf("prefers-reduced-motion"));
+    expect(reduced).toMatch(/\.wrap \*, [^{]*\{\s*transition:\s*none !important/);
+  });
+});
+
+describe("the strip that changes the width", () => {
+  test("lies across the border on the panel's page side, as tall as the panel", () => {
+    const strip = body(".sizer");
+    expect(body(".panel")).toMatch(/position:\s*relative/);
+    expect(strip).toMatch(/position:\s*absolute/);
+    expect(strip).toMatch(/top:\s*0;\s*bottom:\s*0/);
+    expect(strip).toMatch(/left:\s*-4px/);
+    expect(strip).toMatch(/cursor:\s*ew-resize/);
+    expect(strip).toMatch(/touch-action:\s*none/);
+  });
+
+  test("moves to the other edge with the panel", () => {
+    const strip = body('.wrap[data-side="left"] .sizer');
+    expect(strip).toMatch(/right:\s*-4px/);
+    expect(strip).toMatch(/left:\s*auto/);
+  });
+
+  test("shows a hairline under the pointer, the keys' focus or a drag, in the panel's tokens", () => {
+    const line = body(".sizer::after");
+    expect(line).toMatch(/width:\s*1px/);
+    expect(line).toMatch(/background:\s*var\(--faint\)/);
+    expect(line).toMatch(/opacity:\s*0/);
+    const shown = rules(CSS).find((rule) => rule.selector.includes(".sizer:hover::after"));
+    expect(shown?.selector).toContain(".sizer:focus-visible::after");
+    expect(shown?.selector).toContain('.wrap[data-sizing="true"] .sizer::after');
+    expect(shown?.body).toMatch(/opacity:\s*1/);
+  });
+
+  test("takes a pointer only with the panel, which it is in", () => {
+    expect(pointerTargets()).toEqual(TAKES_POINTER);
+  });
+});
+
+describe("a request's row", () => {
+  test("has no line around or beside it at rest: only hover and the focus ring show", () => {
+    const lined = rules(CSS).filter(
+      (rule) =>
+        /\.req-(row|list)\b/.test(rule.selector) && /border(?!-radius)|outline|box-shadow/.test(rule.body),
+    );
+    expect(lined).toEqual([]);
+    // Its hover is the one every row of the panel has, and none of its own.
+    expect(body(".row:hover, .row.open")).toMatch(/background:\s*var\(--card\)/);
+    expect(rules(CSS).filter((rule) => /\.req-row\b/.test(rule.selector)).map((rule) => rule.selector)).toEqual([
+      ".req-row.light",
+    ]);
+    // Its frame is the one every button of the panel has, and none of its own.
+    expect(body("button")).toMatch(/border:\s*0/);
+    expect(body("button:focus-visible")).toMatch(/outline:\s*1px solid var\(--faint\)/);
+    // No row is marked by where its request came from.
+    expect(CSS).not.toMatch(/\.framed|\.mixed/);
+  });
+
+  test("its color is in its text and its marks alone: nothing around or behind any part of it", () => {
+    const parts = rules(CSS).filter((rule) => /\.req-/.test(rule.selector));
+    expect(parts.length).toBeGreaterThan(20);
+    const lined = parts.filter((rule) => /border(?!-radius)|outline|box-shadow/.test(rule.body));
+    expect(lined.map((rule) => rule.selector)).toEqual([]);
+    // None has a ground: the bar's, a row's hover and a block of code's are the kit's.
+    const grounded = parts.filter((rule) => /background/.test(rule.body.replace(/transition:[^;]*;/g, "")));
+    expect(grounded.map((rule) => rule.selector)).toEqual([]);
+    const heavy = parts.filter((rule) => /font-weight|padding|border-radius/.test(rule.body));
+    expect(heavy.map((rule) => rule.selector).filter((selector) => /method|status|mark|get|post|ok/.test(selector))).toEqual([]);
+  });
+
+  test("a mark takes the method's place and its width, mid row, and no tone changes a box", () => {
+    expect(body(".req-method")).toMatch(/flex:\s*none;\s*width:\s*36px/);
+    expect(body(".req-method.mark")).toMatch(/align-self:\s*center/);
+    expect(body(".req-method.mark")).not.toMatch(/width|height|margin|padding/);
+    const tones = rules(CSS).filter((rule) =>
+      /^\.req-(get|post|put|patch|delete|rest|image|font|media)$|^\.req-status\.\w+, \.req-stat\.\w+$/.test(rule.selector),
+    );
+    expect(tones.length).toBe(13);
+    for (const rule of tones) expect(rule.body.trim()).toMatch(/^color:\s*var\(--[a-z-]+\);$/);
+  });
+});
+
+describe("the requests, at every width the panel takes", () => {
+  /** The panel's border and padding, which the view's body is narrower by. */
+  const AROUND = 10;
+
+  /** A length a rule sets, in px. */
+  function px(selector: string, property: string): number {
+    const found = new RegExp(`(?:^|[;{\\s])${property}:\\s*(\\d+)px`).exec(body(selector));
+    if (!found) throw new Error(`no ${property} in ${selector}`);
+    return Number(found[1]);
+  }
+
+  /**
+   * How wide the name's column is in a panel `width` wide: what the fixed
+   * ones, the gaps and the padding leave. The padding and the gap are the
+   * ones every row's main has in a view whose lines start at the inset.
+   */
+  function nameRoom(width: number): number {
+    const fixed = px(".req-method", "width") + px(".req-status", "width") + px(".req-time", "width");
+    const sheet = readSheet(CSS);
+    const main = path("wrap", "panel", "body", "view pane data-layout=flush", "view-body", "req-list", "row req-row", "line", "button main");
+    const around = sheet.px(main, "padding-left") + sheet.px(main, "padding-right");
+    return width - AROUND - around - 3 * sheet.px(main, "column-gap") - fixed;
+  }
+
+  test("the widths are the panel's: 240 at the least, 340 until it is dragged, 720 at the most", () => {
+    expect([LIST_MIN, VIEW_WIDTH, WIDTH_MAX]).toEqual([240, 340, 720]);
+  });
+
+  test("only the name gives way or takes the room: the other columns keep their width", () => {
+    for (const fixed of [".req-method", ".req-status", ".req-time"]) {
+      expect(body(fixed)).toMatch(/flex:\s*none/);
+      expect(px(fixed, "width")).toBeGreaterThan(0);
+    }
+    expect(body(".req-name")).toMatch(/flex:\s*1;\s*min-width:\s*0/);
+    expect(body(".main")).toMatch(/display:\s*flex/);
+    expect(body(".main")).not.toMatch(/flex-wrap/);
+    // The list is one column as wide as the body, however long a name is.
+    expect(body(".req-list")).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(body(".view-body")).toMatch(/overflow-x:\s*hidden/);
+  });
+
+  test("the name has room at 240, at 340 and at 720, and all of what the panel gains", () => {
+    expect(nameRoom(240)).toBe(66);
+    expect(nameRoom(340)).toBe(166);
+    expect(nameRoom(720)).toBe(546);
+    expect(nameRoom(720) - nameRoom(240)).toBe(720 - 240);
+  });
+
+  test("in the name the path is cut short first, and the query only where the path would be left under 64", () => {
+    expect(body(".req-path")).toMatch(/flex:\s*0 1 auto;\s*min-width:\s*0;\s*overflow:\s*hidden;\s*text-overflow:\s*ellipsis/);
+    const query = body(".req-query");
+    expect(query).toMatch(/flex:\s*none/);
+    expect(query).toMatch(/max-width:\s*max\(50%, calc\(100% - 64px\)\)/);
+    expect(query).toMatch(/overflow:\s*hidden;\s*text-overflow:\s*ellipsis/);
+    /** The most the query takes of the name's room. */
+    const most = (width: number) => Math.max(nameRoom(width) / 2, nameRoom(width) - 64);
+    // At 340 the path keeps its 64, and at 240 it keeps half.
+    expect(most(340)).toBe(102);
+    expect(most(240)).toBe(33);
+    expect(nameRoom(240) - most(240)).toBe(33);
+  });
+
+  test("the bar wraps where it is narrow: the filter on a line of its own, the count at the far end", () => {
+    // The bar is the kit's, and only the count is the view's own.
+    expect(body(".toolbar")).toMatch(/flex-wrap:\s*wrap/);
+    expect(body(".toolbar")).toMatch(/position:\s*sticky/);
+    expect(body(".toolbar")).toMatch(/overflow-anchor:\s*none/);
+    expect(body(".toolbar > .filter")).toMatch(/flex:\s*1 1 96px;\s*min-width:\s*0/);
+    expect(body(".toolbar > .seg")).toMatch(/flex:\s*none/);
+    expect(body(".req-count")).toMatch(/margin-left:\s*auto/);
+    expect(rules(CSS).map((rule) => rule.selector).filter((selector) => /\.req-(bar|filter|chips)\b/.test(selector))).toEqual([]);
+  });
+
+  test("a request in full is one column as wide as the body, and its values wrap anywhere", () => {
+    expect(body(".req-detail")).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    expect(body(".req-body, .req-headers")).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    // The path breaks anywhere and keeps to two lines of 18.
+    expect(body(".req-url")).toMatch(/word-break:\s*break-all/);
+    expect(body(".req-url")).toMatch(/max-height:\s*36px;\s*overflow:\s*hidden/);
+    expect(body(".req-url")).toMatch(/line-height:\s*18px/);
+    // The segments give way before the bar is wider than the view.
+    expect(body(".toolbar > .seg")).toMatch(/max-width:\s*100%/);
+  });
+
+  test("nothing of the requests is sized by the old pane, or by any width of the panel", () => {
+    const own = rules(CSS).filter((rule) => /\.req-/.test(rule.selector));
+    for (const rule of own) {
+      expect([rule.selector, /340|330|--pane|data-pane|\.side/.test(rule.selector + rule.body)]).toEqual([rule.selector, false]);
+    }
+  });
+});
+
+describe("the request tones", () => {
+  const TOKENS = [
+    "--ok",
+    "--req-moved",
+    "--req-get",
+    "--req-post",
+    "--req-put",
+    "--req-patch",
+    "--req-delete",
+    "--req-image",
+    "--req-font",
+    "--req-media",
+  ];
+
+  /** The custom properties a block of the styles sets, by name. */
+  function tokens(block: string): Map<string, string> {
+    return new Map([...block.matchAll(/(--[a-z-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
+  }
+
+  const light = tokens(body(".wrap"));
+  const dark = tokens(/@media \(prefers-color-scheme: dark\) \{\s*\.wrap \{([^}]*)\}/.exec(CSS)?.[1] ?? "");
+
+  function luminance(hex: string): number {
+    const [red = 0, green = 0, blue = 0] = [1, 3, 5].map((at) => {
+      const part = parseInt(hex.slice(at, at + 2), 16) / 255;
+      return part <= 0.03928 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  }
+
+  function contrast(one: string, other: string): number {
+    const [high = 0, low = 0] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+    return (high + 0.05) / (low + 0.05);
+  }
+
+  test("each is set for the light scheme and for the dark one", () => {
+    for (const name of TOKENS) {
+      expect([name, light.get(name)]).toEqual([name, expect.stringMatching(/^#[0-9a-f]{6}$/)]);
+      expect([name, dark.get(name)]).toEqual([name, expect.stringMatching(/^#[0-9a-f]{6}$/)]);
+      expect(dark.get(name)).not.toBe(light.get(name));
+    }
+  });
+
+  test("each reads as small text on the panel's ground, and as a mark on a hovered row", () => {
+    for (const scheme of [light, dark]) {
+      for (const name of TOKENS) {
+        const color = scheme.get(name) ?? "";
+        expect(contrast(color, scheme.get("--bg") ?? "")).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(color, scheme.get("--card") ?? "")).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  test("every tone the styles use is one of them, or a color the panel had", () => {
+    const used = new Set(
+      rules(CSS)
+        .filter((rule) => /\.req-/.test(rule.selector))
+        .flatMap((rule) => [...rule.body.matchAll(/color:\s*var\((--[a-z-]+)\)/g)].map((match) => match[1])),
+    );
+    for (const name of TOKENS) expect([name, used.has(name)]).toEqual([name, true]);
+    for (const name of used) expect([...TOKENS, "--faint", "--hot", "--line"]).toContain(name);
   });
 });

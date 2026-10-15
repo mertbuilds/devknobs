@@ -1,6 +1,6 @@
 # third party notices
 
-devknobs ships, or adapts code from, the projects below. each is under the MIT license, or lucide under the ISC license, reproduced here. the bezel images at the end are not: Apple's are under Apple's terms, and Google's Pixel frames under the Apache License 2.0.
+devknobs ships, or adapts code from, the projects below. each is under the MIT license, or lucide under the ISC license, reproduced here, or Simple Icons under CC0 1.0. the bezel images at the end are not: Apple's are under Apple's terms, and Google's Pixel frames under the Apache License 2.0.
 
 ## bippy
 
@@ -72,7 +72,7 @@ SOFTWARE.
 
 ## lucide
 
-https://github.com/lucide-icons/lucide. `src/ui/icons.ts` copies the shapes of a few of its icons from lucide-static 1.52.0: contrast, blend, eye, type, wind, languages, map-pin, clock, wifi, smartphone, ruler, bug, square-dashed-mouse-pointer, settings, panel-right, panel-right-open, eraser, rotate-ccw, check, chevron-left, chevrons-left-right, plus, x and grip-vertical. of these, check, chevron-left, clock, plus, smartphone, type and x come from Feather, under the MIT license after the ISC one, which the lucide license lists them for.
+https://github.com/lucide-icons/lucide. `src/ui/icons.ts` copies the shapes of a few of its icons from lucide-static 1.52.0: contrast, blend, eye, type, wind, languages, map-pin, clock, wifi, smartphone, ruler, bug, square-dashed-mouse-pointer, settings, panel-left, panel-right, panel-right-close, panel-right-open, pin, pin-off, eraser, rotate-ccw, arrow-up-down, ban, copy, refresh-cw, database, trash-2, check, chevron-left, chevrons-left-right, plus, x, grip-vertical, image, film, file, table-2, cookie, hard-drive and bookmark. of these, check, chevron-left, clock, copy, plus, smartphone, type and x come from Feather, under the MIT license after the ISC one, which the lucide license lists them for.
 
 ```
 ISC License
@@ -114,6 +114,36 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+## Simple Icons
+
+https://github.com/simple-icons/simple-icons. `src/ui/icons.ts` copies the path and the color of five of its icons from simple-icons 16.6.0, which the requests view shows for what a page loads: JavaScript, CSS, HTML5, WebAssembly and JSON. Simple Icons is under CC0 1.0 Universal, https://creativecommons.org/publicdomain/zero/1.0/, which asks for no notice. its JavaScript icon is the community's JS logo, https://github.com/voodootikigod/logo.js, under the MIT license below.
+
+the marks are trademarks of their owners. their use here names the kind of file a request is for, and implies no trademark license and no endorsement.
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2011 Christopher Williams <chris@iterativedesigns.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ## jadon7/iphone-duo

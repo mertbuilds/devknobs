@@ -1,22 +1,27 @@
-import type { DevknobsState, DprValue, PanelValue, ZoomValue } from "../types";
+import type { DevknobsState, DprValue, SideValue, ZoomValue } from "../types";
+import { hushOnce } from "../requests/quiet";
 import * as address from "./address";
 import { bezelMock, bezelUrl, bodyOf, loadBezel } from "./bezels";
 import { type BrowserLayer, createBrowser, readLook } from "./browserdraw";
 import { barsOf, layoutOf, viewportOf } from "./browserui";
-import { deviceOf, formId, formOf } from "./devices";
+import { deviceOf, formId, formOf, hasTouch } from "./devices";
+import { columnEdge, type Docked, dockEdges, dockWidth, onDockWidth } from "./dock";
 import { type Fit, fit, hasStrip, label, origin } from "./fit";
+import { carried, fresh, FRESH_ATTRIBUTE, loads, ownReload } from "./fresh";
 import {
   FRAME_ATTRIBUTE,
   FRAME_NAME,
   type FrameKnobs,
   handsSchemeDown,
   needsFrame,
+  plainFrame,
   post,
   readMessage,
   UNFRAMED,
   type ZoomAction,
 } from "./frame";
 import { drawMat } from "./mat";
+import { putMat } from "./matcolors";
 import { landSplash, spreadMat } from "./matsplash";
 import { createNotice } from "./notice";
 import type { Mock, Rect } from "./mock";
@@ -24,12 +29,14 @@ import { corners, drawMock, UNDER } from "./mockdraw";
 import { drawnAt, glideFrame, landGlide, placeKey } from "./frameglide";
 import {
   finishFold,
+  foldableShown,
   type FoldScene,
   folding,
   foldDevice as foldIn,
   forgetFold,
   holdFold,
 } from "./foldrun";
+import { hingeMoved } from "./foldtune";
 import { folds, type Hole, moves, readCorners, shapeOf, turnOf, windowRect } from "./morph";
 import {
   forget,
@@ -54,7 +61,9 @@ import {
 } from "./placeholder";
 import { warmFonts } from "./pagefonts";
 import * as reload from "./reload";
+import * as scrollkeep from "./scrollkeep";
 import { ensureStyle, removeStyle } from "./style";
+import { createTouchDot, type TouchDot } from "./touchdot";
 import {
   finishTurn,
   forgetTurn,
@@ -87,8 +96,15 @@ export type ViewportValue = FrameKnobs &
     | "zoom"
     | "mat"
   > & {
-    panel: Pick<PanelValue, "open" | "side">;
+    panel: Docked;
   };
+
+/**
+ * How long a frame of a pinned column's glide may take, in ms, before the page
+ * is too slow to follow it: two such frames in a row, and the page takes its
+ * final width at once.
+ */
+export const RIDE_SLOW = 50;
 
 /** How long a wheel or a pinch rests before its zoom goes in the store, in ms. */
 const ZOOM_SETTLE = 200;
@@ -137,6 +153,8 @@ let glass: HTMLElement | null = null;
 let pageBox: HTMLElement | null = null;
 /** A phone's browser bars around the frame. */
 let browser: BrowserLayer | null = null;
+/** The touch cursor over the page and the bars, while the device has a touch screen. */
+let touchDot: TouchDot | null = null;
 /** Covers the screen in the page's color while a device that turns lays it out the other way. */
 let turnCover: HTMLElement | null = null;
 /** The device's body drawn around the frame, while it has one. */
@@ -174,7 +192,7 @@ let current: ViewportValue = {
   edgeToEdge: true,
   zoom: "fit",
   mat: "blue",
-  panel: { open: false, side: "right" },
+  panel: { open: false, side: "right", docked: false },
 };
 /** The frame's page has loaded, so what it reports can be trusted. */
 let loaded = false;
@@ -203,9 +221,15 @@ function share(): void {
   if (latest) post(frameWindow(), { source: "devknobs", type: "state", state: latest });
 }
 
+/** Does the frame's screen take the mouse as a finger? Not once the window has its own page back. */
+function touching(): boolean {
+  return latest !== null && !released && hasTouch(latest.device) && latest.touchPointer;
+}
+
 /** Keep the knobs and hand them to the frame, which applies them to its own page. */
 export function sync(state: DevknobsState): void {
   latest = state;
+  touchDot?.apply(touching());
   share();
   reload.knobs(state);
 }
@@ -320,9 +344,178 @@ function showZoom(place: Fit): void {
   picker.value = String(zoom);
 }
 
-/** How much of its edge an open panel covers. Its host is as wide as the panel out. */
+/**
+ * How much of its edge an open panel covers. Its host is as wide as the panel
+ * out, and takes a new width at once where the panel glides to it.
+ */
 function panelWidth(): number {
   return document.querySelector<HTMLElement>('[data-devknobs="panel"]')?.offsetWidth ?? 0;
+}
+
+/**
+ * How much of the mat an open panel lies over, which a frame of a set width
+ * is fitted beside. A pinned one lies over none of it: the room it takes is
+ * not the frame's to begin with.
+ */
+function asideOf(panel: Docked): number {
+  return panel.open && !panel.docked ? panelWidth() : 0;
+}
+
+/** The px a pinned panel's column takes from the page on each side, as the frame is drawn. */
+let room: Record<SideValue, number> = { left: 0, right: 0 };
+/** The frame in which the stage takes the width of a column under the strip. */
+let following = 0;
+
+/** The page following a pinned column that slides or glides, frame by frame. */
+interface Ride {
+  /** The room the page had as the column set off. */
+  from: Record<SideValue, number>;
+  /** What the column covered as it set off across the window, null until it is read. */
+  start: number | null;
+  /** The next frame it follows in. */
+  frame: number;
+  /** When the last frame came, null before the first, and how many in a row came late. */
+  seen: number | null;
+  slow: number;
+}
+
+let ride: Ride | null = null;
+
+/** Stop following the column. The room is the one it ends at from the next draw. */
+function endRide(): void {
+  if (ride?.frame) window.cancelAnimationFrame(ride.frame);
+  ride = null;
+}
+
+/**
+ * Keep the stage clear of a pinned panel's column, as wide as `dockWidth`
+ * says the panel is, or as far as the column has got while it is followed.
+ * The mat still lies under it, so no edge of it shows as it slides. The
+ * notice keeps to the stage as well.
+ */
+function makeRoom(): void {
+  if (!letterbox) return;
+  // The letterbox is as wide as the window, the room the column takes included.
+  if (!ride) room = dockEdges(current.panel, letterbox.clientWidth, dockWidth());
+  for (const box of [letterbox, notice]) {
+    if (!box) continue;
+    box.style.paddingLeft = room.left ? `${room.left}px` : "";
+    box.style.paddingRight = room.right ? `${room.right}px` : "";
+  }
+}
+
+/**
+ * The room for a column on `side` that covers `cover` px of the window on its
+ * way to `to`, in whole px. On the side it was on, the page's edge is the
+ * column's. From the other side the column crosses over the page, which
+ * slides across as far as the column has come, as wide as it was.
+ */
+function rideRoom(now: Ride, side: SideValue, to: number, cover: number): Record<SideValue, number> {
+  const other = side === "left" ? "right" : "left";
+  const from = now.from[side];
+  let mine = Math.min(Math.max(cover, Math.min(from, to)), Math.max(from, to));
+  let theirs = 0;
+  if (now.from[other] > 0) {
+    now.start ??= cover;
+    const way = now.start - to;
+    const share = way === 0 ? 1 : Math.min(Math.max((now.start - cover) / way, 0), 1);
+    mine = from + (to - from) * share;
+    theirs = now.from[other] * (1 - share);
+  }
+  mine = Math.round(mine);
+  theirs = Math.round(theirs);
+  return side === "left" ? { left: mine, right: theirs } : { left: theirs, right: mine };
+}
+
+/**
+ * A frame of the column's way: the page takes the room the column leaves
+ * where it shows now, once. The column at rest, or gone, ends it, and so does
+ * a page too slow to keep up, and the page takes the room it ends at.
+ */
+function step(time: number): void {
+  const now = ride;
+  if (!now) return;
+  now.frame = 0;
+  now.slow = now.seen !== null && time - now.seen > RIDE_SLOW ? now.slow + 1 : 0;
+  now.seen = time;
+  const side = current.panel.side;
+  const edge = letterbox && !released && now.slow < 2 ? columnEdge(side, time) : null;
+  if (!letterbox || !edge?.moving) {
+    endRide();
+    resize();
+    return;
+  }
+  const to = dockEdges(current.panel, letterbox.clientWidth, dockWidth())[side];
+  room = rideRoom(now, side, to, edge.cover);
+  resize();
+  now.frame = window.requestAnimationFrame(step);
+}
+
+/**
+ * The room a pinned column takes changes as `draw` draws it, and the column
+ * slides or glides there: opening, closing, crossing to the other side, or
+ * gliding to a new width. The page keeps its room for now and follows the
+ * column's edge from the next frame, so it is laid out as the column moves,
+ * as under the strip. With less motion the column jumps, and the page is
+ * resized once. Nothing waits where the room stays as it is.
+ */
+function follow(draw: () => void): void {
+  if (still() || !letterbox) {
+    endRide();
+    draw();
+    return;
+  }
+  ride = { from: { ...room }, start: null, frame: ride?.frame ?? 0, seen: null, slow: 0 };
+  draw();
+  const to = dockEdges(current.panel, letterbox.clientWidth, dockWidth());
+  if (to.left === room.left && to.right === room.right) endRide();
+  else ride.frame ||= window.requestAnimationFrame(step);
+}
+
+/**
+ * The panel got wider or narrower. A pinned one's column takes that room in
+ * the next frame, and once a frame however often its width changes, so the
+ * page follows its edge as it is dragged and is laid out no more than it is
+ * painted.
+ */
+function followSoon(): void {
+  if (!host || !current.panel.docked) return;
+  following ||= window.requestAnimationFrame(() => {
+    following = 0;
+    resize();
+  });
+}
+
+onDockWidth(followSoon);
+
+/** The room the frame is fitted to: the letterbox less what the column takes. */
+function stageSize(): { width: number; height: number } {
+  const width = (letterbox?.clientWidth ?? 0) - room.left - room.right;
+  return { width: Math.max(0, width), height: letterbox?.clientHeight ?? 0 };
+}
+
+/**
+ * The panel changed its width, and with `glide` it glides to it. A floating
+ * panel's frame is fitted beside it again, and glides to its place as the
+ * panel does. A pinned panel's column is followed either way: under the
+ * strip as `followSoon` says, which a glide still on its way gives way to,
+ * and as it glides, by its edge, frame by frame. A device is fitted in the
+ * room each frame, with no glide of its own.
+ */
+export function panelSized(glide: boolean): void {
+  const pinned = current.panel.docked;
+  if (!glide) {
+    if (!pinned) resize();
+    else if (ride) {
+      endRide();
+      followSoon();
+    }
+    return;
+  }
+  if (following) window.cancelAnimationFrame(following);
+  following = 0;
+  if (pinned) follow(resize);
+  else glideFrame(screen, { first: false, from: current.panel, to: current.panel, sized: true }, resize);
 }
 
 /** Draw the mock around the frame, at the zoom the frame is at, or take it away. */
@@ -378,8 +571,9 @@ function showBrowser(
 }
 
 /**
- * Draw the mat for the letterbox's size, its lines one device pixel thin, and
- * its top ruler unnumbered under the readout.
+ * Draw the mat for the stage's size, its lines one device pixel thin, and
+ * its top ruler unnumbered under the readout. Its grid runs on under a
+ * pinned panel's column, and its rulers count from the stage's edge.
  */
 function showMat(size: { width: number; height: number }): void {
   if (!letterbox || !readout || !caption || !picker) return;
@@ -387,10 +581,10 @@ function showMat(size: { width: number; height: number }): void {
   const avoid = readout.hidden
     ? undefined
     : { from: caption.offsetLeft - 8, to: picker.offsetLeft + picker.offsetWidth + 8 };
-  const key = `${size.width}|${size.height}|${hair}|${avoid?.from}|${avoid?.to}`;
+  const key = `${size.width}|${size.height}|${hair}|${avoid?.from}|${avoid?.to}|${room.left}|${room.right}`;
   if (key === matKey) return;
   matKey = key;
-  const next = drawMat(size, hair, avoid);
+  const next = drawMat(size, hair, avoid, room);
   if (mat) mat.replaceWith(next);
   else back?.append(next);
   mat = next;
@@ -407,9 +601,10 @@ function resize(): void {
   // A device turning is drawn the way it ends up once it is there.
   if (released || turning() || folding()) return;
   readout.hidden = !hasStrip(current);
-  letterbox.setAttribute("data-mat", current.mat);
-  const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
-  const aside = current.panel.open ? panelWidth() : 0;
+  putMat(letterbox, current.mat);
+  makeRoom();
+  const size = stageSize();
+  const aside = asideOf(current.panel);
   const mock = bodyFor(current);
   const place = fit(current, size, {
     frameZoom: zoomFor(current.dpr),
@@ -434,6 +629,7 @@ function resize(): void {
   stage.style.overflow = current.zoom === "fit" ? "hidden" : "";
   frame.style.zoom = place.zoom === 1 ? "" : String(place.zoom);
   showBrowser(bars, page, place, auto);
+  touchDot?.fit(place, place.zoom);
   drawing.style.width = `${place.box.width}px`;
   drawing.style.height = `${place.box.height}px`;
   // The wrapper starts at the mock's corner, and the frame sits in it by as much.
@@ -484,7 +680,8 @@ function setZoom(zoom: ZoomValue): void {
  * hears once the wheel rests. A plain wheel scrolls, here and in the frame.
  */
 function onWheel(event: WheelEvent): void {
-  if ((!event.ctrlKey && !event.metaKey) || !stage || !drawn) return;
+  // The page in a pinned panel's frame is the page: the browser zooms it.
+  if ((!event.ctrlKey && !event.metaKey) || !stage || !drawn || plainFrame(current)) return;
   event.preventDefault();
   const delta = event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_LINE;
   const zoom = wheelZoom(drawn.scale, delta);
@@ -506,10 +703,11 @@ function onPick(): void {
 
 /**
  * A zoom key: a step in or out from the scale the frame is drawn at, or back
- * to fit. False while there is no frame, so the key zooms the browser.
+ * to fit. False while there is no frame, or only a pinned panel's, so the key
+ * zooms the browser.
  */
 export function zoomKey(action: ZoomAction): boolean {
-  if (!host || !drawn) return false;
+  if (!host || !drawn || plainFrame(current)) return false;
   setZoom(action === "zoom-fit" ? "fit" : stepZoom(drawn.scale, action === "zoom-in" ? 1 : -1));
   return true;
 }
@@ -552,10 +750,9 @@ function screenRect(): Hole {
 function screenFor(value: ViewportValue): Rect | null {
   if (!letterbox || !stage) return null;
   const mock = bodyFor(value);
-  const size = { width: letterbox.clientWidth, height: letterbox.clientHeight };
-  const place = fit(value, size, {
+  const place = fit(value, stageSize(), {
     frameZoom: zoomFor(value.dpr),
-    aside: value.panel.open ? panelWidth() : 0,
+    aside: asideOf(value.panel),
     side: value.panel.side,
     mock: mock?.inset,
   });
@@ -595,6 +792,7 @@ function turnScene(): TurnScene | null {
  * case and page as one, and draw it that way once it is there.
  */
 function turnDevice(value: ViewportValue): void {
+  touchDot?.rest();
   const angle = turnOf(shapeOf(current), shapeOf(value));
   turnIn(value, angle, angle === 0 ? null : screenFor(value), turnScene(), draw);
 }
@@ -612,9 +810,16 @@ function foldScene(): FoldScene | null {
   };
 }
 
+// The fold's tuning hook asks which foldable is up, and how it is drawn.
+foldableShown(() => {
+  const scene = deviceOf(current.device)?.postures ? foldScene() : null;
+  return scene && { scene, value: current };
+});
+
 /** Fold the device to the posture `value` has, in view, and draw it that way once it is there, or, `held`, as a hand moves it. */
 export function foldDevice(value: ViewportValue, held = false): boolean {
   landGlide();
+  touchDot?.rest();
   return foldIn(current, value, foldScene(), draw, held);
 }
 
@@ -641,13 +846,22 @@ function contentNodes(): HTMLElement[] {
   return [readout, stage, notice].filter((node): node is HTMLElement => node !== null);
 }
 
+/**
+ * The knobs as the frame draws them. A zoom the wheel holds stays until it
+ * is in the store, and a frame up for a pinned panel alone is never zoomed.
+ */
+function drawnOf(value: ViewportValue): ViewportValue {
+  if (plainFrame(value)) return { ...value, zoom: "fit" };
+  return held === null ? value : { ...value, zoom: held };
+}
+
 /** Draw the knobs: a new zoom from elsewhere keeps the middle of the letterbox where it is. */
 function draw(value: ViewportValue): void {
   const zoom = current.zoom;
-  // A zoom the wheel holds stays until it is in the store.
-  current = held === null ? value : { ...value, zoom: held };
+  current = drawnOf(value);
   if (stage && current.zoom !== zoom) rezoom({ x: stage.clientWidth / 2, y: stage.clientHeight / 2 });
   else resize();
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) hingeMoved();
 }
 
 /** Draw the knobs a device change goes to, once the last device faded out. */
@@ -658,13 +872,22 @@ function layout(): void {
   else resize();
 }
 
+/**
+ * Send the window to where the frame went. Only a move that loads a page is
+ * marked as devknobs' own: one inside the document has no load to read the mark.
+ */
+function leave(target: string): void {
+  if (loads(target, window.location.href)) ownReload();
+  window.location.assign(target);
+}
+
 /** A device change hands the window its own page back, or leaves for where the frame went. */
 function handBack(): void {
   const target = release(true);
   if (target && target !== window.location.href) {
     halt();
     teardown();
-    window.location.assign(target);
+    leave(target);
     return;
   }
   // Under the veil, which then lifts off it.
@@ -700,7 +923,9 @@ function change(target: "open" | "closed"): void {
 function keep(): void {
   landSplash();
   const moving = running() || turning() || folding();
-  const away = moving || released || stage?.scrollLeft || stage?.scrollTop;
+  // A pinned panel's frame is the page, with no drawing to stand in for it.
+  const plain = plainFrame(current);
+  const away = moving || released || plain || stage?.scrollLeft || stage?.scrollTop;
   if (!letterbox || !frame || !picker || away) {
     clearSnapshot();
     return;
@@ -761,13 +986,21 @@ function open(veiled: number | null, first: boolean): void {
   glass.className = "glass";
   frame = document.createElement("iframe");
   frame.setAttribute(FRAME_ATTRIBUTE, "");
+  // The page in the frame follows this one's mode, whatever its own address says.
+  if (fresh()) frame.setAttribute(FRESH_ATTRIBUTE, "");
   frame.name = FRAME_NAME;
   frame.title = "devknobs viewport";
   frame.setAttribute("sandbox", SANDBOX);
   frameUrl = window.location.href;
   address.follow({ page: frameDocument, locate, refresh: () => browser?.refresh() });
   scroll = { x: window.scrollX, y: window.scrollY };
+  // A frame a knob brings up starts where the page was. One a reload brings up
+  // has its own place, kept before the reload.
+  if (!first) scrollkeep.keep(window, "frame");
+  scrollkeep.follow(frameWindow);
   loaded = false;
+  // The frame's page lists its own load. Here it would be a second row for it.
+  hushOnce(frameUrl);
   frame.src = frameUrl;
   frame.addEventListener("load", onLoad);
   reload.track({
@@ -783,6 +1016,13 @@ function open(veiled: number | null, first: boolean): void {
   glass.append(pageBox);
   // The page's scroll minimizing or bringing back the bars resizes the frame.
   browser = createBrowser(glass, frame, resize, onReloading, painted);
+  touchDot = createTouchDot({
+    glass,
+    frame,
+    origin: () => browser?.page() ?? { x: 0, y: 0 },
+    moving: () => turning() || folding(),
+  });
+  touchDot.apply(touching());
   turnCover = document.createElement("div");
   turnCover.className = "screenblank";
   turnCover.hidden = true;
@@ -829,13 +1069,15 @@ function release(follow: boolean): string {
   // The window went back to another entry meanwhile. It stays there, and the
   // frame is not followed.
   const moved = address.moved();
-  const target = follow && !moved ? locate() : "";
+  const target = follow && !moved ? carried(locate()) : "";
   window.removeEventListener("message", onMessage);
   window.removeEventListener("resize", resize);
   window.removeEventListener("pagehide", keep);
   frame?.removeEventListener("load", onLoad);
+  touchDot?.apply(false);
   address.unwatch();
   reload.untrack();
+  scrollkeep.follow(null);
   browser?.stopLoading();
   clearSnapshot();
   // The window shows its own page again, so its own address and title too.
@@ -859,6 +1101,8 @@ function teardown(): void {
   pageBox = null;
   browser?.remove();
   browser = null;
+  touchDot?.remove();
+  touchDot = null;
   turnCover = null;
   mockDrawing = null;
   mockKey = "";
@@ -871,6 +1115,10 @@ function teardown(): void {
   drawn = null;
   clearTimeout(settling);
   held = null;
+  if (following) window.cancelAnimationFrame(following);
+  following = 0;
+  endRide();
+  room = { left: 0, right: 0 };
   pending = null;
   forgetTurn();
   forgetFold();
@@ -898,7 +1146,7 @@ function close(follow: boolean): void {
   const target = release(follow);
   teardown();
   // Hidden, the page had no height to keep its scroll position in.
-  if (target && target !== window.location.href) window.location.assign(target);
+  if (target && target !== window.location.href) leave(target);
   else window.scrollTo({ left: scroll.x, top: scroll.y, behavior: "instant" });
 }
 
@@ -965,7 +1213,7 @@ export function apply(value: ViewportValue): void {
     return;
   }
   if (!host) {
-    current = held === null ? value : { ...value, zoom: held };
+    current = drawnOf(value);
     if (document.body) open(animate ? veiled : null, first);
     else document.addEventListener("DOMContentLoaded", openLater, { once: true });
     if (animate) change("open");
@@ -984,7 +1232,18 @@ export function apply(value: ViewportValue): void {
     change("open");
     return;
   }
-  glideFrame(screen, { first, from: current.panel, to: value.panel }, () => draw(value));
+  // A pinned panel's page, or the device in its stage, follows the column as
+  // it opens, closes or crosses to the other side, and has no glide of its own.
+  const at = current.panel;
+  if (at.docked && value.panel.docked) {
+    if (at.open !== value.panel.open || at.side !== value.panel.side) follow(() => draw(value));
+    else draw(value);
+    return;
+  }
+  // Pinned or let go, the column is where it was: the room comes or goes at once.
+  endRide();
+  if (plainFrame(value) && at.side === value.panel.side) draw(value);
+  else glideFrame(screen, { first, from: at, to: value.panel }, () => draw(value));
 }
 
 /** Take the frame away and leave the window where it is. */

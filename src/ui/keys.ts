@@ -26,10 +26,17 @@ export interface Combo {
 }
 
 /** The shortcuts the panel can be told to use, and by whom. */
-export type Binding = "panel" | "grab" | "replay" | "reset";
+export type Binding = "panel" | "grab" | "inspect" | "replay" | "requests" | "storage" | "reset";
 
-/** Each binding's key. */
-export type Keys = Record<Binding, Combo>;
+/** Each binding's key as the mount options and the defaults give it: every binding has one. */
+export type BaseKeys = Record<Binding, Combo>;
+
+/**
+ * Each binding's key in force. A binding whose default the user gave to
+ * another one has none, null, until it is set a key of its own. The panel's
+ * always has one, as it is the way back to a closed panel.
+ */
+export type Keys = { panel: Combo } & Record<Exclude<Binding, "panel">, Combo | null>;
 
 const MODIFIER_NAMES: Record<string, "meta" | "ctrl" | "shift" | "alt"> = {
   meta: "meta",
@@ -114,12 +121,26 @@ export function comboSpoken(combo: Combo): string {
   return comboText(combo).replaceAll("+", " ");
 }
 
-/** The panel's keys with none set: shift and the hotkey, shift g, shift r and shift backspace. */
-export function defaultKeys(options: { hotkey?: string; grabKey?: string } = {}): Keys {
+/** The letters inspect's key is, the first that the panel's and grab's keys leave free. */
+const INSPECT_KEYS = ["c", "i", "y"];
+
+/**
+ * The panel's keys with none set: shift and the hotkey, shift g, shift c,
+ * shift r, shift n, shift s and shift backspace. Where the mount gave the
+ * panel or grab shift and c, inspect takes the next letter of its own.
+ */
+export function defaultKeys(options: { hotkey?: string; grabKey?: string } = {}): BaseKeys {
+  const panel = withShift(hotkeyOf(options.hotkey));
+  const grab = parseCombo(options.grabKey) ?? withShift("g");
+  const taken = [panel, grab].map(comboText);
+  const free = INSPECT_KEYS.find((key) => !taken.includes(comboText(withShift(key))));
   return {
-    panel: withShift(hotkeyOf(options.hotkey)),
-    grab: parseCombo(options.grabKey) ?? withShift("g"),
+    panel,
+    grab,
+    inspect: withShift(free ?? "c"),
     replay: withShift(REPLAY_KEY),
+    requests: withShift(REQUESTS_KEY),
+    storage: withShift(STORAGE_KEY),
     reset: withShift("backspace"),
   };
 }
@@ -245,23 +266,32 @@ function actsHere(event: KeyLike, combo: Combo): boolean {
 /** The letter that with shift replays the page's animations. */
 export const REPLAY_KEY = "r";
 
+/** The letter that with shift shows the requests log, and hides it. */
+export const REQUESTS_KEY = "n";
+
+/** The letter that with shift shows and leaves the storage view. */
+export const STORAGE_KEY = "s";
+
 /**
  * What a keydown asks of the panel, if anything: escape closes, and the
- * panel's, replay's and reset's keys do theirs, the panel's winning where
- * they are the same. In a field, `actsHere` says whether the key is its.
+ * panel's, replay's, requests', reset's and the storage view's keys do
+ * theirs, the panel's winning where they are the same, and the storage view's
+ * giving way to all. In a field, `actsHere` says whether the key is its.
  */
 export function keyAction(
   event: KeyLike,
-  keys: Pick<Keys, "panel" | "replay" | "reset">,
+  keys: Pick<Keys, "panel" | "replay" | "requests" | "reset"> & Partial<Pick<Keys, "storage">>,
 ): KeyAction | null {
   if (event.key === "Escape") return "close";
-  const steps = [
+  const steps: readonly (readonly [KeyAction, Combo | null | undefined])[] = [
     ["toggle", keys.panel],
     ["replay", keys.replay],
+    ["requests", keys.requests],
     ["reset", keys.reset],
-  ] as const;
+    ["storage", keys.storage],
+  ];
   for (const [action, combo] of steps) {
-    if (comboMatches(event, combo)) return actsHere(event, combo) ? action : null;
+    if (combo && comboMatches(event, combo)) return actsHere(event, combo) ? action : null;
   }
   return null;
 }
@@ -307,7 +337,7 @@ export function zoomAction(event: KeyLike): ZoomAction | null {
  * What escape takes back: the search, a list filter, the shortcuts, the open
  * editor or the panel.
  */
-export type EscapeStep = "search" | "filter" | "keys" | "editor" | "panel";
+export type EscapeStep = "search" | "filter" | "keys" | "view" | "editor" | "panel";
 
 /** Where things stand when escape comes. */
 export interface EscapeScene {
@@ -317,19 +347,23 @@ export interface EscapeScene {
   filter: boolean;
   /** The shortcuts show in place of the rows. */
   keys?: boolean;
+  /** A feature's view shows in place of the rows. */
+  view?: boolean;
   /** An editor is open and the focus is in the panel. */
   editor: boolean;
 }
 
 /**
  * Escape takes one step back at a time: it leaves the search, query and all,
- * clears a list filter, leaves the shortcuts, closes the open editor, and only
- * then the panel.
+ * clears a list filter, leaves the shortcuts, which may show over a feature's
+ * view, hands the key to that view, which takes it or is left for the rows,
+ * closes the open editor, and only then the panel.
  */
 export function escapeStep(scene: EscapeScene): EscapeStep {
   if (scene.search) return "search";
   if (scene.filter) return "filter";
   if (scene.keys) return "keys";
+  if (scene.view) return "view";
   if (scene.editor) return "editor";
   return "panel";
 }

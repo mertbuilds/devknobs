@@ -1,5 +1,6 @@
 import type { TextValue } from "../types";
 import { addLayer, removeLayer } from "./matchmedia";
+import { markInline } from "./owninline";
 
 /**
  * The browser's default font size setting, emulated. That setting is the size
@@ -353,6 +354,7 @@ function capture(): void {
   if (wrote !== null && value === wrote) return;
   original = { value, priority: style.getPropertyPriority("font-size") };
   wrote = null;
+  markInline(document.documentElement, "font-size", null);
 }
 
 /** Put the page's own inline root size back, if devknobs' is still the one there. */
@@ -363,6 +365,7 @@ function restoreRoot(): void {
     style.setProperty("font-size", original.value, original.priority);
   }
   wrote = null;
+  markInline(document.documentElement, "font-size", null);
 }
 
 /** The root size the page would compute on its own, read with the knob's off. */
@@ -395,6 +398,7 @@ function applyRoot(): void {
   // Important, so it wins over an important author rule the way the setting would.
   root.style.setProperty("font-size", next, "important");
   wrote = root.style.getPropertyValue("font-size");
+  markInline(root, "font-size", wrote);
 }
 
 function refresh(): void {

@@ -1,122 +1,306 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import {
-  appleSeen,
-  BLURS,
   blurArea,
-  blurWidth,
+  blurLight,
+  blurShare,
+  brightness,
   darkAt,
+  edgeLight,
   freeDepth,
-  nearBlur,
   type Pane,
   type Quad,
-  seenAlong,
   shotPane,
   shotPicture,
   shotQuad,
   shotWindow,
+  shotOpen,
+  shown,
+  turnBlur,
   uvOf,
   wipeAmount,
+  wipeLight,
 } from "../src/engine/fold";
 import {
   blurAt,
   canvasRect,
   contextOf,
   coverage,
-  EDGE,
+  FRAGMENT,
   freeOf,
   hingeLine,
-  REACH,
+  levelAt,
   reachOf,
   screenGl,
   screenLook,
+  shadeAt,
+  sharpLevel,
+  tapped,
+  WEIGHTS,
   wedgeOf,
 } from "../src/engine/foldgl";
+import { resetTune, setTune, TUNE_DEFAULTS } from "../src/engine/foldtune";
 
-const EXTENT = { inner: 951, cover: 466 } as const;
 /** Deep in the picture, past any end's blur. */
 const DEEP = 1e4;
+/** Every hundredth of the way, from 0 to 1. */
+const HUNDREDTHS = Array.from({ length: 101 }, (_, step) => step / 100);
 
 describe("the screen's blur", () => {
   test("is none anywhere with the screen lying flat, open or shut, so the page hands back unchanged", () => {
-    const flat = [screenLook("inner", 1, EXTENT.inner, 0), screenLook("cover", 0, EXTENT.cover, 0), screenLook("cover", 1, EXTENT.cover, 0)];
-    for (const look of flat) {
+    for (const look of [screenLook(1, 0), screenLook(0, 0)]) {
       for (const t of [0, 0.25, 0.5, 0.75, 1]) {
         for (const inside of [-40, 0, 3, DEEP]) expect(blurAt(look, t, inside)).toBe(0);
       }
     }
   });
 
-  test("away from the ends is Apple's as far across what its camera sees, growing from the hinge toward the free edge", () => {
-    for (const pane of ["inner", "cover"] as const) {
-      for (const open of [0.8, 0.6, 0.4, 0.2]) {
-        for (const free of [1, 0.5]) {
-          const look = screenLook(pane, open, EXTENT[pane], 30, free);
-          let last = 0;
-          for (const t of [0, 0.25, 0.5, 0.75, 1]) {
-            const along = seenAlong(t, free, appleSeen(pane, open));
-            const area = blurArea(pane, uvOf(pane, along), wipeAmount(pane, open));
-            const wipe = area > 0 ? blurWidth(pane, area) * EXTENT[pane] : 0;
-            const apple = Math.min(BLURS[BLURS.length - 1], Math.max(wipe, nearBlur(pane, open) * EXTENT[pane]));
-            expect(blurAt(look, t, DEEP)).toBeCloseTo(apple, 6);
-            expect(blurAt(look, t, DEEP)).toBeGreaterThanOrEqual(last);
-            last = blurAt(look, t, DEEP);
-          }
+  test("away from the ends is least at the hinge, under 2 css px at any angle, and never falls toward the free edge", () => {
+    for (const open of HUNDREDTHS) {
+      for (const free of [1, 0.5, 0.1]) {
+        const look = screenLook(open, 0, free);
+        const hinge = blurAt(look, 0, DEEP);
+        expect(hinge).toBeLessThan(2);
+        expect(hinge).toBeCloseTo(TUNE_DEFAULTS.blurHinge * turnBlur(open), 9);
+        let last = hinge;
+        for (const t of HUNDREDTHS) {
+          expect(blurAt(look, t, DEEP)).toBeGreaterThanOrEqual(last);
+          last = blurAt(look, t, DEEP);
         }
+        // Its widest is at the free edge the turned screen is seen to, and past it no wider.
+        expect(blurAt(look, free, DEEP)).toBeCloseTo(turnBlur(open), 9);
+        expect(last).toBeCloseTo(turnBlur(open), 9);
+        expect(blurAt(look, free / 2, DEEP)).toBeCloseTo(turnBlur(open) * blurShare(0.5), 9);
       }
     }
   });
 
-  test("near a right angle blurs the turned screen all over, its hinge too, and Apple's at the free edge it is seen to", () => {
-    for (const pane of ["inner", "cover"] as const) {
-      const open = pane === "inner" ? 0.53 : 0.47;
-      const look = screenLook(pane, open, EXTENT[pane], 0, 0.1);
-      expect(look.near).toBeCloseTo(nearBlur(pane, open) * EXTENT[pane], 9);
-      expect(blurAt(look, 0, DEEP)).toBeGreaterThan(12);
-      const area = blurArea(pane, uvOf(pane, appleSeen(pane, open)), wipeAmount(pane, open));
-      expect(blurAt(look, 0.1, DEEP)).toBeCloseTo(Math.max(blurWidth(pane, area) * EXTENT[pane], look.near), 6);
+  test("is never wider than 48 css px, and that wide only at the free edge at a right angle", () => {
+    let most = 0;
+    for (const open of HUNDREDTHS) {
+      for (const t of HUNDREDTHS) most = Math.max(most, blurAt(screenLook(open, 0), t, DEEP));
     }
-    // Far from it, sharp at the hinge.
-    expect(blurAt(screenLook("inner", 0.9, EXTENT.inner, 0, 0.95), 0, DEEP)).toBeLessThan(1);
+    expect(most).toBe(48);
+    expect(blurAt(screenLook(0.5, 0), 1, DEEP)).toBe(48);
+    // Half way out there, a little over a quarter of it.
+    expect(blurAt(screenLook(0.5, 0), 0.5, DEEP)).toBeLessThan(14);
+  });
+
+  test("draws the same in the shader, from numbers handed to it at each draw", () => {
+    expect(FRAGMENT).toContain("float across = free > 0.0 ? min(1.0, t / free) : 1.0;");
+    expect(FRAGMENT).toContain("float wide = peak * (shape.x + (1.0 - shape.x) * pow(across, shape.y));");
+    // None of the look's numbers is written into it.
+    expect(FRAGMENT).not.toContain("${");
+    for (const name of ["peak", "shape", "rimmed", "band", "edge", "dark", "lit", "grain"]) expect(FRAGMENT).toMatch(new RegExp(`uniform \\w+ ${name};`));
   });
 
   test("darkens the free edge as deep as freeDepth, and not at all lying flat", () => {
-    for (const pane of ["inner", "cover"] as const) {
-      expect(screenLook(pane, 0, EXTENT[pane], 0).dark).toBe(0);
-      expect(screenLook(pane, 1, EXTENT[pane], 0).dark).toBe(0);
-      expect(screenLook(pane, 0.6, EXTENT[pane], 12, 0.4).dark).toBe(freeDepth(0.6));
-    }
-  });
-
-  test("is never wider than the widest blurred picture", () => {
-    expect(blurAt(screenLook("inner", 0.65, EXTENT.inner, 0), 1, DEEP)).toBe(BLURS[BLURS.length - 1]);
+    expect(screenLook(0, 0).dark).toBe(0);
+    expect(screenLook(1, 0).dark).toBe(0);
+    expect(screenLook(0.6, 12, 0.4).dark).toBe(freeDepth(0.6));
   });
 
   test("blurs the page into the dark past its ends, as wide as that dark at the free edge, even at the hinge", () => {
     const wedge = 40;
-    for (const pane of ["inner", "cover"] as const) {
-      // Barely turned, Apple's blur is all but none near the hinge: the ends' is what shows there.
-      const look = screenLook(pane, pane === "inner" ? 0.95 : 0.05, EXTENT[pane], wedge);
-      expect(look.edge).toEqual([EDGE[0] * wedge, EDGE[1] * wedge]);
-      expect(blurAt(look, 0, -5)).toBeCloseTo(EDGE[0] * wedge);
-      expect(blurAt(look, 0, 0)).toBeCloseTo(EDGE[0] * wedge);
-      expect(blurAt(look, 1, 0)).toBeCloseTo(EDGE[1] * wedge);
-      expect(blurAt(look, 0.5, -20)).toBeCloseTo(((EDGE[0] + EDGE[1]) / 2) * wedge);
+    for (const open of [0.95, 0.05]) {
+      // Barely turned, the screen's blur is all but none near the hinge: the ends' is what shows there.
+      const look = screenLook(open, wedge);
+      expect(look.edge).toEqual([TUNE_DEFAULTS.edgeHinge * wedge, TUNE_DEFAULTS.edgeFree * wedge]);
+      expect(blurAt(look, 0, -5)).toBeCloseTo(TUNE_DEFAULTS.edgeHinge * wedge);
+      expect(blurAt(look, 0, 0)).toBeCloseTo(TUNE_DEFAULTS.edgeHinge * wedge);
+      expect(blurAt(look, 1, 0)).toBeCloseTo(TUNE_DEFAULTS.edgeFree * wedge);
+      expect(blurAt(look, 0.5, -20)).toBeCloseTo(((TUNE_DEFAULTS.edgeHinge + TUNE_DEFAULTS.edgeFree) / 2) * wedge);
       // It eases off into the picture, and is gone as far in as it reaches.
-      const rim = EDGE[0] * wedge;
+      const rim = TUNE_DEFAULTS.edgeHinge * wedge;
       expect(blurAt(look, 0, rim)).toBeLessThan(rim);
       expect(blurAt(look, 0, rim)).toBeGreaterThan(0);
-      expect(blurAt(look, 0, REACH * rim)).toBe(blurAt(look, 0, DEEP));
+      expect(blurAt(look, 0, TUNE_DEFAULTS.edgeReach * rim)).toBe(blurAt(look, 0, DEEP));
     }
     // The further the screen reaches past the page, the wider.
-    expect(blurAt(screenLook("cover", 0.3, EXTENT.cover, 60), 0.2, 0)).toBeGreaterThan(
-      blurAt(screenLook("cover", 0.3, EXTENT.cover, 20), 0.2, 0),
-    );
+    expect(blurAt(screenLook(0.3, 60), 0.2, 0)).toBeGreaterThan(blurAt(screenLook(0.3, 20), 0.2, 0));
   });
 
-  test("keeps Apple's where that is the wider at the ends", () => {
-    const look = screenLook("inner", 0.2, EXTENT.inner, 2);
+  test("keeps the screen's own where that is the wider at the ends", () => {
+    const look = screenLook(0.4, 2);
     expect(blurAt(look, 1, 0)).toBe(blurAt(look, 1, DEEP));
+  });
+});
+
+describe("the screen's shade", () => {
+  afterEach(resetTune);
+
+  test("as it ships is none, with nothing of a shade worked out", () => {
+    if (!DUO_FOLD) return;
+    for (const shot of DUO_FOLD.frames) {
+      const pane = shotPane(DUO_FOLD, shot);
+      if (!pane) continue;
+      const open = shotOpen(shot);
+      const quad = shotQuad(shot, pane);
+      const picture = shotPicture(DUO_FOLD, pane, quad);
+      const free = freeOf(shotWindow(quad, pane, picture), pane, picture);
+      const look = screenLook(open, 20, free, pane);
+      expect(look.dark).toBe(0);
+      // The wipe, Apple's blurs' dark and the far side's shadow are each 0, which the shader skips on.
+      expect(look.lit).toEqual([0, 0, 0]);
+      for (const t of [0, 0.3, 1]) expect(shadeAt(pane, look, t)).toBe(1);
+    }
+  });
+
+  test("is every px what the gradients' stops were worked out from, where a hand turns the shades on", () => {
+    setTune("wipeShade", 1.5);
+    setTune("farShade", 1);
+    const smooth = (from: number, to: number, value: number) => {
+      const t = Math.min(1, Math.max(0, (value - from) / (to - from)));
+      return t * t * (3 - 2 * t);
+    };
+    for (const pane of ["inner", "cover"] as const) {
+      for (const open of [0.05, 0.3, 0.45, 0.55, 0.7, 0.75, 0.9]) {
+        const look = screenLook(open, 0, 1, pane);
+        const amount = wipeAmount(pane, open);
+        const light = smooth(0.1, 1, brightness(pane, open));
+        for (const t of HUNDREDTHS) {
+          const uv = uvOf(pane, t);
+          const turned = shown(light * wipeLight(pane, uv, amount));
+          const flat = shown(blurLight(blurArea(pane, uv, amount)) * edgeLight(pane, uv, amount));
+          // All but the screen's own light, which stays a dark over the canvas as over the other half.
+          if (light > 0) expect(shadeAt(pane, look, t) * shown(light)).toBeCloseTo(turned * flat, 9);
+        }
+      }
+    }
+    // Past where the turned screen is cut it stays as dark as there, as a gradient's last stop does.
+    const cut = screenLook(0.7, 0, 0.6, "inner");
+    expect(shadeAt("inner", cut, 0.9)).toBe(shadeAt("inner", cut, 0.6));
+    expect(shadeAt("inner", cut, 0.3)).toBeGreaterThan(shadeAt("inner", cut, 0.6));
+  });
+
+  test("is left to the gradients over the canvas where they shade it: all of the light, and the free edge's dark still", () => {
+    setTune("wipeShade", 1.5);
+    setTune("darkMost", 0.7);
+    const look = screenLook(0.7, 20, 0.6);
+    expect(look.lit).toEqual([0, 0, 0]);
+    expect(look.dark).toBe(freeDepth(0.7));
+    for (const t of HUNDREDTHS) expect(shadeAt("inner", look, t)).toBe(1);
+  });
+
+  test("is worked out in the shader at every px, from no table of stops, with a little noise where it varies", () => {
+    expect(FRAGMENT).toContain("return vec4(rgb * shadow(t) * shade(min(t, free)) + speck, 1.0);");
+    expect(FRAGMENT).toContain("return pow(clamp(wipe * soft * soft * away, 0.0, 1.0), 1.0 / 2.2);");
+    // Its one table is the taps' weights.
+    expect(FRAGMENT.match(/\[\d+\]\(/g)).toEqual(["[3]("]);
+    expect(FRAGMENT).not.toContain("mix(mix(");
+    // A shade that is off costs a compare: its smoothsteps are behind one.
+    expect(FRAGMENT).toContain("if (dark <= 0.0) return 1.0;");
+    expect(FRAGMENT).toContain("if (lit.x + lit.y + lit.z <= 0.0) return 1.0;");
+    expect(FRAGMENT).toContain("if (grain > 0.0 && dark + lit.x + lit.y + lit.z > 0.0) {");
+    // Under a step of the screen's 256 either way, so a page not shaded is drawn as it is.
+    expect(FRAGMENT).toContain("- 0.5) * grain / 255.0;");
+    expect(TUNE_DEFAULTS.grain).toBe(1);
+    // The one way out of the shader goes through it, and no loop runs to a number handed in.
+    expect(FRAGMENT.match(/color = /g)).toHaveLength(1);
+    expect(FRAGMENT.match(/color = shaded\(/g)).toHaveLength(1);
+    expect(FRAGMENT.match(/for \(int \w = -2; \w <= 2; \w\+\+\)/g)).toHaveLength(2);
+    expect(FRAGMENT.match(/for \(/g)).toHaveLength(2);
+  });
+});
+
+describe("the screen's sharpness", () => {
+  afterEach(resetTune);
+
+  /** What `main` of the shader does, and the numbers handed to it. */
+  const main = FRAGMENT.slice(FRAGMENT.indexOf("void main() {"));
+  const handed = Array.from(FRAGMENT.matchAll(/uniform \w+ (\w+);/g), (found) => found[1] ?? "");
+
+  test("has no step in the picture's level anywhere in how wide the blur is, least of all where a px once went another way", () => {
+    for (const px of [1, 0.5, 1 / 3]) {
+      for (const texels of [1, 2, 3, 2.5]) {
+        const sharp = sharpLevel([px * texels, 0], [0, px * texels]);
+        expect(sharp).toBeCloseTo(Math.max(0, Math.log2(px * texels)), 12);
+        // With no blur it is the level the hardware would pick, so the page is as sharp as it was.
+        expect(levelAt(0, texels, sharp)).toBe(sharp);
+        let last = sharp;
+        for (let step = 0; step <= 4000; step++) {
+          const gap = (step / 2000) * 0.5 * px;
+          const level = levelAt(gap, texels, sharp);
+          expect(level).toBeGreaterThanOrEqual(last);
+          expect(level - last).toBeLessThan(0.002);
+          last = level;
+        }
+        // Wide, it is as it was: a tap's own px as wide as the gap.
+        expect(levelAt(24, texels, sharp)).toBeCloseTo(Math.log2(24 * texels), 12);
+      }
+    }
+    // A picture denser than the canvas is never read sharper than the canvas can show.
+    expect(levelAt(0.3, 2, sharpLevel([4, 0], [0, 4]))).toBe(2);
+    expect(sharpLevel([0, 0], [0, 0])).toBe(0);
+  });
+
+  test("blurs with taps that close onto the point as the blur goes to none, so sharp and blurred are one picture", () => {
+    expect(WEIGHTS[0] + 2 * WEIGHTS[1] + 2 * WEIGHTS[2]).toBe(1);
+    const page = (x: number, y: number) => 0.5 + 0.3 * Math.sin(x * 1.7) * Math.cos(y * 0.9);
+    for (const [x, y] of [[0, 0], [12.25, 40.5], [300, 7]] as const) {
+      expect(tapped(page, x, y, 0)).toBeCloseTo(page(x, y), 12);
+      // And no step on the way there: a hair of a gap is a hair of a blur.
+      expect(Math.abs(tapped(page, x, y, 0.001) - page(x, y))).toBeLessThan(1e-5);
+      let last = tapped(page, x, y, 0);
+      for (let step = 1; step <= 200; step++) {
+        const next = tapped(page, x, y, step / 200);
+        expect(Math.abs(next - last)).toBeLessThan(0.01);
+        last = next;
+      }
+    }
+    // Wide, it is a blur: a line a px wide is spread over the taps.
+    const line = (x: number) => (Math.abs(x) < 0.5 ? 1 : 0);
+    expect(tapped(line, 0, 0, 2)).toBe(WEIGHTS[0]);
+    expect(FRAGMENT).toContain(`float[3](${WEIGHTS.join(", ")});`);
+  });
+
+  test("takes every px one way through the shader: no tap at a level left to the hardware, and no way out before the last line", () => {
+    // texture() works its level out from the px next to it, which is not known where they take another branch.
+    expect(FRAGMENT).not.toMatch(/\btexture\(/);
+    const taps = FRAGMENT.match(/\btexture(?!Size)\w*\(/g) ?? [];
+    expect(taps).toEqual(["textureLod(", "textureLod("]);
+    expect(main).not.toContain("return");
+    expect(main.trimEnd().endsWith("color = shaded(sum, t);\n}")).toBe(true);
+    expect(FRAGMENT).not.toContain("discard");
+    expect(FRAGMENT).toContain("float lod = max(sharp, log2(max(1.0, gap * max(texels.x, texels.y))));");
+    expect(FRAGMENT).toContain("float sharp = 0.5 * log2(max(1.0, max(dot(right, right), dot(down, down))));");
+  });
+
+  test("works out what it needs of the px next to it before any branch, and nowhere else", () => {
+    const first = Math.min(...["if (", "for (", "?"].map((word) => main.indexOf(word)).filter((at) => at >= 0));
+    const slopes = Array.from(FRAGMENT.matchAll(/\b(dFdx|dFdy|fwidth)\(/g), (found) => found.index ?? 0);
+    expect(slopes).toHaveLength(2);
+    const from = FRAGMENT.indexOf(main);
+    for (const at of slopes) {
+      expect(at).toBeGreaterThan(from);
+      expect(at).toBeLessThan(from + first);
+    }
+  });
+
+  test("branches around a tap only by numbers that are the same for every px of a draw", () => {
+    const names = (text: string) => Array.from(text.matchAll(/[A-Za-z_]\w*/g), (found) => found[0]).filter((name) => !/^[xyz]$/.test(name));
+    const ifs = Array.from(main.matchAll(/\bif \((.*?)\) (\{)?/g));
+    expect(ifs.map((found) => found[1])).toEqual(["rim > 0.0", "peak + edge.x + edge.y <= 0.0"]);
+    for (const found of ifs) {
+      const uniform = names(found[1] ?? "").every((name) => handed.includes(name));
+      if (uniform) continue;
+      // One that differs from px to px is a line of its own, with no tap in it.
+      const line = main.slice(found.index, main.indexOf("\n", found.index));
+      expect(found[2]).toBeUndefined();
+      expect(line).not.toMatch(/texture|dFd|fwidth/);
+    }
+    expect(names("peak + edge.x + edge.y").every((name) => handed.includes(name))).toBe(true);
+    expect(main).not.toMatch(/gap\s*[<>]/);
+    // No blur anywhere is what the look says with the blur off, or the screen lying flat.
+    setTune("blurOn", 0);
+    const off = screenLook(0.5, 40);
+    expect(off.peak + off.edge[0] + off.edge[1]).toBe(0);
+    resetTune();
+    const flat = screenLook(1, 0);
+    expect(flat.peak + flat.edge[0] + flat.edge[1]).toBe(0);
+    const turned = screenLook(0.5, 40);
+    expect(turned.peak).toBeGreaterThan(0);
+    expect(Math.min(turned.peak, ...turned.edge)).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -157,8 +341,8 @@ describe("the turned screen's free edge", () => {
   });
 
   test("leaves the look's free edge at the picture's own where none is given", () => {
-    expect(screenLook("cover", 0.4, EXTENT.cover, 10).free).toBe(1);
-    expect(screenLook("cover", 0.4, EXTENT.cover, 10, 0.6).free).toBe(0.6);
+    expect(screenLook(0.4, 10).free).toBe(1);
+    expect(screenLook(0.4, 10, 0.6).free).toBe(0.6);
   });
 });
 
@@ -247,11 +431,166 @@ describe("WebGL2", () => {
     expect(contextOf({ getContext: () => ({}) })).toBeNull();
   });
 
-  test("draws nothing where there is none, and the layers take over", () => {
+  const place = { pane: "inner" as const, across: true, stage: { width: 951, height: 669 }, part: { x: 0, y: 0, width: 475.5, height: 669 }, margin: 80, density: 2 };
+
+  /** How a faked WebGL2 fails: it makes nothing, is lost, does not link, saying `log`, throws `upload` at a picture, or tells of `error` after one. */
+  interface Fail {
+    made?: boolean;
+    lost?: boolean;
+    link?: boolean;
+    log?: string;
+    upload?: unknown;
+    error?: number;
+  }
+
+  /** A canvas whose WebGL2 fails as `fail` has it, what was told of each refusal, and the way to lose its context. */
+  function fake(fail: Fail | null) {
+    const calls: string[] = [];
+    const located: string[] = [];
+    const set: unknown[] = [];
+    const gl = new Proxy(new FakeGl(), {
+      get: (_target, name) => {
+        if (name === "NO_ERROR") return 0;
+        return (...args: unknown[]) => {
+          calls.push(String(name));
+          if (name === "getUniformLocation") {
+            located.push(String(args[1]));
+            return String(args[1]);
+          }
+          if (String(name).startsWith("uniform")) set.push(args[0]);
+          if (name === "getParameter") return 4096;
+          if (name === "createShader") return fail?.made ? null : {};
+          if (name === "isContextLost") return fail?.lost === true;
+          if (name === "getProgramParameter") return !fail?.link;
+          if (name === "getShaderInfoLog") return args[0] && fail?.log ? fail.log : "";
+          if (name === "getProgramInfoLog") return "";
+          if (name === "getError") return fail?.error ?? 0;
+          if (name === "getExtension") return null;
+          if (name === "texImage2D" && fail?.upload) throw fail.upload;
+          return {};
+        };
+      },
+    });
+    const heard: Record<string, () => void> = {};
+    let removed = 0;
+    const canvas = {
+      width: 0,
+      height: 0,
+      style: {},
+      getContext: () => (fail ? gl : null),
+      remove: () => removed++,
+      addEventListener: (name: string, listener: () => void) => {
+        heard[name] = listener;
+      },
+    };
     Object.defineProperty(globalThis, "WebGL2RenderingContext", { configurable: true, value: FakeGl });
-    const canvas = { getContext: () => null, style: {} };
     Object.defineProperty(globalThis, "document", { configurable: true, value: { createElement: () => canvas } });
-    const place = { pane: "inner" as const, across: true, stage: { width: 951, height: 669 }, part: { x: 0, y: 0, width: 475.5, height: 669 }, margin: 80, density: 2 };
-    expect(screenGl(place, () => {})).toBeNull();
+    const refused: [string, unknown][] = [];
+    const screen = screenGl(place, (why, shot) => refused.push([why, shot]));
+    return { screen, refused, calls, located, set, lose: () => heard.webglcontextlost?.(), removed: () => removed };
+  }
+
+  /** A picture as far as WebGL2 takes one up. */
+  function shotOf(width: number, height: number): HTMLCanvasElement {
+    return { width, height } as unknown as HTMLCanvasElement;
+  }
+
+  /** An error as a browser throws one, by name. */
+  function thrown(name: string): Error {
+    const error = new Error("no");
+    error.name = name;
+    return error;
+  }
+
+  test("draws nothing where there is none, and says which it has not: the browser or the canvas", () => {
+    const { screen, refused } = fake(null);
+    expect(screen).toBeNull();
+    expect(refused).toEqual([["the canvas gave no WebGL2 context", null]]);
+    Reflect.deleteProperty(globalThis, "WebGL2RenderingContext");
+    const none: string[] = [];
+    expect(screenGl(place, (why) => none.push(why))).toBeNull();
+    expect(none).toEqual(["this browser has no WebGL2"]);
+  });
+
+  test("is not made where WebGL2 makes nothing, lost or not, or where the shader fails, and says what the shader's log does", () => {
+    const nothing = fake({ made: true });
+    expect(nothing.screen).toBeNull();
+    expect(nothing.refused).toEqual([["WebGL2 made no shader, program, buffer or texture", null]]);
+    expect(nothing.removed()).toBe(1);
+    const lost = fake({ made: true, lost: true });
+    expect(lost.refused).toEqual([["the WebGL2 context was lost as it was made", null]]);
+    const shader = fake({ link: true, log: "\nERROR: 0:17: 'free' : undeclared identifier\nERROR: 0:18: more\n" });
+    expect(shader.screen).toBeNull();
+    expect(shader.refused).toEqual([["the shader did not compile or link: ERROR: 0:17: 'free' : undeclared identifier", null]]);
+    expect(shader.removed()).toBe(1);
+    expect(fake({ link: true }).refused).toEqual([["the shader did not compile or link: no reason given", null]]);
+    expect(fake({ link: true, lost: true }).refused).toEqual([["the WebGL2 context was lost as it was made", null]]);
+  });
+
+  test("takes up a picture and draws it, telling of no refusal", () => {
+    const { screen, refused, calls } = fake({});
+    const shot = shotOf(951, 669);
+    screen?.draw(screenLook(0.5, 10));
+    expect(calls).not.toContain("drawArrays");
+    screen?.paint(shot);
+    expect(refused).toEqual([]);
+    expect(calls).toContain("generateMipmap");
+    expect(calls.filter((call) => call === "drawArrays")).toHaveLength(1);
+  });
+
+  test("sets every number its shader takes, so none is left as it was made", () => {
+    const { screen, located, set } = fake({});
+    screen?.paint(shotOf(951, 669));
+    screen?.draw(screenLook(0.5, 10, 0.4, "inner"));
+    const taken = Array.from(FRAGMENT.matchAll(/uniform \w+ (\w+);/g), (found) => found[1] ?? "");
+    expect(taken).toHaveLength(17);
+    for (const name of [...taken, "view"]) {
+      expect(located).toContain(name);
+      expect(set).toContain(name);
+    }
+  });
+
+  test("hands a picture it cannot take up to the layers, lets go of itself, and says why", () => {
+    const shot = shotOf(951, 669);
+    const cases: [Fail, HTMLCanvasElement, RegExp][] = [
+      [{ upload: thrown("SecurityError") }, shot, /^the picture could not be uploaded: SecurityError, the browser holds the picture as another origin's/],
+      [{ upload: thrown("TypeError") }, shot, /^the picture could not be uploaded: TypeError$/],
+      [{ upload: "broken" }, shot, /^the picture could not be uploaded: broken$/],
+      [{ error: 0x501 }, shot, /^the picture could not be uploaded: WebGL2 error 0x501$/],
+      [{}, shotOf(8000, 669), /^the picture, 8000 by 669 px, is larger than MAX_TEXTURE_SIZE, 4096$/],
+      [{}, shotOf(951, 4097), /^the picture, 951 by 4097 px, is larger than MAX_TEXTURE_SIZE, 4096$/],
+    ];
+    for (const [fail, picture, why] of cases) {
+      const { screen, refused, calls, removed } = fake(fail);
+      screen?.paint(picture);
+      expect(refused).toHaveLength(1);
+      expect(refused[0]?.[0]).toMatch(why);
+      expect(Object.is(refused[0]?.[1], picture)).toBe(true);
+      // Nothing of it is left, and nothing is drawn from a picture that did not go up.
+      expect(removed()).toBe(1);
+      expect(calls).toContain("deleteTexture");
+      expect(calls).not.toContain("generateMipmap");
+      expect(calls).not.toContain("drawArrays");
+      // Whatever comes after goes to the layers too, and it is let go of once only.
+      screen?.paint(picture);
+      expect(refused[1]).toEqual(["the WebGL2 context is gone", picture]);
+      screen?.release();
+      expect(calls.filter((call) => call === "deleteTexture")).toHaveLength(1);
+    }
+  });
+
+  test("hands the picture it holds to the layers once its context is lost, and no more than once", () => {
+    const { screen, refused, lose, removed } = fake({});
+    const shot = shotOf(951, 669);
+    screen?.paint(shot);
+    lose();
+    lose();
+    expect(refused).toEqual([["the WebGL2 context was lost", shot]]);
+    expect(removed()).toBe(1);
+    // Let go of by the fold itself, it tells of nothing.
+    const over = fake({});
+    over.screen?.release();
+    over.lose();
+    expect(over.refused).toEqual([]);
   });
 });

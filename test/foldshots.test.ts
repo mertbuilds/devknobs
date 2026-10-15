@@ -24,10 +24,14 @@ import {
   holdingHinge,
   releaseFold,
   scrubFold,
+  foldableShown,
   stopFold,
   watchFold,
   watchHinge,
 } from "../src/engine/foldrun";
+import { BLEED, bled } from "../src/engine/foldframes";
+import { OVER, overOf } from "../src/engine/foldpage";
+import { foldTune, hingeMoved, resetTune, setTune } from "../src/engine/foldtune";
 import { DEFAULT_STATE } from "../src/engine/store";
 import type { ViewportValue } from "../src/engine/width";
 
@@ -119,10 +123,19 @@ class FakeNode {
     return this.pen;
   }
 
+  /** A canvas as a PNG that says its size, or, with the page's pictures held as another origin's, none. */
+  toBlob(done: (blob: Blob | null) => void, type: string): void {
+    if (tainted) throw new DOMException("The canvas has been tainted by cross-origin data.", "SecurityError");
+    done(new Blob([`${this.width}x${this.height}`], { type }));
+  }
+
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
     return { left: 0, top: 0, width: 400, height: 600 };
   }
 }
+
+/** Does the browser hold every canvas as another origin's, so none gives its picture out? */
+let tainted = false;
 
 /** A frame's picture, which knows its file and whether it was let go of. */
 class FakeBitmap {
@@ -144,12 +157,21 @@ class FakePen {
     this.drawn = [];
   }
 
+  /** What a rough picture of a page is painted with, which draws nothing here. */
+  fillRect(): void {}
+  setTransform(): void {}
+  beginPath(): void {}
+  rect(): void {}
+  clip(): void {}
+  save(): void {}
+  restore(): void {}
+
   drawImage(bitmap: FakeBitmap, ...args: number[]): void {
     // As a browser does, drawing a picture let go of.
     if (bitmap.closed) throw new Error("InvalidStateError: the bitmap is closed");
     const last = this.drawn.at(-1);
     // One entry for all of a picture's pieces.
-    if (last?.src === bitmap.src && last.alpha === this.globalAlpha) return;
+    if (last && last.src === bitmap.src && last.alpha === this.globalAlpha) return;
     this.drawn.push({ src: bitmap.src, alpha: this.globalAlpha, at: [args[4] ?? NaN, args[5] ?? NaN] });
   }
 }
@@ -275,7 +297,7 @@ afterAll(() => {
   });
 });
 
-const BASE = { ...DEFAULT_STATE, device: "iphone-duo", mock: true, panel: { open: false, side: "right" } } as const;
+const BASE = { ...DEFAULT_STATE, device: "iphone-duo", mock: true, panel: { open: false, side: "right", docked: false } } as const;
 const SHUT: ViewportValue = { ...BASE, posture: "closed", orientation: "portrait", width: 466, height: 678 };
 const OPEN: ViewportValue = { ...BASE, posture: "open", orientation: "landscape", width: 951, height: 669 };
 const SHUT_ACROSS: ViewportValue = { ...SHUT, orientation: "landscape", width: 678, height: 466 };
@@ -339,7 +361,7 @@ const style = (node: FakeNode | undefined, key: string) => String(Reflect.get(no
 
 /** The fold's model of the render, if the fold draws the frames. */
 function model(): FakeNode | undefined {
-  const node = placed()[1];
+  const node = placed()[0];
   return node?.children.some((child) => child.pen !== null) ? node : undefined;
 }
 
@@ -399,6 +421,54 @@ beforeEach(() => {
   resizes = new Set();
 });
 
+describe("how far short of the hinge the open screen's half that turns stops", () => {
+  test("is 2 css px, and 2 px of the display where the screen is drawn smaller than that, 8 css px at most", () => {
+    expect([overOf(3), overOf(1)]).toEqual([OVER, OVER]);
+    expect(overOf(0.5) * 0.5).toBe(2);
+    expect(overOf(0.25)).toBe(8);
+    expect(overOf(0.01)).toBe(8);
+  });
+});
+
+describe("the dark under a turned screen and what cuts its window", () => {
+  const rect = { x: 0, y: 0, width: 475.5, height: 669 };
+  const tall = { x: 0, y: 0, width: 669, height: 475.5 };
+  /** A screen seen 3 px of the render a px, squeezed across the hinge to `turn` of that, as it is turned. */
+  const seenBy = (across: boolean, turn: number) => (point: { x: number; y: number }) =>
+    across ? { x: 3 * turn * point.x, y: 3 * point.y } : { x: 3 * point.x, y: 3 * turn * point.y };
+
+  test("reach as far past the screen's top and bottom ends and its free edge as they did before it stopped short of the hinge", () => {
+    for (const across of [true, false]) {
+      const part = across ? rect : tall;
+      for (const turn of [1, 0.7, 0.2, 0.01]) {
+        const seen = seenBy(across, turn);
+        for (const pane of ["inner", "cover"] as const) {
+          const was = bled(part, pane, across, seen);
+          const now = bled(part, pane, across, seen, 6, 16);
+          // Its ends along the hinge, to the last digit.
+          expect(across ? [now.y, now.height] : [now.x, now.width]).toEqual(across ? [was.y, was.height] : [was.x, was.width]);
+          expect(across ? [was.y, was.height] : [was.x, was.width]).toEqual(across ? [-BLEED, 669 + 2 * BLEED] : [-BLEED, 669 + 2 * BLEED]);
+          // Its free edge: the open screen's left held across, and its bottom held upright.
+          if (pane === "inner") {
+            expect(across ? now.x : now.y + now.height).toBe(across ? was.x : was.y + was.height);
+          } else {
+            // The folded screen's hinge is under its case, so nothing of it changes.
+            expect(now).toEqual(was);
+          }
+        }
+        // Only the open screen's hinge side comes in: seen 6 px of the render short of the hinge, 16 of its own px at most.
+        const was = bled(part, "inner", across, seen);
+        const now = bled(part, "inner", across, seen, 6, 16);
+        const [before, after] = across ? [was.x + was.width, now.x + now.width] : [was.y, now.y];
+        expect(before).toBe(across ? 475.5 : 0);
+        const short = Math.abs(after - before);
+        expect(short).toBeCloseTo(Math.min(16, 6 / (3 * turn)), 9);
+        expect(across ? after < before : after > before).toBe(true);
+      }
+    }
+  });
+});
+
 describe("a Duo folding in its frames", () => {
   if (!DUO_FOLD) return;
   const shots = DUO_FOLD;
@@ -427,10 +497,18 @@ describe("a Duo folding in its frames", () => {
     await Bun.sleep(0);
     expect(foldShots()).toBeNull();
     fold(SHUT, OPEN, sceneOf());
-    // The copies: each side's body, window and shade, then the bend's half that stays.
-    expect(placed()).toHaveLength(7);
+    // The copies: each side's body, window and shade, and nothing down the hinge.
+    expect(placed()).toHaveLength(6);
+    // The inside's body goes a px past the hinge, and its screen's dark stops a px short of it: none of it shows past the window.
+    const [body] = placed();
+    const screen = body?.children[0];
+    const right = (node: FakeNode | undefined) => Number(/^inset\(\S+ (\S+)px /.exec(style(node, "clipPath"))?.[1]);
+    const bodyEnd = parseFloat(style(body, "width")) - right(body);
+    const darkEnd = parseFloat(style(screen, "left")) + parseFloat(style(screen, "width")) - right(screen);
+    expect(style(screen, "background")).toBe("#000");
+    expect(bodyEnd - darkEnd).toBeCloseTo(2, 1);
     play(48);
-    expect(placed()).toHaveLength(7);
+    expect(placed()).toHaveLength(6);
     await decodeNow();
     // Never all of them: those round the hinge, ahead of it toward open, and the half that stays.
     expect(live().length).toBeGreaterThan(SHOTS_AROUND);
@@ -438,8 +516,8 @@ describe("a Duo folding in its frames", () => {
     expect(live().some(isStill)).toBe(true);
     expect(live().some((bitmap) => bitmap.src.endsWith(shots.frames[0]?.file ?? "-"))).toBe(false);
     play(64);
-    // The bend's half that stays, under the frames.
-    expect(placed()).toHaveLength(2);
+    // The frames alone, with nothing down the hinge under them.
+    expect(placed()).toHaveLength(1);
     expect(canvases()).toHaveLength(2);
     expect(canvases()[1]?.width).toBeGreaterThan(0);
     expect(turned()).toBeGreaterThanOrEqual(0);
@@ -447,7 +525,7 @@ describe("a Duo folding in its frames", () => {
     expect(layer()).toBeUndefined();
     // Kept a while, so the next fold has them from its first frame.
     fold(OPEN, SHUT, sceneOf());
-    expect(placed()).toHaveLength(2);
+    expect(placed()).toHaveLength(1);
     expect(turned()).toBe(0);
     // At rest the device shows as it is drawn, till the hinge moves.
     expect(style(model(), "opacity")).toBe("0");
@@ -462,6 +540,7 @@ describe("a Duo folding in its frames", () => {
     });
     const seen = new Set<number>();
     let glued = false;
+    let past = false;
     await playing(2000, () => {
       const node = model();
       if (!layer() || !node) return;
@@ -507,6 +586,34 @@ describe("a Duo folding in its frames", () => {
         expect(style(facing[0], "clipPath")).toStartWith('path("M');
         expect(style(cut, "clipPath")).toStartWith('path("M');
         expect(style(cut?.children[0], "transform")).toStartWith("matrix(");
+        // The page laid flat is cut at the hinge and not at its ends, where the dark past them is blurred into it.
+        expect([style(cut?.children[0], "overflowX"), style(cut?.children[0], "overflowY")]).toEqual(["clip", "visible"]);
+        expect(style(cut?.children[0], "clipPath")).toBe("");
+        // How far right each reaches in the render, where the open screen's hinge is.
+        const right = (node: FakeNode | undefined) => {
+          const numbers = (style(node, "clipPath").match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+          return Math.max(...numbers.filter((_, index) => index % 2 === 0));
+        };
+        const hinge = shots.open[0] + shots.open[2] / 2 - left;
+        if (facing[0] === inner) {
+          // The open screen's window ends at the hinge, and what cuts it and its dark, one edge, short of it, however far
+          // it has turned: 2 px of the display, 4 css px of the page lying flat drawn half as big, 12 px of the render.
+          expect(right(cut)).toBeCloseTo(hinge, 1);
+          const short = hinge - right(facing[0]);
+          const flat = (overOf(0.5) * shots.open[2]) / 951;
+          expect(flat).toBeCloseTo(12, 1);
+          // Its dark ends twice as far short, on an edge of its own under the page: the browser cuts the dark and the
+          // page's canvas each by itself, so on one edge the dark showed through the page as a line.
+          expect(style(facing[0], "background")).toBe(`linear-gradient(#000, #000) 0 0 / ${hinge - 2 * flat}px 100% no-repeat`);
+          expect(short).toBeGreaterThan(flat / 4);
+          expect(short).toBeLessThan(flat + 0.2);
+          if (shot.deg <= 82) expect(short).toBeGreaterThan(flat - 0.2);
+          past = true;
+        } else {
+          // The folded screen's dark lies under its case all round.
+          expect(right(facing[0])).toBeGreaterThan(right(cut));
+          expect(style(facing[0], "background")).toBe("#000");
+        }
         glued = true;
       }
       expect(style(node, "transform")).toStartWith("matrix(0.3");
@@ -516,6 +623,7 @@ describe("a Duo folding in its frames", () => {
     // From shut to open, frames all the way along: more than a few of them, inner and cover both.
     expect(seen.size).toBeGreaterThan(10);
     expect(glued).toBe(true);
+    expect(past).toBe(true);
     expect(layer()).toBeUndefined();
     expect(drawn.at(-1)).toEqual(OPEN);
     expect(style(unit, "clipPath")).toBe("");
@@ -536,13 +644,11 @@ describe("a Duo folding in its frames", () => {
         style(one?.children[0]?.children[0]?.children[1], "background"),
       ]);
       const place = layer()?.children[0];
-      const crease = placed()[0];
       return JSON.stringify([
         style(place, "transform"),
         style(node, "transform"),
         style(unit, "transform"),
         style(unit, "clipPath"),
-        style(crease, "opacity"),
         style(cover, "opacity"),
         ...glued,
       ]);
@@ -574,6 +680,85 @@ describe("a Duo folding in its frames", () => {
     }
     expect(still).toBeGreaterThan(100);
     expect(moved).toBeGreaterThan(100);
+  });
+
+  test("draws again at once, resting between its ends, as a number of its look is set by hand", async () => {
+    foldDevice(SHUT, OPEN, sceneOf(), (value) => drawn.push(value), true);
+    await Bun.sleep(0);
+    let now = 0;
+    const step = async () => {
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      await Bun.sleep(0);
+    };
+    // A slow hand takes the hinge to where the folded screen still shows, and holds it there till it rests.
+    for (let target = 0; target <= 0.3; target += 1 / 540) {
+      scrubFold(target);
+      await step();
+    }
+    for (let waited = 0; waited < 2000 && frames.length > 0; waited += 1) await step();
+    expect(frames).toHaveLength(0);
+    /** The dark at the free edge of each turned screen, which the layers draw where WebGL2 is not. */
+    const edges = () => {
+      const [, inner, outer] = model()?.children ?? [];
+      return [inner, outer].map((one) => style(one?.children[0]?.children[0]?.children[3], "background")).join("|");
+    };
+    const before = edges();
+    // None as it ships, and nothing else darkens the turned screen at its hinge.
+    expect(before).toBe("|");
+    try {
+      setTune("darkMost", 0.2);
+      // No frame was asked for: it is drawn by the time the number is set.
+      expect(frames).toHaveLength(0);
+      expect(edges()).toContain("linear-gradient(");
+    } finally {
+      resetTune();
+    }
+    expect(edges()).toBe(before);
+  });
+
+  test("shows what draws a line as a hand asks: its dark as magenta, without the case's pictures, without the half that stays", async () => {
+    foldDevice(SHUT, OPEN, sceneOf(), (value) => drawn.push(value), true);
+    await Bun.sleep(0);
+    let now = 0;
+    const step = async () => {
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      await Bun.sleep(0);
+    };
+    // A hand takes the hinge to where the open screen's half shows, and holds it there till it rests.
+    for (let target = 0; target <= 0.8; target += 1 / 60) {
+      scrubFold(target);
+      await step();
+    }
+    for (let waited = 0; waited < 2000 && frames.length > 0; waited += 1) await step();
+    const looks = () => {
+      const [, inner] = model()?.children ?? [];
+      return [style(inner, "background"), ...canvases().map((canvas) => style(canvas, "visibility")), style(unit, "visibility")];
+    };
+    const before = looks();
+    expect(before[0]).toStartWith("linear-gradient(#000, #000) 0 0 / ");
+    expect(before.slice(1)).toEqual(["", "", ""]);
+    try {
+      setTune("backTint", 1);
+      expect(looks()).toEqual([before[0]?.replaceAll("#000", "#f0f") ?? "", "", "", ""]);
+      setTune("frameOn", 0);
+      expect(looks().slice(1)).toEqual(["hidden", "hidden", ""]);
+      setTune("stillOn", 0);
+      expect(looks().slice(1)).toEqual(["hidden", "hidden", "hidden"]);
+    } finally {
+      resetTune();
+    }
+    expect(looks()).toEqual(before);
+    // The half that stays is never left hidden once the fold is over.
+    setTune("stillOn", 0);
+    try {
+      expect(style(unit, "visibility")).toBe("hidden");
+      stopFold();
+      expect(style(unit, "visibility")).toBe("");
+    } finally {
+      resetTune();
+    }
   });
 
   test("writes nothing to the page between frames, once the fades are done, and draws it all again at one", async () => {
@@ -629,6 +814,11 @@ describe("a Duo folding in its frames", () => {
     // The device shows only its still half while that fades in, then only its screen, under the rendered case.
     expect(clips.find((clip) => clip !== "")).toContain("100000px");
     expect(clips[firstWhole + 1]).not.toContain("100000px");
+    // With the open screen's half turning over it, it goes on under that, a px further than its dark stops short of the hinge: twice 4 css px here.
+    const xs = (clip: string | undefined) => (clip?.match(/-?\d+(\.\d+)?(?=px \d)/g) ?? []).map(Number);
+    const under = (clip: string | undefined) => Math.max(...xs(clip)) - Math.min(...xs(clip)) - 475.5 - BLEED;
+    expect(under(clips[firstWhole + 1])).toBeCloseTo(0, 6);
+    expect(under(clips.findLast((clip) => clip !== ""))).toBeCloseTo(1 + 2 * overOf(0.5), 6);
     // Out over SHOTS_FADE ms, the device at rest under it, then the layer goes.
     const fading = outs.slice(outs.lastIndexOf("") + 1).map(Number);
     expect(fading.length).toBeGreaterThanOrEqual(SHOTS_FADE / 16 - 2);
@@ -764,7 +954,7 @@ describe("a Duo folding in its frames", () => {
     expect(drawn).toHaveLength(before);
     // A new fold decodes them again, and turns the copies till they are in.
     fold(SHUT, OPEN, sceneOf());
-    expect(placed()).toHaveLength(7);
+    expect(placed()).toHaveLength(6);
     await Bun.sleep(0);
     play(32);
     expect(canvases()).toHaveLength(2);
@@ -794,7 +984,7 @@ describe("a Duo folding in its frames", () => {
       restFoldShots(openOf(value.posture));
       unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
     });
-    expect(placed()).toHaveLength(2);
+    expect(placed()).toHaveLength(1);
     expect(turned()).toBe(last);
     await Bun.sleep(0);
     expect(bitmaps.slice(0, before).every((bitmap) => !bitmap.closed)).toBe(true);
@@ -837,10 +1027,10 @@ describe("a Duo folding in its frames", () => {
     const opens: number[] = [];
     const unwatch = watchHinge((open) => opens.push(open));
     fold(SHUT, OPEN, sceneOf());
-    expect(placed()).toHaveLength(7);
+    expect(placed()).toHaveLength(6);
     // No decode comes in between these frames.
     play(48);
-    expect(placed()).toHaveLength(7);
+    expect(placed()).toHaveLength(6);
     expect(opens.length).toBeGreaterThan(1);
     expect(opens.every((open) => open === 0)).toBe(true);
     await Bun.sleep(0);
@@ -864,7 +1054,7 @@ describe("a Duo folding in its frames", () => {
     const opens: number[] = [];
     const unwatch = watchHinge((open) => opens.push(open));
     foldResting(SHUT, OPEN, sceneOf());
-    expect(placed()).toHaveLength(2);
+    expect(placed()).toHaveLength(1);
     // The click's next frame draws it at rest still, and the one after is as far on as its time takes it.
     play(0);
     expect(opens.at(-1)).toBe(0);
@@ -971,7 +1161,7 @@ describe("a fold the knobs start, waiting for the pictures of the page", () => {
     };
     const frame = Object.assign(new FakeNode(), {
       contentDocument: page,
-      contentWindow: { innerWidth: 400, innerHeight: 600, scrollX: 0, scrollY: 0 },
+      contentWindow: { innerWidth: 400, innerHeight: 600, scrollX: 0, scrollY: 0, getComputedStyle: () => ({ fontSize: "16px" }) },
     });
     return { ...sceneOf(), frame: frame as unknown as HTMLIFrameElement, body: () => null };
   }
@@ -1709,7 +1899,7 @@ describe("a Duo whose frames do not decode", () => {
     // None decodes again: the next fold turns the copies all the way.
     const all = bitmaps.length;
     foldResting(OPEN, SHUT, sceneOf());
-    expect(placed()).toHaveLength(7);
+    expect(placed()).toHaveLength(6);
     await playing(2000, () => {
       expect(canvases()).toHaveLength(0);
     });
@@ -1732,7 +1922,7 @@ describe("a Duo whose frames do not decode", () => {
     const unwatch = watchHinge((open) => opens.push(open));
     // No page to wait for the pictures of.
     foldResting(SHUT, OPEN, sceneOf());
-    expect(placed()).toHaveLength(7);
+    expect(placed()).toHaveLength(6);
     // That frame draws it at rest still, and the next moves it.
     play(0);
     expect(opens.at(-1)).toBe(0);
@@ -1772,5 +1962,344 @@ describe("a Duo whose frames do not decode", () => {
     expect(bitmaps).toHaveLength(all);
     expect(bezels.foldShots()).toBeNull();
     expect(bezels.foldShotsDue()).toBe(false);
+  });
+});
+
+describe("the fold's tuning hook, asking the frame", () => {
+  let now = 0;
+
+  beforeEach(() => {
+    paints = Promise.resolve();
+    tainted = false;
+    now = 0;
+  });
+
+  afterEach(() => {
+    foldableShown(null);
+    tainted = false;
+    stopFold();
+  });
+
+  /** The frame with a page in it a rough picture can be taken of, which the browser does not draw, and no bezels. */
+  function paged(): FoldScene {
+    const page = {
+      documentElement: new FakePage(),
+      body: { children: [] },
+      images: [],
+      styleSheets: [],
+      implementation: { createHTMLDocument: () => ({ importNode: () => new FakePage(), createElement: () => new FakeNode() }) },
+      querySelectorAll: () => [],
+      createRange: () => ({}),
+    };
+    const frame = Object.assign(new FakeNode(), {
+      contentDocument: page,
+      contentWindow: { innerWidth: 400, innerHeight: 600, scrollX: 0, scrollY: 0, getComputedStyle: () => ({ fontSize: "16px" }) },
+    });
+    return { ...sceneOf(), frame: frame as unknown as HTMLIFrameElement, body: () => null };
+  }
+
+  /** Run `count` frames, 16 ms apart, on from the last, seeing each. */
+  function run(count: number, see: () => void = () => {}): void {
+    for (let index = 0; index < count && frames.length > 0; index += 1) {
+      for (const callback of frames.splice(0)) callback(now);
+      now += 16;
+      see();
+    }
+  }
+
+  test("gives the hinge's angle as his slider has it: null with no foldable up, 180 open, 0 shut, and the fold's on its way", () => {
+    expect(foldTune.angle()).toBeNull();
+    const scene = sceneOf();
+    let value = SHUT;
+    foldableShown(() => ({ scene, value }));
+    expect(foldTune.angle()).toBe(0);
+    value = OPEN;
+    expect(foldTune.angle()).toBe(180);
+    value = SHUT;
+    let open = 0;
+    const unwatch = watchHinge((at) => {
+      open = at;
+    });
+    foldDevice(SHUT, OPEN, scene, (next) => {
+      value = next;
+      unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+    });
+    const seen: number[] = [];
+    run(200, () => {
+      expect(foldTune.angle()).toBe(180 * (folding() ? open : 1));
+      seen.push(foldTune.angle() ?? NaN);
+    });
+    unwatch();
+    expect(folding()).toBe(false);
+    expect(seen.at(-1)).toBe(180);
+    expect(seen.some((at) => at > 60 && at < 120)).toBe(true);
+    expect(seen).toEqual([...seen].sort((a, b) => a - b));
+    foldableShown(() => null);
+    expect(foldTune.angle()).toBeNull();
+  });
+
+  test("tells who listens of the angle as it moves, once a frame at most, and asks for no frame with no one listening", () => {
+    const scene = sceneOf();
+    let value = SHUT;
+    foldableShown(() => ({ scene, value }));
+    const start = () =>
+      foldDevice(value, value === SHUT ? OPEN : SHUT, scene, (next) => {
+        value = next;
+        unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+      });
+    // No one listens: the fold asks for its own next frame, and nothing else does.
+    start();
+    run(200, () => expect(frames.length).toBeLessThanOrEqual(1));
+    expect(foldTune.angle()).toBe(180);
+    let heard: number[] = [];
+    const stop = foldTune.subscribe(() => heard.push(foldTune.angle() ?? NaN));
+    start();
+    let last = 0;
+    let draws = 0;
+    run(200, () => {
+      expect(heard.length - last).toBeLessThanOrEqual(1);
+      last = heard.length;
+      draws += 1;
+      // However often it moved in a frame, one more frame is asked for, beside the fold's own.
+      if (draws === 5) {
+        expect(frames).toHaveLength(2);
+        hingeMoved();
+        hingeMoved();
+      }
+      expect(frames.length).toBeLessThanOrEqual(2);
+    });
+    expect(folding()).toBe(false);
+    // Each angle once, on its way down to shut, a frame after it was drawn.
+    expect(heard.length).toBeGreaterThan(20);
+    expect(heard.length).toBeLessThanOrEqual(draws);
+    expect(new Set(heard).size).toBe(heard.length);
+    expect(heard).toEqual([...heard].sort((a, b) => b - a));
+    expect(heard.at(-1)).toBe(0);
+    // The foldable goes: told once, and not again of what stays.
+    heard = [];
+    foldableShown(() => null);
+    forgetFold();
+    forgetFold();
+    run(3);
+    expect(heard).toEqual([NaN]);
+    stop();
+    foldableShown(() => ({ scene, value }));
+    start();
+    run(200, () => expect(frames.length).toBeLessThanOrEqual(1));
+    expect(heard).toEqual([NaN]);
+  });
+
+  test("gives the picture of the page on the screen that shows as a PNG its own size: taken at rest as a fold would, else the fold's own", async () => {
+    // No foldable up: none.
+    expect(await foldTune.shot()).toBeNull();
+    expect(foldTune.shotWhy()).toBe("no foldable is up");
+    // A page out of reach: none.
+    const bare = sceneOf();
+    foldableShown(() => ({ scene: bare, value: OPEN }));
+    expect(await foldTune.shot()).toBeNull();
+    expect(foldTune.shotWhy()).toBe("the page is out of reach, so there is no picture of it");
+    // At rest open, the open screen's, a quarter of its 951 by 669 css px as the rough one is, and shut the folded body's.
+    const scene = paged();
+    foldableShown(() => ({ scene, value: OPEN }));
+    const inner = await foldTune.shot();
+    expect(inner?.type).toBe("image/png");
+    expect(await inner?.text()).toBe("238x167");
+    expect(foldTune.shotWhy()).toBe("the picture came out as a PNG, 238 by 167 px");
+    expect(layer()).toBeUndefined();
+    foldableShown(() => ({ scene, value: SHUT }));
+    expect(await (await foldTune.shot())?.text()).toBe("117x170");
+    // A picture the browser will not let out: none, and nothing thrown.
+    tainted = true;
+    expect(await foldTune.shot()).toBeNull();
+    expect(foldTune.shotWhy()).toStartWith("the browser will not let the picture out: SecurityError");
+    tainted = false;
+    // Folding, the fold's own picture of the side that faces the viewer, whatever rests.
+    foldableShown(() => null);
+    foldDevice(SHUT, OPEN, scene, () => {}, true);
+    expect(await (await foldTune.shot())?.text()).toBe("117x170");
+    scrubFold(0.8);
+    let open = 0;
+    const unwatch = watchHinge((at) => {
+      open = at;
+    });
+    for (let frame = 0; frame < 200 && open <= 0.5; frame += 1) run(1);
+    unwatch();
+    expect(open).toBeGreaterThan(0.5);
+    expect(await (await foldTune.shot())?.text()).toBe("238x167");
+  });
+});
+
+describe("the pictures of the page a fold turns", () => {
+  /** The Duo's two screens, and the picture a full-bleed page picks for each once it hears of the screen's size. */
+  const FOLDED = { width: 466, height: 678, src: "cover.jpg", natural: [774, 1125] };
+  const UNFOLDED = { width: 951, height: 669, src: "inner.jpg", natural: [1600, 1125] };
+  /** The page as it is now: its viewport, and the picture it shows. */
+  let page = { ...FOLDED };
+  /** What happened, in order: each time the frame was drawn, and each picture of the page the browser was asked to draw, with what the page showed then. */
+  let log: string[] = [];
+  /** Changes to the page its watcher has not been told of yet. */
+  let pending: unknown[] = [];
+
+  beforeEach(() => {
+    paints = Promise.resolve();
+    log = [];
+    pending = [];
+  });
+
+  afterEach(() => {
+    stopFold();
+    // The rough pictures kept go with the frame.
+    forgetFold();
+  });
+
+  /**
+   * The frame with a page in it whose whole content is one picture that
+   * covers the viewport, no bezels, so the fold turns copies. The browser
+   * does not draw the page here, so the rough picture stays on each screen.
+   */
+  function pictured(): FoldScene {
+    class Watcher {
+      observe(): void {}
+      disconnect(): void {}
+      takeRecords(): unknown[] {
+        return pending.splice(0);
+      }
+    }
+    const box = () => ({ left: 0, top: 0, width: page.width, height: page.height, right: page.width, bottom: page.height });
+    const picture = {
+      complete: true,
+      closed: false,
+      get src() {
+        return page.src;
+      },
+      get currentSrc() {
+        return page.src;
+      },
+      get naturalWidth() {
+        return page.natural[0] ?? 0;
+      },
+      get naturalHeight() {
+        return page.natural[1] ?? 0;
+      },
+      closest: () => null,
+      // Read once for each picture of the page the browser is asked for, as the picture goes on it.
+      getBoundingClientRect: () => {
+        log.push(`${page.src} in ${page.width} by ${page.height}`);
+        return box();
+      },
+    };
+    const css = { fontSize: "16px", objectFit: "cover", objectPosition: "50% 50%" };
+    const doc = {
+      documentElement: new FakePage(),
+      body: { children: [] },
+      styleSheets: [],
+      implementation: { createHTMLDocument: () => ({ importNode: () => new FakePage(), createElement: () => new FakeNode() }) },
+      querySelectorAll: () => [picture],
+      createRange: () => ({}),
+      defaultView: { MutationObserver: Watcher },
+    };
+    const view = {
+      get innerWidth() {
+        return page.width;
+      },
+      get innerHeight() {
+        return page.height;
+      },
+      scrollX: 0,
+      scrollY: 0,
+      devicePixelRatio: 3,
+      getComputedStyle: () => css,
+    };
+    const frame = Object.assign(new FakeNode(), { contentDocument: doc, contentWindow: view });
+    return { ...sceneOf(), frame: frame as unknown as HTMLIFrameElement, body: () => null };
+  }
+
+  /** Fold from `from` to `to`, the frame's page laid out for each screen it is drawn for. */
+  function folds(from: ViewportValue, to: ViewportValue): void {
+    foldDevice(from, to, pictured(), (value) => {
+      drawn.push(value);
+      page.width = Number(value.width);
+      page.height = Number(value.height);
+      log.push(`frame ${value.posture}`);
+      unit.style.setProperty("transform", "translate(0px, 0px) scale(0.5)");
+    });
+  }
+
+  /** The picture on the open screen's half that turns: the first on its stage. */
+  function innerPicture(): FakeNode | undefined {
+    const [, window] = placed();
+    return window?.children[1]?.children[0];
+  }
+
+  test("folding from open, the open screen's picture is taken before the frame is drawn folded, with what the page shows open", () => {
+    page = { ...UNFOLDED };
+    folds(OPEN, SHUT);
+    expect(log).toEqual(["inner.jpg in 951 by 669", "frame closed", "inner.jpg in 466 by 678", "frame open"]);
+    // The open screen's own: a quarter of 951 by 669, as the rough one is.
+    expect([innerPicture()?.width, innerPicture()?.height]).toEqual([238, 167]);
+  });
+
+  test("unfolding, the folded screen's picture is taken first, then the open screen's with the frame drawn open a moment, and the frame is put back", () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    // The page has not heard of the open screen yet, so it still shows the folded screen's picture on it.
+    expect(log).toEqual(["cover.jpg in 466 by 678", "frame open", "cover.jpg in 951 by 669", "frame closed"]);
+    expect([page.width, page.height]).toEqual([466, 678]);
+  });
+
+  test("unfolding, takes the open screen's picture again once the frame is drawn open and the page has picked its picture for it", async () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    const ahead = innerPicture();
+    expect(ahead?.pen).not.toBeNull();
+    const taken = log.length;
+    await playing(2000, () => {
+      // The frame's own device is drawn open a little into the unfold, and the page hears of it.
+      if (log.at(-1) === "frame open" && page.src === FOLDED.src) Object.assign(page, { src: UNFOLDED.src, natural: UNFOLDED.natural });
+    });
+    expect(folding()).toBe(false);
+    // Once, with the open screen's picture, before the fold lands open.
+    expect(log.slice(taken)).toEqual(["frame open", "inner.jpg in 951 by 669", "frame open"]);
+  });
+
+  test("puts that picture on the half that turns, in place of the one taken ahead", async () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    const ahead = innerPicture();
+    let seen: FakeNode | undefined;
+    await playing(2000, () => {
+      if (log.at(-1) === "frame open" && page.src === FOLDED.src) Object.assign(page, { src: UNFOLDED.src, natural: UNFOLDED.natural });
+      if (folding()) seen = innerPicture();
+    });
+    expect(seen).toBeDefined();
+    expect(seen).not.toBe(ahead);
+    expect([seen?.width, seen?.height]).toEqual([238, 167]);
+  });
+
+  test("unfolding a page that stays as it was, keeps the picture taken ahead and takes no other", async () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    const ahead = innerPicture();
+    const taken = log.length;
+    let seen: FakeNode | undefined;
+    await playing(2000, () => {
+      if (folding()) seen = innerPicture();
+    });
+    expect(log.slice(taken)).toEqual(["frame open", "frame open"]);
+    expect(seen).toBe(ahead);
+  });
+
+  test("takes it again where the page changed in a way only its watcher is told of", async () => {
+    page = { ...FOLDED };
+    folds(SHUT, OPEN);
+    const taken = log.length;
+    let told = false;
+    await playing(2000, () => {
+      if (log.at(-1) === "frame open" && !told) {
+        told = true;
+        pending.push({});
+      }
+    });
+    expect(log.slice(taken)).toEqual(["frame open", "cover.jpg in 951 by 669", "frame open"]);
   });
 });

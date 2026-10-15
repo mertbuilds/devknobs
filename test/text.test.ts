@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as media from "../src/engine/media";
+import { ownInline } from "../src/engine/owninline";
 import {
   apply,
   cascade,
@@ -255,6 +256,23 @@ describe("text size on a page", () => {
     expect(rootSize()).toBe("10px");
     reset();
     expect(rootSize()).toBe("50%");
+  });
+
+  test("notes the root size it wrote as its own, for the styles view to leave out", () => {
+    const root = document.documentElement;
+    setRootSize("62.5%");
+    expect(ownInline(root, "font-size")).toBeNull();
+    apply(20);
+    expect(ownInline(root, "font-size")).toBe("12.5px");
+    expect(ownInline(root, "font-size")).toBe(rootSize());
+    // What the page writes over it is the page's, and no longer what is noted.
+    setRootSize("50%");
+    expect(ownInline(root, "font-size")).not.toBe(rootSize());
+    apply(20);
+    expect(ownInline(root, "font-size")).toBe("10px");
+    expect(rootSize()).toBe("10px");
+    reset();
+    expect(ownInline(root, "font-size")).toBeNull();
   });
 
   test("leaves a root size the page wrote over devknobs' own", () => {

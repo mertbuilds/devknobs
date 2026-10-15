@@ -1,4 +1,6 @@
 import type { PostureValue } from "../types";
+import { tune } from "./foldlook";
+import { finds } from "./foldtune";
 import type { Rect, Sides } from "./mock";
 import { type Corners, fitCorners, lerp } from "./morph";
 
@@ -751,9 +753,6 @@ export type Pane = keyof typeof WIPE;
 /** Apple shows the middle of each texture, 1.12 times smaller than the whole. */
 export const FRAMING = 1.12;
 
-/** The blur's most, as a mip level, at a `blurArea` of 1. */
-const MAX_BLUR = 8;
-
 /** The screen's light is worked out unlit by the display: shown, it goes through this gamma. */
 const GAMMA = 2.2;
 
@@ -785,7 +784,7 @@ export function uvOf(pane: Pane, t: number): number {
 /** How much light the wipe leaves at `uv`, 0 to 1. */
 export function wipeLight(pane: Pane, uv: number, amount: number): number {
   const { at, shade } = WIPE[pane];
-  return 1 - clamp(smoothstep(shade[0], shade[1], Math.abs(uv - at)) * amount * 1.5);
+  return 1 - clamp(smoothstep(shade[0], shade[1], Math.abs(uv - at)) * amount * tune.wipeShade);
 }
 
 /** Apple's `blurArea` at `uv` before it is held to its range, which runs evenly along the half. */
@@ -810,7 +809,7 @@ export function blurLight(area: number): number {
  */
 export function edgeLight(pane: Pane, uv: number, amount: number): number {
   if (pane === "cover") return 1;
-  return lerp(1, smoothstep(0.05, 0.5, uv), smoothstep(0, 0.55, amount));
+  return lerp(1, smoothstep(0.05, 0.5, uv), clamp(tune.farShade * smoothstep(0, 0.55, amount)));
 }
 
 /**
@@ -819,22 +818,19 @@ export function edgeLight(pane: Pane, uv: number, amount: number): number {
  * Apple's camera swings round as the hinge turns, so its turned screen shows
  * the picture's dark far side out to its own free edge, which a fold seen
  * from the front does not. It is deepest with the half square to the
- * screen, `most` of the light there, and falls off as the cube of how far
- * the hinge is from that, so it is none open and shut. Across the turned
- * screen, half of it comes on evenly from `from` of the way out, the other
- * half over its last `band`. Neither the hinge's side nor the half that
- * stays darkens.
+ * screen, `darkMost` of the light there, and falls off as how far the hinge
+ * is from that to the `darkPower`, so it is none open and shut. Across the
+ * turned screen, `darkBroad` of it comes on evenly from `darkFrom` of the way
+ * out, the rest over its last `darkBand`. Neither the hinge's side nor the
+ * half that stays darkens. Its numbers are `tune`'s.
  */
-export const FREE_DARK = { most: 0.7, power: 3, from: 0.25, band: 0.05, broad: 0.5 } as const;
-
-/** How deep the free edge's dark is, 0 to `FREE_DARK.most`, with the hinge `open` of the way open. */
 export function freeDepth(open: number): number {
-  return FREE_DARK.most * clamp(1 - 2 * Math.abs(open - 0.5)) ** FREE_DARK.power;
+  return tune.darkMost * clamp(1 - 2 * Math.abs(open - 0.5)) ** tune.darkPower;
 }
 
 /** How much of the free edge's dark there is `t` of the way across the turned screen from the hinge to its free edge, 0 to 1. */
 export function freeBand(t: number): number {
-  const { from, band, broad } = FREE_DARK;
+  const { darkFrom: from, darkBand: band, darkBroad: broad } = tune;
   return broad * smoothstep(from, 1, t) + (1 - broad) * smoothstep(1 - band, 1, t);
 }
 
@@ -847,74 +843,56 @@ export function freeDark(t: number, open: number): number {
  * The free edge's dark as gradient stops over the picture lying flat, from
  * the hinge to its free edge: where each is, as a share of the way, and how
  * dark. The turned screen is seen out to `free` of the way, so its free edge,
- * and its dark, is there.
+ * and its dark, is there. None where there is no dark, or the shades are off.
  */
-export function freeShades(open: number, free: number): [at: number, dark: number][] {
-  const depth = freeDepth(open);
-  if (depth <= 0 || free <= 0) return [];
-  const { from, band } = FREE_DARK;
-  const steps = [0, from, (from + 1) / 2, 1 - 2 * band, 1 - band, 1 - band / 2, 1];
-  return steps.map((t) => [fine(t * free), fine(freeDark(t, open))]);
+export function freeShades(open: number, free: number): Shades {
+  if (!shadesOn() || freeDepth(open) <= 0 || free <= 0) return [];
+  return shadeStops((at) => freeDark(at / free, open), free);
 }
 
 /**
- * How much of the turned screen Apple's camera sees, from the hinge out, as
- * a share of the way to its free edge, by how far open the hinge is: measured
- * from Apple's frames of the Duo's fold. Its camera swings round as the hinge
- * turns, so it sees more of the open screen's half than a fold seen from the
- * front does, and neither screen standing square to it.
+ * How much of its peak the blur has `share` of the way from lying flat to
+ * the peak's angle: by `blurStand`'s power, or, `blurEase` on, as
+ * jadon7/iphone-duo's rises, slow at both ends.
  */
-export const APPLE_SEEN = {
-  inner: [[0.5, 0], [0.6, 0.58], [0.7, 0.88], [0.8, 0.97], [1, 1]],
-  cover: [[0, 1], [0.1, 0.96], [0.2, 0.87], [0.3, 0.67], [0.4, 0.3], [0.5, 0]],
-} as const;
-
-/** How much of the turned screen of `pane` Apple's camera sees with the hinge `open` of the way open, 0 to 1. */
-export function appleSeen(pane: Pane, open: number): number {
-  const points = APPLE_SEEN[pane];
-  const first = points[0];
-  if (open <= first[0]) return first[1];
-  for (let index = 1; index < points.length; index++) {
-    const [x0, y0] = points[index - 1] ?? first;
-    const [x1, y1] = points[index] ?? first;
-    if (open <= x1) return lerp(y0, y1, (open - x0) / (x1 - x0));
-  }
-  return points[points.length - 1]?.[1] ?? 1;
+function blurRising(share: number): number {
+  return tune.blurEase >= 0.5 ? smoothstep(0, 1, share) : clamp(share) ** tune.blurStand;
 }
 
 /**
- * Where a point `t` of the way across the picture from the hinge lies on the
- * picture Apple shows, the turned screen seen out to `free` of it here and
- * `seen` there: as far across what each shows, so the blur Apple shows at its
- * turned screen's free edge is at this one's.
+ * The blur of the half that turns, by hand: least at the hinge, where the
+ * picture meets the page itself on the half that stays, and most at the free
+ * edge with the half standing at `blurAngle`, a right angle as it ships. None
+ * lying flat, open or shut. Its numbers are `tune`'s.
+ *
+ * `blurHold` keeps it at the peak past that angle, on the side away from
+ * where the screen of `pane` lies flat in sight: the open screen's rests
+ * open, so its far side is toward shut, the hinge less open than the peak,
+ * and the folded body's rests shut, so its is toward open. At 1 it stays
+ * all of the peak there, as jadon7/iphone-duo's does, and between it is
+ * that share of the way from the fall to the peak. A screen has turned its
+ * back by the end of its far side, the other one facing the viewer from a
+ * right angle on, so a blur held there is never seen at rest. Without a
+ * hold both screens blur the same, so the pane changes nothing.
  */
-export function seenAlong(t: number, free: number, seen: number): number {
-  return (free > 0 ? Math.min(1, t / free) : 1) * seen;
+export function turnBlur(open: number, pane: Pane = "inner"): number {
+  const at = tune.blurAngle / 180;
+  const fromShut = at > 0 ? open / at : 1;
+  const fromOpen = at < 1 ? (1 - open) / (1 - at) : 1;
+  const [near, far] = pane === "inner" ? [fromOpen, fromShut] : [fromShut, fromOpen];
+  if (near <= 1) return tune.blurMost * blurRising(near);
+  return tune.blurMost * lerp(blurRising(far), 1, tune.blurHold);
 }
 
-/**
- * The blur all over the turned screen, from the hinge to the free edge alike,
- * measured from the same frames against those lying flat: near a right angle
- * Apple's turned screen is blurred at its hinge too, so nothing on it reads.
- * As wide as `most` of the screen across the hinge standing square to it, it
- * falls off as how far the hinge is from there to the `power`: the folded
- * screen's slowly, and the open screen's fast, whose hinge side still reads
- * a fifth of the way from it.
- */
-export const NEAR_BLUR = {
-  inner: { most: 0.038, power: 8 },
-  cover: { most: 0.038, power: 2.5 },
-} as const;
-
-/** How wide the blur all over the turned screen of `pane` is, as a share of the screen across the hinge, with the hinge `open` of the way open. */
-export function nearBlur(pane: Pane, open: number): number {
-  const { most, power } = NEAR_BLUR[pane];
-  return most * clamp(1 - 2 * Math.abs(open - 0.5)) ** power;
+/** How much of the free edge's blur there is `across` of the way over the turned screen from the hinge to its free edge. */
+export function blurShare(across: number): number {
+  return tune.blurHinge + (1 - tune.blurHinge) * clamp(across) ** tune.blurRise;
 }
 
-/** How wide a blur of `area` is, as a share of the screen across the hinge: its mip level's texels, twice over. */
-export function blurWidth(pane: Pane, area: number): number {
-  return (Math.SQRT2 * 2 ** (MAX_BLUR * area) * FRAMING) / WIPE[pane].texture;
+/** How far over the turned screen from the hinge the blur is `share` of the free edge's: `blurShare` the other way round. */
+export function blurReach(share: number): number {
+  if (tune.blurHinge >= 1) return 0;
+  return clamp((share - tune.blurHinge) / (1 - tune.blurHinge)) ** (1 / tune.blurRise);
 }
 
 /** How light a shown screen is, 0 to 1, for a light of `light` as Apple's shader works it out. */
@@ -934,72 +912,223 @@ export function screenDim(pane: Pane, open: number): number {
   return fine(1 - shown(smoothstep(0.1, 1, brightness(pane, open))));
 }
 
-/** How many points along the half that turns its shades are worked out at, hinge to free edge. */
-const STEPS = 8;
+/**
+ * A shade from the hinge to the free edge as gradient stops: where each is,
+ * as a share of the way, and how dark. One stop where it is as dark all the
+ * way.
+ */
+export type Shades = [at: number, dark: number][];
 
 /**
- * A blurrier picture fading in, `from` to `to` of the way from the hinge to
- * the free edge, from `least` of it to `most`.
+ * A gradient through stops bends at each, and the eye sees a line where it
+ * bends sharply. How sharply one may: the change in the dark's slope there,
+ * per whole way from the hinge to the free edge, as a share of the light
+ * left there.
+ */
+export const SMOOTH = 0.1;
+
+/** The least light a bend is measured against: in less, near black, no line is seen. */
+const DIM = 0.2;
+
+/** How many pieces a shade starts in, how many times a piece next to too sharp a bend is halved, and how many stops there are at most. */
+const PIECES = 16;
+const HALVINGS = 4;
+const STOPS = 64;
+
+/** The narrowest piece that is halved, as a share of the way: narrower, where its stops are rounded to shows. */
+const LEAST = 1 / 200;
+
+/** A share of dark, or of the way, to a hundred thousandth: stops this close together bend by their rounding otherwise. */
+function finer(value: number): number {
+  return Math.round(value * 1e5) / 1e5;
+}
+
+/** How sharply the gradient through `stops` bends at stop `index`, as `SMOOTH` measures it. */
+function bendAt(stops: Shades, index: number): number {
+  const [before, here, after] = [stops[index - 1], stops[index], stops[index + 1]];
+  if (!before || !here || !after) return 0;
+  const into = (here[1] - before[1]) / (here[0] - before[0]);
+  const out = (after[1] - here[1]) / (after[0] - here[0]);
+  return Math.abs(out - into) / Math.max(DIM, 1 - here[1]);
+}
+
+/** The sharpest bend of the gradient through `stops`, as `SMOOTH` measures it. */
+export function sharpest(stops: Shades): number {
+  return stops.reduce((most, _stop, index) => Math.max(most, bendAt(stops, index)), 0);
+}
+
+/**
+ * The shade `dark` has at each share of the way, as stops from the hinge out
+ * to `to` of the way: evenly spaced, then closer together wherever the
+ * gradient through them would bend more sharply than `SMOOTH`.
+ */
+export function shadeStops(dark: (t: number) => number, to = 1): Shades {
+  const stop = (t: number): [number, number] => [finer(t), finer(dark(t))];
+  if (!(to > 0)) return [stop(0)];
+  let stops: Shades = Array.from({ length: PIECES + 1 }, (_, step) => stop((to * step) / PIECES));
+  for (let halving = 0; halving < HALVINGS; halving++) {
+    const next: Shades = [];
+    let room = STOPS - stops.length;
+    stops.forEach((here, index) => {
+      const before = stops[index - 1];
+      const wide = before && here[0] - before[0] > LEAST;
+      if (before && wide && room > 0 && Math.max(bendAt(stops, index - 1), bendAt(stops, index)) > SMOOTH) {
+        next.push(stop((before[0] + here[0]) / 2));
+        room--;
+      }
+      next.push(here);
+    });
+    if (next.length === stops.length) break;
+    stops = next;
+  }
+  return stops;
+}
+
+/**
+ * A blurrier picture fading in over the ones under it, from the hinge to the
+ * free edge: how much of it shows at each of `stops`, a share of the way
+ * there. Nearer the hinge than the first it shows as much as at it, and past
+ * the last as much as at that.
  */
 export interface BlurFade {
-  from: number;
-  to: number;
-  least: number;
-  most: number;
+  stops: [at: number, share: number][];
+}
+
+/** How the half that turns is lit. */
+export interface PaneShades {
+  /** How dark the half is as it turns, from the hinge to the free edge: the screen's light, as dark all the way, and the wipe where it is on. */
+  turned: Shades;
+  /** How dark the picture is as it lies flat, out to where it is seen: its blurs' dark and the far side's shadow. */
+  flat: Shades;
 }
 
 /** How the half that turns is lit and blurred. */
-export interface PaneLook {
-  /** How dark the half is as it turns, at `STEPS + 1` points from the hinge to the free edge: the screen's light and the wipe. */
-  turned: number[];
-  /** How dark the picture is at the same points of it as it lies flat: its blurs' dark and the far side's shadow. */
-  flat: number[];
+export interface PaneLook extends PaneShades {
   /** Where each blurrier picture fades in, or null where it does not show. */
   blurs: (BlurFade | null)[];
 }
 
+/** How wide a blur the sharp picture counts as, in css px: under it none is seen. */
+const SHARP = 2;
+
+/** At most this many pictures, the sharp one with them, however wide a blur a hand sets. */
+export const BLUR_LAYERS = 8;
+
+/** How many straight pieces a picture's fade is drawn in, so it bends as the blur rises. */
+const FADE_STEPS = 6;
+
 /**
- * The blurrier pictures of the page, by how wide their blur is in css px.
- * Each fades in over the one before as the blur goes from that one's to its
- * own, the sharp one's counted as `BLURS[0]`.
+ * The pictures of the page laid over each other where WebGL2 does not draw
+ * it, by how wide their blur is in css px: the sharp one first, then each
+ * twice as wide as the one under it, and the last as wide as the blur gets,
+ * `most`. Each fades in over the one under it as the blur goes from that
+ * one's width to its own, so two that differ no more than WebGL2's own
+ * mipmaps do are ever mixed. Where that takes more than `limit` pictures,
+ * they are spread evenly further apart instead.
  */
-export const BLURS = [2, 8, 32, 128] as const;
+export function blurWidths(most = tune.blurMost, limit = BLUR_LAYERS): number[] {
+  if (!(most > SHARP)) return [SHARP];
+  const doublings = Math.ceil(Math.log2(most / SHARP) - 1e-9);
+  const steps = Math.min(doublings, Math.max(1, limit - 1));
+  const between = steps < doublings ? (most / SHARP) ** (1 / steps) : 2;
+  const widths = Array.from({ length: steps }, (_, step) => SHARP * between ** step);
+  return [...widths, most];
+}
+
+/** How much of a picture blurred `width` wide shows over the one under it, blurred `low` wide, where the blur is `wide`: evenly as it doubles. */
+function blurMix(low: number, width: number, wide: number): number {
+  return wide > low ? clamp(Math.log2(wide / low) / Math.log2(width / low)) : 0;
+}
+
+/**
+ * Where the picture blurred `width` wide fades in over the one under it,
+ * blurred `low` wide, the blur `peak` wide at the turned screen's free edge,
+ * seen `free` of the way out: none of it where the blur is the lower one's,
+ * all of it where it is its own. So the one under it is all in wherever any
+ * of this one shows, and nothing under the two shows through them.
+ */
+function blurFade(low: number, width: number, peak: number, free: number): BlurFade | null {
+  if (peak <= low) return null;
+  const hinge = peak * blurShare(0);
+  const from = blurReach(Math.max(low, hinge) / peak);
+  const to = blurReach(Math.min(width, peak) / peak);
+  const steps = to > from ? FADE_STEPS : 1;
+  const stops = Array.from({ length: steps + 1 }, (_, step): [number, number] => {
+    const across = from + ((to - from) * step) / steps;
+    // The ends by their widths, so the first is none of it and the last all of it, to the last digit.
+    const wide = step === 0 ? Math.max(low, hinge) : step === steps ? Math.min(width, peak) : peak * blurShare(across);
+    return [fine(across * free), fine(blurMix(low, width, wide))];
+  });
+  return { stops };
+}
+
+/** Are the shades over the half that turns drawn, and is it blurred: both, but where a hand looks for what draws a line. */
+export function shadesOn(): boolean {
+  return !(typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) || finds.shadeOn >= 0.5;
+}
+
+export function blurOn(): boolean {
+  return !(typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) || finds.blurOn >= 0.5;
+}
+
+/**
+ * The numbers the half that turns, of `pane`, is lit by with the hinge
+ * `open` of the way open, seen out to `free` of the way: the screen's light,
+ * how strong the wipe is, how fast Apple's blur area rises, and how deep the
+ * far side's shadow is. Each of the last three is 0 where it darkens nothing
+ * in sight, so none of its work is done.
+ */
+export function shadeOf(pane: Pane, open: number, free = 1): [light: number, wipe: number, area: number, far: number] {
+  const light = smoothstep(0.1, 1, brightness(pane, open));
+  const amount = wipeAmount(pane, open);
+  if (!shadesOn() || amount <= 0) return [light, 0, 0, 0];
+  // Apple's blurs darken only where their area is past 0.9, which is furthest out.
+  const blurred = rawArea(pane, uvOf(pane, free), amount) > 0.9;
+  const far = pane === "inner" ? clamp(tune.farShade * smoothstep(0, 0.55, amount)) : 0;
+  return [light, amount * tune.wipeShade, blurred ? (amount * 2.5) / 0.75 : 0, far];
+}
+
+/**
+ * How the half that turns, of `pane`, is lit with the hinge `open` of the
+ * way open, seen out to `free` of the way from the hinge to the picture's
+ * free edge. A shade that darkens nothing is one stop, and none of it is
+ * worked out.
+ */
+export function paneShades(pane: Pane, open: number, free = 1): PaneShades {
+  const [light, wipe, area, far] = shadeOf(pane, open, free);
+  const amount = wipeAmount(pane, open);
+  const turned: Shades =
+    wipe > 0
+      ? shadeStops((t) => 1 - shown(light * wipeLight(pane, uvOf(pane, t), amount)))
+      : [[0, fine(1 - shown(light))]];
+  const flat: Shades =
+    area > 0 || far > 0
+      ? shadeStops((t) => {
+          const uv = uvOf(pane, t);
+          return 1 - shown(blurLight(blurArea(pane, uv, amount)) * edgeLight(pane, uv, amount));
+        }, free)
+      : [[0, 0]];
+  return { turned, flat };
+}
+
+/**
+ * Where each blurrier picture fades in on the screen of `pane` with the
+ * hinge `open` of the way open, the turned screen seen out to `free` of the
+ * way, or null where it does not show: none does with the blur off.
+ */
+export function paneBlurs(open: number, free = 1, pane: Pane = "inner"): (BlurFade | null)[] {
+  const peak = blurOn() ? turnBlur(open, pane) : 0;
+  const widths = blurWidths();
+  return widths.slice(1).map((width, index) => blurFade(widths[index] ?? width, width, peak, free));
+}
 
 /**
  * How the half that turns, of `pane`, looks with the hinge `open` of the way
- * open, its screen `extent` css px across the hinge, and seen out to `free`
- * of the way from the hinge to the picture's free edge.
+ * open, seen out to `free` of the way from the hinge to the picture's free
+ * edge.
  */
-export function paneLook(pane: Pane, open: number, extent: number, free = 1): PaneLook {
-  const amount = wipeAmount(pane, open);
-  const light = smoothstep(0.1, 1, brightness(pane, open));
-  const points = Array.from({ length: STEPS + 1 }, (_, step) => uvOf(pane, step / STEPS));
-  const turned = points.map((uv) => fine(1 - shown(light * wipeLight(pane, uv, amount))));
-  const flat = points.map((uv) =>
-    fine(1 - shown(blurLight(blurArea(pane, uv, amount)) * edgeLight(pane, uv, amount))),
-  );
-  // The blur's width doubles for each eighth of the area, and the area grows evenly along what Apple shows of the half.
-  const start = rawArea(pane, uvOf(pane, 0), amount);
-  const slope = (rawArea(pane, uvOf(pane, 1), amount) - start) * appleSeen(pane, open);
-  const top = Math.min(start + slope, 4 / 3);
-  const areaFor = (width: number) =>
-    Math.log2((width * WIPE[pane].texture) / (extent * Math.SQRT2 * FRAMING)) / MAX_BLUR;
-  const near = nearBlur(pane, open) * extent;
-  const blurs = BLURS.slice(1).map((width, index) => {
-    const low = areaFor(BLURS[index] ?? 0);
-    const high = areaFor(width);
-    // How much of it the blur all over shows, from the hinge on.
-    const least = near > 0 ? fine(clamp((areaFor(near) - low) / (high - low))) : 0;
-    if (slope <= 0 || top <= low) return least > 0 ? { from: 0, to: 0, least, most: least } : null;
-    // From where the blur is the last picture's to where it is this one's, or as far as it gets.
-    const reach = Math.min(high, top);
-    const most = fine((reach - low) / (high - low));
-    if (least >= most) return { from: 0, to: 0, least, most: least };
-    const along = (area: number) => (free > 0 ? ((area - start) / slope) * free : 0);
-    // It fades in from where the wipe's blur passes the blur all over.
-    return { from: fine(along(lerp(low, reach, least / most))), to: fine(along(reach)), least, most };
-  });
-  return { turned, flat, blurs };
+export function paneLook(pane: Pane, open: number, free = 1): PaneLook {
+  return { ...paneShades(pane, open, free), blurs: paneBlurs(open, free, pane) };
 }
 
 /**

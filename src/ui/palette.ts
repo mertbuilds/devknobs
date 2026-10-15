@@ -1,12 +1,13 @@
 import * as engine from "../engine";
 import { frameForced } from "../engine/frame";
-import type { GrabControl } from "../grab/control";
 import type { DevknobsState } from "../types";
+import { runAction } from "./actions";
 import { type Action, browse, type Knob, nameOf, rowOf } from "./catalog";
 import { el, reveal } from "./dom";
 import { commit, set } from "./editors";
-import { ACTION_ICONS, icon, ROW_ICONS } from "./icons";
+import { icon, ROW_ICONS } from "./icons";
 import { highlightAt, paletteMove } from "./keys";
+import { actionLabel } from "./pin";
 import type { Rows } from "./rows";
 import { type Result, resultText, search, searchActions } from "./search";
 import type { Slide } from "./slide";
@@ -14,8 +15,28 @@ import type { Slide } from "./slide";
 /**
  * The search that opens from the add knob button: its field, the results of
  * what is typed and, with nothing typed, the browse list of every knob and
- * action. Picking an entry sets a value or adds and opens a knob's row.
+ * action. Picking an entry sets a value, adds and opens a knob's row, or runs
+ * an action, which adds its row.
  */
+
+/** What the panel's body shows, as the wrapper's `data-mode` says it. */
+export type Mode = "rows" | "results" | "browse" | "view" | "keys";
+
+/**
+ * What the body shows: the settings over everything, then a feature's view
+ * over the rows, then the search with a query or without one, and the rows
+ * with none of them.
+ */
+export function modeOf(scene: {
+  keys: boolean;
+  view: boolean;
+  query: boolean;
+  browsing: boolean;
+}): Mode {
+  if (scene.keys) return "keys";
+  if (scene.view) return "view";
+  return scene.query ? "results" : scene.browsing ? "browse" : "rows";
+}
 
 /** A line of the results or the browse list, and what picking it does. */
 interface Entry {
@@ -35,14 +56,15 @@ export interface PaletteContext {
   add: HTMLButtonElement;
   results: HTMLElement;
   rows: Rows;
-  grab: GrabControl | null;
   /** The actions search finds. */
   actionsHere: readonly Action[];
   /** Draw the whole panel again. */
   render(): void;
   /** Whether the settings show in place of the rows. */
   editingKeys(): boolean;
-  /** Stop recording a key and leave the settings, without drawing anything. */
+  /** Whether a feature's view shows in place of the rows. */
+  viewing(): boolean;
+  /** Stop recording a key, and leave the settings and a feature's view, without drawing anything. */
   dropKeys(): void;
 }
 
@@ -54,15 +76,13 @@ export interface Palette {
   renderBody(state: DevknobsState): void;
   leaveSearch(): void;
   startBrowsing(text?: string): void;
-  runAction(id: Action["id"]): void;
   onGrab(on: boolean): void;
   onPointerDown(): void;
   onPointerUp(): void;
 }
 
 export function createPalette(context: PaletteContext): Palette {
-  const { root, wrap, slide, searchInput, closeSearch, add, results, rows, grab, actionsHere } =
-    context;
+  const { root, wrap, slide, searchInput, closeSearch, add, results, rows, actionsHere } = context;
   const { render } = context;
 
   /** The search has focus and lists every knob, as nothing is typed. */
@@ -101,12 +121,12 @@ export function createPalette(context: PaletteContext): Palette {
     return { node, pick };
   }
 
-  function actionEntry(id: number, action: Action): Entry {
+  function actionEntry(id: number, action: Action, state: DevknobsState): Entry {
     return entry(
       id,
-      () => runAction(action.id),
-      icon(ACTION_ICONS[action.id]),
-      el("span", "entry-knob", action.label),
+      () => runAction(action),
+      icon(action.icon),
+      el("span", "entry-knob", actionLabel(action, state.panel.docked)),
       el("span", "entry-value", action.long),
     );
   }
@@ -128,7 +148,7 @@ export function createPalette(context: PaletteContext): Palette {
         ...(current ? [check] : []),
       );
     });
-    return [...actions.map((action, index) => actionEntry(index, action)), ...found];
+    return [...actions.map((action, index) => actionEntry(index, action, state)), ...found];
   }
 
   function browseEntries(state: DevknobsState): { nodes: HTMLElement[]; list: Entry[] } {
@@ -136,7 +156,7 @@ export function createPalette(context: PaletteContext): Palette {
     const list: Entry[] = [];
     nodes.push(el("div", "group-label", "actions"));
     for (const action of actionsHere) {
-      const item = actionEntry(list.length, action);
+      const item = actionEntry(list.length, action, state);
       list.push(item);
       nodes.push(item.node);
     }
@@ -157,11 +177,16 @@ export function createPalette(context: PaletteContext): Palette {
     return { nodes, list };
   }
 
-  /** Show the active rows, the results of a query, or every knob to browse. */
+  /** Show what `modeOf` says: the rows, the search, a feature's view or the settings. */
   function renderBody(state: DevknobsState): void {
     const query = searchInput.value.trim();
-    const mode = context.editingKeys() ? "keys" : query ? "results" : browsing ? "browse" : "rows";
-    slide.show(mode === "keys" ? "keys" : "home", state.panel.open, () => {
+    const mode = modeOf({
+      keys: context.editingKeys(),
+      view: context.viewing(),
+      query: query !== "",
+      browsing,
+    });
+    slide.show(mode === "keys" || mode === "view" ? mode : "home", state.panel.open, () => {
       wrap.dataset.mode = mode;
     });
     searchInput.setAttribute("aria-expanded", mode === "rows" ? "false" : "true");
@@ -192,19 +217,10 @@ export function createPalette(context: PaletteContext): Palette {
     else render();
   }
 
-  /** Do what an action says. */
-  function runAction(id: Action["id"]): void {
-    if (id === "replay") {
-      engine.replay();
-      return;
-    }
-    grab?.set(true);
-  }
-
   /**
    * Grab, however it went on, takes the focus out of the panel, to the page,
    * so the arrows, Enter, `c` and escape are grab's at once. Off, it leaves
-   * the focus where it is.
+   * the focus where it is. Inspect going on does the same.
    */
   function onGrab(on: boolean): void {
     if (on) {
@@ -325,7 +341,6 @@ export function createPalette(context: PaletteContext): Palette {
     renderBody,
     leaveSearch,
     startBrowsing,
-    runAction,
     onGrab,
     onPointerDown,
     onPointerUp,

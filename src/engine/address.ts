@@ -1,3 +1,4 @@
+import { carried } from "./fresh";
 import { navigationOf } from "./reload";
 
 /**
@@ -44,7 +45,7 @@ function replaceUrl(href: string): void {
 export function mirror(): void {
   const doc = followed?.page();
   if (!followed || !doc) return;
-  replaceUrl(followed.locate());
+  replaceUrl(carried(followed.locate()));
   written = window.location.href;
   followed.refresh();
   if (doc.title === document.title) return;

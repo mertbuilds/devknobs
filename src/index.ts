@@ -6,8 +6,10 @@ import { LOCALE_PRESETS } from "./engine/locale";
 import { TIME_ZONE_PRESETS } from "./engine/time";
 import { UA_PRESETS } from "./engine/ua";
 import { createGrab, type GrabControl } from "./grab/control";
+import { createInspect, type InspectControl, oneAtATime } from "./grab/inspect";
 import type { GrabOptions, GrabPayload } from "./grab/types";
 import { claim, free, superseded } from "./instance";
+import { applyOnLoad } from "./storage/onload";
 import type { GrabColorValue } from "./types";
 import { createKeys, type LiveKeys } from "./ui/bindings";
 import { forwardKeys } from "./ui/keys";
@@ -93,6 +95,7 @@ export const PRESETS = {
 let panel: Panel | null = null;
 let stopKeys: (() => void) | null = null;
 let grabControl: GrabControl | null = null;
+let inspectControl: InspectControl | null = null;
 let keys: LiveKeys | null = null;
 
 /**
@@ -105,6 +108,8 @@ let keys: LiveKeys | null = null;
  */
 export function mount(options: MountOptions = {}): void {
   if (panel || stopKeys) return;
+  // Before anything else: the presets marked to apply on load, unless the early script did.
+  applyOnLoad();
   claim(window, unmount);
   engine.start(options);
   // The mount's keys, with the ones the user set in the panel on top.
@@ -119,13 +124,17 @@ export function mount(options: MountOptions = {}): void {
   if (options.grab !== false) {
     grabControl = createGrab({ key: () => (live.recording ? null : live.get().grab) });
   }
+  // Inspect is the same picking with another end, so one of the two is on at a time.
+  const inspect = createInspect({ key: () => (live.recording ? null : live.get().inspect) });
+  inspectControl = inspect;
+  if (grabControl) oneAtATime(grabControl, inspect);
   if (isDevknobsFrame()) {
     stopKeys = forwardKeys(live.get, () => engine.getState().panel.open);
     return;
   }
   if (options.open !== undefined) engine.setState({ panel: { open: options.open } });
   if (options.grabColor !== undefined) engine.setState({ grabColor: options.grabColor });
-  panel = createPanel({ keys: live, grab: grabControl, handle: options.handle });
+  panel = createPanel({ keys: live, grab: grabControl, inspect, handle: options.handle });
 }
 
 /** Remove the panel and undo every knob. A copy that was taken over has done so already. */
@@ -135,6 +144,8 @@ export function unmount(): void {
   panel = null;
   grabControl?.destroy();
   grabControl = null;
+  inspectControl?.destroy();
+  inspectControl = null;
   stopKeys?.();
   stopKeys = null;
   keys?.destroy();

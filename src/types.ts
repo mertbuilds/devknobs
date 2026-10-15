@@ -129,14 +129,27 @@ export type VisionValue =
   | "achromatopsia"
   | "blur";
 
+/** A color of the user's own, as the knobs keep it: a hex, `#rrggbb` in lower case. */
+export type CustomColor = `#${string}`;
+
+/** A color grab has a name for. */
+export type GrabColorName = "blue" | "green" | "pink" | "orange" | "purple" | "cyan";
+
 /**
  * The color grab draws its boxes in. `auto` is blue, and green where the page
- * behind the element is blue.
+ * behind the element is blue. One of the user's own is a hex, `#rrggbb` in
+ * lower case.
  */
-export type GrabColorValue = "auto" | "blue" | "green" | "pink" | "orange" | "purple" | "cyan";
+export type GrabColorValue = "auto" | GrabColorName | CustomColor;
 
-/** The color of the cutting mat the frame lies on. */
-export type MatColorValue = "blue" | "green" | "magenta" | "purple" | "red" | "graphite";
+/** A color the mat has a name for. */
+export type MatColorName = "blue" | "green" | "magenta" | "purple" | "red" | "graphite";
+
+/**
+ * The color of the cutting mat the frame lies on. One of the user's own is a
+ * hex, `#rrggbb` in lower case.
+ */
+export type MatColorValue = MatColorName | CustomColor;
 
 export interface UaValue {
   /**
@@ -166,6 +179,11 @@ export interface PanelValue {
   edge: EdgeValue;
   /** The corner of the panel the handle sits flush with. */
   tab: EdgeValue;
+  /**
+   * Pinned to its side as a column the window's height, with the page in a
+   * frame beside it. `pinned` below is the rows, so this has a name of its own.
+   */
+  docked: boolean;
   /**
    * Ids of the rows set from the panel. Each stays in the list, back at its
    * default too, until its `×` takes it off. Reset all lists the default rows

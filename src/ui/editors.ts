@@ -15,11 +15,14 @@ import {
   rowOf,
   wallInput,
 } from "./catalog";
+import { createColors } from "./colors";
 import { button, el, field, mark, numberField, reveal } from "./dom";
 import { createFoldSlider, type FoldSlider, foldChip } from "./foldslider";
-import { radioMove } from "./keys";
 import { pinPatch, showsLabel } from "./list";
+import { segments as segmentsOf } from "./radio";
 import { filterOptions } from "./search";
+import { swatchList } from "./swatches";
+import { createRefusal, type Tips } from "./tooltip";
 
 /**
  * The editor that folds out under a knob row: a control per knob, as its
@@ -58,6 +61,9 @@ export interface EditorsContext {
   root: ShadowRoot;
   /** A value picked from a long list, which may open its row too. */
   pickOption(knob: Knob, option: Option): void;
+  /** The live region that says why a value was not taken. */
+  said: HTMLElement;
+  tips: Tips;
 }
 
 export interface Editors {
@@ -69,6 +75,9 @@ export interface Editors {
 
 export function createEditors(context: EditorsContext): Editors {
   const { root, pickOption } = context;
+  /** The colors the user added, which the swatches list after a knob's own. */
+  const colors = createColors();
+  const refusal = createRefusal(context.tips, context.said);
 
   /** Leave an input alone while it has the caret, so typing is never cut off. */
   function fill(input: HTMLInputElement | HTMLTextAreaElement, value: string): void {
@@ -90,56 +99,13 @@ export function createEditors(context: EditorsContext): Editors {
     );
   }
 
-  /**
-   * A radio group is one tab stop, on the choice that is on, and the arrows
-   * move the choice as they move the focus.
-   */
-  function radioGroup(
-    knob: Knob,
-    track: HTMLElement,
-    items: { node: HTMLButtonElement; value: string }[],
-  ): Update {
-    // The choices shown, in the order they stand.
-    const shown = () =>
-      Array.from(track.children).flatMap((node) => {
-        const item = items.find((entry) => entry.node === node);
-        return item && !item.node.hidden ? [item] : [];
-      });
-    track.addEventListener("keydown", (event: KeyboardEvent) => {
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-      const list = shown();
-      const at = list.findIndex((item) => item.node === event.target);
-      const next = at < 0 ? null : radioMove(event.key, at, list.length);
-      const item = next === null ? undefined : list[next];
-      if (!item) return;
-      event.preventDefault();
-      item.node.focus();
-      set(knob, item.value);
-    });
-    return (state) => {
-      const current = knob.read(state);
-      const list = shown();
-      const known = list.some((item) => item.value === current);
-      for (const item of items) {
-        const on = item.value === current;
-        mark(item.node, on, "aria-checked");
-        item.node.tabIndex = on || (!known && item === list[0]) ? 0 : -1;
-      }
-    };
-  }
-
   function segments(knob: Knob): [HTMLElement, Update] {
-    const track = el("div", "seg");
-    track.setAttribute("role", "radiogroup");
-    track.setAttribute("aria-label", knob.label);
-    const items = knob.options.map((option) => {
-      const node = button("seg-item", option.label);
-      node.setAttribute("role", "radio");
-      node.addEventListener("click", () => set(knob, option.value));
-      track.append(node);
-      return { node, value: option.value };
+    const { node: track, items, set: show } = segmentsOf({
+      options: knob.options,
+      label: knob.label,
+      onChange: (value) => set(knob, value),
     });
-    const update = radioGroup(knob, track, items);
+    const update: Update = (state) => show(knob.read(state));
     const offers = knob.offers;
     if (!offers) return [track, update];
     // Only the choices the state offers, in its order.
@@ -162,20 +128,13 @@ export function createEditors(context: EditorsContext): Editors {
 
   /** Colors as swatches, the one that is on with a ring around it. */
   function swatches(knob: Knob): [HTMLElement, Update] {
-    const track = el("div", "swatches");
-    track.setAttribute("role", "radiogroup");
-    track.setAttribute("aria-label", knob.label);
-    const items = knob.options.map((option) => {
-      const node = button("swatch", "");
-      node.setAttribute("role", "radio");
-      node.setAttribute("aria-label", option.label);
-      node.title = option.label;
-      node.style.background = option.swatch ?? "";
-      node.addEventListener("click", () => set(knob, option.value));
-      track.append(node);
-      return { node, value: option.value };
+    return swatchList(knob, {
+      root,
+      colors,
+      set,
+      reset: (of) => commit(rowOf(of.id).id, of.reset),
+      refuse: refusal.refuse,
     });
-    return [track, radioGroup(knob, track, items)];
   }
 
   /**
@@ -484,6 +443,8 @@ export function createEditors(context: EditorsContext): Editors {
     buildEditor,
     destroy(): void {
       foldSlider?.destroy();
+      colors.destroy();
+      refusal.destroy();
       for (const timer of pending.values()) clearTimeout(timer);
     },
   };

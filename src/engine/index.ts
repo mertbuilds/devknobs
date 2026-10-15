@@ -1,4 +1,5 @@
 import type { DevknobsState, DevknobsStatePatch } from "../types";
+import * as requests from "../requests";
 import { hasTouch } from "./devices";
 import {
   framed,
@@ -19,6 +20,7 @@ import * as overflow from "./overflow";
 import * as pseudo from "./pseudo";
 import { replay as replayAnimations } from "./replay";
 import * as scrollbars from "./scrollbars";
+import { resume as resumeScroll } from "./scrollkeep";
 import * as spacing from "./spacing";
 import * as speed from "./speed";
 import { DEFAULT_STATE, keepPlace as keepPlaceOf, load, merge, resetState, save } from "./store";
@@ -132,13 +134,17 @@ export function start(options: EngineOptions = {}): void {
   if (running) return;
   running = true;
   inFrame = isDevknobsFrame();
+  // For a page with no early script, which takes it first where there is one.
+  resumeScroll();
   const stored = options.persist !== false;
   // The frame shares sessionStorage with the page above, which owns the stored
   // state. It reads it, so the first paint is right, but a save would clobber it.
   persist = stored && !inFrame;
   if (inFrame) window.addEventListener("message", onMessage);
-  // A page that will not load in the frame offers this way out.
-  width.onExit(() => setState(UNFRAMED));
+  // Before any knob, so a patch a knob puts on `fetch` wraps the log's and comes off first.
+  requests.start();
+  // A page that will not load in the frame offers this way out, of a pinned panel's frame too.
+  width.onExit(() => setState({ ...UNFRAMED, panel: { docked: false } }));
   // The letterbox zooms the frame from its own control, the wheel and the keys.
   width.onZoom((zoom) => setState({ zoom }));
   applyState(merge(stored ? load() : { ...DEFAULT_STATE }, options.state ?? {}));
@@ -175,6 +181,7 @@ export function stop(): void {
   width.reset();
   overflow.reset();
   outlines.reset();
+  requests.stop();
   state = { ...DEFAULT_STATE };
 }
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { FRESH_RELOAD_KEY } from "../src/engine/fresh";
 import { setDefaultLocale } from "../src/engine/intl";
 import {
   apply,
@@ -17,6 +18,7 @@ import {
   RELOAD_VERSION,
   reset,
   syncStores,
+  type Written,
 } from "../src/engine/locale";
 
 describe("isRtl", () => {
@@ -144,6 +146,8 @@ interface BrowserOptions {
   expiryIgnored?: boolean;
   /** A Next.js page, which reads `NEXT_LOCALE` on the server. */
   next?: boolean;
+  /** A page with `devknobs=fresh` in its address. */
+  fresh?: boolean;
 }
 
 function storageFor(map: Map<string, string>, full = false): Storage {
@@ -208,6 +212,7 @@ function stubBrowser(jar: string, options: BrowserOptions = {}): Browser {
     configurable: true,
     value: {
       location: {
+        search: options.fresh ? "?devknobs=fresh" : "",
         reload(): void {
           browser.reloads += 1;
         },
@@ -284,6 +289,76 @@ describe("readCookie", () => {
 
   test("does not match a name that only ends the same way", () => {
     expect(readCookie(`MY_${PARAGLIDE_COOKIE}=en`, PARAGLIDE_COOKIE)).toBeNull();
+  });
+});
+
+describe("syncStores in fresh mode", () => {
+  test("marks the reload it asks for, so the next load keeps the session", () => {
+    const browser = stubPage("", { fresh: true });
+    expect(syncStores("tr")).toBe(true);
+    expect(browser.reloads).toBe(1);
+    expect(browser.storage.has(FRESH_RELOAD_KEY)).toBe(true);
+    expect(owner(browser)).toBe("tr");
+  });
+
+  test("leaves a store of the page in localStorage alone", () => {
+    const browser = stubPage("", { fresh: true });
+    browser.local.set("i18nextLng", "en");
+    expect(syncStores("tr")).toBe(true);
+    expect(browser.local.get("i18nextLng")).toBe("en");
+    expect(readCookie(browser.jar, PARAGLIDE_COOKIE)).toBe("tr");
+  });
+
+  test("leaves no mark with the mode off", () => {
+    const browser = stubPage();
+    browser.local.set("i18nextLng", "en");
+    expect(syncStores("tr")).toBe(true);
+    expect(browser.local.get("i18nextLng")).toBe("tr");
+    expect(browser.storage.has(FRESH_RELOAD_KEY)).toBe(false);
+  });
+
+  /** The record of a `tr` devknobs wrote over the page's `en` in localStorage, with the store as it left it. */
+  function ownsLocal(browser: Browser): Written {
+    const write: Written = { kind: "local", key: "i18nextLng", prior: "en", value: "tr" };
+    browser.storage.set(OWNER_KEY, JSON.stringify({ lang: "tr", writes: [write] }));
+    browser.local.set("i18nextLng", "tr");
+    return write;
+  }
+
+  /** The next load in the same tab, with the mode off: both storages as the last page left them. */
+  function loadAgain(last: Browser): Browser {
+    const browser = stubPage(last.jar);
+    for (const [key, value] of last.storage) browser.storage.set(key, value);
+    for (const [key, value] of last.local) browser.local.set(key, value);
+    browser.now = last.now + 10_000;
+    return browser;
+  }
+
+  test("keeps its claim on a localStorage store it cannot reach, and puts it back once it can", () => {
+    const browser = stubPage("", { fresh: true });
+    const write = ownsLocal(browser);
+    apply({ lang: "system", dir: "system" });
+    expect(browser.local.get("i18nextLng")).toBe("tr");
+    expect(parseOwned(browser.storage.get(OWNER_KEY) ?? null)).toEqual({ lang: "tr", writes: [write] });
+    expect(browser.reloads).toBe(0);
+    const normal = loadAgain(browser);
+    apply({ lang: "system", dir: "system" });
+    expect(normal.local.get("i18nextLng")).toBe("en");
+    expect(normal.storage.has(OWNER_KEY)).toBe(false);
+    expect(normal.reloads).toBe(1);
+  });
+
+  test("carries that claim through a new tag, and puts the store back after", () => {
+    const browser = stubPage("", { fresh: true });
+    const write = ownsLocal(browser);
+    expect(syncStores("de")).toBe(true);
+    expect(browser.local.get("i18nextLng")).toBe("tr");
+    expect(parseOwned(browser.storage.get(OWNER_KEY) ?? null)?.writes).toContainEqual(write);
+    const normal = loadAgain(browser);
+    apply({ lang: "system", dir: "system" });
+    expect(normal.local.get("i18nextLng")).toBe("en");
+    expect(readCookie(normal.jar, PARAGLIDE_COOKIE)).toBeNull();
+    expect(normal.storage.has(OWNER_KEY)).toBe(false);
   });
 });
 

@@ -84,13 +84,15 @@ setState({ ua: { preset: "iphone-safari" } });
 | `state` | none | knobs to apply on top of the stored state |
 | `grab` | `true` | press a key to grab elements, see grab below |
 | `grabKey` | `shift+g` | the key that grabs, such as `alt+shift+g`. a key set in the panel wins |
-| `grabColor` | the stored one, `auto` at first | the color of grab's boxes: `auto`, `blue`, `green`, `pink`, `orange`, `purple` or `cyan` |
+| `grabColor` | the stored one, `auto` at first | the color of grab's boxes: `auto`, `blue`, `green`, `pink`, `orange`, `purple`, `cyan`, or a hex of your own such as `#ff8c00` |
 | `handle` | `true` | show the handle on the window's edge while the panel is closed. a choice made in the panel's settings wins, see settings |
 
 state lives in `sessionStorage` under `devknobs`, so it survives reloads and
 dies with the tab. pass `mount({ persist: false })` to keep it in memory.
 
-the panel starts closed, as a handle on the right edge of the window. click it
+the panel starts closed, as a handle on the right edge of the window, 128px
+below its top, and opens from that height. a window too short for that has the
+panel rise until it fits. click it
 or press shift and the hotkey (`⇧K`) to open it, and it stays open across
 reloads. opening it puts the focus on its add knob button, where typing a
 knob's name opens the search with it, so `⇧K` then `dark` works in one go, and
@@ -100,7 +102,8 @@ open after a reload leaves the focus on the page.
 drag the handle to move the panel and the handle together up and down the edge
 of the window. hold shift while dragging to move the handle alone along the
 panel. with the panel closed, a drag moves the handle, and the panel opens
-beside it where it left it.
+beside it where it left it. drag the panel's edge on the page's side to change
+its width, which is kept in `localStorage` under `devknobs:prefs`.
 
 the handle follows the pointer sideways too. let go past the middle of the
 window, or fling it toward the other edge, and the panel moves to the left or
@@ -166,21 +169,75 @@ results, or on the `×` at its end, leaves it too. with the focus on any of the
 panel's buttons, typing a character opens the search with it typed in.
 
 while the panel is out and the focus is in no field, `/` opens the search,
-`⇧R` replays the page's animations and shift backspace (or shift delete) resets
-every knob, from the frame too.
+`⇧R` replays the page's animations, `⇧N` shows the requests and hides them
+again, and shift backspace (or shift delete) resets every knob, from the frame
+too. `⇧S` shows the [storage](#storage) view, and opens the panel for it where
+it is closed.
 while the frame is up, meta or ctrl with `+` and `-` zoom it a step in and out,
 and with `0` fit it again, from the frame too, unless the focus is in a field.
 every other key goes to the page as it would without the panel. `⇧K` toggles
 the panel everywhere except in a field of the page, where shift types a capital
-as ever. in the panel's search, which finds in lower case anyway, `⇧K`, `⇧R` and
-`⇧G` are the panel's keys and are not typed, so `⇧K` closes the panel from it,
+as ever. in the panel's search, which finds in lower case anyway, `⇧K`, `⇧R`,
+`⇧N`, `⇧G` and `⇧C` are the panel's keys and are not typed, so `⇧K` closes the panel from it,
 and a plain `k` is just a letter. the panel's other fields, a list's filter and
 the user agent and route boxes, take every letter.
 
 the footer lists the keys, most used first: `⇧K` for the panel, `/` for search,
-the grab key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
+the grab key, the inspect key, `⇧R` for replay animations and `⇧⌫` for reset, as `Shift K`,
 `Shift R` and `Shift Backspace` off a Mac. each one is a button too, so a click does what its key does. with
 the overflow knob on, the count of overflowing boxes sits above them.
+
+### pinning
+
+the pin button in the footer, before the gear, docks the panel to its side the
+way devtools dock: a column from the top of the window to the bottom, flush
+with the edge, with the rows using the whole height and the footer at the
+bottom. the settings and a feature's view fill the column the same way, and
+scroll in it. the pin panel action in the search does the same, and unpin, the same
+button or action, makes it the floating panel again, where it was.
+
+the page gets narrower, for real. it runs in a same-origin frame, the one the
+width knob uses, that fills the window less the panel, so the viewport itself
+ends where the panel starts: media queries, `100vw`, and `position: fixed` and
+`sticky` boxes all follow, which a margin on the page could not give. the
+window's address still follows the page, and reloads, grab and every knob work
+as they do in any frame. with no device and no width set, that frame is the
+page and nothing else: no mat, no readout, no zoom. with a device or a width
+set, the mat simply ends where the panel starts, and the device is fitted in
+what is left.
+
+pinning loads the page once more when no frame is up yet, like picking a
+width, and unpinning hands the window its own page back, at the address the
+frame was on. with a device or a width set already, pinning and unpinning only
+change the room, and nothing loads. closing a pinned panel (`⇧K`, or the close
+button by the pin) gives the page the whole window back and keeps the frame,
+so opening and closing never load anything either. closed, the handle is where
+it always is.
+
+open, the pinned panel has no handle out on the page. its edge on the page's
+side changes its width, as a floating panel's does: drag it, double click it,
+or focus it and press the arrows. two buttons show by the pin while the panel
+is pinned: one moves the column to the other side of the window, which the
+move panel across action in the search does too, and one closes the panel.
+
+it is one column, as wide as the panel is: the rows' width, or a view's while
+one shows. the page's frame follows that width with no load. under a drag it
+follows the edge, once a frame. it follows the column the same way whenever
+the column moves on its own: as the panel opens and closes, and as it glides
+to a new width when a view opens or closes, the page's edge is the column's
+edge in every frame, so the page lays out as it shrinks and grows. taken to
+the other side, the column crosses over the page while the page slides
+across, as wide as it was. a page too slow to keep up (two frames in a row
+over 50ms) takes its final width at once, and so does every page when the
+system asks for reduced motion.
+
+the page never gets narrower than 320px, so the edge stops there. in a window
+too narrow to leave it that beside the panel (under 560px for a panel 240px
+wide), the panel lies over the page instead, and the pin's tooltip says so.
+
+the pin is kept with the panel's place, in `localStorage` under
+`devknobs:place`, so a new tab starts pinned too. reset all leaves it, as it
+leaves the side.
 
 ### settings
 
@@ -194,7 +251,7 @@ the origin, and wins over the `handle` option. reset all leaves it.
 
 ### shortcuts
 
-the panel, grab, replay and reset keys above are the defaults, and each can be
+the panel, grab, inspect, replay, requests, storage and reset keys above are the defaults, and each can be
 set from the panel: the settings list them under shortcuts,
 click one and press the new key, escape to cancel. a key needs shift, alt
 (option), ctrl or meta (⌘) with it, as a key alone types, except F1 to F12,
@@ -211,6 +268,28 @@ the width knob's frame included at once, and win over the `hotkey` and
 
 the panel keeps the real color scheme and motion preference of the browser,
 whatever the knobs emulate for the page.
+
+### fresh mode
+
+to see the page and the panel as a first visit does, add `devknobs=fresh` to
+the address:
+
+```
+http://localhost:3000/?devknobs=fresh
+```
+
+while it is on, devknobs leaves `localStorage` alone: the panel's place, its
+settings and the keys read as their defaults, nothing is written, and what was
+kept there is back as soon as the parameter goes. every load of the page
+starts with no knobs set, a reload too. the knobs still hold inside a visit
+and in the frame, and across the two loads devknobs asks for itself: the
+locale knob's reload, and the frame handing the address it went to back to
+the page as it goes. the parameter stays in the address while the frame
+navigates, so that load and a reload after it are in fresh mode too. the
+footer says `fresh mode: nothing is kept`. it needs no change in the code,
+and works with the script tag, the import, the react component and the early
+script. a locale kept by the page in `localStorage` does not follow the locale
+knob while it is on.
 
 ## grab
 
@@ -235,7 +314,7 @@ shortcut is still a copy. the hold is 500ms while a field has
 the focus and 700ms while text is selected, and a key that copied something
 waits for the key to repeat, or to be let go after 200ms. grab then stays on
 until a copy or escape. the search finds it too:
-`grab`, `inspect` or `pick`. grab is an action, not a row: it is never
+`grab` or `pick`. grab is an action, not a row: it is never
 listed, and never kept, so a reload starts with it off.
 
 while it is on:
@@ -295,6 +374,258 @@ devknobs covers it: the same grab, the same line format, the same
 clipboard type. remove the `react-grab` script or package, and mount devknobs.
 pass `grabKey: "meta+c"` (`"ctrl+c"` off a Mac) to keep react-grab's key.
 
+## inspect
+
+press `⇧C` (`Shift C` off a Mac) to see the css of an element. it picks as
+grab does, with the same box, arrows and escape, and its label says `styles`
+before the element. a click copies nothing: the element's styles open in the
+panel, in place of the rows, and the panel grows wider for them. drag its
+edge for another width.
+
+picking is a mode, as in the browsers' own tools. a click picks the element
+and ends the picking: nothing is left drawn on the page, and the page takes
+clicks again. the element stays in the styles view. to pick another, press
+the select button at the left of the view's bar, the dashed square with a pointer, or
+`⇧C` again. the button is pressed while the picking is on, and `⇧C` while
+picking stops it. escape ends the picking and keeps the element shown, the
+next escape clears the filter if it has text, and the next goes back to the
+rows, as the back button on top does. going back ends the picking and keeps
+the element: inspect's row says its name, and opens the view on it again
+without picking. with no element, the row starts the picking. the row says
+`picking` while the mode is on, and `off` with nothing picked.
+
+the view points at the page only while the pointer is on what stands for an
+element: a crumb, the box's diagram, or the name in the view's head box that
+element on the page, and the box goes when the pointer leaves. an element
+that left the page is said so, in a line you press to pick another. with no
+element the view has no bar, and its one line starts the picking. the
+search finds inspect as `inspect`, `styles` or `css`, the footer has its
+key, and the shortcuts in the settings set another. grab and inspect are
+never on together: starting one ends the other. while grab is on `c` is
+grab's copy.
+
+while inspect is on, the element under the pointer shows its box as the
+browsers' own tools draw it: the content in blue, the padding in green, the
+border in yellow and the margin in orange, see-through, under the box's own
+line. a negative margin makes no area on its side. an element in several
+pieces, as a link over two lines is, is drawn by its bounding box, and so is
+one a transform turns or scales, unless the browser has `getBoxQuads`, which
+gives its own corners. an element with `display: contents` or of no size has
+no box, only its label. an element the view points at is drawn the same way,
+with no label. grab draws none of this.
+
+the label by the box is a small card in inspect. its first line is the
+element and its size. under it, once the pointer rests, only what applies:
+
+- `color` and `background`, each with a swatch, as a hex or as `rgb()` with
+  its alpha. where the element has no background of its own, it is the one
+  that shows through from an ancestor, said quietly
+- `font`: the family, then the size over the line height, the weight, and
+  the letter spacing where it is not `normal`
+- `contrast`: the wcag ratio of the text on its background, with a check
+  where it meets level AA at the text's size and weight, or a cross
+- `margin` and `padding`, top, right, bottom, left, where any side has some
+
+the color, the font and the contrast are for an element with text of its
+own. what the `font` row can know: it is the first family of the computed
+`font-family` that `document.fonts.check` says is there, or the first
+generic one such as `sans-serif`. for a web font the answer is exact: it is
+there once it has loaded. for a family the page did not load, most browsers answer yes whether
+the system has it or not, so the row trusts the name. and no browser tells
+a page which font a glyph really fell back to, so text that mixes scripts
+may be drawn in more fonts than the one named. the background is the
+`background-color` only: an image or a gradient behind the text is not seen,
+and the contrast is then against the color under it.
+
+the styles start with the element's box, under `box`, which folds away
+and stays the way you leave it: the margin, the border, the padding and the
+content one inside the other, each with the length of its four sides in css
+px, a dash for 0, the content with its width by its height, and around them
+the offsets of a positioned element. the pointer on the box draws the
+element's on the page, and on one area that one alone. where the panel is too narrow for the
+lengths, they leave the areas, and those of the area the pointer or the
+focus is on stand in a line under them. under that are the element's
+`box-sizing` and `display`, and its `position` where it is not `static`. the
+box is read again with the styles, and when the element changes size.
+
+the view has two modes, set by the control beside the filter, and the one
+you pick is kept. `simple`, the one it starts in, lists only the styles that
+apply to the element, by what they do, with what it inherits folded under
+them, and after a value that reads a custom property what it comes to.
+`advanced` shows, in the order the cascade settles them:
+
+- the element's `style` attribute, as `element.style`
+- every rule that reaches it, the strongest first, with the selectors of a
+  list that do not match muted, the `@layer`, `@media`, `@supports` and
+  `@container` it sits in above it, and the stylesheet's file after it
+- declarations another one overrides, struck through
+- the rules of its `::before` and `::after`
+- what each ancestor hands down, under `inherited from` and its name
+
+a color has a swatch before it. in both modes a property's name has a color
+of its own, the one the names in a request's headers and a cookie's fields
+have, and every custom property a value reads through `var()` is a piece you
+can rest the pointer on or reach with the tab key, as is the name of a
+`--custom` declaration: the tooltip says what the element sees for it right
+then, with a swatch for a color and under it the selector that sets it, or
+`not set` and what its fallback comes to. in `advanced` a click on one goes to
+the block that sets it, and no click copies. the crumbs on top are the element's ancestors, each a
+click away, and the filter keeps the declarations that have its text in
+their name or value. the view reads the styles again when the element or an
+ancestor changes, when a stylesheet in the head does, when the window is
+resized and when a knob moves. with the width knob's frame up, inspect picks
+in the frame and the styles show in the panel. what a knob of devknobs
+writes on `<html>`, the root size of the text size knob and the
+`color-scheme` of the scheme knob, is left out.
+
+what it cannot show:
+
+- the rules of a stylesheet from another origin. the page may not read them,
+  so the view says `rules hidden` with the file's name and guesses nothing
+- the browser's own default styles
+- a forced state such as `:hover`: a rule shows while it applies
+- a rule in a `@container` it could not confirm is marked `container`, and
+  may not apply
+- an edit made through the CSSOM alone, or to a stylesheet outside the head,
+  may show late
+
+it is read only for now, with no line numbers.
+
+## requests
+
+press `⇧N` (`Shift N` off a Mac), or find `requests` in the search, to see what
+the page asks for, as a view in the panel: a row a request, the newest on top,
+with its method, name, status and time. the panel is wider while the view
+shows, and as wide as you drag its edge. a filter finds rows by address, method
+or status, and `all`, `fetch/xhr` and `other` pick whose requests show. a click
+on a row, or enter, shows it in full: the address, status, timing and sizes,
+the request and response headers and bodies, and the call that made it. the
+way back in the view's head, or escape, goes one step back: from a request to
+the list, and from the list to the panel's rows. escape empties a filter
+first. clear in the list's head empties the log.
+
+copy in a request's head puts it on the clipboard as plain text, ready to paste
+into an AI chat. header values and address parameters that look like secrets
+are copied as `<hidden>`: `authorization`, `cookie`, `set-cookie` and
+`proxy-authorization`, and any header or parameter with `token`, `secret`,
+`key`, `password`, `auth`, `session`, `signature`, `credential` or `jwt` in its
+name. bodies are copied as they are, so check before you paste. the view shows
+all of it as the page set it.
+
+what it records, and what it cannot:
+
+- `fetch` and `XMLHttpRequest` are seen whole: headers, bodies, status, timing
+  and the stack of the call.
+- what the page loads on its own (the document, images, stylesheets, scripts,
+  fonts) is a quieter row with timing and sizes only. the browser gives a page
+  no headers and no bodies for these, and no sizes from a server on another
+  origin that does not allow it.
+- no web sockets, and nothing a worker asks for.
+- a body is kept up to 64 KB, and only where it is text. bytes are counted, and
+  a stream the page sends is never read, nor is the body inside a `Request`
+  object or an event stream. an answer that is still coming 2 seconds after
+  its headers is kept as far as it came.
+- the last 300 requests are kept, in memory. nothing is stored, and nothing is
+  sent anywhere. a reload starts the log again.
+- it records for as long as devknobs is mounted, the view open or not, and from
+  the page's first request with the early script below. there is no fake slow
+  or failed response, and no throttling.
+
+## storage
+
+the storage action (`⇧S`, or search for storage, data, application, cookies)
+shows what the page keeps in the browser, in the panel, as one tree laid out
+as the browsers' own tools lay it out. a node is a store with what it holds:
+how many items and how much, or that it has none. a node folds out in place
+to its table: the store's own controls on the first line, then a line an item
+under a head that names the columns. IndexedDB folds out to its databases, a
+database to its object stores and an object store to its records, and cache
+storage to its caches and a cache to its requests. nothing opens another
+page. what a store asks and says is in its own node. a node folded away
+builds none of its lines, and only the tables that are out are read again.
+the first time, the first store with something in it is folded out; after
+that the nodes are as you left them, until the page reloads.
+
+one filter over the tree is for every table at once. a store with lines it
+keeps folds out to those alone, and a store with none folds away, quiet; its
+summary stays what it holds. a store whose own name matches keeps all its
+lines. empty the filter and every node is as you left it. the databases, the
+caches and their tables stay as you left them, and a table read a page at a
+time is filtered over what is read, with the way to read on kept. escape
+closes an open box, then empties the filter, then leaves the view:
+
+- `local storage` and `session storage`: every key of `localStorage` and
+  `sessionStorage`, its key and a one-line preview of its value each on a
+  column, and its size. a row folds out to the whole value,
+  laid out as json only where that changes nothing of it, with copy value,
+  edit, duplicate and delete. a double click on a row edits its value. add
+  takes `key=value`, a line each, or a json
+  object of several keys. the list follows other tabs through the `storage`
+  event and the page's own writes by reading again once a second, only while
+  its node is folded out
+- `cookies`: what `document.cookie` gives, and in Chromium the path, domain,
+  expiry, secure and sameSite the cookie store knows. edit and delete write
+  `document.cookie` at the cookie's own path and domain, and where those are
+  not told, try the page's path, its folders and `/`. a cookie that could not
+  be changed says so. a page cannot read cookies marked HttpOnly, and the
+  list ends by saying so
+- `IndexedDB`: the databases `indexedDB.databases()` lists, each with its
+  version, and a database's object stores with their record counts. an
+  object store folds out to its key path, auto increment and indexes, and its
+  records numbered from 0, fifty at a time. read only: a whole database can
+  be deleted from its node, a record cannot be changed
+- `cache storage`: the caches of Cache Storage, each with how many requests
+  it holds. a cache folds out to its requests numbered from 0 with the
+  response's status, a hundred at a time, and a row folds out to the method,
+  address, type and size. read only
+- `presets`: named sets of values to put back into the page, see below. they
+  stand last in the tree under `devknobs`, as they are its own and not the
+  page's
+
+a store that can be emptied has clear among its controls, after one question.
+the head of the view has refresh and clear site data: one question that lists what goes, with counts, then local and
+session storage, every cookie the page can delete, every database and every
+cache go in one go. what could not be removed is counted and said, and a
+reload is offered, never done for you.
+
+devknobs' own items (the key `devknobs` and every `devknobs:` key) are hidden
+and kept by every clear. a list that has some ends with a quiet line that
+says how many are hidden, and a press on it shows them.
+
+### presets
+
+save as preset keeps the local and session items and the readable cookies
+the filter shows, under a name. a preset applies with one press, added to
+what is there or in place of it, is renamed in its row, and is edited, exported and imported as
+json, so it moves between machines and teammates. a preset holds at most 200
+entries and 256 KB.
+
+apply on load, a switch on a preset's row, sets the preset on every load of
+the page, before the page's own scripts where the [early script](#early-script)
+is there and at mount where it is not. this writes to the page's real storage
+on every load until it is turned off: the storage row in the panel says
+`1 preset` while one applied, and reset all turns it off for every preset
+without deleting any. a preset imported from someone else never applies on
+load until you turn that on.
+
+presets are kept in `localStorage` under `devknobs:storage-presets`, so they
+are per origin and never apply anywhere else. in fresh mode they are neither
+read nor kept.
+
+### what it cannot show
+
+- cookies marked HttpOnly: a page cannot read them, so neither can devknobs
+- the storage of other origins, an iframe's or a cdn's included
+- the list of databases where `indexedDB.databases()` is missing
+- service worker registrations, WebSQL, the origin private file system and
+  the quota
+
+it reads through the page's own apis and wraps none of them. a database is
+opened by name with no version, read in one read-only transaction and closed
+at once, on every path, so the view never holds a connection that would block
+the page's own upgrade. nothing is copied, kept or sent anywhere by itself:
+the copy controls are the only way out.
+
 ## early script
 
 optional. a page that reads a media query or the time while it boots, before
@@ -320,7 +651,9 @@ and the user agent only, and since it reads the stored state, it follows the
 knobs from the next load on. inside a frame that gets the scheme natively, it
 leaves the scheme to the browser, as the full script does. it also puts a
 React devtools hook in place for grab, when the page has none, so React
-reports to it from its first render.
+reports to it from its first render. before all of that it sets what the
+[storage](#storage) presets marked apply on load hold, so the page's own
+scripts start with them.
 
 when the stored knobs put the page in a frame, the early script also hides
 the page under the frame's mat from the first paint, so a reload never shows
@@ -364,13 +697,15 @@ screen shows the page loading as Safari does a reload. without devknobs after
 | frame | off, on | puts the page in the same frame at full width, for the native color scheme without picking a width |
 | device pixel ratio | 1, 2, 3, system | sets `zoom` on the frame, which multiplies `devicePixelRatio` inside it while its css size stays put, so resolution queries and `srcset` follow. a wrapper scales the drawing back. brings the frame up |
 | zoom | fit, 50, 75, 100, 125, 150 | how big the frame is drawn, like the zoom of the devtools device toolbar. fit draws it whole, with a margin, up to its own size. a percent draws it at exactly that, and the letterbox scrolls both ways where it is bigger. the page inside keeps its viewport, media queries and device pixel ratio. the control in the letterbox's readout, ctrl or meta with the wheel or a trackpad pinch over the letterbox (around the pointer), and the zoom keys set it too |
-| mat | blue, green, magenta, purple, red, graphite | the color of the cutting mat the frame lies on, its lines and numbers in a light tint of the same hue, wider on a p3 screen. green is the classic cutting mat green. it changes in place, with no reload |
+| mat | blue, green, magenta, purple, red, graphite, your own | the color of the cutting mat the frame lies on, its lines and numbers in a light tint of the same hue, wider on a p3 screen. green is the classic cutting mat green. it changes in place, with no reload. the plus after the swatches adds a color of your own, from the browser's color picker or typed as a hex or `rgb()`: it shows on the mat while you pick, and its lines and numbers go dark on a light color. up to 8 are kept per site, in `localStorage` under `devknobs:colors`, and the x on one takes it off |
 | user agent | iphone safari, android chrome, ipad safari, mac safari, mac chrome, windows chrome, windows edge, linux firefox, googlebot, a custom string, system | patches `userAgent`, `appVersion`, `platform`, `vendor` and `maxTouchPoints` on `Navigator.prototype`, and `navigator.userAgentData`: its brands, `mobile`, `platform`, `toJSON` and `getHighEntropyValues` (platform version, model, architecture, bitness, full version list), all from the same browser. safari and firefox have no `userAgentData`, so their presets take it away. the ipad is the one iPadOS shows sites by default, a mac with touch points. a custom string sets `userAgent` and `appVersion` alone, as chrome devtools does: platform, vendor and touch points stay the browser's, and a `userAgentData` the browser has reports no brands. the field under the list shows while custom is picked, starting from the string in use, and editing it keeps it the custom one. back to system, every property is the browser's own again. in a device's frame a new user agent reloads the frame, see devices |
 | vision | protanopia, deuteranopia, tritanopia, achromatopsia, blur, none | an svg color matrix (machado et al. 2009, as chromium devtools uses) or a 2px blur, as a `filter` on the frame, so fixed elements inside keep their place and the panel stays readable. brings the frame up |
 | overflow | on, off | finds what makes the page scroll sideways: every box that sticks out of the viewport on the right or the left with no box on the way up that clips or scrolls it, counting only the box that starts the overflow, not the children that fill it. each one gets a red mark drawn in a devknobs layer over the page (its own styles are never touched), the console names them once, and the panel shows the count in its debug row and footer. it looks again on resize, scroll and page changes. with the frame up it runs inside the frame and reports the count up |
 | outlines | on, off | injects one style rule that outlines every element |
-| grab color | auto, blue, green, pink, orange, purple, cyan | the color of grab's boxes and glow, wider on a p3 screen. auto is blue, and green on an element with blue behind it, so the box shows. a picked color stays whatever the page. the frame's grab follows |
+| grab color | auto, blue, green, pink, orange, purple, cyan, your own | the color of grab's boxes and glow, wider on a p3 screen. auto is blue, and green on an element with blue behind it, so the box shows. a picked color stays whatever the page. the frame's grab follows. the plus adds a color of your own, as the mat's does, in a list of its own |
 | replay animations | action, `⇧R` | cancels and replays every animation `getAnimations()` returns, in the document and every open shadow root, then gives the finished css animations it no longer returns (pseudo-elements too) one `animation: none` style pass so they run again. scroll-driven animations are left alone |
+| requests | action, `⇧N` | shows the requests the page made, as a view in the panel. see requests below |
+| storage | action, `⇧S` | shows `localStorage`, `sessionStorage`, the cookies a page can read, IndexedDB and Cache Storage in the panel, clears site data, and keeps presets of values that can apply on every load. see [storage](#storage) |
 
 new stylesheets are picked up as they arrive, so knobs keep working through
 hot reloads and lazily loaded css.
@@ -817,6 +1152,14 @@ and keeps the installed one beside it for `unlink` to put back. it is a copy,
 not a symlink: Turbopack refuses a package linked from outside the app, and
 other bundlers treat the real path as app source. restart the app's dev server
 after each.
+
+the controls for tuning the iphone duo fold's look by hand, `src/engine/foldtune.ts`,
+are for development and never in the package: the build passes
+`--define DEVKNOBS_TUNE=false` to every bundle and `scripts/tunefree.ts` fails
+a build that has any of them. an app gets them by loading devknobs from source,
+a bundler alias from `devknobs` to this repo's `src`, where the constant is not
+defined and the table is on `window` under `Symbol.for("devknobs.foldtune")`.
+an app that builds from source for production defines `DEVKNOBS_TUNE` false too.
 
 ## license
 

@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  appleSeen,
-  BLURS,
+  BLUR_LAYERS,
+  type BlurFade,
   blurArea,
   blurLight,
-  blurWidth,
+  blurReach,
+  blurShare,
+  blurWidths,
   brightness,
   darkAt,
   edgeLight,
@@ -15,7 +17,6 @@ import {
   type FoldSide,
   FOLD_TIME,
   foldWarm,
-  FREE_DARK,
   freeBand,
   freeDark,
   freeDepth,
@@ -34,6 +35,8 @@ import {
   nearestReady,
   openOf,
   paneLook,
+  paneShades,
+  type Pane,
   type Quad,
   quadArea,
   quadFacing,
@@ -41,8 +44,13 @@ import {
   RIM,
   roundedPath,
   screenDim,
-  seenAlong,
   seenAt,
+  type Shades,
+  shadeOf,
+  shadeStops,
+  shown,
+  sharpest,
+  SMOOTH,
   SHOTS_AHEAD,
   SHOTS_AROUND,
   shotAt,
@@ -56,12 +64,14 @@ import {
   towardFrom,
   shotWindow,
   shownAt,
+  turnBlur,
   uvOf,
   wipeAmount,
   wipeLight,
 } from "../src/engine/fold";
 import { bezelMock } from "../src/engine/bezels";
-import { screenLook } from "../src/engine/foldgl";
+import { blurAt, freeOf, screenLook } from "../src/engine/foldgl";
+import { resetTune, setTune, TUNE_DEFAULTS } from "../src/engine/foldtune";
 import { DUO_FOLD } from "../src/engine/bezelurls";
 import { mockOf, type Rect } from "../src/engine/mock";
 import { corners } from "../src/engine/mockdraw";
@@ -498,7 +508,17 @@ const RECORDED = {
   ],
 } as const;
 
+/** The three shades as Apple's fold has them: they ship at 0, and a hand brings them back. */
+function asApple(): void {
+  setTune("wipeShade", 1.5);
+  setTune("darkMost", 0.7);
+  setTune("farShade", 1);
+}
+
 describe("Apple's wipe", () => {
+  beforeEach(asApple);
+  afterEach(resetTune);
+
   test("is as strong on each screen as recorded", () => {
     for (const [open, amount] of RECORDED.inner) expect(Math.abs(wipeAmount("inner", open) - amount)).toBeLessThan(0.005);
     for (const [open, amount] of RECORDED.cover) expect(Math.abs(wipeAmount("cover", open) - amount)).toBeLessThan(0.005);
@@ -531,9 +551,6 @@ describe("Apple's wipe", () => {
     expect(blurLight(0.9)).toBe(1);
     expect(blurLight(1.1)).toBeCloseTo(0.25);
     expect(blurLight(1.3)).toBe(0);
-    // A level is twice the texels of the one before; the inner texture is 2853 px across.
-    expect(blurWidth("inner", 0.5) / blurWidth("inner", 0.375)).toBeCloseTo(2);
-    expect(blurWidth("inner", 0)).toBeCloseTo((Math.SQRT2 * 1.12) / 2853);
   });
 
   test("shades the open screen's far side the more the wipe is on", () => {
@@ -565,6 +582,9 @@ const FREE_MEASURED: [open: number, [t: number, light: number][]][] = [
 ];
 
 describe("the free edge's dark", () => {
+  beforeEach(asApple);
+  afterEach(resetTune);
+
   test("is Apple's, within a tenth: the frames themselves differ by as much", () => {
     for (const [open, points] of FREE_MEASURED) {
       for (const [t, light] of points) expect(Math.abs(1 - freeDark(t, open) - light)).toBeLessThan(0.1);
@@ -576,7 +596,7 @@ describe("the free edge's dark", () => {
       expect(freeDark(t, 0)).toBe(0);
       expect(freeDark(t, 1)).toBe(0);
     }
-    expect(freeDepth(0.5)).toBe(FREE_DARK.most);
+    expect(freeDepth(0.5)).toBe(0.7);
     expect(freeDepth(0.6)).toBeCloseTo(freeDepth(0.4));
     expect(freeShades(0, 0.8)).toEqual([]);
     expect(freeShades(1, 1)).toEqual([]);
@@ -584,7 +604,7 @@ describe("the free edge's dark", () => {
 
   test("is none at the hinge, and deepens all the way out to the free edge", () => {
     expect(freeBand(0)).toBe(0);
-    expect(freeBand(FREE_DARK.from)).toBe(0);
+    expect(freeBand(TUNE_DEFAULTS.darkFrom)).toBe(0);
     expect(freeBand(1)).toBe(1);
     let last = 0;
     for (let t = 0; t <= 1; t += 0.01) {
@@ -602,36 +622,366 @@ describe("the free edge's dark", () => {
   });
 });
 
-describe("paneLook", () => {
-  test("is bright and sharp on a screen lying flat", () => {
-    const flat = paneLook("inner", 1, 951);
-    expect(flat.turned.every((dark) => dark === 0)).toBe(true);
-    expect(flat.flat.every((dark) => dark === 0)).toBe(true);
-    expect(flat.blurs).toEqual([null, null, null]);
-    expect(paneLook("cover", 0, 466).blurs).toEqual([null, null, null]);
-  });
-
-  test("darkens the half that turns toward its free edge, from the dark of the half that stays", () => {
-    const look = paneLook("inner", 0.6, 951);
-    expect(look.turned).toHaveLength(9);
-    expect(look.turned[0]).toBeCloseTo(screenDim("inner", 0.6), 2);
-    for (let step = 1; step < look.turned.length; step++) {
-      expect(look.turned[step] ?? 0).toBeGreaterThanOrEqual(look.turned[step - 1] ?? 0);
+describe("the turned screen's blur", () => {
+  test("is none lying flat, open or shut, and rises all the way to a right angle, where it is its widest", () => {
+    expect(turnBlur(0)).toBe(0);
+    expect(turnBlur(1)).toBe(0);
+    expect(turnBlur(0.5)).toBe(TUNE_DEFAULTS.blurMost);
+    let last = 0;
+    for (let open = 0.01; open <= 0.5; open += 0.01) {
+      expect(turnBlur(open)).toBeGreaterThan(last);
+      expect(turnBlur(1 - open)).toBeCloseTo(turnBlur(open), 9);
+      last = turnBlur(open);
     }
-    expect(look.turned.at(-1) ?? 0).toBeGreaterThan(0.5);
-    expect(look.flat.at(-1) ?? 0).toBeGreaterThan(look.flat[0] ?? 0);
+    // Next to none as the page itself takes over from its picture, so nothing steps there.
+    expect(turnBlur(0.99)).toBeLessThan(0.2);
+    expect(turnBlur(0.01)).toBeLessThan(0.2);
   });
 
-  test("fades the blurrier pictures in one after the other along the half, as wide as Apple's blur", () => {
-    const { blurs } = paneLook("inner", 0.6, 951);
-    const [first, second] = blurs;
-    if (!first || !second) throw new Error("no blur");
-    expect(first.from).toBeLessThan(first.to);
-    expect(first.to).toBeCloseTo(second.from, 2);
-    expect(first.most).toBe(1);
-    // Where the first is all the way in, the blur is as wide as it, Apple's as far across what its camera sees.
-    const area = blurArea("inner", uvOf("inner", seenAlong(first.to, 1, appleSeen("inner", 0.6))), wipeAmount("inner", 0.6));
-    expect(blurWidth("inner", area) * 951).toBeCloseTo(BLURS[1], 0);
+  test("is at most 48 css px: three eighths of the 128 it was", () => {
+    expect(TUNE_DEFAULTS.blurMost).toBe(48);
+  });
+
+  test("is least at the hinge, under 2 css px at any angle, and never falls on the way to the free edge", () => {
+    expect(blurShare(0)).toBe(TUNE_DEFAULTS.blurHinge);
+    expect(blurShare(1)).toBe(1);
+    expect(TUNE_DEFAULTS.blurMost * blurShare(0)).toBeLessThan(2);
+    let last = blurShare(0);
+    for (let across = 0.01; across <= 1; across += 0.01) {
+      expect(blurShare(across)).toBeGreaterThan(last);
+      last = blurShare(across);
+    }
+    // Low for long near the hinge: a quarter of the way out, under a tenth of the free edge's.
+    expect(blurShare(0.25)).toBeLessThanOrEqual(0.1);
+    expect(blurShare(-1)).toBe(blurShare(0));
+    expect(blurShare(2)).toBe(1);
+  });
+
+  test("is found again from how wide it is", () => {
+    for (const across of [0, 0.2, 0.5, 0.9, 1]) expect(blurReach(blurShare(across))).toBeCloseTo(across, 9);
+    expect(blurReach(0)).toBe(0);
+  });
+});
+
+/** How much of a blurrier picture shows `at` of the way from the hinge to the free edge, as a gradient through its stops has it. */
+function shareAt(fade: BlurFade | null, at: number): number {
+  if (!fade) return 0;
+  const { stops } = fade;
+  const [first, last] = [stops[0], stops.at(-1)];
+  if (!first || !last) return 0;
+  if (at <= first[0]) return first[1];
+  for (let index = 1; index < stops.length; index++) {
+    const [from, low] = stops[index - 1] ?? first;
+    const [to, high] = stops[index] ?? last;
+    if (at <= to) return to > from ? low + ((high - low) * (at - from)) / (to - from) : high;
+  }
+  return last[1];
+}
+
+/** How much of each picture is seen, the sharp one first, with `shares` of the blurrier ones laid over it in turn. */
+function seenOf(shares: number[]): number[] {
+  let seen = [1];
+  for (const share of shares) seen = [...seen.map((one) => one * (1 - share)), share];
+  return seen;
+}
+
+/** Screens, angles and how far out they are seen, the blur at its widest and well under it. */
+const LOOKS: ["inner" | "cover", number, number][] = [
+  ["inner", 0.5, 1],
+  ["cover", 0.5, 1],
+  ["inner", 0.3, 1],
+  ["cover", 0.8, 0.5],
+  ["inner", 0.62, 0.37],
+];
+
+describe("blurWidths", () => {
+  test("doubles from the sharp picture's 2 css px, and ends at the widest blur itself", () => {
+    expect(blurWidths(48)).toEqual([2, 4, 8, 16, 32, 48]);
+    expect(blurWidths(16)).toEqual([2, 4, 8, 16]);
+    expect(blurWidths(128)).toEqual([2, 4, 8, 16, 32, 64, 128]);
+    expect(blurWidths(33)).toEqual([2, 4, 8, 16, 32, 33]);
+    // As the table has it, where none is given.
+    expect(blurWidths()).toEqual(blurWidths(TUNE_DEFAULTS.blurMost));
+    // Too little to see: the sharp picture alone.
+    expect(blurWidths(2)).toEqual([2]);
+    expect(blurWidths(0)).toEqual([2]);
+    expect(blurWidths(3)).toEqual([2, 3]);
+  });
+
+  test("is never more than 8 pictures: past that they are spread evenly further apart", () => {
+    expect(BLUR_LAYERS).toBe(8);
+    // The widest a hand can set is just 8, still doubling.
+    expect(blurWidths(256)).toEqual([2, 4, 8, 16, 32, 64, 128, 256]);
+    for (const [most, limit] of [[256, 6], [1024, 8], [48, 4], [4096, 8]] as const) {
+      const widths = blurWidths(most, limit);
+      expect(widths).toHaveLength(limit);
+      expect(widths[0]).toBe(2);
+      expect(widths.at(-1)).toBe(most);
+      const between = (most / 2) ** (1 / (limit - 1));
+      expect(between).toBeGreaterThan(2);
+      for (let index = 1; index < widths.length; index++) {
+        expect((widths[index] ?? 0) / (widths[index - 1] ?? 1)).toBeCloseTo(between, 9);
+      }
+    }
+    // No pictures to spare under the limit: each step doubles, but the last, which is no more.
+    for (const most of [5, 48, 100, 256]) {
+      const widths = blurWidths(most);
+      expect(widths.length).toBeLessThanOrEqual(BLUR_LAYERS);
+      for (let index = 1; index < widths.length - 1; index++) expect((widths[index] ?? 0) / (widths[index - 1] ?? 1)).toBe(2);
+      expect((widths.at(-1) ?? 0) / (widths.at(-2) ?? 1)).toBeLessThanOrEqual(2);
+    }
+  });
+
+  test("follows the widest blur a hand sets", () => {
+    try {
+      setTune("blurMost", 16);
+      expect(blurWidths()).toEqual([2, 4, 8, 16]);
+      expect(paneLook("inner", 0.5).blurs).toHaveLength(3);
+      setTune("blurMost", 256);
+      expect(paneLook("inner", 0.5).blurs).toHaveLength(7);
+    } finally {
+      resetTune();
+    }
+  });
+});
+
+describe("paneLook", () => {
+  afterEach(resetTune);
+
+  /** Is a shade none at all: no dark at any of its stops. */
+  const none = (shade: Shades) => shade.every(([, dark]) => dark === 0);
+
+  test("is bright and sharp on a screen lying flat", () => {
+    const flat = paneLook("inner", 1);
+    expect(none(flat.turned)).toBe(true);
+    expect(none(flat.flat)).toBe(true);
+    expect(flat.blurs).toEqual([null, null, null, null, null]);
+    expect(paneLook("cover", 0).blurs).toEqual([null, null, null, null, null]);
+  });
+
+  /** Each frame of the Duo's fold whose turned screen is seen at least `least` of the way out: its screen, how far open, and how far it is seen. */
+  function seenFrames(least: number): [Pane, number, number][] {
+    const shots = DUO_FOLD;
+    if (!shots) return [];
+    return shots.frames.flatMap((shot): [Pane, number, number][] => {
+      const pane = shotPane(shots, shot);
+      if (!pane) return [];
+      const quad = shotQuad(shot, pane);
+      const picture = shotPicture(shots, pane, quad);
+      const free = freeOf(shotWindow(quad, pane, picture), pane, picture);
+      return free >= least ? [[pane, shotOpen(shot), free]] : [];
+    });
+  }
+
+  test("as it ships, dims the half that turns as the half that stays is, all over, and shades it nowhere", () => {
+    expect([TUNE_DEFAULTS.wipeShade, TUNE_DEFAULTS.darkMost, TUNE_DEFAULTS.farShade]).toEqual([0, 0, 0]);
+    for (const [pane, open, free] of seenFrames(0)) {
+      // One stop each: the screen's own light, the same at the hinge as the other half's, so they meet with no step.
+      expect(paneShades(pane, open, free)).toEqual({ turned: [[0, screenDim(pane, open)]], flat: [[0, 0]] });
+      expect(freeShades(open, free)).toEqual([]);
+      // Nothing of a shade is worked out, by the gradients or by WebGL2: Apple's blurs darken only past where the screen is seen.
+      expect(shadeOf(pane, open, free).slice(1)).toEqual([0, 0, 0]);
+    }
+  });
+
+  test("darkens the half that turns toward its free edge, from the dark of the half that stays, where a hand turns the wipe on", () => {
+    asApple();
+    const look = paneLook("inner", 0.6);
+    expect(look.turned.length).toBeGreaterThanOrEqual(17);
+    expect(look.turned[0]?.[1]).toBeCloseTo(screenDim("inner", 0.6), 2);
+    for (let step = 1; step < look.turned.length; step++) {
+      expect(look.turned[step]?.[1] ?? 0).toBeGreaterThanOrEqual(look.turned[step - 1]?.[1] ?? 0);
+      expect(look.turned[step]?.[0] ?? 0).toBeGreaterThan(look.turned[step - 1]?.[0] ?? 0);
+    }
+    expect(look.turned.at(-1)).toEqual([1, expect.any(Number)]);
+    expect(look.turned.at(-1)?.[1] ?? 0).toBeGreaterThan(0.5);
+    expect(look.flat.at(-1)?.[1] ?? 0).toBeGreaterThan(look.flat[0]?.[1] ?? 0);
+  });
+
+  test("is as dark where its shades were worked out before, at 9 points from the hinge out", () => {
+    asApple();
+    const smooth = (from: number, to: number, value: number) => {
+      const t = Math.min(1, Math.max(0, (value - from) / (to - from)));
+      return t * t * (3 - 2 * t);
+    };
+    for (const pane of ["inner", "cover"] as const) {
+      for (const open of [0.1, 0.3, 0.45, 0.6, 0.8, 0.95]) {
+        const { turned, flat } = paneShades(pane, open);
+        const amount = wipeAmount(pane, open);
+        const light = smooth(0.1, 1, brightness(pane, open));
+        for (let step = 0; step <= 8; step++) {
+          const uv = uvOf(pane, step / 8);
+          const at = (shade: Shades) => shade.find(([t]) => t === step / 8)?.[1];
+          expect(at(turned)).toBeCloseTo(1 - shown(light * wipeLight(pane, uv, amount)), 3);
+          const dark = 1 - shown(blurLight(blurArea(pane, uv, amount)) * edgeLight(pane, uv, amount));
+          if (flat.length > 1) expect(at(flat)).toBeCloseTo(dark, 3);
+          else expect(dark).toBe(0);
+        }
+      }
+    }
+  });
+
+  test("bends no more sharply at any stop than the eye lets it, at every angle and at numbers a hand sets", () => {
+    const tunes: [string, number][][] = [
+      [["wipeShade", 1.5], ["darkMost", 0.7], ["farShade", 1]],
+      [["wipeShade", 1.6], ["darkMost", 1], ["farShade", 0.5], ["darkFrom", 0.5], ["darkBroad", 0.8]],
+      [["wipeShade", 0.6], ["darkMost", 0.3], ["farShade", 1], ["darkFrom", 0], ["darkPower", 1]],
+    ];
+    tunes.forEach((set, index) => {
+      resetTune();
+      for (const [key, value] of set) setTune(key, value);
+      // At Apple's own numbers wherever a tenth of the screen is seen. At a hand's, which may take a shade to black,
+      // where half of it is: seen less, its stops would have to be closer than they can be told apart.
+      const frames = seenFrames(index === 0 ? 0.1 : 0.5);
+      expect(frames.length).toBeGreaterThan(index === 0 ? 150 : 100);
+      for (const [pane, open, free] of frames) {
+        const { turned, flat } = paneShades(pane, open, free);
+        expect(sharpest(turned)).toBeLessThanOrEqual(SMOOTH);
+        expect(sharpest(flat)).toBeLessThanOrEqual(SMOOTH);
+        // The free edge's dark up to its darkest strip, which is a line by design, over as much of the way as is seen.
+        const edge = freeShades(open, free).filter(([at]) => at / free < 0.9);
+        expect(sharpest(edge) * free).toBeLessThanOrEqual(SMOOTH);
+        for (const shade of [turned, flat, freeShades(open, free)]) expect(shade.length).toBeLessThanOrEqual(64);
+      }
+    });
+  });
+
+  test("bent five times as sharply through the 9 evenly spaced stops it had", () => {
+    asApple();
+    const before = (pane: Pane, open: number) => {
+      const amount = wipeAmount(pane, open);
+      const light = 1 - screenDim(pane, open);
+      return Array.from({ length: 9 }, (_, step): [number, number] => [step / 8, 1 - light * shown(wipeLight(pane, uvOf(pane, step / 8), amount))]);
+    };
+    expect(sharpest(before("inner", 0.6))).toBeGreaterThan(5 * SMOOTH);
+    expect(sharpest(paneShades("inner", 0.6).turned)).toBeLessThanOrEqual(SMOOTH);
+  });
+
+  test("puts its stops closer together only where the shade bends, and one where it is as dark all the way", () => {
+    // A straight shade keeps its 17 even stops.
+    const straight = shadeStops((t) => t / 2);
+    expect(straight).toHaveLength(17);
+    expect(straight[4]).toEqual([0.25, 0.125]);
+    expect(sharpest(straight)).toBeLessThan(0.01);
+    // A bent one gets more, and only as many as take the bend under the bound.
+    const bent = shadeStops((t) => t ** 2 / 2);
+    expect(bent.length).toBeGreaterThan(17);
+    expect(bent.length).toBeLessThanOrEqual(64);
+    expect(sharpest(bent)).toBeLessThanOrEqual(SMOOTH);
+    const gaps = bent.slice(1).map(([at], index) => at - (bent[index]?.[0] ?? 0));
+    expect(gaps.at(-1) ?? 1).toBeLessThan(gaps[0] ?? 0);
+    // Out to as far as it is seen, and no further.
+    expect(shadeStops((t) => t, 0.4).at(-1)).toEqual([0.4, 0.4]);
+    expect(shadeStops((t) => t, 0)).toEqual([[0, 0]]);
+  });
+
+  test("leaves every shade out with the shades off, but the screen's own light, and the blur with the blur off", () => {
+    asApple();
+    setTune("shadeOn", 0);
+    expect(paneShades("inner", 0.6)).toEqual({ turned: [[0, screenDim("inner", 0.6)]], flat: [[0, 0]] });
+    expect(freeShades(0.6, 0.5)).toEqual([]);
+    expect(paneLook("inner", 0.6).blurs.some((blur) => blur !== null)).toBe(true);
+    setTune("blurOn", 0);
+    expect(paneLook("inner", 0.6).blurs.every((blur) => blur === null)).toBe(true);
+    setTune("shadeOn", 1);
+    expect(paneShades("inner", 0.6).turned.length).toBeGreaterThan(1);
+  });
+
+  test("fades each blurrier picture in over the one under it, all in where the blur is as wide as it, and no further than the widest", () => {
+    const widths = blurWidths();
+    for (const [pane, open, free] of LOOKS) {
+      const { blurs } = paneLook(pane, open, free);
+      expect(blurs).toHaveLength(widths.length - 1);
+      const peak = turnBlur(open);
+      widths.slice(1).forEach((width, index) => {
+        const fade = blurs[index];
+        const low = widths[index] ?? 0;
+        // One the blur never gets as wide as the picture under does not show.
+        expect(fade === null).toBe(peak <= low);
+        if (!fade) return;
+        const [first, last] = [fade.stops[0], fade.stops.at(-1)];
+        // None of it where the blur is the lower one's width, by `blurShare` the other way round.
+        expect(first).toEqual([Math.round(blurReach(low / peak) * free * 1000) / 1000, 0]);
+        expect(last?.[0]).toBe(Math.round(blurReach(Math.min(width, peak) / peak) * free * 1000) / 1000);
+        if (peak >= width) expect(last?.[1]).toBe(1);
+        else expect(last?.[1]).toBeCloseTo(Math.log2(peak / low) / Math.log2(width / low), 3);
+        // Where it ends, the next begins: no picture's fade ends in the open.
+        const next = blurs[index + 1];
+        if (next) expect(next.stops[0]?.[0]).toBe(last?.[0] ?? -1);
+      });
+    }
+  });
+
+  test("mixes just the two pictures whose blurs are either side of the blur wanted, at every point of the half", () => {
+    const widths = blurWidths();
+    for (const [pane, open, free] of LOOKS) {
+      const { blurs } = paneLook(pane, open, free);
+      let before: number[] | null = null;
+      for (let step = 0; step <= 2000; step++) {
+        const at = step / 2000;
+        const shares = blurs.map((fade) => shareAt(fade, at));
+        const seen = seenOf(shares);
+        expect(seen.reduce((sum, one) => sum + one, 0)).toBeCloseTo(1, 9);
+        const showing = seen.flatMap((one, index) => (one > 0 ? [index] : []));
+        expect(showing.length).toBeLessThanOrEqual(2);
+        if (showing.length === 2) expect((showing[1] ?? 0) - (showing[0] ?? 0)).toBe(1);
+        // No dip: a picture fades in only over one that is all in, so nothing under the two shows through.
+        shares.forEach((share, index) => {
+          if (index > 0 && share > 0) expect(shares[index - 1]).toBe(1);
+        });
+        // Handed over one way only, and with no step: a five-hundredth of the half further on, a little more.
+        if (before) {
+          shares.forEach((share, index) => {
+            expect(share).toBeGreaterThanOrEqual(before?.[index] ?? 0);
+            expect(share - (before?.[index] ?? 0)).toBeLessThan(0.05);
+          });
+        }
+        before = shares;
+      }
+      expect(widths[0]).toBe(2);
+    }
+  });
+
+  test("is as wide as WebGL2 draws it where the blur is a picture's own, and within the pictures either side between", () => {
+    const widths = blurWidths();
+    for (const [pane, open, free] of LOOKS) {
+      const { blurs } = paneLook(pane, open, free);
+      const look = screenLook(open, 0, free);
+      const peak = turnBlur(open);
+      /** How wide the layers' blur is `at` of the way out: the two pictures' widths, mixed as they double. */
+      const drawn = (at: number) =>
+        2 ** seenOf(blurs.map((fade) => shareAt(fade, at))).reduce((sum, one, index) => sum + one * Math.log2(widths[index] ?? 1), 0);
+      // At the hinge it is the sharp picture, as WebGL2 draws none under a px.
+      expect(drawn(0)).toBe(2);
+      expect(blurAt(look, 0, 1e4)).toBeLessThan(2);
+      for (const width of widths.slice(1)) {
+        if (width > peak) continue;
+        const at = blurReach(width / peak) * free;
+        expect(blurAt(look, at, 1e4)).toBeCloseTo(width, 6);
+        expect(Math.abs(Math.log2(drawn(at) / width))).toBeLessThan(0.02);
+      }
+      // In the middle and at the free edge, and all the way between: never off by more than a fiftieth of a doubling.
+      for (let step = 0; step <= 200; step++) {
+        const at = (step / 200) * free;
+        const wanted = Math.max(2, blurAt(look, at, 1e4));
+        expect(Math.abs(Math.log2(drawn(at) / wanted))).toBeLessThan(0.02);
+      }
+      expect(Math.abs(Math.log2(drawn(free) / Math.max(2, peak)))).toBeLessThan(0.005);
+    }
+  });
+
+  test("shows none of a blurrier picture at the hinge, at any angle, so it is no blurrier there than WebGL2 draws it", () => {
+    for (const pane of ["inner", "cover"] as const) {
+      for (let open = 0; open <= 1; open += 0.01) {
+        for (const blur of paneLook(pane, open).blurs) {
+          if (!blur) continue;
+          expect(blur.stops[0]?.[1]).toBe(0);
+          expect(blur.stops[0]?.[0]).toBeGreaterThan(0);
+          expect(blur.stops.at(-1)?.[1]).toBeGreaterThan(0);
+          expect(shareAt(blur, 0)).toBe(0);
+        }
+      }
+    }
   });
 
   test("dims the screens as Apple lights them, through the display's gamma", () => {
@@ -1017,13 +1367,12 @@ describe("the Duo's fold frames", () => {
           shotsDrift(shots, layout, inside, outside, at, "closed"),
           screenDim("inner", at),
           screenDim("cover", at),
-          paneLook("inner", at, 951),
-          paneLook("cover", at, 466),
-          paneLook("inner", at, 951, 0.4),
-          paneLook("cover", at, 466, 0.4),
+          paneLook("inner", at),
+          paneLook("cover", at),
+          paneLook("inner", at, 0.4),
+          paneLook("cover", at, 0.4),
           freeShades(at, 0.9),
-          screenLook("inner", at, 951, 12, 0.9),
-          screenLook("cover", at, 466, 12, 0.9),
+          screenLook(at, 12, 0.9),
         ]);
       };
       let last = drawn(0);

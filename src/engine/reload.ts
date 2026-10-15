@@ -1,5 +1,6 @@
 import type { DevknobsState } from "../types";
 import { type Identity, identityOf, patchedAs, patchWindow, stale } from "./identity";
+import { keep } from "./scrollkeep";
 
 /** How long a frame's next page gets to take over once the last one hid, in ms. */
 const COMMIT_WAIT = 1000;
@@ -211,6 +212,7 @@ function reload(): void {
   identity = null;
   renewing = true;
   frame.reloading();
+  keep(frame.view(), "frame");
   try {
     frame.view()?.location.reload();
   } catch {

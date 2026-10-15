@@ -5,8 +5,10 @@ import {
   frameForced,
   framed,
   isDevknobsFrame,
+  knobFrame,
   nativeScheme,
   needsFrame,
+  plainFrame,
   readMessage,
   UNFRAMED,
 } from "../src/engine/frame";
@@ -54,6 +56,49 @@ describe("framed", () => {
   test("hands back a state that is already full", () => {
     const state = { ...DEFAULT_STATE, text: 20 };
     expect(framed(state)).toBe(state);
+  });
+});
+
+describe("a panel pinned to its side", () => {
+  const pinned = { ...DEFAULT_STATE, panel: { ...DEFAULT_STATE.panel, docked: true } };
+
+  test("puts the page in the frame with every frame knob off, open or closed", () => {
+    expect(needsFrame(DEFAULT_STATE)).toBe(false);
+    expect(needsFrame(pinned)).toBe(true);
+    const open = { ...pinned, panel: { ...pinned.panel, open: true } };
+    expect(needsFrame(open)).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, panel: { docked: true } })).toBe(true);
+    expect(needsFrame({ ...UNFRAMED, panel: { docked: false } })).toBe(false);
+  });
+
+  test("is no knob: the zoom and the mat wait for one", () => {
+    expect(knobFrame(pinned)).toBe(false);
+    expect(knobFrame({ ...pinned, width: 390 })).toBe(true);
+  });
+
+  test("has a plain frame alone, and a knob's frame with a knob", () => {
+    expect(plainFrame(pinned)).toBe(true);
+    expect(plainFrame(DEFAULT_STATE)).toBe(false);
+    expect(plainFrame(UNFRAMED)).toBe(false);
+    for (const knob of [{ width: 390 }, { height: 700 }, { frame: true }, { dpr: 2 }] as const) {
+      expect(plainFrame({ ...pinned, ...knob })).toBe(false);
+      expect(needsFrame({ ...pinned, ...knob })).toBe(true);
+    }
+    expect(plainFrame({ ...pinned, vision: "blur" })).toBe(false);
+  });
+
+  test("holds the frame up whatever the frame knob says", () => {
+    expect(frameForced(pinned)).toBe(true);
+    expect(frameForced({ ...pinned, frame: true })).toBe(true);
+  });
+
+  test("never frames the page inside the frame again, and floats there", () => {
+    const inside = framed({ ...pinned, scheme: "dark" });
+    expect(inside.panel.docked).toBe(false);
+    expect(needsFrame(inside)).toBe(false);
+    expect(inside).toEqual({ ...DEFAULT_STATE, scheme: "dark" });
+    const phone = framed({ ...pinned, width: 402, height: 874, device: "iphone-16-pro" });
+    expect(phone).toEqual({ ...DEFAULT_STATE, device: "iphone-16-pro" });
   });
 });
 
@@ -131,7 +176,7 @@ describe("readMessage", () => {
       type: "key",
       action: "close",
     });
-    for (const action of ["replay", "reset", "search"] as const) {
+    for (const action of ["replay", "requests", "reset", "search"] as const) {
       expect(from({ source: "devknobs", type: "key", action })).toEqual({
         source: "devknobs",
         type: "key",
@@ -146,6 +191,42 @@ describe("readMessage", () => {
       source: "devknobs",
       type: "replay",
     });
+  });
+
+  test("reads inspect going on and off as it reads grab, and a pick and an outline with nothing in them", () => {
+    expect(from({ source: "devknobs", type: "inspect", on: true, scheme: "dark" })).toEqual({
+      source: "devknobs",
+      type: "inspect",
+      on: true,
+      scheme: "dark",
+    });
+    expect(from({ source: "devknobs", type: "inspect", on: false })).toEqual({
+      source: "devknobs",
+      type: "inspect",
+      on: false,
+    });
+    expect(from({ source: "devknobs", type: "inspect" })).toBeNull();
+    // An element cannot ride a message: whatever else is sent along is dropped.
+    expect(from({ source: "devknobs", type: "picked", element: "button" })).toEqual({
+      source: "devknobs",
+      type: "picked",
+    });
+    expect(from({ source: "devknobs", type: "outline" })).toEqual({
+      source: "devknobs",
+      type: "outline",
+    });
+  });
+
+  test("reads the area of the box the frame is to tint alone, and nothing for an area it does not know", () => {
+    for (const ring of ["margin", "border", "padding", "content", null] as const) {
+      expect(from({ source: "devknobs", type: "area", ring })).toEqual({
+        source: "devknobs",
+        type: "area",
+        ring,
+      });
+    }
+    expect(from({ source: "devknobs", type: "area", ring: "outline" })).toBeNull();
+    expect(from({ source: "devknobs", type: "area" })).toBeNull();
   });
 
   test("reads the overflow count the frame reports", () => {

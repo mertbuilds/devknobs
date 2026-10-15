@@ -1,15 +1,16 @@
 import { type BarsKnobs, copyBars, type Drawn, withBars } from "./barshot";
-import { type BlurFade, type FoldLayout, type FoldSide, freeShades, type Pane, paneLook, type Point } from "./fold";
+import { type BlurFade, blurWidths, type FoldLayout, type FoldSide, freeShades, type Pane, paneBlurs, paneShades, type Point, screenDim, type Shades } from "./fold";
 import type { Mock, Rect } from "./mock";
 import { corners } from "./mockdraw";
 import { type ScreenGl, screenGl } from "./foldgl";
+import { BY_WEBGL, drew } from "./foldtune";
 import type { Corners } from "./morph";
 import { blurPictures, marginPlace, paintPage, shootPage } from "./pageshot";
 
 /**
  * The page on the screens of a fold's half that turns, whichever way the
  * half is drawn: the pictures of it, where the part that turns is on each
- * side's screen, the bend down the hinge, and how the hinge lights and blurs
+ * side's screen, and how the hinge lights and blurs
  * it. Shared by the copies and the frames, whose screens WebGL2 draws where it
  * can.
  */
@@ -27,6 +28,11 @@ export interface Panel {
   stage: HTMLElement;
   /** The page, and the same blurred more and more. */
   pictures: HTMLElement[];
+  /** The picture those were made of, and how wide the blur of each is, for making them again once a hand sets the widest. */
+  shot: HTMLCanvasElement | null;
+  widths: number[];
+  /** Why its pictures are laid over each other, where WebGL2 does not draw the page, in a plain sentence. */
+  why: string;
   /** The dark of the picture as it lies, and of the screen as it turns. */
   flat: HTMLElement;
   shade: HTMLElement;
@@ -35,8 +41,7 @@ export interface Panel {
   /** The way from the hinge to the free edge, as a gradient goes, and where the two are on the stage, in percent. */
   toward: string;
   span: [number, number];
-  /** The screen's css px across the hinge, and its width. */
-  extent: number;
+  /** The screen's width, in css px. */
   width: number;
   /** Does the hinge run down the screen, so its ends along it are its top and bottom. */
   across: boolean;
@@ -75,11 +80,12 @@ export function placeAt(node: HTMLElement, rect: Rect): HTMLElement {
 /** Put `shot` on a leaf's stage, and the same blurred over it, as much as was shown before. */
 export function paintLeaf(leaf: Panel, shot: HTMLCanvasElement): void {
   const { across } = leaf;
-  const blurred = blurPictures(shot, leaf.width, across);
-  const next = [shot, ...blurred].map(fill);
-  for (const picture of blurred) {
+  const widths = blurWidths();
+  const blurred = blurPictures(shot, leaf.width, across, widths.slice(1));
+  const next = [shot, ...blurred.map((blur) => blur.canvas)].map(fill);
+  for (const { canvas: picture, long } of blurred) {
     // Its black past the ends along the hinge reaches past the screen's.
-    const { start, size } = across ? marginPlace(shot.height, picture.height) : marginPlace(shot.width, picture.width);
+    const { start, size } = marginPlace(across ? shot.height : shot.width, long);
     picture.style[across ? "top" : "left"] = `${start}%`;
     picture.style[across ? "height" : "width"] = `${size}%`;
     picture.style[across ? "bottom" : "right"] = "auto";
@@ -95,6 +101,8 @@ export function paintLeaf(leaf: Panel, shot: HTMLCanvasElement): void {
   // Under the bars.
   leaf.stage.prepend(...next);
   leaf.pictures = next;
+  leaf.shot = shot;
+  leaf.widths = widths;
 }
 
 /** The screen of a side's body, where it is in the body, and its corners. */
@@ -115,9 +123,6 @@ export interface Turning {
   span: [number, number];
   pivot: Point;
 }
-
-/** How wide the bend shows each side of the hinge, in css px of the open screen. */
-const BEND = 14;
 
 /** The two sides of the half that turns: the open screen's half, and the folded body's whole screen. */
 export function turningOf(layout: FoldLayout, open: Face, closed: Face): { inner: Turning; outer: Turning } {
@@ -149,29 +154,6 @@ export function turningOf(layout: FoldLayout, open: Face, closed: Face): { inner
 }
 
 /**
- * A half of the crease down the hinge, in the open screen's body, darkest at
- * the hinge: on the half that turns, `turned`, or on the half that stays,
- * placed from `corner` of the body. Each meets the other there, the one on
- * the half that turns turned with it, so its edge at the hinge is not cut off
- * as it stands.
- */
-export function creaseOf(layout: FoldLayout, open: Face, turned: boolean, corner: Point = { x: 0, y: 0 }): HTMLElement {
-  const { across, hinge } = layout;
-  const { rect } = screenOf(open);
-  const before = across === turned;
-  const from = before ? hinge - BEND : hinge;
-  const node = placeAt(
-    div(""),
-    across
-      ? { x: from - corner.x, y: rect.y - corner.y, width: BEND, height: rect.height }
-      : { x: rect.x - corner.x, y: from - corner.y, width: rect.width, height: BEND },
-  );
-  const away = across ? (before ? "to left" : "to right") : before ? "to top" : "to bottom";
-  node.style.background = `linear-gradient(${away}, rgba(0, 0, 0, 0.3), transparent)`;
-  return node;
-}
-
-/**
  * The page as laid out on a screen: a rough picture of it now, or null where
  * it is out of reach, the one the browser draws once it has, with the bars
  * drawn in where they draw, and a copy of the browser's bars to go over the
@@ -181,6 +163,22 @@ export interface Picture {
   shot: HTMLCanvasElement | null;
   painted: Promise<Drawn | null> | null;
   bars: HTMLElement | null;
+}
+
+/**
+ * A rough picture of the page in `frame` as laid out now on a screen `size`
+ * css px, shown in `glass` for the knobs `value`, which it is kept by: the
+ * same one again while the page, its pictures and the screen stay as they are.
+ */
+export function roughOf(
+  frame: HTMLIFrameElement,
+  glass: HTMLElement,
+  value: BarsKnobs,
+  size: { width: number; height: number },
+  color: string,
+): HTMLCanvasElement | null {
+  const { device, posture, orientation, browser, edgeToEdge } = value;
+  return shootPage(frame, glass, size, color, [device, posture, orientation, browser, edgeToEdge].join(" "));
 }
 
 /**
@@ -201,7 +199,7 @@ export function pictureOf(
   if (bars) bars.style.transform = "";
   const drawn = shown && copy ? copyBars(shown, value, size) : null;
   return {
-    shot: shootPage(frame, glass, size, color),
+    shot: roughOf(frame, glass, value, size, color),
     painted: copy ? withBars(paintPage(frame, glass, size, color, copy), drawn).catch(() => null) : null,
     bars,
   };
@@ -220,53 +218,80 @@ export interface Pictures {
   closed: Picture;
 }
 
-/** A gradient from the hinge to the free edge through the shares of dark `shades`, evenly spaced. */
-function shading(toward: string, shades: number[]): string {
-  const last = Math.max(1, shades.length - 1);
-  const stops = shades.map((dark, index) => `rgba(0, 0, 0, ${dark}) ${Math.round((index / last) * 1000) / 10}%`);
-  return `linear-gradient(${toward}, ${stops.join(", ")})`;
-}
-
 /** Where a share `t` of the way from the hinge to the free edge is on a leaf's stage, in percent. */
 function onStage(leaf: Panel, t: number): number {
   const [hinge, free] = leaf.span;
   return Math.round((hinge + (free - hinge) * t) * 100) / 100;
 }
 
-/** Show a blurrier picture as `fade` has it, faded in along the stage. */
+/** Show a blurrier picture as `fade` has it, faded in along the stage, or whole where all of it shows all the way. */
 function blurTo(leaf: Panel, picture: HTMLElement, fade: BlurFade | null): void {
   picture.style.opacity = fade ? "" : "0";
   if (!fade) return;
-  const mask = `linear-gradient(${leaf.toward}, rgba(0, 0, 0, ${fade.least}) ${onStage(leaf, fade.from)}%, rgba(0, 0, 0, ${fade.most}) ${onStage(leaf, fade.to)}%)`;
+  const stops = fade.stops.map(([at, share]) => `rgba(0, 0, 0, ${share}) ${onStage(leaf, at)}%`);
+  const mask = fade.stops.every(([, share]) => share >= 1) ? "" : `linear-gradient(${leaf.toward}, ${stops.join(", ")})`;
   picture.style.maskImage = mask;
   picture.style.setProperty("-webkit-mask-image", mask);
 }
 
-/** A gradient from the hinge to the free edge through `stops`, each where it is as a share of the way, and how dark. */
-function edging(toward: string, stops: [at: number, dark: number][]): string {
-  if (stops.length === 0) return "";
-  const list = stops.map(([at, dark]) => `rgba(0, 0, 0, ${dark}) ${Math.round(at * 1000) / 10}%`);
+/**
+ * A shade as a background: a gradient from the hinge to the free edge
+ * through `stops`, each where it is as a share of the way, and how dark, one
+ * dark where it has one stop, and none where it darkens nothing.
+ */
+function shading(toward: string, stops: Shades): string {
+  if (stops.every(([, dark]) => dark <= 0)) return "";
+  const [[, only] = [0, 0]] = stops;
+  if (stops.length === 1) return `rgba(0, 0, 0, ${only})`;
+  const list = stops.map(([at, dark]) => `rgba(0, 0, 0, ${dark}) ${Math.round(at * 1e5) / 1e3}%`);
   return `linear-gradient(${toward}, ${list.join(", ")})`;
+}
+
+/** Draw a shade as `background` has it, or take its box off the screen where it has none, so nothing is laid out or painted for it. */
+function shadeTo(node: HTMLElement, background: string): void {
+  node.style.background = background;
+  node.style.display = background ? "" : "none";
 }
 
 /**
  * Light and blur the page on a screen of the half that turns as the hinge
  * `open` of the way open has it, and darken it toward the turned screen's
  * free edge, seen `free` of the way from the hinge, or not where WebGL2
- * does, null. Its blur is as Apple's camera sees it, the turned screen seen
- * `out` of the way from the hinge to the picture's free edge.
+ * does, null. Its blur is least at the hinge and most at the turned screen's
+ * free edge, seen `out` of the way from the hinge to the picture's. Where
+ * WebGL2 shades the screen itself, `lit`, no shade is worked out here but
+ * the screen's own light, one dark all over. Which
+ * of the two draws the page, and why, is noted for the tuning hook to tell.
  */
-export function light(panel: Panel, open: number, free: number | null, out: number): void {
-  const look = paneLook(panel.pane, open, panel.extent, out);
-  panel.shade.style.background = shading(panel.toward, look.turned);
-  panel.flat.style.background = shading(panel.toward, look.flat);
-  panel.edge.style.background = free === null ? "" : edging(panel.toward, freeShades(open, free));
-  panel.pictures.slice(1).forEach((picture, index) => blurTo(panel, picture, look.blurs[index] ?? null));
+export function light(panel: Panel, open: number, free: number | null, out: number, lit = false): void {
+  if (typeof DEVKNOBS_TUNE === "undefined" || DEVKNOBS_TUNE) drew(free === null ? "webgl" : "layers", free === null ? BY_WEBGL : panel.why);
+  // A hand has set how wide the blur gets since its pictures were made: they are made again, as wide as it asks.
+  const widths = blurWidths();
+  const same = widths.length === panel.widths.length && widths.every((width, index) => width === panel.widths[index]);
+  if (panel.shot && !same) paintLeaf(panel, panel.shot);
+  const shades = lit ? null : paneShades(panel.pane, open, out);
+  // The screen's own light stays a dark over it, as over the half that stays, so the two meet in the same shade to the last bit.
+  shadeTo(panel.shade, shading(panel.toward, shades ? shades.turned : [[0, screenDim(panel.pane, open)]]));
+  shadeTo(panel.flat, shades ? shading(panel.toward, shades.flat) : "");
+  shadeTo(panel.edge, free === null ? "" : shading(panel.toward, freeShades(open, free)));
+  if (panel.pictures.length < 2) return;
+  const blurs = paneBlurs(open, out, panel.pane);
+  panel.pictures.slice(1).forEach((picture, index) => blurTo(panel, picture, blurs[index] ?? null));
+}
+
+/**
+ * Does WebGL2 shade a glued screen itself: where it draws the page and
+ * nothing lies on the stage over its canvas. The copy of the browser's bars
+ * does till they are in the picture, and gradients shade it with the page
+ * till then.
+ */
+export function litByGl(glued: Glued): boolean {
+  return glued.gl !== null && glued.stage.lastElementChild === glued.gl.canvas;
 }
 
 /** A screen of a frame's half that turns, a window onto the page lying flat behind it. */
 export interface Glued extends Panel {
-  /** Dark, over every frame in the render, cut a little past the turned screen's outline, under the case, so no edge of it lets the mat through. */
+  /** Dark, over every frame in the render, cut a little past the turned screen's outline, under the case, so no edge of it lets the mat through, and `over` css px short of the open screen's hinge. */
   node: HTMLElement;
   /** The window in it, cut to the turned screen's outline. */
   cut: HTMLElement;
@@ -274,8 +299,26 @@ export interface Glued extends Panel {
   picture: HTMLElement;
   size: { width: number; height: number };
   radii: Corners;
+  /** How far short of the hinge the screen stops, in its css px, the half that stays going on under it: not at all on the folded screen, whose hinge side is under its case. */
+  over: number;
   /** The page drawn by WebGL2, or null where the pictures are laid over each other instead. */
   gl: ScreenGl | null;
+}
+
+/**
+ * How far short of the hinge the open screen's half that turns stops, the
+ * half that stays going on under it that far and a px more, with the same
+ * page: in css px of the screen, and in px of the display where those are
+ * the bigger, at most 4 times as far. So the edge of the half that turns and
+ * of its dark, which is one edge, and the other half's never meet in one px
+ * of the display, where the dark would show between the two as a line down
+ * the hinge.
+ */
+export const OVER = 2;
+
+/** `OVER` for a screen drawn `density` display px a css px. */
+export function overOf(density: number): number {
+  return OVER / Math.min(1, Math.max(0.25, density));
 }
 
 /**
@@ -328,22 +371,26 @@ export function gluedOf(
     picture: flatly,
     size: { width: rect.width, height: rect.height },
     radii,
+    over: turning.pane === "inner" ? overOf(density) : 0,
     stage,
     pictures: [],
+    shot: null,
+    widths: [],
+    why: "",
     flat,
     shade,
     edge,
     toward: turning.toward,
     span: turning.span,
-    extent: across ? side.size.width : side.size.height,
     width: side.size.width,
     across,
     gl: null,
   };
   const part = { ...rect, x: rect.x - whole.rect.x, y: rect.y - whole.rect.y };
   const place = { pane: turning.pane, across, stage: side.size, part, margin, density };
-  glued.gl = screenGl(place, (shot) => {
+  glued.gl = screenGl(place, (why, shot) => {
     glued.gl = null;
+    glued.why = why;
     if (shot) paintLeaf(glued, shot);
   });
   // Under the bars.
@@ -355,10 +402,8 @@ export function gluedOf(
   return glued;
 }
 
-/** Put `shot` on a glued screen: drawn by WebGL2, or where it cannot be, as the pictures laid over each other. */
-function paintGlued(glued: Glued, shot: HTMLCanvasElement): void {
-  if (glued.gl?.paint(shot)) return;
-  glued.gl?.release();
-  glued.gl = null;
-  paintLeaf(glued, shot);
+/** Put `shot` on a glued screen: drawn by WebGL2, which hands it to the pictures laid over each other where it cannot. */
+export function paintGlued(glued: Glued, shot: HTMLCanvasElement): void {
+  if (glued.gl) glued.gl.paint(shot);
+  else paintLeaf(glued, shot);
 }

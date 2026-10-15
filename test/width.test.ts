@@ -1,18 +1,24 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SCREENS, turn } from "../src/engine/devices";
+import { type ColumnEdge, DOCK_WIDTH, setDockWidth, watchColumn } from "../src/engine/dock";
 import { FOLD_TIME } from "../src/engine/fold";
 import { UNFRAMED } from "../src/engine/frame";
+import { FRESH_ATTRIBUTE, FRESH_RELOAD_KEY } from "../src/engine/fresh";
 import { patchedAs } from "../src/engine/identity";
 import { mockOf } from "../src/engine/mock";
 import { holeAt, holePath, MORPH_TIME, rounded, windowRect } from "../src/engine/morph";
+import { keepDrawing, SNAPSHOT_KEY } from "../src/engine/placeholder";
 import { DEFAULT_STATE, merge } from "../src/engine/store";
+import { type Mark, MARK_EVENT } from "../src/engine/touchmark";
 import {
   apply,
   fit,
   label,
   onZoom,
   origin,
+  panelSized,
   reset,
+  RIDE_SLOW,
   STRIP,
   sync,
   zoomKey,
@@ -501,7 +507,7 @@ const KNOBS = {
   edgeToEdge: true,
   zoom: "fit",
   mat: "blue",
-  panel: { open: false, side: "right" },
+  panel: { open: false, side: "right", docked: false },
 } as const;
 const VIEWPORT = { ...KNOBS, width: 390 } as const;
 const NATIVE_SHOW_MODAL = FakeDialog.prototype.showModal;
@@ -1106,6 +1112,148 @@ describe("the frame over the page", () => {
   });
 });
 
+describe("the frame in fresh mode", () => {
+  const SWITCH = "?devknobs=fresh";
+  const FRESH_PAGE = `${PAGE}${SWITCH}`;
+
+  /** Put `devknobs=fresh` in the page's address, and give it a `sessionStorage` to look into. */
+  function freshPage(): Map<string, string> {
+    const session = new Map<string, string>();
+    Object.assign(location, { href: FRESH_PAGE, search: SWITCH });
+    Object.assign(window, {
+      sessionStorage: {
+        length: 0,
+        key: () => null,
+        getItem: (key: string) => session.get(key) ?? null,
+        setItem: (key: string, value: string) => session.set(key, value),
+        removeItem: (key: string) => session.delete(key),
+      },
+    });
+    return session;
+  }
+
+  /** Let device changes move: frames run when `play` says, and each animation is done at once. */
+  function moving(): { play: () => Promise<void>; still: () => void } {
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "" }));
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+    const frames: FrameRequestCallback[] = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    const animate = FakeElement.prototype.animate;
+    FakeElement.prototype.animate = () => ({
+      finished: Promise.resolve(),
+      currentTime: 0,
+      cancel: () => {},
+    });
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+    return {
+      play: async () => {
+        for (let now = 0; now < 1600; now += 40) {
+          await Bun.sleep(0);
+          for (const frame of frames.splice(0)) frame(now);
+        }
+      },
+      still: () => {
+        FakeElement.prototype.animate = animate;
+        Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+      },
+    };
+  }
+
+  test("tells the page in the frame the mode", () => {
+    freshPage();
+    apply(VIEWPORT);
+    expect(frameElement().hasAttribute(FRESH_ATTRIBUTE)).toBe(true);
+  });
+
+  test("tells it nothing with the mode off", () => {
+    apply(VIEWPORT);
+    expect(frameElement().hasAttribute(FRESH_ATTRIBUTE)).toBe(false);
+  });
+
+  test("marks the load it asks for as the knobs go off", async () => {
+    const session = freshPage();
+    apply(VIEWPORT);
+    await load(FRAMED);
+    apply(KNOBS);
+    // The page the window goes to is in fresh mode too.
+    expect(assigned).toEqual([`${FRAMED}${SWITCH}`]);
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(true);
+  });
+
+  test("leaves no mark where the frame only moved inside its document", async () => {
+    const session = freshPage();
+    apply(VIEWPORT);
+    await load(`${PAGE}#billing`);
+    apply(KNOBS);
+    expect(assigned).toEqual([`${FRESH_PAGE}#billing`]);
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
+  });
+
+  test("stays on its page where the frame only lost the switch", async () => {
+    const session = freshPage();
+    apply(VIEWPORT);
+    await load(PAGE);
+    apply(KNOBS);
+    expect(assigned).toEqual([]);
+    expect(location.href).toBe(FRESH_PAGE);
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
+  });
+
+  test("keeps the switch in the window's address as it follows the frame", async () => {
+    freshPage();
+    apply(VIEWPORT);
+    await load(FRAMED);
+    expect(location.href).toBe(`${FRAMED}${SWITCH}`);
+    await load(`${FRAMED}?tab=cards#top`);
+    expect(location.href).toBe(`${FRAMED}?tab=cards&devknobs=fresh#top`);
+    reset();
+    expect(location.href).toBe(FRESH_PAGE);
+  });
+
+  test("leaves no mark and adds no switch with the mode off", async () => {
+    const session = freshPage();
+    Object.assign(location, { href: PAGE, search: "" });
+    apply(VIEWPORT);
+    await load(FRAMED);
+    expect(location.href).toBe(FRAMED);
+    apply(KNOBS);
+    expect(assigned).toEqual([FRAMED]);
+    expect(session.has(FRESH_RELOAD_KEY)).toBe(false);
+  });
+
+  test("marks the load a device change ends in, and none inside the document", async () => {
+    const phone = { ...KNOBS, mock: false, device: "iphone-16-pro", width: 402, height: 874 } as const;
+    for (const [target, landed, marked] of [
+      [FRAMED, `${FRAMED}${SWITCH}`, true],
+      [`${PAGE}#billing`, `${FRESH_PAGE}#billing`, false],
+    ] as const) {
+      const session = freshPage();
+      apply(KNOBS);
+      const motion = moving();
+      try {
+        apply(phone);
+        await motion.play();
+        await load(target);
+        apply(KNOBS);
+        // The device is on its way out, and the window has not left yet.
+        expect(assigned).toEqual([]);
+        await motion.play();
+        expect(assigned).toEqual([landed]);
+        expect(session.has(FRESH_RELOAD_KEY)).toBe(marked);
+      } finally {
+        motion.still();
+      }
+      reset();
+      assigned = [];
+      location.href = PAGE;
+    }
+  });
+});
+
 describe("a foldable folding", () => {
   const DUO = { ...KNOBS, device: "iphone-duo", dpr: "system", browser: "off" } as const;
   const SHUT = { ...DUO, posture: "closed", orientation: "portrait", width: 466, height: 678 } as const;
@@ -1177,10 +1325,10 @@ describe("a foldable folding", () => {
     // laid out open, the half that stays live under a dim, the copy turning over it.
     const style = (name: string, key: string) => String(Reflect.get(byClass(name)?.style ?? {}, key) ?? "");
     // Each side of the half that turns is its body, the window onto the page its screen is, and the shade over
-    // it, then the bend's half on the half that stays.
+    // it, and nothing down the hinge.
     const leaves = () => byClass("fold")?.children[0]?.children ?? [];
     expect(Reflect.get(frameElement().style, "width")).toBe("466px");
-    expect(leaves()).toHaveLength(7);
+    expect(leaves()).toHaveLength(6);
     // Its body whole, only its screen faded, so nothing behind the device shows through.
     expect(Reflect.get(leaves()[3]?.style ?? {}, "opacity") || "").toBe("");
     expect(Reflect.get(leaves()[3]?.children[0]?.style ?? {}, "opacity")).toBe("0");
@@ -1406,6 +1554,219 @@ describe("a phone's body", () => {
   });
 });
 
+describe("the touch cursor over the screen", () => {
+  const phone = merge(DEFAULT_STATE, { ...PHONE_KNOBS, mock: false });
+  let frames: FrameRequestCallback[] = [];
+  let reduce = true;
+
+  beforeEach(() => {
+    define("Element", FakeElement);
+    define("getComputedStyle", () => ({ backgroundColor: "", colorScheme: "", transform: "none" }));
+    reduce = true;
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: reduce, media: query }));
+    frames = [];
+    Reflect.set(window, "requestAnimationFrame", (callback: FrameRequestCallback) =>
+      frames.push(callback),
+    );
+    Reflect.set(window, "cancelAnimationFrame", () => {});
+    Reflect.set(FakeElement.prototype, "getAnimations", () => []);
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(FakeElement.prototype, "getAnimations");
+  });
+
+  function byClass(name: string): FakeElement {
+    const found = everything().find((element) =>
+      String(Reflect.get(element, "className")).split(" ").includes(name),
+    );
+    if (!found) throw new Error(`no ${name}`);
+    return found;
+  }
+
+  /** Bring the frame up for `state`, its knobs with it. */
+  function show(state: typeof phone): void {
+    apply(state);
+    sync(state);
+  }
+
+  /** The frame's copy says where the pointer is on its page. True where the page above takes it. */
+  function mark(frame: FakeElement, at: Mark["at"]): boolean {
+    const detail: Mark = { at, pressed: false, held: false };
+    return !frame.dispatchEvent(new CustomEvent(MARK_EVENT, { detail, cancelable: true }));
+  }
+
+  /** Where the cursor is drawn, or null while it is hidden. */
+  function dotAt(): string | null {
+    const [dot] = byClass("touchdot").children;
+    if (!dot || Reflect.get(dot, "hidden")) return null;
+    return String(Reflect.get(dot.style, "transform"));
+  }
+
+  test("hides the mouse on a phone's screen, its layer as big as the screen and zoomed with it", () => {
+    show(merge(phone, { dpr: 3 }));
+    const layer = byClass("touchdot");
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(true);
+    expect(Reflect.get(layer, "hidden")).toBe(false);
+    expect(Reflect.get(layer.style, "width")).toBe("402px");
+    expect(Reflect.get(layer.style, "height")).toBe("874px");
+    expect(Reflect.get(layer.style, "transform")).toBe("scale(3)");
+  });
+
+  test("leaves the mouse a mouse with the knob off, and on a device without touch", () => {
+    show(phone);
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(true);
+    sync(merge(phone, { touchPointer: false }));
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(false);
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(false);
+    sync(phone);
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(true);
+    reset();
+    show(merge(phone, { device: "desktop" }));
+    expect(byClass("glass").hasAttribute("data-touch")).toBe(false);
+  });
+
+  test("draws the page's pointer under Safari's bars, where the page starts on the screen", () => {
+    show(merge(phone, { browser: "auto" }));
+    const page = byClass("placed");
+    const left = Number.parseFloat(String(Reflect.get(page.style, "left")));
+    const top = Number.parseFloat(String(Reflect.get(page.style, "top")));
+    expect(top).toBeGreaterThan(0);
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBe(`translate(${10 + left}px, ${20 + top}px)`);
+    expect(mark(frameElement(), null)).toBe(true);
+    expect(dotAt()).toBeNull();
+  });
+
+  test("shows no cursor on a screen that turns", () => {
+    apply(KNOBS);
+    show(phone);
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBe("translate(10px, 20px)");
+    reduce = false;
+    apply(merge(phone, { orientation: "landscape", width: 874, height: 402 }));
+    expect(dotAt()).toBeNull();
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBeNull();
+  });
+
+  test("shows no cursor on a screen that folds", () => {
+    const duo = merge(phone, { device: "iphone-duo", mock: true });
+    show(merge(duo, { posture: "closed", width: 466, height: 678 }));
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBe("translate(10px, 20px)");
+    reduce = false;
+    apply(merge(duo, { posture: "open", orientation: "landscape", width: 951, height: 669 }));
+    expect(byClass("fold")).toBeDefined();
+    expect(dotAt()).toBeNull();
+    expect(mark(frameElement(), { x: 10, y: 20 })).toBe(true);
+    expect(dotAt()).toBeNull();
+  });
+
+  test("gives the mouse back with the window's own page, while the frame still fades", async () => {
+    show(phone);
+    const glass = byClass("glass");
+    const frame = frameElement();
+    expect(glass.hasAttribute("data-touch")).toBe(true);
+    reduce = false;
+    const animate = FakeElement.prototype.animate;
+    // Each fade is done at once, until the window has its own page back: the veil then stays over it.
+    FakeElement.prototype.animate = () => ({
+      finished: scrolls.length === 0 ? Promise.resolve() : new Promise(() => {}),
+      currentTime: 0,
+      cancel: () => {},
+    });
+    try {
+      apply(KNOBS);
+      for (let now = 0; now < 4000 && scrolls.length === 0; now += 40) {
+        await Bun.sleep(0);
+        for (const callback of frames.splice(0)) callback(now);
+      }
+      // The window has its own page back, and the frame is not gone yet.
+      expect(scrolls).toHaveLength(1);
+      expect(frameElement()).toBe(frame);
+      expect(glass.hasAttribute("data-touch")).toBe(false);
+      expect(Reflect.get(byClass("touchdot"), "hidden")).toBe(true);
+      expect(mark(frame, { x: 10, y: 20 })).toBe(false);
+    } finally {
+      FakeElement.prototype.animate = animate;
+    }
+  });
+
+  test("leaves nothing of the cursor once the frame goes", () => {
+    show(phone);
+    const glass = byClass("glass");
+    const layer = byClass("touchdot");
+    const frame = frameElement();
+    expect(glass.children).toContain(layer);
+    expect(mark(frame, { x: 10, y: 20 })).toBe(true);
+    reset();
+    expect(glass.hasAttribute("data-touch")).toBe(false);
+    expect(glass.children).not.toContain(layer);
+    expect(mark(frame, { x: 10, y: 20 })).toBe(false);
+  });
+
+  /** An element as far as a copy of it is made, searched by class or tag, and written out. */
+  class KeptElement extends FakeElement {
+    override cloneNode(): KeptElement {
+      const copy = new KeptElement(this.tagName);
+      for (const [name, value] of this.attributes) copy.setAttribute(name, value);
+      copy.append(...this.children.map((child) => child.cloneNode(true)));
+      return copy;
+    }
+
+    override querySelectorAll(selector: string): FakeElement[] {
+      return [...this.descendants()].filter((node) =>
+        selector.startsWith(".")
+          ? node.getAttribute("class")?.split(" ").includes(selector.slice(1))
+          : node.tagName === selector.toUpperCase(),
+      );
+    }
+
+    override querySelector(selector: string): FakeElement | null {
+      return this.querySelectorAll(selector)[0] ?? null;
+    }
+
+    get outerHTML(): string {
+      const attributes = [...this.attributes].map(([name, value]) => ` ${name}="${value}"`);
+      const inner = this.children.map((child) => String(Reflect.get(child, "outerHTML")));
+      return `<${this.tagName}${attributes.join("")}>${inner.join("")}</${this.tagName}>`;
+    }
+  }
+
+  test("keeps no cursor in the drawing kept for the next page", () => {
+    const kept = new Map<string, string>();
+    Reflect.set(window, "sessionStorage", {
+      setItem: (key: string, value: string) => kept.set(key, value),
+      removeItem: (key: string) => kept.delete(key),
+    });
+    const node = (tag: string, name: string, ...children: KeptElement[]) => {
+      const element = new KeptElement(tag);
+      if (name) element.setAttribute("class", name);
+      element.append(...children);
+      return element;
+    };
+    const glass = node("DIV", "glass", node("IFRAME", ""), node("DIV", "touchdot", node("DIV", "dot")));
+    glass.setAttribute("data-touch", "");
+    const letterbox = node("DIV", "viewport", glass);
+    if (!(letterbox instanceof HTMLElement)) throw new Error("no letterbox");
+    const look = {
+      background: "rgb(255, 255, 255)",
+      dark: false,
+      scheme: "light",
+      host: "localhost:3000",
+      canBack: false,
+      canForward: false,
+    } as const;
+    keepDrawing({ letterbox, zoom: "fit", key: "key", css: "", look });
+    const html = String(Reflect.get(JSON.parse(kept.get(SNAPSHOT_KEY) ?? "{}"), "html"));
+    expect(html).toBe('<DIV class="viewport"><DIV class="glass"></DIV></DIV>');
+    // The live frame keeps its own.
+    expect(glass.hasAttribute("data-touch")).toBe(true);
+    expect(glass.children).toHaveLength(2);
+  });
+});
+
 describe("a new identity", () => {
   beforeEach(() => {
     Object.assign(window, { setTimeout });
@@ -1613,5 +1974,1041 @@ describe("the drawn browser's reload button", () => {
     expect(glyph.children.length).toBe(drawn);
     glyph.dispatchEvent(new Event("click"));
     expect(reloads).toBe(2);
+  });
+});
+
+describe("the panel's width", () => {
+  /** How the frame's screen is drawn, as the letterbox scaled it. */
+  function drawnScale(): string {
+    const screen = everything().find((element) => Reflect.get(element, "className") === "screen");
+    return String(Reflect.get(screen?.style ?? {}, "transform"));
+  }
+
+  test("is what an open panel covers, and the frame is fitted beside it again as it changes", () => {
+    const box = { width: 1600, height: 800 + STRIP };
+    const create = document.createElement;
+    const find = document.querySelector;
+    // The host, which is as wide as the panel and its handle.
+    const host = { offsetWidth: PANEL };
+    Reflect.set(document, "createElement", (tag: string) => {
+      const element = new FakeElement(tag.toUpperCase());
+      Object.assign(element, { clientWidth: box.width, clientHeight: box.height });
+      return element;
+    });
+    Reflect.set(document, "querySelector", (selector: string) =>
+      selector === '[data-devknobs="panel"]' ? host : null,
+    );
+    const knobs = { ...KNOBS, width: 1500, panel: { open: true, side: "right", docked: false } } as const;
+    const beside = (aside: number) => {
+      const scale = fit(knobs, box, { aside }).transform;
+      return scale === 1 ? "" : `scale(${scale})`;
+    };
+    try {
+      apply(knobs);
+      expect(drawnScale()).toBe(beside(PANEL));
+      // A view came in: the host is 100 wider at once, and the frame hears of it.
+      host.offsetWidth = PANEL + 100;
+      expect(drawnScale()).toBe(beside(PANEL));
+      panelSized(true);
+      expect(drawnScale()).toBe(beside(PANEL + 100));
+      expect(beside(PANEL + 100)).not.toBe(beside(PANEL));
+      // A closed panel covers nothing, whatever its width.
+      apply({ ...knobs, panel: { open: false, side: "right", docked: false } });
+      expect(drawnScale()).toBe(beside(0));
+      apply(knobs);
+      expect(drawnScale()).toBe(beside(PANEL + 100));
+      // Under the strip it follows with no glide.
+      host.offsetWidth = PANEL + 40;
+      panelSized(false);
+      expect(drawnScale()).toBe(beside(PANEL + 40));
+    } finally {
+      Reflect.set(document, "createElement", create);
+      Reflect.set(document, "querySelector", find);
+    }
+  });
+});
+
+describe("a panel pinned to its side", () => {
+  /** The window, which the letterbox is as big as, and every other box in it for these fakes. */
+  let view: { width: number; height: number };
+  /** What the frame listens for on the window. */
+  let heard: Map<string, Set<() => void>>;
+  /** The waits the frame set and has not dropped, by the time they take. */
+  let waits: { run: () => void; ms: number; id: number }[];
+  let nextWait = 1;
+  const realClearTimeout = globalThis.clearTimeout;
+  /** The animation frames asked for and not dropped. */
+  let asked: Map<number, (time: number) => void>;
+  let nextFrame = 1;
+  /** When the last animation frame came, in ms. */
+  let clock = 0;
+  /** The panel's column as it shows, which the frame reads as it follows it, and how often it did. */
+  let column: ColumnEdge | null;
+  let reads = 0;
+  let stopColumn = () => {};
+
+  const PINNED = { open: true, side: "right", docked: true } as const;
+  const PLAIN = { ...KNOBS, panel: PINNED } as const;
+  const named = (name: string): FakeElement => {
+    const found = everything().find((element) => Reflect.get(element, "className") === name);
+    if (!found) throw new Error(`no ${name}`);
+    return found;
+  };
+  const styleOf = (element: FakeElement, name: string) => Reflect.get(element.style, name);
+  /** The px the stage keeps clear of each side of the window. */
+  const room = () => [
+    styleOf(named("viewport"), "paddingLeft"),
+    styleOf(named("viewport"), "paddingRight"),
+  ];
+  const frameWidth = () => styleOf(frameElement(), "width");
+  const fire = (type: string) => {
+    for (const listener of [...(heard.get(type) ?? [])]) listener();
+  };
+  /** The window takes a new width, and says so. */
+  const resizeTo = (width: number) => {
+    view.width = width;
+    for (const element of everything()) element.clientWidth = width;
+    fire("resize");
+  };
+  /** The next animation frame comes, `gap` ms after the last. */
+  const paint = (gap = 16) => {
+    clock += gap;
+    const due = [...asked.values()];
+    asked.clear();
+    for (const run of due) run(clock);
+  };
+  /** The frames something else in the frame keeps asking for, as it waits for its page. */
+  let idle = 0;
+  /** The first frame of a frame that came up passes, and what waits from here is its own. */
+  const rest = () => {
+    paint();
+    idle = asked.size;
+  };
+  /** The frames asked for since, which are the column's. */
+  const waiting = () => asked.size - idle;
+  /** The column covers `cover` px of its side by the next frame, on its way still or at rest. */
+  const slide = (cover: number, moving = true, gap = 16) => {
+    column = { cover, moving };
+    paint(gap);
+  };
+  /** The panel is `px` wide, and a frame has passed. */
+  const widen = (px: number) => {
+    setDockWidth(px);
+    paint();
+  };
+  /** How often the frame was given a new width. */
+  const countWidths = () => {
+    const style = frameElement().style;
+    let width: unknown = Reflect.get(style, "width");
+    let count = 0;
+    Object.defineProperty(style, "width", {
+      configurable: true,
+      get: () => width,
+      set: (next: unknown) => {
+        if (next !== width) count++;
+        width = next;
+      },
+    });
+    return () => count;
+  };
+  /** Let the frame animate, so nothing in it is instant. */
+  const letMove = () => {
+    define("Element", FakeElement);
+    Reflect.set(window, "matchMedia", (query: string) => ({ matches: false, media: query }));
+  };
+
+  beforeEach(() => {
+    view = { width: 1600, height: 900 };
+    heard = new Map();
+    waits = [];
+    asked = new Map();
+    column = null;
+    reads = 0;
+    stopColumn = watchColumn(() => {
+      reads++;
+      return column;
+    });
+    Reflect.set(document, "createElement", (tag: string) => {
+      const element = new FakeElement(tag.toUpperCase());
+      Object.assign(element, { clientWidth: view.width, clientHeight: view.height });
+      return element;
+    });
+    Reflect.set(window, "requestAnimationFrame", (run: (time: number) => void) => {
+      asked.set(nextFrame, run);
+      return nextFrame++;
+    });
+    Reflect.set(window, "cancelAnimationFrame", (id: number) => {
+      asked.delete(id);
+    });
+    const find = document.querySelector;
+    Reflect.set(document, "querySelector", (selector: string) =>
+      selector === '[data-devknobs="panel"]' ? { offsetWidth: PANEL } : find(selector),
+    );
+    Reflect.set(window, "addEventListener", (type: string, listener: () => void) => {
+      const set = heard.get(type) ?? new Set();
+      set.add(listener);
+      heard.set(type, set);
+    });
+    Reflect.set(window, "removeEventListener", (type: string, listener: () => void) => {
+      heard.get(type)?.delete(listener);
+    });
+    Reflect.set(window, "setTimeout", (run: () => void, ms: number) => {
+      const wait = { run, ms, id: nextWait++ };
+      waits.push(wait);
+      return wait.id;
+    });
+    define("clearTimeout", (id: number) => {
+      waits = waits.filter((wait) => wait.id !== id);
+    });
+  });
+
+  afterEach(() => {
+    setDockWidth(DOCK_WIDTH);
+    stopColumn();
+    define("clearTimeout", realClearTimeout);
+  });
+
+  describe("with no device and no width", () => {
+    test("frames the page in the window less the panel's column, edge to edge", () => {
+      apply(PLAIN);
+      expect(frameElement().getAttribute("sandbox")).toContain("allow-same-origin");
+      expect(Reflect.get(frameElement(), "src")).toBe(PAGE);
+      expect(room()).toEqual(["", "240px"]);
+      expect(frameWidth()).toBe("1360px");
+      expect(styleOf(frameElement(), "height")).toBe("900px");
+    });
+
+    test("keeps clear of a panel on the left on that side", () => {
+      apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["240px", ""]);
+      expect(frameWidth()).toBe("1360px");
+    });
+
+    test("draws no readout, no body, no bars, no scale and no zoom around it", () => {
+      apply(PLAIN);
+      expect(Reflect.get(named("size"), "hidden")).toBe(true);
+      expect(Reflect.get(named("glass"), "className")).toBe("glass");
+      expect(Reflect.get(named("page"), "className")).toBe("page");
+      expect(styleOf(named("screen"), "transform")).toBe("");
+      expect(styleOf(named("screen"), "left")).toBe("0px");
+      expect(styleOf(named("screen"), "top")).toBe("0px");
+      expect(styleOf(frameElement(), "zoom")).toBe("");
+      expect(styleOf(named("drawing"), "width")).toBe("1360px");
+      expect(styleOf(named("drawing"), "height")).toBe("900px");
+      expect(everything().some((element) => element.tagName === "svg" && element.parent === named("screen"))).toBe(false);
+    });
+
+    test("is never zoomed: a stored zoom waits for a knob's frame, and the keys zoom the browser", () => {
+      const zooms: ZoomValue[] = [];
+      onZoom((zoom) => zooms.push(zoom));
+      apply({ ...PLAIN, zoom: 0.5 });
+      expect(frameWidth()).toBe("1360px");
+      expect(styleOf(named("screen"), "transform")).toBe("");
+      expect(Reflect.get(named("size"), "hidden")).toBe(true);
+      expect(zoomKey("zoom-in")).toBe(false);
+      expect(zoomKey("zoom-fit")).toBe(false);
+      expect(zooms).toEqual([]);
+      // A width brings the knob's frame, zoom and all.
+      apply({ ...PLAIN, width: 390, zoom: 0.5 });
+      expect(styleOf(named("screen"), "transform")).toBe("scale(0.5)");
+      expect(zoomKey("zoom-in")).toBe(true);
+    });
+
+    test("hides the window's own page under it, as any frame does", () => {
+      const own = new FakeElement();
+      body.append(own);
+      apply(PLAIN);
+      expect(own.hasAttribute("inert")).toBe(true);
+      expect(own.style.getPropertyValue("content-visibility")).toBe("hidden");
+      expect(widthStyle()?.textContent).toContain("html{overflow:hidden!important}");
+    });
+
+    test("follows the window's size with the same frame, and never loads it again", async () => {
+      apply(PLAIN);
+      const frame = frameElement();
+      await load(FRAMED);
+      resizeTo(1200);
+      expect(frameWidth()).toBe("960px");
+      expect(room()).toEqual(["", "240px"]);
+      resizeTo(1900);
+      expect(frameWidth()).toBe("1660px");
+      expect(frameElement()).toBe(frame);
+      expect(Reflect.get(frame, "src")).toBe(PAGE);
+      expect(reloads).toBe(0);
+      expect(assigned).toEqual([]);
+    });
+
+    test("mirrors the frame's address in the window's, as a width's frame does", async () => {
+      apply(PLAIN);
+      await load(FRAMED);
+      expect(location.href).toBe(FRAMED);
+    });
+
+    test("follows the panel's width, wider and narrower, with the same frame and no load", async () => {
+      apply(PLAIN);
+      const frame = frameElement();
+      await load(FRAMED);
+      widen(340);
+      expect(room()).toEqual(["", "340px"]);
+      expect(frameWidth()).toBe("1260px");
+      widen(412.5);
+      expect(room()).toEqual(["", "412.5px"]);
+      expect(frameWidth()).toBe("1187.5px");
+      widen(240);
+      expect(room()).toEqual(["", "240px"]);
+      expect(frameWidth()).toBe("1360px");
+      expect(frameElement()).toBe(frame);
+      expect(Reflect.get(frame, "src")).toBe(PAGE);
+      expect(reloads).toBe(0);
+      expect(assigned).toEqual([]);
+    });
+
+    test("is resized once a frame, however often the panel's width changes in it", () => {
+      apply(PLAIN);
+      paint();
+      const widths = countWidths();
+      // A drag of the panel's edge sends more moves than the window paints.
+      for (const px of [250, 268, 291, 300]) setDockWidth(px);
+      expect(widths()).toBe(0);
+      expect(frameWidth()).toBe("1360px");
+      paint();
+      expect(widths()).toBe(1);
+      expect(room()).toEqual(["", "300px"]);
+      expect(frameWidth()).toBe("1300px");
+      // Nothing waits once it is drawn.
+      paint();
+      expect(widths()).toBe(1);
+    });
+
+    test("comes up beside a panel that is wider already", () => {
+      setDockWidth(340);
+      apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["340px", ""]);
+      expect(frameWidth()).toBe("1260px");
+    });
+
+    test("is one column, as wide as the panel says: the panel's host, handle and all, takes no room", () => {
+      apply(PLAIN);
+      paint();
+      const widths = countWidths();
+      // The host is wider than the panel. Under the strip the stage waits for the panel's own width.
+      panelSized(false);
+      expect(widths()).toBe(0);
+      expect(room()).toEqual(["", "240px"]);
+      expect(frameWidth()).toBe("1360px");
+    });
+
+    test("hears nothing of the panel's width while it floats, or once the frame is gone", () => {
+      apply({ ...KNOBS, width: 390, panel: { open: true, side: "right", docked: false } });
+      paint();
+      const waiting = asked.size;
+      setDockWidth(340);
+      expect(asked.size).toBe(waiting);
+      paint();
+      expect(room()).toEqual(["", ""]);
+      reset();
+      expect(() => setDockWidth(300)).not.toThrow();
+    });
+
+    test("drops the frame it waits for when the frame goes", () => {
+      apply(PLAIN);
+      paint();
+      // The frame it asks for next is its own.
+      const own = nextFrame;
+      setDockWidth(340);
+      expect(asked.has(own)).toBe(true);
+      reset();
+      expect(asked.has(own)).toBe(false);
+    });
+
+    test("gives the page the whole window back while the panel is closed, with no reload", async () => {
+      apply(PLAIN);
+      const frame = frameElement();
+      await load(FRAMED);
+      apply({ ...PLAIN, panel: { ...PINNED, open: false } });
+      expect(room()).toEqual(["", ""]);
+      expect(frameWidth()).toBe("1600px");
+      // Closed, a new width of the panel still takes nothing.
+      widen(340);
+      expect(room()).toEqual(["", ""]);
+      apply(PLAIN);
+      expect(room()).toEqual(["", "340px"]);
+      expect(frameWidth()).toBe("1260px");
+      expect(frameElement()).toBe(frame);
+      expect(Reflect.get(frame, "src")).toBe(PAGE);
+      expect(reloads).toBe(0);
+      expect(assigned).toEqual([]);
+      expect(scrolls).toEqual([]);
+    });
+
+    test("moves to the other side with the column, the same frame", () => {
+      apply(PLAIN);
+      const frame = frameElement();
+      apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["240px", ""]);
+      expect(frameWidth()).toBe("1360px");
+      expect(frameElement()).toBe(frame);
+    });
+
+    test("leaves the panel over the page in a window too narrow to squeeze it further", () => {
+      apply(PLAIN);
+      // 560 leaves the page its least, 320, beside the panel.
+      resizeTo(560);
+      expect(room()).toEqual(["", "240px"]);
+      expect(frameWidth()).toBe("320px");
+      resizeTo(559);
+      expect(room()).toEqual(["", ""]);
+      expect(frameWidth()).toBe("559px");
+      // A wider panel goes over the page sooner, and back beside it once it is narrower.
+      resizeTo(640);
+      expect(frameWidth()).toBe("400px");
+      widen(340);
+      expect(room()).toEqual(["", ""]);
+      expect(frameWidth()).toBe("640px");
+      widen(300);
+      expect(room()).toEqual(["", "300px"]);
+      expect(frameWidth()).toBe("340px");
+    });
+
+    test("lets go of the frame when the panel is let go, as the width knob back at full does", async () => {
+      apply(PLAIN);
+      await load(PAGE);
+      apply(KNOBS);
+      expect(everything().some((element) => element.tagName === "IFRAME")).toBe(false);
+      expect(assigned).toEqual([]);
+      expect(scrolls).toEqual([{ left: 0, top: SCROLL_Y, behavior: "instant" }]);
+      expect(widthStyle()).toBeUndefined();
+    });
+
+    test("sends the window after the frame when it was let go on another page", async () => {
+      apply(PLAIN);
+      await load(FRAMED);
+      expect(location.href).toBe(FRAMED);
+      apply(KNOBS);
+      expect(everything().some((element) => element.tagName === "IFRAME")).toBe(false);
+      expect(assigned).toEqual([FRAMED]);
+      expect(scrolls).toEqual([]);
+    });
+
+    test("stays on the entry the window went back to, when it is let go", async () => {
+      apply(PLAIN);
+      await load(FRAMED);
+      location.href = EARLIER;
+      apply(KNOBS);
+      expect(assigned).toEqual([]);
+      expect(location.href).toBe(EARLIER);
+    });
+
+    test("comes up at once on a reload, in its room, the page under it hidden", () => {
+      const own = new FakeElement();
+      body.append(own);
+      // The first knobs applied are a reload's.
+      apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["240px", ""]);
+      expect(frameWidth()).toBe("1360px");
+      expect(own.hasAttribute("inert")).toBe(true);
+      // No column is followed: the frame is up at its size.
+      paint();
+      expect(reads).toBe(0);
+      expect(frameWidth()).toBe("1360px");
+    });
+
+    test("keeps no drawing for the next page: it has none but the page", () => {
+      const kept = new Map<string, string>([[SNAPSHOT_KEY, "old"]]);
+      Reflect.set(window, "sessionStorage", {
+        getItem: (key: string) => kept.get(key) ?? null,
+        setItem: (key: string, value: string) => kept.set(key, value),
+        removeItem: (key: string) => kept.delete(key),
+      });
+      apply(PLAIN);
+      fire("pagehide");
+      expect(kept.has(SNAPSHOT_KEY)).toBe(false);
+    });
+
+    describe("where things move", () => {
+      const CLOSED = { ...PLAIN, panel: { ...PINNED, open: false } } as const;
+      const LEFT = { ...PLAIN, panel: { ...PINNED, side: "left" } } as const;
+      /** A closed panel's frame, its first frame past, and how often its page is resized from here. */
+      const closed = () => {
+        letMove();
+        apply(CLOSED);
+        rest();
+        return countWidths();
+      };
+      /** An open panel's frame, come up with no motion, as on a reload. */
+      const opened = (knobs: typeof PLAIN | typeof LEFT = PLAIN) => {
+        letMove();
+        apply(knobs);
+        rest();
+        return countWidths();
+      };
+
+      test("shrinks the page with the column as it slides in, frame by frame, and lands on its width", () => {
+        const widths = closed();
+        apply(PLAIN);
+        // The column has not moved yet: the page is as wide as it was, and one frame is asked for.
+        expect(widths()).toBe(0);
+        expect(room()).toEqual(["", ""]);
+        expect(frameWidth()).toBe("1600px");
+        expect(waiting()).toBe(1);
+        // A closed column leaves its last px on the edge, which is where it sets off from.
+        slide(1);
+        expect(room()).toEqual(["", "1px"]);
+        slide(96.4);
+        expect(room()).toEqual(["", "96px"]);
+        expect(frameWidth()).toBe("1504px");
+        slide(201.7);
+        expect(room()).toEqual(["", "202px"]);
+        expect(frameWidth()).toBe("1398px");
+        expect(widths()).toBe(3);
+        expect(waiting()).toBe(1);
+        // At rest: the page lands on the column's width, and the loop is over.
+        slide(240, false);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+        expect(widths()).toBe(4);
+        expect(waiting()).toBe(0);
+        paint();
+        expect(widths()).toBe(4);
+        expect(reloads).toBe(0);
+      });
+
+      test("grows the page with the column as it slides away, and gives it the whole window", () => {
+        const widths = opened();
+        apply(CLOSED);
+        expect(widths()).toBe(0);
+        expect(room()).toEqual(["", "240px"]);
+        slide(240);
+        expect(widths()).toBe(0);
+        slide(150);
+        expect(room()).toEqual(["", "150px"]);
+        expect(frameWidth()).toBe("1450px");
+        slide(20);
+        expect(frameWidth()).toBe("1580px");
+        // The handle's px is not the page's: at rest the page has the window.
+        slide(1, false);
+        expect(room()).toEqual(["", ""]);
+        expect(frameWidth()).toBe("1600px");
+        expect(widths()).toBe(3);
+        expect(waiting()).toBe(0);
+      });
+
+      test("keeps the page's edge to a column on the left, which the page starts after", () => {
+        letMove();
+        apply({ ...CLOSED, panel: { ...CLOSED.panel, side: "left" } });
+        rest();
+        apply(LEFT);
+        slide(130);
+        expect(room()).toEqual(["130px", ""]);
+        expect(frameWidth()).toBe("1470px");
+        slide(240, false);
+        expect(room()).toEqual(["240px", ""]);
+        expect(frameWidth()).toBe("1360px");
+      });
+
+      test("never takes the page past the column's width, whatever the column is read at", () => {
+        closed();
+        apply(PLAIN);
+        slide(-21);
+        expect(room()).toEqual(["", ""]);
+        slide(260);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+      });
+
+      test("follows a column that glides wider, as a view opens, with no wait", () => {
+        const widths = opened();
+        // The panel says the width it glides to, and that it glides.
+        setDockWidth(340);
+        panelSized(true);
+        expect(widths()).toBe(0);
+        expect(waiting()).toBe(1);
+        slide(262.4);
+        expect(room()).toEqual(["", "262px"]);
+        expect(frameWidth()).toBe("1338px");
+        slide(318);
+        expect(frameWidth()).toBe("1282px");
+        slide(340, false);
+        expect(room()).toEqual(["", "340px"]);
+        expect(frameWidth()).toBe("1260px");
+        expect(widths()).toBe(3);
+        expect(waiting()).toBe(0);
+        expect(reloads).toBe(0);
+      });
+
+      test("follows a column that glides narrower, as the view closes", () => {
+        letMove();
+        setDockWidth(340);
+        apply(PLAIN);
+        rest();
+        const widths = countWidths();
+        setDockWidth(240);
+        panelSized(true);
+        // Not at once: the column is as wide as it was.
+        expect(widths()).toBe(0);
+        expect(frameWidth()).toBe("1260px");
+        slide(300);
+        expect(frameWidth()).toBe("1300px");
+        slide(240, false);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+        expect(waiting()).toBe(0);
+      });
+
+      test("slides the page across as the column crosses over it, as wide as it was", () => {
+        const widths = opened();
+        const frame = frameElement();
+        apply(LEFT);
+        expect(room()).toEqual(["", "240px"]);
+        // On the left the column covers the window as far as its right edge: all of it as it sets off.
+        slide(1600);
+        expect(room()).toEqual(["", "240px"]);
+        // Halfway there the page is halfway across.
+        slide(920);
+        expect(room()).toEqual(["120px", "120px"]);
+        slide(580);
+        expect(room()).toEqual(["180px", "60px"]);
+        slide(240, false);
+        expect(room()).toEqual(["240px", ""]);
+        // The page was never laid out at another width.
+        expect(widths()).toBe(0);
+        expect(frameWidth()).toBe("1360px");
+        expect(frameElement()).toBe(frame);
+        expect(waiting()).toBe(0);
+      });
+
+      test("turns back with a column that is closed again before it was out", () => {
+        closed();
+        apply(PLAIN);
+        slide(1);
+        slide(140);
+        expect(frameWidth()).toBe("1460px");
+        apply(CLOSED);
+        // One loop still, from where the page is.
+        expect(waiting()).toBe(1);
+        expect(frameWidth()).toBe("1460px");
+        slide(150);
+        expect(frameWidth()).toBe("1460px");
+        slide(60);
+        expect(frameWidth()).toBe("1540px");
+        slide(1, false);
+        expect(frameWidth()).toBe("1600px");
+        expect(waiting()).toBe(0);
+      });
+
+      test("resizes the page no more than once a frame, whatever comes between two", () => {
+        const widths = closed();
+        apply(PLAIN);
+        slide(1);
+        const before = widths();
+        column = { cover: 80, moving: true };
+        // A view opens as the panel does, and the knobs are applied again.
+        setDockWidth(340);
+        panelSized(true);
+        apply(PLAIN);
+        expect(widths()).toBe(before);
+        expect(waiting()).toBe(1);
+        paint();
+        expect(widths()).toBe(before + 1);
+        expect(frameWidth()).toBe("1520px");
+        slide(340, false);
+        expect(frameWidth()).toBe("1260px");
+        expect(widths()).toBe(before + 2);
+      });
+
+      test("asks for no frame where the column takes no room, closed or over the page", () => {
+        closed();
+        // A closed column's handle goes to the other side.
+        apply({ ...CLOSED, panel: { ...CLOSED.panel, side: "left" } });
+        expect(waiting()).toBe(0);
+        // In a window too narrow, the panel opens over the page.
+        resizeTo(500);
+        apply({ ...PLAIN, panel: { ...PINNED, side: "left" } });
+        expect(waiting()).toBe(0);
+        expect(room()).toEqual(["", ""]);
+        expect(reads).toBe(0);
+      });
+
+      test("lands on the column's width at once when it is found at rest, or there is no panel to read", () => {
+        const widths = closed();
+        apply(PLAIN);
+        slide(240, false);
+        expect(frameWidth()).toBe("1360px");
+        expect(widths()).toBe(1);
+        expect(waiting()).toBe(0);
+        apply(CLOSED);
+        column = null;
+        paint();
+        expect(frameWidth()).toBe("1600px");
+        expect(widths()).toBe(2);
+        expect(waiting()).toBe(0);
+      });
+
+      test("gives a page too slow to keep up its final width at once", () => {
+        const widths = closed();
+        apply(PLAIN);
+        slide(1);
+        // Two frames in a row come late: the page is not laid out a third time on the way.
+        slide(60, true, RIDE_SLOW + 10);
+        expect(frameWidth()).toBe("1540px");
+        slide(120, true, RIDE_SLOW + 10);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+        expect(waiting()).toBe(0);
+        expect(widths()).toBe(3);
+      });
+
+      test("follows on past one late frame, and a frame as long as the limit", () => {
+        closed();
+        apply(PLAIN);
+        slide(1);
+        slide(60, true, RIDE_SLOW + 10);
+        slide(100, true, RIDE_SLOW);
+        slide(140, true, RIDE_SLOW + 10);
+        expect(frameWidth()).toBe("1460px");
+        expect(waiting()).toBe(1);
+      });
+
+      test("resizes the page once, at once, where less motion is asked for", () => {
+        const widths = closed();
+        Reflect.set(window, "matchMedia", (query: string) => ({ matches: true, media: query }));
+        apply(PLAIN);
+        expect(room()).toEqual(["", "240px"]);
+        expect(frameWidth()).toBe("1360px");
+        expect(widths()).toBe(1);
+        setDockWidth(340);
+        panelSized(true);
+        expect(frameWidth()).toBe("1260px");
+        apply(LEFT);
+        expect(room()).toEqual(["340px", ""]);
+        apply(CLOSED);
+        expect(frameWidth()).toBe("1600px");
+        expect(widths()).toBe(3);
+        expect(waiting()).toBe(0);
+        expect(reads).toBe(0);
+      });
+
+      test("drops the frame it follows in when the frame goes", () => {
+        closed();
+        const own = nextFrame;
+        apply(PLAIN);
+        expect(asked.has(own)).toBe(true);
+        reset();
+        expect(asked.has(own)).toBe(false);
+        // A frame that was let through finds nothing to follow.
+        column = { cover: 120, moving: true };
+        paint();
+        expect(reads).toBe(0);
+      });
+
+      test("follows the panel's edge frame by frame as it is dragged wider, as ever", () => {
+        letMove();
+        apply(PLAIN);
+        rest();
+        for (const px of [260, 300, 340]) {
+          // The strip says so with each move, which is no glide.
+          setDockWidth(px);
+          panelSized(false);
+          expect(room()).not.toEqual(["", `${px}px`]);
+          paint();
+          expect(room()).toEqual(["", `${px}px`]);
+          expect(frameWidth()).toBe(`${1600 - px}px`);
+        }
+        // The strip's width is the panel's own, not one read off the column.
+        expect(reads).toBe(0);
+        expect(waiting()).toBe(0);
+      });
+
+      test("lets a drag take over a glide on its way", () => {
+        opened();
+        setDockWidth(340);
+        panelSized(true);
+        slide(280);
+        expect(frameWidth()).toBe("1320px");
+        setDockWidth(360);
+        panelSized(false);
+        // One frame is asked for, the strip's, and it takes the panel's width as it is.
+        expect(waiting()).toBe(1);
+        column = { cover: 290, moving: true };
+        paint();
+        expect(frameWidth()).toBe("1240px");
+        expect(waiting()).toBe(0);
+      });
+
+      test("never glides the page's box: the column's edge is all that moves it", () => {
+        const glided: unknown[] = [];
+        closed();
+        const screen = named("screen");
+        let at = 0;
+        // The screen is somewhere else each time it is measured, so a glide would have a way to go.
+        Reflect.set(screen, "getBoundingClientRect", () => ({ left: at++, top: 0, width: 800, height: 600 }));
+        Reflect.set(screen, "animate", (keyframes: unknown) => {
+          glided.push(keyframes);
+          return { finished: new Promise(() => {}), cancel: () => {} };
+        });
+        apply(PLAIN);
+        slide(240, false);
+        apply(LEFT);
+        slide(240, false);
+        setDockWidth(340);
+        panelSized(true);
+        slide(340, false);
+        apply({ ...CLOSED, panel: { ...CLOSED.panel, side: "left" } });
+        slide(0, false);
+        expect(glided).toEqual([]);
+      });
+    });
+  });
+
+  describe("with a frame up already", () => {
+    const WIDE = { ...KNOBS, width: 1500, panel: { open: true, side: "right", docked: false } } as const;
+    const scaleOf = (size: { width: number; height: number }, aside: number) => {
+      const scale = fit(WIDE, size, { aside }).transform;
+      return scale === 1 ? "" : `scale(${scale})`;
+    };
+    const drawn = () => String(styleOf(named("screen"), "transform"));
+
+    test("shrinks the stage to the window less the column, and fits the frame in it with no guess beside", () => {
+      apply(WIDE);
+      // Floating, the panel lies over the mat, and the frame is fitted beside it.
+      expect(room()).toEqual(["", ""]);
+      expect(drawn()).toBe(scaleOf(view, PANEL));
+      apply({ ...WIDE, panel: PINNED });
+      expect(room()).toEqual(["", "240px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1360, height: 900 }, 0));
+      expect(drawn()).not.toBe(scaleOf(view, PANEL));
+      expect(frameWidth()).toBe("1500px");
+    });
+
+    test("never loads the page again as the panel is pinned and let go", async () => {
+      apply(WIDE);
+      const frame = frameElement();
+      await load(FRAMED);
+      apply({ ...WIDE, panel: PINNED });
+      apply(WIDE);
+      apply({ ...WIDE, panel: { ...PINNED, side: "left" } });
+      expect(room()).toEqual(["240px", ""]);
+      apply(WIDE);
+      expect(room()).toEqual(["", ""]);
+      expect(drawn()).toBe(scaleOf(view, PANEL));
+      expect(frameElement()).toBe(frame);
+      expect(Reflect.get(frame, "src")).toBe(PAGE);
+      expect(reloads).toBe(0);
+      expect(assigned).toEqual([]);
+      expect(scrolls).toEqual([]);
+    });
+
+    test("keeps the mat under the column, which only the stage gives way to", () => {
+      apply({ ...WIDE, panel: PINNED });
+      expect(named("viewport").getAttribute("data-mat")).toBe("blue");
+      expect(Reflect.get(named("size"), "hidden")).toBe(false);
+      // The host still covers the window: the room is the letterbox's padding.
+      const host = body.children.find((child) => child.getAttribute("data-devknobs") === "viewport");
+      expect(Reflect.get(host?.style ?? {}, "cssText")).toContain("inset:0");
+    });
+
+    test("gives a wider panel's column its room with no load, and a closed panel's back", () => {
+      apply({ ...WIDE, panel: PINNED });
+      const frame = frameElement();
+      widen(340);
+      expect(room()).toEqual(["", "340px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1260, height: 900 }, 0));
+      expect(frameElement()).toBe(frame);
+      apply({ ...WIDE, panel: { ...PINNED, open: false } });
+      expect(room()).toEqual(["", ""]);
+      expect(drawn()).toBe(scaleOf(view, 0));
+    });
+
+    test("glides the frame to its place as the panel is pinned or let go, the room there at once", () => {
+      letMove();
+      apply(WIDE);
+      rest();
+      const glided: unknown[] = [];
+      const screen = named("screen");
+      let at = 0;
+      // The screen is somewhere else each time it is measured, as a refit moves it.
+      Reflect.set(screen, "getBoundingClientRect", () => ({ left: at++ * 50, top: 0, width: 800, height: 600 }));
+      Reflect.set(screen, "animate", (keyframes: unknown) => {
+        glided.push(keyframes);
+        return { finished: new Promise(() => {}), cancel: () => {} };
+      });
+      // The column stands where the panel floated: there is no way of it to follow.
+      apply({ ...WIDE, panel: PINNED });
+      expect(room()).toEqual(["", "240px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1360, height: 900 }, 0));
+      expect(glided).toHaveLength(1);
+      expect(waiting()).toBe(0);
+      apply(WIDE);
+      expect(room()).toEqual(["", ""]);
+      expect(drawn()).toBe(scaleOf(view, PANEL));
+      expect(glided).toHaveLength(2);
+      expect(waiting()).toBe(0);
+      expect(reads).toBe(0);
+    });
+
+    test("lets go of a column it follows when the panel is let go on its way", () => {
+      letMove();
+      apply({ ...WIDE, panel: { ...PINNED, open: false } });
+      rest();
+      apply({ ...WIDE, panel: PINNED });
+      slide(120);
+      expect(room()).toEqual(["", "120px"]);
+      apply(WIDE);
+      expect(room()).toEqual(["", ""]);
+      expect(waiting()).toBe(0);
+    });
+
+    test("fits the device in the room the column leaves each frame, with no glide of its own", () => {
+      letMove();
+      apply({ ...WIDE, panel: { ...PINNED, open: false } });
+      rest();
+      const glided: unknown[] = [];
+      const screen = named("screen");
+      let at = 0;
+      Reflect.set(screen, "getBoundingClientRect", () => ({ left: at++ * 50, top: 0, width: 800, height: 600 }));
+      Reflect.set(screen, "animate", (keyframes: unknown) => {
+        glided.push(keyframes);
+        return { finished: new Promise(() => {}), cancel: () => {} };
+      });
+      const frame = frameElement();
+      // The column slides in: the device is fitted beside it where it shows.
+      apply({ ...WIDE, panel: PINNED });
+      expect(drawn()).toBe(scaleOf(view, 0));
+      slide(100);
+      expect(room()).toEqual(["", "100px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1500, height: 900 }, 0));
+      slide(240, false);
+      expect(drawn()).toBe(scaleOf({ width: 1360, height: 900 }, 0));
+      // It glides to a view's width.
+      setDockWidth(340);
+      panelSized(true);
+      expect(room()).toEqual(["", "240px"]);
+      slide(300);
+      expect(drawn()).toBe(scaleOf({ width: 1300, height: 900 }, 0));
+      slide(340, false);
+      expect(drawn()).toBe(scaleOf({ width: 1260, height: 900 }, 0));
+      // It crosses to the other side, and the stage with it.
+      apply({ ...WIDE, panel: { ...PINNED, side: "left" } });
+      slide(1600);
+      slide(1285);
+      expect(room()).toEqual(["85px", "255px"]);
+      expect(drawn()).toBe(scaleOf({ width: 1260, height: 900 }, 0));
+      slide(340, false);
+      expect(room()).toEqual(["340px", ""]);
+      // And slides away.
+      apply({ ...WIDE, panel: { ...PINNED, side: "left", open: false } });
+      slide(170);
+      expect(room()).toEqual(["170px", ""]);
+      slide(1, false);
+      expect(drawn()).toBe(scaleOf(view, 0));
+      // The frame's own width is the knob's all along, and nothing but the column moved it.
+      expect(frameWidth()).toBe("1500px");
+      expect(frameElement()).toBe(frame);
+      expect(glided).toEqual([]);
+      expect(waiting()).toBe(0);
+      expect(reloads).toBe(0);
+      // Under the strip it follows the panel's width, a frame on, as ever.
+      apply({ ...WIDE, panel: PINNED });
+      slide(340, false);
+      setDockWidth(300);
+      panelSized(false);
+      expect(room()).toEqual(["", "340px"]);
+      paint();
+      expect(room()).toEqual(["", "300px"]);
+    });
+
+    test("never follows a floating panel: its frame glides beside it, as ever", () => {
+      letMove();
+      apply({ ...WIDE, panel: { ...WIDE.panel, open: false } });
+      rest();
+      const glided: unknown[] = [];
+      const screen = named("screen");
+      let at = 0;
+      Reflect.set(screen, "getBoundingClientRect", () => ({ left: at++ * 50, top: 0, width: 800, height: 600 }));
+      Reflect.set(screen, "animate", (keyframes: unknown) => {
+        glided.push(keyframes);
+        return { finished: new Promise(() => {}), cancel: () => {} };
+      });
+      apply(WIDE);
+      setDockWidth(340);
+      panelSized(true);
+      apply({ ...WIDE, panel: { ...WIDE.panel, side: "left" } });
+      apply({ ...WIDE, panel: { ...WIDE.panel, open: false } });
+      // Each is a glide of the frame's own: out, to the new width, across, and away.
+      expect(glided).toHaveLength(4);
+      expect(waiting()).toBe(0);
+      column = { cover: 120, moving: true };
+      paint();
+      expect(reads).toBe(0);
+      expect(room()).toEqual(["", ""]);
+    });
+
+    test("counts the mat's rulers from the stage's edge, its grid on under the column", () => {
+      const sheet = () => {
+        const found = everything().find((element) => element.tagName === "g");
+        if (!found) throw new Error("no mat");
+        return found;
+      };
+      const grid = () => sheet().children.find((child) => child.tagName === "rect");
+      apply({ ...WIDE, panel: { ...PINNED, side: "left" } });
+      // The column is on the left: zero is at its edge, 240 in.
+      expect(sheet().getAttribute("transform")).toBe("translate(240 0)");
+      expect(grid()?.getAttribute("x")).toBe("-240");
+      expect(grid()?.getAttribute("width")).toBe("1600");
+      // The top ruler is numbered as far as the stage goes, 1360.
+      const numbered = () =>
+        sheet()
+          .children.filter((child) => child.tagName === "text" && !child.hasAttribute("transform"))
+          .map((text) => text.textContent);
+      expect(numbered()).toContain("1300");
+      expect(numbered()).not.toContain("1400");
+      // On the right the zero stays at the window's edge, and the grid runs on under the column.
+      apply({ ...WIDE, panel: PINNED });
+      expect(sheet().getAttribute("transform")).toBe("translate(0 0)");
+      expect(grid()?.getAttribute("x")).toBe("0");
+      expect(grid()?.getAttribute("width")).toBe("1600");
+      // It is drawn again for a new width of the column.
+      apply({ ...WIDE, panel: { ...PINNED, side: "left" } });
+      widen(340);
+      expect(sheet().getAttribute("transform")).toBe("translate(340 0)");
+      // Floating, it is the whole letterbox's.
+      apply(WIDE);
+      expect(sheet().getAttribute("transform")).toBe("translate(0 0)");
+      expect(numbered()).toContain("1500");
+    });
+
+    test("centres the notice of a page that will not load on the stage, its paint on under the column", () => {
+      apply({ ...WIDE, panel: { ...PINNED, side: "left" } });
+      const notice = named("blocked");
+      expect([styleOf(notice, "paddingLeft"), styleOf(notice, "paddingRight")]).toEqual(["240px", ""]);
+      widen(340);
+      expect([styleOf(notice, "paddingLeft"), styleOf(notice, "paddingRight")]).toEqual(["340px", ""]);
+      apply({ ...WIDE, panel: PINNED });
+      expect([styleOf(notice, "paddingLeft"), styleOf(notice, "paddingRight")]).toEqual(["", "340px"]);
+      apply(WIDE);
+      expect([styleOf(notice, "paddingLeft"), styleOf(notice, "paddingRight")]).toEqual(["", ""]);
+    });
+
+    test("stays up at the knob's width when the panel is let go, and goes with the knob", async () => {
+      apply({ ...WIDE, panel: PINNED });
+      const frame = frameElement();
+      await load(PAGE);
+      apply(WIDE);
+      expect(frameElement()).toBe(frame);
+      apply({ ...KNOBS, panel: WIDE.panel });
+      expect(everything().some((element) => element.tagName === "IFRAME")).toBe(false);
+    });
+
+    test("becomes the plain frame when the knob goes and the panel stays pinned, the same frame", async () => {
+      apply({ ...WIDE, panel: PINNED });
+      const frame = frameElement();
+      await load(FRAMED);
+      apply(PLAIN);
+      expect(frameElement()).toBe(frame);
+      expect(frameWidth()).toBe("1360px");
+      expect(Reflect.get(named("size"), "hidden")).toBe(true);
+      expect(drawn()).toBe("");
+      expect(assigned).toEqual([]);
+    });
   });
 });

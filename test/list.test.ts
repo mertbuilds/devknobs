@@ -62,7 +62,7 @@ describe("pinned rows", () => {
   test("a row listed for being off its default, but not pinned, stands after the pinned ones", () => {
     const set = merge(DEFAULT_STATE, { vision: "blur" });
     expect(listedOrder(set)).toEqual(["device", "scheme", "text", "locale", "vision"]);
-    const old = merge(DEFAULT_STATE, { panel: { pinned: ["grab", "text"] } });
+    const old = merge(DEFAULT_STATE, { panel: { pinned: ["gone", "text"] } });
     expect(listedOrder(old)).toEqual(["text"]);
   });
 
@@ -132,13 +132,30 @@ describe("pinned rows", () => {
 
   test("reset all clears every knob, lists the default rows again, and keeps the panel's place", () => {
     const busy = use(use(BARE, "scheme", { scheme: "dark" }), "text", { text: 17 });
-    const place = { side: "left", y: 120, top: 80, edge: "bottom", tab: "none" } as const;
+    const place = {
+      side: "left",
+      y: 120,
+      top: 80,
+      edge: "bottom",
+      tab: "none",
+      docked: false,
+    } as const;
     const moved = merge(busy, { panel: { open: true, ...place } });
     const reset = resetState(moved);
     expect(listed(reset)).toEqual(["scheme", "text", "locale", "device"]);
     expect(reset.scheme).toBe("system");
     expect(reset.panel).toEqual({ open: true, ...place, pinned: [...DEFAULT_PINNED] });
     expect(resetState(BARE).panel.pinned).toEqual([...DEFAULT_PINNED]);
+  });
+
+  test("reset all keeps the panel pinned to its side: the pin is place, like the side", () => {
+    const pinned = merge(use(BARE, "viewport", { width: 390 }), {
+      panel: { open: true, side: "left", docked: true },
+    });
+    const reset = resetState(pinned);
+    expect(reset.width).toBe("full");
+    expect(reset.panel).toMatchObject({ open: true, side: "left", docked: true });
+    expect(resetState(BARE).panel.docked).toBe(false);
   });
 
   test("reset all has nothing to do only at the defaults with the default rows listed", () => {
@@ -156,8 +173,8 @@ describe("pinned rows", () => {
     expect(isReset(resetState(moved))).toBe(true);
   });
 
-  test("an id no row has, such as grab's from an older version, lists nothing and changes nothing", () => {
-    const old = merge(DEFAULT_STATE, { panel: { pinned: [...DEFAULT_PINNED, "grab"] } });
+  test("an id no row has here, such as one from another version, lists nothing and changes nothing", () => {
+    const old = merge(DEFAULT_STATE, { panel: { pinned: [...DEFAULT_PINNED, "gone"] } });
     expect(listed(old)).toEqual(listed(DEFAULT_STATE));
     expect(isReset(old)).toBe(true);
   });

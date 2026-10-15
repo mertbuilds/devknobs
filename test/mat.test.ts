@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { parseColor } from "../src/engine/color";
+import { contrast, luminance, parseColor } from "../src/engine/color";
 import { along, exit, MAT_CSS, numbers, SPAN, ticks, vertex } from "../src/engine/mat";
-import { MAT_COLOR_NAMES, MAT_COLORS, matGradient } from "../src/engine/matcolors";
+import {
+  isMatName,
+  MAT_COLOR_NAMES,
+  MAT_COLORS,
+  matGradient,
+  matPaint,
+  putMat,
+} from "../src/engine/matcolors";
 
 describe("ticks", () => {
   test("has one every cell, longer on the major lines and longest on the spans", () => {
@@ -123,5 +130,99 @@ describe("mat colors", () => {
       expect(MAT_CSS).toContain(`[data-mat="${name}"] { --mat: ${matGradient(MAT_COLORS[name].srgb)};`);
     }
     expect(MAT_CSS).toContain("fill: var(--mat-line);");
+  });
+});
+
+describe("a mat color of the user's own", () => {
+  /** A css `rgb()` as its relative luminance. */
+  const light = (css: string): number => {
+    const color = parseColor(css);
+    if (!color) throw new Error(`${css} does not parse`);
+    return luminance(color.red, color.green, color.blue);
+  };
+
+  test("is the color itself up top and deeper toward the edges, the same in P3", () => {
+    const paint = matPaint("#1e90ff");
+    expect(paint.srgb).toEqual(["rgb(30, 144, 255)", "rgb(25, 118, 209)", "rgb(19, 92, 163)"]);
+    expect(paint.p3).toEqual(paint.srgb);
+  });
+
+  test("has light lines on a dark color and dark lines on a light one", () => {
+    for (const hex of ["#000000", "#101820", "#5a1f8a", "#144698"]) {
+      const paint = matPaint(hex);
+      expect(light(paint.line)).toBeGreaterThan(0.7);
+    }
+    for (const hex of ["#ffffff", "#ffff00", "#f5f5dc", "#9be8c2"]) {
+      const paint = matPaint(hex);
+      expect(light(paint.line)).toBeLessThan(0.05);
+    }
+  });
+
+  test("keeps its lines and numbers legible on every stop, on white and yellow too", () => {
+    for (const hex of ["#ffffff", "#ffff00", "#000000", "#144698"]) {
+      const paint = matPaint(hex);
+      for (const stop of paint.srgb) {
+        expect(contrast(light(paint.line), light(stop))).toBeGreaterThan(4.5);
+      }
+    }
+  });
+
+  test("is one of the mat's own by its name, and blue for what is neither", () => {
+    expect(matPaint("green")).toBe(MAT_COLORS.green);
+    expect(matPaint("teal")).toBe(MAT_COLORS.blue);
+    expect(matPaint("#FFF")).toBe(MAT_COLORS.blue);
+    expect(matPaint("#12345g")).toBe(MAT_COLORS.blue);
+    expect(isMatName("graphite")).toBe(true);
+    expect(isMatName("#1e90ff")).toBe(false);
+  });
+});
+
+describe("putMat", () => {
+  /** A node as far as `putMat` reaches: its attributes and its own style. */
+  function stubNode(): {
+    node: HTMLElement;
+    attributes: Map<string, string>;
+    style: Map<string, string>;
+  } {
+    const attributes = new Map<string, string>();
+    const style = new Map<string, string>();
+    const node = {
+      setAttribute: (name: string, value: string) => attributes.set(name, value),
+      removeAttribute: (name: string) => attributes.delete(name),
+      style: {
+        setProperty: (name: string, value: string) => style.set(name, value),
+        removeProperty: (name: string) => style.delete(name),
+      },
+    };
+    return { node: node as unknown as HTMLElement, attributes, style };
+  }
+
+  test("names one of the mat's own, whose rule paints it", () => {
+    const { node, attributes, style } = stubNode();
+    putMat(node, "green");
+    expect(attributes.get("data-mat")).toBe("green");
+    expect(style.size).toBe(0);
+  });
+
+  test("puts the paint of one of the user's own on the node itself", () => {
+    const { node, attributes, style } = stubNode();
+    putMat(node, "#ffff00");
+    const paint = matPaint("#ffff00");
+    expect(attributes.get("data-mat")).toBe("#ffff00");
+    expect(style.get("--mat")).toBe(matGradient(paint.srgb));
+    expect(style.get("--mat-p3")).toBe(matGradient(paint.p3));
+    expect(style.get("--mat-line")).toBe(paint.line);
+  });
+
+  test("takes the paint off again for one of the mat's own, and for none", () => {
+    const { node, attributes, style } = stubNode();
+    putMat(node, "#ffff00");
+    putMat(node, "red");
+    expect(attributes.get("data-mat")).toBe("red");
+    expect(style.size).toBe(0);
+    putMat(node, "#ffff00");
+    putMat(node, null);
+    expect(attributes.has("data-mat")).toBe(false);
+    expect(style.size).toBe(0);
   });
 });

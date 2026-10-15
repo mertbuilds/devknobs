@@ -2,6 +2,7 @@ import { BARS_CSS } from "./browserdraw";
 import { STRIP, STRIP_TOP } from "./fit";
 import { MAT_CSS } from "./mat";
 import { MOCK_CSS } from "./mockdraw";
+import { TOUCH_DOT_CSS } from "./touchdot";
 
 /** The chevron of the zoom control, as its own arrow is styled away. */
 const CHEVRON =
@@ -160,4 +161,5 @@ iframe {
 }
 ${MAT_CSS}
 ${MOCK_CSS}
-${BARS_CSS}`;
+${BARS_CSS}
+${TOUCH_DOT_CSS}`;

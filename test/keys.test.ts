@@ -264,6 +264,13 @@ describe("keyAction", () => {
     expect(keyAction(shifted({ key: "D" }), hot("d"))).toBe("toggle");
   });
 
+  test("a binding with no key does nothing, and the others still do", () => {
+    const keys = { ...hot("k"), requests: null };
+    expect(keyAction(shifted({ key: "N" }), hot("k"))).toBe("requests");
+    expect(keyAction(shifted({ key: "N" }), keys)).toBeNull();
+    expect(keyAction(shifted({ key: "R" }), keys)).toBe("replay");
+  });
+
   test("leaves the bare hotkey and the bare r alone", () => {
     expect(keyAction(key({ key: "k" }), hot("k"))).toBeNull();
     expect(keyAction(key({ key: "K" }), hot("k"))).toBeNull();
@@ -470,6 +477,15 @@ describe("escapeStep", () => {
 
   test("leaves a search opened from the settings before the settings", () => {
     expect(escapeStep({ ...idle, search: true, keys: true })).toBe("search");
+  });
+
+  test("hands the key to a feature's view before an editor under it, and before the panel", () => {
+    expect(escapeStep({ ...idle, view: true })).toBe("view");
+    expect(escapeStep({ ...idle, view: true, editor: true })).toBe("view");
+  });
+
+  test("leaves the settings that show over a view first, and the view stays for the next", () => {
+    expect(escapeStep({ ...idle, keys: true, view: true })).toBe("keys");
   });
 
   test("closes the panel when nothing else is open", () => {
