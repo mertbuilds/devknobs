@@ -1,5 +1,7 @@
 # devknobs
 
+this repo moved to [mertbuilds/knobs](https://github.com/mertbuilds/knobs), in `packages/devknobs`. this copy is archived. the npm package is still `devknobs`.
+
 a dev-only panel for flipping browser preferences from inside the page. one
 script tag and the knobs are there. no css to add, no code to change. zero
 runtime dependencies.
