@@ -1,6 +1,6 @@
 # changelog
 
-## unreleased
+## 0.2.0
 
 ### requests
 
@@ -32,6 +32,7 @@
 - the panel's width is yours to set: drag its edge on the page's side, or focus the edge and press the arrows. a double click puts it back, and the width is kept
 - grab, replay animations and requests have rows as the knobs do. run one from the search, the add knob list, the footer or its row and its row stays in the list, to drag where you want it. its row runs it, shows its key and whether a mode is on, and its x takes it off and turns the mode off. a key alone lists a mode only while it is on
 - the head of the settings is the head every view has, and keeps the grip's column empty as a row with no grip does: its way back stands where a row's icon is, and its title where a row's name is
+
 ### iPhone Duo
 
 - the half that turns shows the page at the text size knob's size: its lines meet the other half's at the hinge. a page that sets its own root font size folds right too
@@ -48,14 +49,10 @@
 - nothing devknobs put on the page is on the half that turns, nor the browser's box for a picture it could not load
 - a rough picture of the page is kept by all it depends on: its screen, viewport and knobs, the device pixel ratio, the text size, the scroll and what the page's pictures show. one of the folded screen never stands in for the open one's
 
-### internal
+### types
 
-- the numbers of the fold's look are in one table. the package has them as they ship and no way to set them
-- the four below are in development from source only, with `DEVKNOBS_TUNE` not defined: the build defines it false and fails if any of them is in the package
-- the table is on `window` under `Symbol.for("devknobs.foldtune")`, to tune by hand on a live page. nothing is stored
-- the same hook's `info()` says what drew the half that turns the last time, WebGL2 or the layers, and why
-- the table has two switches for finding what draws a line, `shadeOn` and `blurOn`, and `grain`, the fine noise WebGL2 adds to a shade it draws
-- three more switches for finding what draws a line: `backTint` makes the black under the half that turns magenta, `frameOn` leaves out the pictures of the case, `stillOn` hides the half that stays
+- `GrabColorValue` and `MatColorValue` also take a hex of your own, `` `#${string}` ``, so a `switch` over them that covers every swatch needs a case for the rest
+- `PanelValue`, and with it `DevknobsState`, has `docked`, true while the panel is pinned
 
 ### fixes
 
